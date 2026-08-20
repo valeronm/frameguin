@@ -1,0 +1,84 @@
+# Frameguin — working notes for Claude Code
+
+Read README.md first for what the project is. This file covers how to work on
+it and the non-obvious constraints.
+
+## Layout and contracts
+
+- Two crates, two binaries: `daemon/` runs as root and links the hardware
+  libraries (`framework_lib`, `hidapi`); `app/` is the GTK4/libadwaita UI and
+  links no hardware code. The split is the security model — the root process
+  carries no GUI, the GUI process has no hardware access — and the D-Bus
+  interface `io.github.valeronm.Frameguin1` is their only bridge.
+- Capability names (`charge-limit`, `keyboard-backlight`, `fp-brightness`,
+  `fp-brightness-custom`, `haptic-touchpad`) are the wire vocabulary and are
+  currently spelled in both crates; a shared crate was judged not worth it
+  for a handful of strings. Adding a control means: one probe + get/set
+  methods in the daemon, one `Capabilities` field and one gated UI group in
+  the app.
+- Tray presets write through the GUI widgets (`set_value`, `set_selected`)
+  rather than calling the daemon directly, so each control has exactly one
+  write path (debounce, error toast, tray sync) instead of two that can
+  drift.
+
+## The probe rule
+
+`get_capabilities` in the daemon documents it: one capability per exposed
+operation, and a probe vouches for an operation only by a side-effect-free
+exercise of that operation's own code path, or by curated knowledge — not by
+an adjacent, easier check. The reason is concrete: the touchscreen's version
+read succeeds on hardware whose enable command does not, so a version-based
+probe would have offered a control that silently does nothing. Where no
+harmless same-path probe exists (write-only controls), the support condition
+is hardcoded with a comment explaining why.
+
+## Hardware facts that shape the code
+
+- Keyboard backlight: read via `EcRequestPwmGetKeyboardBacklight` because
+  `framework_lib::get_keyboard_backlight()` goes through PWM duty and floors
+  twice (5% reads as 4%). The EC is also a second writer (Fn+Space, a
+  firmware auto mode on newer boards), which is why the slider polls the EC
+  while mapped.
+- Charge limit: the EC persists it in BBRAM, but UEFI setup re-sends its own
+  stored value at every POST, so an app-set limit lasts until reboot and the
+  standing value lives in BIOS setup.
+- Fingerprint LED: 1–100 (0 rejected — it doubles as the power indicator).
+  Percentage and the ultra-low/auto levels need command v1, which older EC
+  firmware lacks (framework-system issue #211), so they sit behind the
+  `fp-brightness-custom` capability probed with `cmd_version_supported`.
+- Haptic touchpad: write-only (firmware ACKs GET_FEATURE with zeros) and
+  persists in its own flash across suspend and reboot. The daemon mirrors
+  state to `/var/lib/frameguin/state` so it can report what it set; nothing
+  is re-applied because the hardware keeps its own state.
+- `CrosEc::new()` panics when `framework_lib` finds no driver (aarch64, no
+  `/dev/cros_ec`), so the daemon constructs it only behind the DMI vendor
+  check and holds it as `Option`, answering with empty capabilities
+  elsewhere.
+
+## Build, run, verify
+
+- `cargo build --release`, then `sudo ./install.sh` installs system-wide
+  (it kills and restarts a running app). Install and uninstall change system
+  files and need sudo, so the user runs them.
+- Both crates build warning-free, including under `cargo clippy --workspace`.
+- Smoke test: run `target/debug/frameguin`. The app is single-instance, so a
+  second launch only activates the resident one — kill it first to exercise
+  a fresh build.
+- Daemon logs: `sudo journalctl -u frameguin-daemon.service`. Direct calls:
+  `busctl call io.github.valeronm.Frameguin /io/github/valeronm/Frameguin
+  io.github.valeronm.Frameguin1 GetCapabilities`.
+- Non-Framework hardware is a test case in its own right: expected behavior
+  is "No Framework hardware detected" in the header, no controls, fast, no
+  error toast. Both real regressions so far (port-I/O probe stalls, the
+  aarch64 panic) showed up only there.
+
+## Conventions
+
+- Comments explain why, not what, and carry no references to sessions,
+  dates, or private context — the repo is public and must read standalone.
+- History is public, so it moves by normal commits; pushed commits are not
+  amended.
+- "Framework" is Framework Computer Inc.'s trademark. The project name avoids
+  using it as a product name, the README carries a non-affiliation
+  disclaimer, and "Framework" appears only descriptively ("for Framework
+  laptops").
