@@ -55,7 +55,11 @@ Cargo workspace with two crates:
 - `app/` (`frameguin`) — gtk4-rs + libadwaita GUI talking to the
   daemon over zbus.
 - `data/` — D-Bus system bus policy + activation file, systemd unit, polkit
-  policy, desktop entries (app grid + autostart), icons.
+  policy, desktop entry, AppStream metainfo, icons. `*.in` files carry the
+  daemon's absolute path and are rendered per prefix by
+  `packaging/render-data.sh`.
+- `packaging/` — the `.deb` build (`build-deb.sh`, maintainer scripts,
+  Debian changelog); cargo-deb metadata lives in `app/Cargo.toml`.
 
 ## Security model
 
@@ -94,20 +98,39 @@ cargo build --release
 sudo ./install.sh   # idempotent; re-run after rebuilds (restarts a running app)
 ```
 
-Autostart (tray icon only at login, via GIO's `--gapplication-service`) is
-per user: toggle **Start at login** in the app, which writes/removes
-`~/.config/autostart/io.github.valeronm.Frameguin.desktop` — or install
-the entry by hand:
+This installs under `/usr/local`, the FHS slot for software outside the
+package manager. `PREFIX` moves the two binaries; polkit, D-Bus and the icon
+theme only read from fixed system directories, so those files stay put.
+
+### Building a .deb
+
+Packaged with [cargo-deb](https://github.com/kornelski/cargo-deb), pinned in
+`mise.toml` alongside the toolchain, so `mise install` provides it. Cargo has
+no manifest field for build-time tools; without mise, `cargo install
+cargo-deb`.
 
 ```sh
-install -Dm644 data/io.github.valeronm.Frameguin.autostart.desktop \
-    ~/.config/autostart/io.github.valeronm.Frameguin.desktop
+./packaging/build-deb.sh
+sudo apt install ./target/debian/frameguin_*.deb
 ```
+
+The package installs under `/usr` and pulls in the GTK and polkit runtime
+libraries itself, so it needs neither a Rust toolchain nor the `-dev`
+packages on the target machine. Don't mix the two: `install.sh` and the
+package would write competing copies, and dpkg only tracks its own.
+
+Autostart (tray icon only at login, via GIO's `--gapplication-service`) is
+per user: toggle **Start at login** in the app, which writes/removes
+`~/.config/autostart/io.github.valeronm.Frameguin.desktop`. It names the
+binary rather than a path, so it survives a move between install prefixes and
+goes inert (via `TryExec`) if Frameguin is uninstalled — no uninstaller can
+remove a file from another user's home directory.
 
 ## Uninstall
 
 ```sh
-sudo ./install.sh --uninstall
+sudo ./install.sh --uninstall                      # source install
+sudo apt purge frameguin                           # package install
 rm -f ~/.config/autostart/io.github.valeronm.Frameguin.desktop
 ```
 

@@ -1,10 +1,11 @@
 [Unit]
 Description=Frameguin privileged helper daemon
+Documentation=https://github.com/valeronm/frameguin
 
 [Service]
 Type=dbus
 BusName=io.github.valeronm.Frameguin
-ExecStart=/usr/local/libexec/frameguin-daemon
+ExecStart=@LIBEXECDIR@/frameguin-daemon
 # The daemon exits after 5 minutes idle; D-Bus activation restarts it on demand.
 Restart=no
 ProtectHome=yes

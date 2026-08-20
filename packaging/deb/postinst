@@ -1,0 +1,9 @@
+#!/bin/sh
+set -e
+
+# The icon theme, desktop database and bus config all refresh through dpkg
+# triggers owned by packages this one already depends on. systemd registers no
+# trigger for its unit directories, so that reload is ours to do.
+if [ "$1" = "configure" ]; then
+    systemctl daemon-reload >/dev/null 2>&1 || true
+fi

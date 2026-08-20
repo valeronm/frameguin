@@ -11,24 +11,36 @@ fi
 
 src="$(cd "$(dirname "$0")" && pwd)"
 app_id="io.github.valeronm.Frameguin"
+# /usr/local is the FHS slot for software installed outside the package
+# manager. Only the binaries follow the prefix: polkit, D-Bus and the icon
+# theme read from fixed system directories regardless of where this installs.
+prefix="${PREFIX:-/usr/local}"
 
-# mode:source(relative to repo):destination — the single list both modes use.
+# Staged outside the build tree so a sudo run leaves no root-owned files in it.
+staging="$(mktemp -d)"
+trap 'rm -rf "$staging"' EXIT
+data="$staging/data"
+
+# mode:source:destination — the single list both modes use.
 files=(
-    "755:target/release/frameguin-daemon:/usr/local/libexec/frameguin-daemon"
-    "755:target/release/frameguin:/usr/local/bin/frameguin"
-    "644:data/$app_id.conf:/etc/dbus-1/system.d/$app_id.conf"
-    "644:data/$app_id.service:/usr/share/dbus-1/system-services/$app_id.service"
-    "644:data/frameguin-daemon.service:/etc/systemd/system/frameguin-daemon.service"
-    "644:data/$app_id.policy:/usr/share/polkit-1/actions/$app_id.policy"
-    "644:data/$app_id.desktop:/usr/share/applications/$app_id.desktop"
-    "644:data/icons/$app_id.svg:/usr/share/icons/hicolor/scalable/apps/$app_id.svg"
-    "644:data/icons/$app_id-symbolic.svg:/usr/share/icons/hicolor/symbolic/apps/$app_id-symbolic.svg"
+    "755:$src/target/release/frameguin-daemon:$prefix/libexec/frameguin-daemon"
+    "755:$src/target/release/frameguin:$prefix/bin/frameguin"
+    "644:$data/$app_id.conf:/etc/dbus-1/system.d/$app_id.conf"
+    "644:$data/$app_id.service:/usr/share/dbus-1/system-services/$app_id.service"
+    # /etc, not /usr/lib: this is a local-admin install, and a packaged one
+    # must not find a competing unit shadowing its own.
+    "644:$data/frameguin-daemon.service:/etc/systemd/system/frameguin-daemon.service"
+    "644:$data/$app_id.policy:/usr/share/polkit-1/actions/$app_id.policy"
+    "644:$data/$app_id.desktop:/usr/share/applications/$app_id.desktop"
+    "644:$data/$app_id.metainfo.xml:/usr/share/metainfo/$app_id.metainfo.xml"
+    "644:$data/icons/$app_id.svg:/usr/share/icons/hicolor/scalable/apps/$app_id.svg"
+    "644:$data/icons/$app_id-symbolic.svg:/usr/share/icons/hicolor/symbolic/apps/$app_id-symbolic.svg"
 )
 
 if [ "${1:-}" = "--uninstall" ]; then
     # Stop running instances first: the resident tray app would otherwise
     # linger as a broken ghost after its binary and daemon are removed.
-    pkill -f "^/usr/local/bin/frameguin" 2>/dev/null || true
+    pkill -f "^$prefix/bin/frameguin" 2>/dev/null || true
     systemctl stop frameguin-daemon.service 2>/dev/null || true
     for entry in "${files[@]}"; do
         rm -f "${entry##*:}"
@@ -57,14 +69,16 @@ fi
 # remember whether the invoking user had one — only that user's instance can
 # be restarted (a GUI is launched inside its owner's session).
 app_was_running=""
-if [ -n "${SUDO_USER:-}" ] && pgrep -u "$SUDO_USER" -f "^/usr/local/bin/frameguin" >/dev/null 2>&1; then
+if [ -n "${SUDO_USER:-}" ] && pgrep -u "$SUDO_USER" -f "^$prefix/bin/frameguin" >/dev/null 2>&1; then
     app_was_running=1
 fi
-pkill -f "^/usr/local/bin/frameguin" 2>/dev/null || true
+pkill -f "^$prefix/bin/frameguin" 2>/dev/null || true
+
+"$src/packaging/render-data.sh" "$prefix/libexec" "$data"
 
 for entry in "${files[@]}"; do
-    IFS=: read -r mode rel dest <<<"$entry"
-    install -Dm"$mode" "$src/$rel" "$dest"
+    IFS=: read -r mode source dest <<<"$entry"
+    install -Dm"$mode" "$source" "$dest"
 done
 gtk-update-icon-cache -f /usr/share/icons/hicolor 2>/dev/null || true
 
@@ -76,7 +90,7 @@ systemctl stop frameguin-daemon.service 2>/dev/null || true
 
 if [ -n "$app_was_running" ] && [ -n "${SUDO_USER:-}" ]; then
     if systemd-run --machine="$SUDO_USER@.host" --user --collect \
-        /usr/local/bin/frameguin --gapplication-service >/dev/null 2>&1; then
+        "$prefix/bin/frameguin" --gapplication-service >/dev/null 2>&1; then
         echo "installed and restarted (tray)."
         exit 0
     fi

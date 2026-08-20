@@ -1,8 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=Frameguin
-Comment=Framework laptop controls in the tray
-Exec=/usr/local/bin/frameguin --gapplication-service
-Icon=io.github.valeronm.Frameguin
-Terminal=false
-NoDisplay=true

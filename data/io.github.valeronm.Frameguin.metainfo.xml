@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.valeronm.Frameguin</id>
+  <metadata_license>MIT</metadata_license>
+  <project_license>MIT</project_license>
+
+  <name>Frameguin</name>
+  <summary>Hardware controls for Framework laptops</summary>
+
+  <description>
+    <p>
+      Frameguin exposes the Framework laptop hardware controls that the kernel
+      does not: the battery charge limit, keyboard backlight, fingerprint
+      reader LED brightness, and haptic touchpad feedback. Every control is
+      also reachable from a tray icon, so the common adjustments need no
+      window.
+    </p>
+    <p>
+      Controls appear only for the hardware the board reports, so a machine
+      shows exactly what it can actually change. Changing a setting is
+      authorized through polkit; on non-Framework hardware the app opens and
+      reports that it found none.
+    </p>
+    <p>
+      This is a community project, not affiliated with or endorsed by Framework
+      Computer Inc. "Framework" and the gear logo are trademarks of Framework
+      Computer Inc.
+    </p>
+  </description>
+
+  <launchable type="desktop-id">io.github.valeronm.Frameguin.desktop</launchable>
+
+  <screenshots>
+    <screenshot type="default">
+      <image>https://raw.githubusercontent.com/valeronm/frameguin/main/screenshot.png</image>
+      <caption>Battery, keyboard, fingerprint, and touchpad controls</caption>
+    </screenshot>
+  </screenshots>
+
+  <url type="homepage">https://github.com/valeronm/frameguin</url>
+  <url type="bugtracker">https://github.com/valeronm/frameguin/issues</url>
+
+  <developer id="io.github.valeronm">
+    <name>Valerii Myronov</name>
+  </developer>
+
+  <content_rating type="oars-1.1"/>
+
+  <releases>
+    <release version="0.1.0" date="2026-08-20"/>
+  </releases>
+</component>

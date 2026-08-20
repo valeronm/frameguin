@@ -2,7 +2,8 @@
 Type=Application
 Name=Frameguin
 Comment=Hardware controls for Framework laptops
-Exec=/usr/local/bin/frameguin
+Exec=frameguin
 Icon=io.github.valeronm.Frameguin
 Categories=Settings;HardwareSettings;
+Keywords=Framework;battery;charge;backlight;keyboard;fingerprint;touchpad;haptic;laptop;
 Terminal=false
