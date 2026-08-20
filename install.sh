@@ -21,29 +21,30 @@ staging="$(mktemp -d)"
 trap 'rm -rf "$staging"' EXIT
 data="$staging/data"
 
-# mode:source:destination — the single list both modes use.
+# mode, source, destination triples — the single list both modes use. Kept as
+# separate elements rather than delimited strings so a path is never parsed.
 files=(
-    "755:$src/target/release/frameguin-daemon:$prefix/libexec/frameguin-daemon"
-    "755:$src/target/release/frameguin:$prefix/bin/frameguin"
-    "644:$data/$app_id.conf:/etc/dbus-1/system.d/$app_id.conf"
-    "644:$data/$app_id.service:/usr/share/dbus-1/system-services/$app_id.service"
+    755 "$src/target/release/frameguin-daemon" "$prefix/libexec/frameguin-daemon"
+    755 "$src/target/release/frameguin"        "$prefix/bin/frameguin"
+    644 "$data/$app_id.conf"                   "/etc/dbus-1/system.d/$app_id.conf"
+    644 "$data/$app_id.service"                "/usr/share/dbus-1/system-services/$app_id.service"
     # /etc, not /usr/lib: this is a local-admin install, and a packaged one
     # must not find a competing unit shadowing its own.
-    "644:$data/frameguin-daemon.service:/etc/systemd/system/frameguin-daemon.service"
-    "644:$data/$app_id.policy:/usr/share/polkit-1/actions/$app_id.policy"
-    "644:$data/$app_id.desktop:/usr/share/applications/$app_id.desktop"
-    "644:$data/$app_id.metainfo.xml:/usr/share/metainfo/$app_id.metainfo.xml"
-    "644:$data/icons/$app_id.svg:/usr/share/icons/hicolor/scalable/apps/$app_id.svg"
-    "644:$data/icons/$app_id-symbolic.svg:/usr/share/icons/hicolor/symbolic/apps/$app_id-symbolic.svg"
+    644 "$data/frameguin-daemon.service"       "/etc/systemd/system/frameguin-daemon.service"
+    644 "$data/$app_id.policy"                 "/usr/share/polkit-1/actions/$app_id.policy"
+    644 "$data/$app_id.desktop"                "/usr/share/applications/$app_id.desktop"
+    644 "$data/$app_id.metainfo.xml"           "/usr/share/metainfo/$app_id.metainfo.xml"
+    644 "$data/icons/$app_id.svg"              "/usr/share/icons/hicolor/scalable/apps/$app_id.svg"
+    644 "$data/icons/$app_id-symbolic.svg"     "/usr/share/icons/hicolor/symbolic/apps/$app_id-symbolic.svg"
 )
 
 if [ "${1:-}" = "--uninstall" ]; then
     # Stop running instances first: the resident tray app would otherwise
     # linger as a broken ghost after its binary and daemon are removed.
-    pkill -f "^$prefix/bin/frameguin" 2>/dev/null || true
+    pkill -x frameguin 2>/dev/null || true
     systemctl stop frameguin-daemon.service 2>/dev/null || true
-    for entry in "${files[@]}"; do
-        rm -f "${entry##*:}"
+    for ((i = 0; i < ${#files[@]}; i += 3)); do
+        rm -f "${files[i + 2]}"
     done
     rm -rf /var/lib/frameguin
     systemctl daemon-reload
@@ -68,17 +69,18 @@ fi
 # Stop running app instances so the update takes effect immediately, and
 # remember whether the invoking user had one — only that user's instance can
 # be restarted (a GUI is launched inside its owner's session).
+# Matched by process name: the desktop entries launch by name, so the command
+# line carries whichever path the launcher resolved, if any.
 app_was_running=""
-if [ -n "${SUDO_USER:-}" ] && pgrep -u "$SUDO_USER" -f "^$prefix/bin/frameguin" >/dev/null 2>&1; then
+if [ -n "${SUDO_USER:-}" ] && pgrep -x -u "$SUDO_USER" frameguin >/dev/null 2>&1; then
     app_was_running=1
 fi
-pkill -f "^$prefix/bin/frameguin" 2>/dev/null || true
+pkill -x frameguin 2>/dev/null || true
 
 "$src/packaging/render-data.sh" "$prefix/libexec" "$data"
 
-for entry in "${files[@]}"; do
-    IFS=: read -r mode source dest <<<"$entry"
-    install -Dm"$mode" "$source" "$dest"
+for ((i = 0; i < ${#files[@]}; i += 3)); do
+    install -Dm"${files[i]}" "${files[i + 1]}" "${files[i + 2]}"
 done
 gtk-update-icon-cache -f /usr/share/icons/hicolor 2>/dev/null || true
 

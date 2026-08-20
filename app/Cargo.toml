@@ -51,7 +51,8 @@ assets = [
     # slot, which install.sh uses because a /usr/local install has no other.
     ["target/release/data/io.github.valeronm.Frameguin.conf", "usr/share/dbus-1/system.d/", "644"],
     ["target/release/data/io.github.valeronm.Frameguin.service", "usr/share/dbus-1/system-services/", "644"],
-    ["target/release/data/frameguin-daemon.service", "usr/lib/systemd/system/", "644"],
+    # The systemd unit is absent by design — the systemd-units stanza below
+    # installs it, and listing it here too would declare it twice.
     ["target/release/data/io.github.valeronm.Frameguin.policy", "usr/share/polkit-1/actions/", "644"],
     ["target/release/data/io.github.valeronm.Frameguin.desktop", "usr/share/applications/", "644"],
     ["target/release/data/io.github.valeronm.Frameguin.metainfo.xml", "usr/share/metainfo/", "644"],
@@ -59,3 +60,16 @@ assets = [
     ["target/release/data/icons/io.github.valeronm.Frameguin-symbolic.svg", "usr/share/icons/hicolor/symbolic/apps/", "644"],
     ["../README.md", "usr/share/doc/frameguin/README.md", "644"],
 ]
+
+# Installs the unit and generates the systemd maintainer-script snippets, so a
+# chroot or container install behaves like every other package. Not enabled or
+# started: D-Bus activation runs the daemon, and the unit has no [Install].
+# systemd is the only refresh needing this — the icon theme, desktop database
+# and bus config all have dpkg triggers owned by packages depended on above.
+# unit-scripts is manifest-relative and gets none of the target-dir remapping
+# the assets list relies on, hence the leading `../`.
+[package.metadata.deb.systemd-units]
+unit-scripts = "../target/release/data"
+unit-name = "frameguin-daemon"
+enable = false
+start = false

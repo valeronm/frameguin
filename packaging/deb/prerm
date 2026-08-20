@@ -3,7 +3,10 @@ set -e
 
 if [ "$1" = "remove" ] || [ "$1" = "upgrade" ]; then
     # The resident tray app would linger as a broken ghost after its binary
-    # and daemon are removed.
-    pkill -f '^/usr/bin/frameguin' >/dev/null 2>&1 || true
-    systemctl stop frameguin-daemon.service >/dev/null 2>&1 || true
+    # and daemon are removed. Matched by process name: the desktop entries
+    # launch by name, so the command line carries whichever path the launcher
+    # resolved, if any.
+    pkill -x frameguin >/dev/null 2>&1 || true
 fi
+
+#DEBHELPER#

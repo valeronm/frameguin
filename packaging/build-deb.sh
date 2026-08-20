@@ -32,12 +32,19 @@ fi
 
 deb="$(cargo deb -p frameguin --no-build)"
 
-# Read back from the rendered unit rather than restating /usr/libexec: that
-# catches a substitution that silently failed as well as an assets list that
-# drifted from the prefix. Either way the package activates nothing.
+# Two mechanisms put the daemon in the package — the assets list for the
+# binary, a name-keyed directory scan for the unit — and each fails quietly:
+# a bad substitution leaves ExecStart pointing nowhere, and a unit the scan
+# misses is only a warning. Either way the package installs but activates
+# nothing, so assert both against what actually shipped.
 unit_exec="$(sed -n 's/^ExecStart=//p' target/release/data/frameguin-daemon.service)"
-if ! grep -q " \.$unit_exec\$" <<<"$(dpkg-deb -c "$deb")"; then
-    echo "ExecStart=$unit_exec is not in the package — assets and prefix disagree" >&2
+contents="$(dpkg-deb -c "$deb")"
+if ! grep -q " \.$unit_exec\$" <<<"$contents"; then
+    echo "ExecStart=$unit_exec is not in the package" >&2
+    exit 1
+fi
+if ! grep -q " \./usr/lib/systemd/system/frameguin-daemon\.service\$" <<<"$contents"; then
+    echo "the systemd unit is not in the package — unit-scripts found nothing" >&2
     exit 1
 fi
 

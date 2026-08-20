@@ -1,11 +1,11 @@
 #!/bin/sh
 set -e
 
-systemctl daemon-reload >/dev/null 2>&1 || true
-
 # The daemon's StateDirectory mirrors write-only touchpad firmware settings.
 # It is only a cache of what was set, so purge may drop it; remove keeps it
 # so reinstalling still reports the values the hardware is holding.
 if [ "$1" = "purge" ]; then
     rm -rf /var/lib/frameguin
 fi
+
+#DEBHELPER#
