@@ -1,0 +1,5 @@
+[D-BUS Service]
+Name=io.github.valeronm.Frameguin
+Exec=/usr/local/libexec/frameguin-daemon
+User=root
+SystemdService=frameguin-daemon.service

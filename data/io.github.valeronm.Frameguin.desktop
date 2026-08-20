@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Frameguin
+Comment=Hardware controls for Framework laptops
+Exec=/usr/local/bin/frameguin
+Icon=io.github.valeronm.Frameguin
+Categories=Settings;HardwareSettings;
+Terminal=false

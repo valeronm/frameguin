@@ -1,0 +1,10 @@
+[workspace]
+members = ["daemon", "app"]
+resolver = "2"
+
+[workspace.dependencies]
+zbus = "5.19.0"
+
+[profile.release]
+lto = true
+strip = true
