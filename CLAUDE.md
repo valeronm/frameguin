@@ -20,6 +20,17 @@ it and the non-obvious constraints.
   rather than calling the daemon directly, so each control has exactly one
   write path (debounce, error toast, tray sync) instead of two that can
   drift.
+- D-Bus types name the value, not either end's convenience: a percentage is
+  `y` (`u8`), never GTK's f64. The daemon validates every argument because
+  any client can call it — an app-side clamp is UI convenience, not the check.
+- In the daemon's `#[interface]` impl the signature carries meaning: `async`
+  means the method awaits polkit, `fdo::Result` that it can fail — neither
+  implies it touches the EC (`get_capabilities` does, and is neither). zbus
+  boxes sync and async alike, so never reach for `async` to get concurrency.
+- The daemon's connection runs on one executor thread and the EC calls block
+  rather than await, so a slow EC read stalls every other task on that
+  connection — the cold `get_capabilities` probe most of all. The fix is to
+  move the call off the executor onto a blocking pool, not more `async`.
 
 ## The probe rule
 
@@ -60,7 +71,8 @@ is hardcoded with a comment explaining why.
 - `cargo build --release`, then `sudo ./install.sh` installs system-wide
   (it kills and restarts a running app). Install and uninstall change system
   files and need sudo, so the user runs them.
-- Both crates build warning-free, including under `cargo clippy --workspace`.
+- `clippy::pedantic` is on workspace-wide and CI gates on `-D warnings`, so
+  both crates build warning-free. CI lints only the binaries, not test code.
 - Smoke test: run `target/debug/frameguin`. The app is single-instance, so a
   second launch only activates the resident one — kill it first to exercise
   a fresh build.
@@ -76,6 +88,10 @@ is hardcoded with a comment explaining why.
 
 - Comments explain why, not what, and carry no references to sessions,
   dates, or private context — the repo is public and must read standalone.
+- Clippy suppressions live at the site with a `reason`, never in a manifest:
+  a manifest allow is invisible where the code is read and blankets the whole
+  workspace. `#[expect]` when the suppression is situational, so a stale one
+  fails the build; `#[allow]` only when it is permanent by design.
 - History is public, so it moves by normal commits; pushed commits are not
   amended.
 - "Framework" is Framework Computer Inc.'s trademark. The project name avoids

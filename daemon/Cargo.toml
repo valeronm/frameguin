@@ -4,6 +4,9 @@ version.workspace = true
 edition = "2024"
 license = "MIT"
 
+[lints]
+workspace = true
+
 [dependencies]
 framework_lib = { version = "0.6.5", default-features = false, features = ["hidapi"] }
 hidapi = "2"

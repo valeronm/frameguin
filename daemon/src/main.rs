@@ -1,7 +1,7 @@
 //! System D-Bus daemon exposing privileged Framework laptop controls.
 //!
 //! Owns io.github.valeronm.Frameguin on the system bus and talks to the
-//! embedded controller directly via framework_lib. Setters require the polkit
+//! embedded controller directly via `framework_lib`. Setters require the polkit
 //! action io.github.valeronm.frameguin.manage. Exits after 5 idle
 //! minutes; D-Bus activation restarts it on demand.
 
@@ -23,19 +23,19 @@ use zbus_polkit::policykit1::{AuthorityProxy, CheckAuthorizationFlags, Subject};
 const BUS_NAME: &str = "io.github.valeronm.Frameguin";
 const OBJECT_PATH: &str = "/io/github/valeronm/Frameguin";
 const POLKIT_ACTION: &str = "io.github.valeronm.frameguin.manage";
-const IDLE_EXIT: Duration = Duration::from_secs(300);
+const IDLE_EXIT: Duration = Duration::from_mins(5);
 
 struct Daemon {
-    /// None on non-Framework hardware: CrosEc::new() panics outright when
-    /// framework_lib finds no driver (empty driver list on e.g. aarch64
-    /// without /dev/cros_ec), so it must not be constructed there.
+    /// None on non-Framework hardware: `CrosEc::new()` panics outright when
+    /// `framework_lib` finds no driver (empty driver list on e.g. aarch64
+    /// without `/dev/cros_ec`), so it must not be constructed there.
     ec: Option<Mutex<CrosEc>>,
     authority: AuthorityProxy<'static>,
     last_used: Arc<Mutex<Instant>>,
     /// Probed once per daemon lifetime; the EC feature set can't change
     /// while running.
     capabilities: OnceLock<Vec<String>>,
-    /// Haptic touchpad controls are write-only (firmware ACKs GET_FEATURE
+    /// Haptic touchpad controls are write-only (firmware ACKs `GET_FEATURE`
     /// but returns zeros — verified on hardware), and the touchpad persists
     /// them in its own flash across suspend and reboot. So the daemon
     /// mirrors every write to a state file and reloads it at startup —
@@ -48,7 +48,7 @@ const DEFAULT_HAPTIC_INTENSITY: u8 = 75;
 const DEFAULT_CLICK_FORCE: u8 = ClickForce::Medium as u8;
 const STATE_FILE: &str = "/var/lib/frameguin/state";
 
-/// Loads (haptic_intensity, click_force), falling back to the factory
+/// Loads (`haptic_intensity`, `click_force`), falling back to the factory
 /// defaults. A missing file on a machine whose touchpad was already changed
 /// by other means will misreport until the first write — unavoidable, since
 /// the hardware can't be read.
@@ -107,15 +107,14 @@ fn click_force_name(code: u8) -> &'static str {
     CLICK_FORCES
         .iter()
         .find(|(_, force)| *force as u8 == code)
-        .map(|(name, _)| *name)
-        .unwrap_or("medium")
+        .map_or("medium", |(name, _)| *name)
 }
 
 fn click_force_valid(code: u8) -> bool {
     CLICK_FORCES.iter().any(|(_, force)| *force as u8 == code)
 }
 
-/// Known haptic touchpad models (PixArt PIDs). A curated device list, per
+/// Known haptic touchpad models (`PixArt` PIDs). A curated device list, per
 /// the probe rule: the haptic setters have no side-effect-free probe
 /// (they're write-only, and every PTP touchpad accepts the open — only
 /// haptic ones act on the reports). Keying on the touchpad's own HID
@@ -135,7 +134,7 @@ fn fp_level_from_name(name: &str) -> Option<FpLedBrightnessLevel> {
     })
 }
 
-fn fp_level_name(level: Option<FpLedBrightnessLevel>) -> &'static str {
+fn fp_level_name(level: Option<&FpLedBrightnessLevel>) -> &'static str {
     match level {
         Some(FpLedBrightnessLevel::High) => "high",
         Some(FpLedBrightnessLevel::Medium) => "medium",
@@ -146,9 +145,9 @@ fn fp_level_name(level: Option<FpLedBrightnessLevel>) -> &'static str {
     }
 }
 
-/// Without /dev/cros_ec, framework_lib falls back to raw port I/O; on a
+/// Without `/dev/cros_ec`, `framework_lib` falls back to raw port I/O; on a
 /// non-Framework EC every command spin-waits to a timeout, stalling the
-/// first GetCapabilities for tens of seconds. Don't touch the EC unless the
+/// first `GetCapabilities` for tens of seconds. Don't touch the EC unless the
 /// firmware says this is Framework hardware.
 fn is_framework_hardware() -> bool {
     std::fs::read_to_string("/sys/class/dmi/id/sys_vendor")
@@ -157,16 +156,15 @@ fn is_framework_hardware() -> bool {
 
 fn haptic_touchpad_present() -> bool {
     hidapi::HidApi::new()
-        .map(|api| {
+        .is_ok_and(|api| {
             api.device_list().any(|dev| {
                 dev.vendor_id() == touchpad::PIX_VID
                     && HAPTIC_TOUCHPAD_PIDS.contains(&dev.product_id())
             })
         })
-        .unwrap_or(false)
 }
 
-/// framework_lib's get_keyboard_backlight() reads via PWM_GET_DUTY, and the
+/// `framework_lib`'s `get_keyboard_backlight()` reads via `PWM_GET_DUTY`, and the
 /// percent survives two floor divisions (percent→duty in the EC, then
 /// duty→percent in the lib), coming back one low for most values — 5% reads
 /// as 4%. This EC command returns the exact stored percent instead.
@@ -196,6 +194,9 @@ impl Daemon {
             .ok_or_else(|| fdo::Error::NotSupported("no Framework EC on this hardware".into()))
     }
 
+    /// Call only once the arguments have been validated: this can raise a
+    /// password prompt, and a caller that authorizes first makes the user
+    /// answer one for a request that can only end in `InvalidArgs`.
     async fn authorize(&self, header: &Header<'_>) -> fdo::Result<()> {
         let subject = Subject::new_for_message_header(header).map_err(internal_err)?;
         let result = self
@@ -228,7 +229,7 @@ impl Daemon {
     /// probing something adjacent. The get-side probes below stand in for
     /// their setters only because those EC command pairs ship together in
     /// every firmware.
-    async fn get_capabilities(&self) -> fdo::Result<Vec<String>> {
+    fn get_capabilities(&self) -> Vec<String> {
         self.touch();
         let caps = self.capabilities.get_or_init(|| {
             let mut caps = Vec::new();
@@ -264,18 +265,18 @@ impl Daemon {
             }
             caps
         });
-        Ok(caps.clone())
+        caps.clone()
     }
 
-    async fn get_charge_limit(&self) -> fdo::Result<i32> {
+    fn get_charge_limit(&self) -> fdo::Result<u8> {
         self.touch();
         let (_min, max) = self.ec_guard()?.get_charge_limit().map_err(ec_err)?;
-        Ok(max as i32)
+        Ok(max)
     }
 
     async fn set_charge_limit(
         &self,
-        percent: i32,
+        percent: u8,
         #[zbus(header)] header: Header<'_>,
     ) -> fdo::Result<()> {
         self.touch();
@@ -284,11 +285,11 @@ impl Daemon {
         }
         self.authorize(&header).await?;
         self.ec_guard()?
-            .set_charge_limit(0, percent as u8)
+            .set_charge_limit(0, percent)
             .map_err(ec_err)
     }
 
-    async fn get_ec_version(&self) -> fdo::Result<String> {
+    fn get_ec_version(&self) -> fdo::Result<String> {
         self.touch();
         self.ec_guard()?.version_info().map_err(ec_err)
     }
@@ -297,21 +298,22 @@ impl Daemon {
     /// diagnostic: two install trees can hold the same version, and which
     /// daemon runs is decided by the D-Bus activation file rather than by
     /// PATH. Answers without touching the EC, so it works on any hardware.
-    async fn get_build(&self) -> fdo::Result<(String, String)> {
+    fn get_build(&self) -> (String, String) {
         self.touch();
-        let exe = std::fs::read_link("/proc/self/exe")
-            .map(|p| p.display().to_string())
-            .unwrap_or_else(|_| "unknown".into());
-        Ok((env!("CARGO_PKG_VERSION").to_string(), exe))
+        let exe = std::fs::read_link("/proc/self/exe").unwrap_or_else(|_| "unknown".into());
+        (
+            env!("CARGO_PKG_VERSION").to_string(),
+            exe.display().to_string(),
+        )
     }
 
     /// Returns the brightness percentage and the level preset it came from:
     /// "high", "medium", "low", "ultra-low", "auto", or "custom" (the EC
     /// reports custom after any raw percentage write; it can't be set).
-    async fn get_fingerprint_brightness(&self) -> fdo::Result<(i32, String)> {
+    fn get_fingerprint_brightness(&self) -> fdo::Result<(u8, String)> {
         self.touch();
         let (percent, level) = self.ec_guard()?.get_fp_led_level().map_err(ec_err)?;
-        Ok((percent as i32, fp_level_name(level).to_string()))
+        Ok((percent, fp_level_name(level.as_ref()).to_string()))
     }
 
     async fn set_fingerprint_level(
@@ -331,7 +333,7 @@ impl Daemon {
 
     async fn set_fingerprint_brightness(
         &self,
-        percent: i32,
+        percent: u8,
         #[zbus(header)] header: Header<'_>,
     ) -> fdo::Result<()> {
         self.touch();
@@ -342,36 +344,36 @@ impl Daemon {
         }
         self.authorize(&header).await?;
         self.ec_guard()?
-            .set_fp_led_percentage(percent as u8)
+            .set_fp_led_percentage(percent)
             .map_err(ec_err)
     }
 
-    async fn get_haptic_intensity(&self) -> fdo::Result<i32> {
+    fn get_haptic_intensity(&self) -> u8 {
         self.touch();
-        Ok(self.haptic_intensity.load(Ordering::Relaxed) as i32)
+        self.haptic_intensity.load(Ordering::Relaxed)
     }
 
     async fn set_haptic_intensity(
         &self,
-        percent: i32,
+        percent: u8,
         #[zbus(header)] header: Header<'_>,
     ) -> fdo::Result<()> {
         self.touch();
-        if !u8::try_from(percent).is_ok_and(|p| HAPTIC_INTENSITY_LEVELS.contains(&p)) {
+        if !HAPTIC_INTENSITY_LEVELS.contains(&percent) {
             return Err(fdo::Error::InvalidArgs(format!(
                 "intensity must be one of {HAPTIC_INTENSITY_LEVELS:?}"
             )));
         }
         self.authorize(&header).await?;
-        touchpad::set_haptic_intensity(percent as u8).map_err(internal_err)?;
-        self.haptic_intensity.store(percent as u8, Ordering::Relaxed);
-        save_state(percent as u8, self.click_force.load(Ordering::Relaxed));
+        touchpad::set_haptic_intensity(percent).map_err(internal_err)?;
+        self.haptic_intensity.store(percent, Ordering::Relaxed);
+        save_state(percent, self.click_force.load(Ordering::Relaxed));
         Ok(())
     }
 
-    async fn get_touchpad_click_force(&self) -> fdo::Result<String> {
+    fn get_touchpad_click_force(&self) -> String {
         self.touch();
-        Ok(click_force_name(self.click_force.load(Ordering::Relaxed)).to_string())
+        click_force_name(self.click_force.load(Ordering::Relaxed)).to_string()
     }
 
     async fn set_touchpad_click_force(
@@ -392,23 +394,22 @@ impl Daemon {
         Ok(())
     }
 
-    async fn get_keyboard_backlight(&self) -> fdo::Result<i32> {
+    fn get_keyboard_backlight(&self) -> fdo::Result<u8> {
         self.touch();
-        let percent = kbd_backlight_percent(&*self.ec_guard()?).map_err(ec_err)?;
-        Ok(percent as i32)
+        kbd_backlight_percent(&*self.ec_guard()?).map_err(ec_err)
     }
 
     async fn set_keyboard_backlight(
         &self,
-        percent: i32,
+        percent: u8,
         #[zbus(header)] header: Header<'_>,
     ) -> fdo::Result<()> {
         self.touch();
-        if !(0..=100).contains(&percent) {
+        if percent > 100 {
             return Err(fdo::Error::InvalidArgs("backlight must be 0-100".into()));
         }
         self.authorize(&header).await?;
-        self.ec_guard()?.set_keyboard_backlight(percent as u8);
+        self.ec_guard()?.set_keyboard_backlight(percent);
         Ok(())
     }
 }
@@ -437,7 +438,7 @@ fn main() -> zbus::Result<()> {
         Ok::<_, zbus::Error>(conn)
     })?;
     loop {
-        std::thread::sleep(Duration::from_secs(60));
+        std::thread::sleep(Duration::from_mins(1));
         if clock.lock().unwrap().elapsed() > IDLE_EXIT {
             return Ok(());
         }
