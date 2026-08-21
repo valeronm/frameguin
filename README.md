@@ -12,7 +12,6 @@ Computer Inc. Licensed under the [MIT License](LICENSE).
 
 <img src="screenshot.png" alt="Frameguin window showing battery, keyboard, fingerprint, and touchpad controls" width="420">
 
-
 ## What it does
 
 - **Battery charge limit** — via `framework_lib` speaking EC host commands
@@ -33,13 +32,33 @@ Computer Inc. Licensed under the [MIT License](LICENSE).
 Closing the window hides it to the tray; **Quit Frameguin** in the tray menu
 is the real exit. **Start at login** brings up the tray icon only.
 
+## Alternatives
+
+Other community projects reach the same hardware, and one of them may suit
+you better. Frameguin exists for a particular shape: the GUI holds no
+privileged access of its own, and the controls live in the tray, a menu away
+rather than an app to launch.
+
+The others are shaped differently:
+
+- **[framework_tool](https://github.com/FrameworkComputer/framework-system)** —
+  Framework's own CLI, on the `framework_lib` this app also links, run under
+  `sudo` per invocation.
+- **[YAFI](https://github.com/Steve-Tech/YAFI)** — also a GTK4/libadwaita app,
+  with the GUI reaching the EC itself rather than through a privileged
+  service.
+- **[framework-tool-tui](https://github.com/grouzen/framework-tool-tui)** — a
+  terminal dashboard over the same `framework_lib`, run entirely under `sudo`.
+- **[framework-control](https://github.com/ozturkkl/framework-control)** — a
+  background service with a browser UI.
+
 ## Requirements
 
-- **A Framework laptop.** Developed and tested on the Laptop 13 Pro (Intel
-  Core Ultra Series 3), BIOS 03.02. Other Framework boards should work, and
+- **A Framework laptop with a Framework mainboard.** `framework_lib`, which
+  every control goes through, does not speak to third-party boards built for
+  the same chassis. Developed and tested on the Laptop 13 Pro (Intel Core
+  Ultra Series 3), BIOS 03.02. Other Framework boards should work, and
   reports from them are welcome.
-- **x86_64.** The published builds are x86_64 only; other architectures have
-  to build from source.
 - **GTK 4 with libadwaita 1.4 or newer** — Ubuntu 24.04, Debian 13, Fedora 40
   or their equivalents. The `.deb` will refuse to install on anything older.
 - **A tray implementation, for the tray icon only.** The window works
@@ -103,22 +122,35 @@ restart the tray app if it was running.
 
 ## Uninstall
 
+Installed from the `.deb`:
+
 ```sh
-sudo apt purge frameguin                  # .deb — also drops /var/lib/frameguin
-sudo /usr/local/libexec/frameguin-uninstall.sh            # tarball or source
+sudo apt purge frameguin
+```
+
+`apt remove` keeps the remembered touchpad settings in `/var/lib/frameguin`;
+only `apt purge` drops them.
+
+Installed from the tarball or from source:
+
+```sh
+sudo /usr/local/libexec/frameguin-uninstall.sh
+```
+
+That path follows the install prefix: `install.sh` puts a copy of itself
+there, so a `curl … | sh` install can be removed without re-downloading
+anything and a `PREFIX` install undoes itself. It also removes that state
+directory.
+
+Then, either way:
+
+```sh
 rm -f ~/.config/autostart/io.github.valeronm.Frameguin.desktop
 ```
 
-`install.sh` installs a copy of itself at that path, so a `curl … | sh`
-install can be removed without re-downloading anything; it takes the prefix
-from its own location, so a `PREFIX` install undoes itself. It also removes
-`/var/lib/frameguin`, where `apt remove` keeps that state and only
-`apt purge` drops it — the difference between keeping and losing the
-remembered touchpad settings.
-
-Autostart entries are per user and no uninstaller can reach another user's
-home directory — hence the third line. A leftover entry is inert either way:
-it carries `TryExec`, so a session skips it once the binary is gone.
+**Start at login** writes that entry per user, and no uninstaller can reach
+another user's home directory. A leftover entry is harmless: it carries
+`TryExec`, so a session skips it once the binary is gone.
 
 ## Troubleshooting
 
@@ -126,7 +158,7 @@ it carries `TryExec`, so a session skips it once the binary is gone.
 `Framework`. Expected on other machines.
 
 **Some controls missing** — the daemon probes each operation and shows only
-what the board answers to. `frameguin --debug-info` below lists what it found.
+what the board answers to. `frameguin --debug-info` lists what it found.
 
 **No tray icon on GNOME** — install the AppIndicator extension (see
 Requirements).
@@ -150,12 +182,10 @@ shadowing each other; see Uninstall.
 Controls are capability-driven: the daemon probes the hardware once
 (`GetCapabilities`) and the app only shows the groups the board supports, so
 new boards work without code changes. The board name in the header comes
-from DMI sysfs. Frameguin is a desktop companion to `framework_tool` (the
-CLI built on the same `framework_lib`): the same hardware access behind a
-resident GNOME UI, no sudo per invocation. It currently covers the everyday
-controls, with more of the CLI's surface planned.
+from DMI sysfs. Frameguin currently covers the everyday controls, with more
+of `framework_tool`'s surface planned.
 
-Cargo workspace with two crates:
+Cargo workspace:
 
 - `daemon/` (`frameguin-daemon`) — owns
   `io.github.valeronm.Frameguin` on the **system bus**, runs as root,
@@ -246,9 +276,10 @@ other. Bump them all, then tag:
 ./packaging/build-tarball.sh --expect 0.2.0
 ```
 
-`check-version.sh` enforces the first three and `--expect` adds the tag, so a
-release that would fail in CI fails here first. Pushing the tag builds both
-artifacts and attaches them, with the tarball's checksum, to a GitHub release.
+`check-version.sh` cross-checks the copies against `Cargo.toml`; `--expect`
+adds the tag. A release that would fail in CI fails here first. Pushing the
+tag builds both artifacts and attaches them, with the tarball's checksum, to
+a GitHub release.
 The same workflow runs on every push to `main` and every pull request without
 the release step.
 
