@@ -298,6 +298,23 @@ impl Daemon {
         Some(capacity)
     }
 
+    /// The mirrored charge current limit, or `NO_CHARGE_CURRENT_LIMIT` once
+    /// the EC has restarted and dropped whatever was written.
+    fn held_charge_current_limit(&self, ec: &CrosEc) -> EcResult<u32> {
+        let limit = *self.charge_current_limit.lock().unwrap();
+        // Nothing mirrored is already the answer, so don't spend an EC round
+        // trip dating it.
+        if limit.milliamps == NO_CHARGE_CURRENT_LIMIT {
+            return Ok(NO_CHARGE_CURRENT_LIMIT);
+        }
+        let ec_uptime = ec_uptime_secs(ec)?;
+        Ok(if limit.still_held(ec_uptime, unix_now()) {
+            limit.milliamps
+        } else {
+            NO_CHARGE_CURRENT_LIMIT
+        })
+    }
+
     fn ec_guard(&self) -> fdo::Result<std::sync::MutexGuard<'_, CrosEc>> {
         self.ec
             .as_ref()
@@ -411,6 +428,13 @@ impl Daemon {
         if !(20..=100).contains(&percent) {
             return Err(fdo::Error::InvalidArgs("charge limit must be 20-100".into()));
         }
+        // Already there: nothing to write, and nothing worth an authorization
+        // prompt either — same reason arguments are validated before asking.
+        // Checked here rather than by the caller, so the answer comes from
+        // the hardware and no client can act on a stale idea of it.
+        if self.get_charge_limit()? == percent {
+            return Ok(());
+        }
         self.authorize(&header).await?;
         self.ec_guard()?
             .set_charge_limit(0, percent)
@@ -424,18 +448,7 @@ impl Daemon {
     fn get_charge_current_limit(&self) -> fdo::Result<u32> {
         self.touch();
         let ec = self.ec_guard()?;
-        let limit = *self.charge_current_limit.lock().unwrap();
-        // Nothing mirrored is already the answer, so don't spend an EC round
-        // trip dating it.
-        if limit.milliamps == NO_CHARGE_CURRENT_LIMIT {
-            return Ok(NO_CHARGE_CURRENT_LIMIT);
-        }
-        let ec_uptime = ec_uptime_secs(&ec).map_err(ec_err)?;
-        if limit.still_held(ec_uptime, unix_now()) {
-            Ok(limit.milliamps)
-        } else {
-            Ok(NO_CHARGE_CURRENT_LIMIT)
-        }
+        self.held_charge_current_limit(&ec).map_err(ec_err)
     }
 
     /// The battery's design capacity in mAh, which is numerically also the
@@ -476,6 +489,13 @@ impl Daemon {
             return Err(fdo::Error::InvalidArgs(format!(
                 "0 stops charging; pass {NO_CHARGE_CURRENT_LIMIT} to remove the limit"
             )));
+        }
+        // Already there: nothing to write, and nothing worth an authorization
+        // prompt either, as in `set_charge_limit` — except that the closest
+        // thing to the truth here is the daemon's own mirror, the EC having
+        // no readback to offer.
+        if self.get_charge_current_limit()? == milliamps {
+            return Ok(());
         }
         self.authorize(&header).await?;
         let ec_uptime = {

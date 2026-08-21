@@ -19,16 +19,22 @@ it and the non-obvious constraints.
 - A control the tray can also set gets an `apply_*` function owning the whole
   write: the daemon call, the toast, the tray's copy, and moving the widget to
   match. Both the window's handler and the tray preset call it; neither writes
-  around it. The two charge controls read the current value first and skip the
-  write when it is already there — a read, never a remembered one, because the
-  EC moves those two on its own and skipping on a stale belief would swallow
-  the request in silence. Controls the EC can't move by itself just write. Controls only the window sets (backlight, touchpad) write inline
+  around it. Controls only the window sets (backlight, touchpad) write inline
   in their handler — one caller needs no shared function, and giving it one
   would be ceremony. Writing *by* moving the widget, which the tray used to
   do, makes state the command channel: a widget already showing the requested
   value emits no change, so the write is silently dropped — which is what a
   tray click on a stale window hits. Debouncing stays with the widget that
   needs it; a tray click is discrete.
+- The two charge setters skip a write whose value is already set, and skip it
+  before the polkit call for the same reason argument checks come first —
+  nobody should answer a prompt for a write that won't happen. The skip
+  belongs in the daemon rather than in a caller: `set_charge_limit` asks the
+  EC and `set_charge_current_limit` asks its own mirror, the closest either
+  can get to the truth, where a client could only consult its own stale idea
+  of it. The rest write unconditionally, because only this app moves their
+  values — bar the keyboard backlight, which the EC writes too and which the
+  window therefore polls.
 - D-Bus types name the value, not either end's convenience: a percentage is
   `y` (`u8`), never GTK's f64. The daemon validates every argument because
   any client can call it — an app-side clamp is UI convenience, not the check.

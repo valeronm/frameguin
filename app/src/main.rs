@@ -965,16 +965,6 @@ fn connect_touchpad_setters(ui: &Rc<Ui>, proxy: &FrameguinProxy<'static>) {
 /// has a "full speed means no limit" case. A change to one is usually a
 /// change to both — read the sibling before editing either.
 async fn apply_charge_limit(ui: &Ui, proxy: &FrameguinProxy<'static>, percent: u8, custom: Custom) {
-    // Ask before writing, rather than trusting what the app last saw: the
-    // EC's battery extender lowers this ceiling on its own, so a remembered
-    // value can be wrong, and skipping on a wrong one would swallow the
-    // request in silence. The read costs less than the write it saves, and
-    // the widgets still move — Custom and the preset that names the same
-    // number are different rows.
-    if proxy.get_charge_limit().await == Ok(percent) {
-        ui.show_charge_limit(percent, custom);
-        return;
-    }
     match proxy.set_charge_limit(percent).await {
         Ok(()) => {
             ui.toast(&format!("Charge limit set to {percent}%"));
@@ -994,11 +984,6 @@ async fn apply_charge_speed(
     milliamps: u32,
     custom: Custom,
 ) {
-    // Read before writing, for the reason [`apply_charge_limit`] gives.
-    if proxy.get_charge_current_limit().await == Ok(milliamps) {
-        ui.show_charge_speed(milliamps, custom);
-        return;
-    }
     if let Err(e) = proxy.set_charge_current_limit(milliamps).await {
         ui.toast(&format!("Setting charge speed failed: {e}"));
         return;
