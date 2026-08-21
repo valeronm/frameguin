@@ -1,3 +1,14 @@
+frameguin (0.1.1-1) unstable; urgency=medium
+
+  * Report which build is running: frameguin --version, an About window whose
+    troubleshooting page carries a copyable hardware report, and a daemon
+    GetBuild returning its version with the path it was started from.
+  * install.sh installs a copy of itself, so a tarball installed through
+    get.sh can be uninstalled without downloading it again, and warns when
+    the other prefix already holds an install.
+
+ -- Valerii Myronov <valeriy@hey.com>  Fri, 21 Aug 2026 10:18:09 +0100
+
 frameguin (0.1.0-1) unstable; urgency=medium
 
   * Initial release.

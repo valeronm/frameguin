@@ -5,11 +5,13 @@
 
 use std::cell::{Cell, RefCell};
 use std::fs;
+use std::ops::ControlFlow;
 use std::rc::Rc;
 use std::time::Duration;
 
 use adw::prelude::*;
 use gtk4 as gtk;
+use gtk4::gio;
 use gtk4::glib;
 
 const APP_ID: &str = "io.github.valeronm.Frameguin";
@@ -28,6 +30,8 @@ trait Frameguin {
     async fn get_keyboard_backlight(&self) -> zbus::Result<i32>;
     async fn set_keyboard_backlight(&self, percent: i32) -> zbus::Result<()>;
     async fn get_capabilities(&self) -> zbus::Result<Vec<String>>;
+    async fn get_ec_version(&self) -> zbus::Result<String>;
+    async fn get_build(&self) -> zbus::Result<(String, String)>;
     async fn get_fingerprint_brightness(&self) -> zbus::Result<(i32, String)>;
     async fn set_fingerprint_brightness(&self, percent: i32) -> zbus::Result<()>;
     async fn set_fingerprint_level(&self, level: &str) -> zbus::Result<()>;
@@ -231,6 +235,83 @@ impl ksni::Tray for TrayIcon {
         );
         items
     }
+}
+
+// --- about ---
+
+fn dmi(file: &str) -> String {
+    fs::read_to_string(format!("/sys/class/dmi/id/{file}"))
+        .map(|s| s.trim().to_string())
+        .unwrap_or_else(|_| "unknown".into())
+}
+
+/// What a hardware report needs, behind the About window's copy button, so
+/// filing one does not require busctl. Both binaries report where they ran
+/// from: a mixed install has the app under one prefix and the daemon under
+/// another, and no version comparison would show it when the two trees hold
+/// the same release.
+async fn debug_info() -> String {
+    let exe = std::env::current_exe()
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|_| "unknown".into());
+    let mut out = format!("Frameguin {} ({exe})\n", env!("CARGO_PKG_VERSION"));
+
+    let line = |name: &str, value: zbus::Result<String>| match value {
+        Ok(v) => format!("{name}: {v}\n"),
+        Err(e) => format!("{name}: unavailable ({e})\n"),
+    };
+
+    // The two binaries first and adjacent, since comparing their paths is
+    // what the report is read for; the hardware they found follows.
+    let proxy = daemon_proxy().await;
+    match &proxy {
+        Ok(p) => out.push_str(&line(
+            "daemon",
+            p.get_build().await.map(|(v, path)| format!("{v} ({path})")),
+        )),
+        Err(e) => out.push_str(&format!("daemon: unreachable ({e})\n")),
+    }
+
+    out.push_str(&format!(
+        "board: {}\nBIOS: {}\n",
+        dmi("product_name"),
+        dmi("bios_version")
+    ));
+
+    if let Ok(p) = &proxy {
+        out.push_str(&line("EC", p.get_ec_version().await));
+        out.push_str(&line(
+            "capabilities",
+            p.get_capabilities().await.map(|c| c.join(" ")),
+        ));
+    }
+    out
+}
+
+fn show_about(parent: Option<&gtk::Window>) {
+    let about = adw::AboutWindow::builder()
+        .application_icon(APP_ID)
+        .application_name("Frameguin")
+        .developer_name("Valerii Myronov")
+        .version(env!("CARGO_PKG_VERSION"))
+        .license_type(gtk::License::MitX11)
+        // Setting the comments property would create a Details page and move
+        // the website link onto it, off the main page.
+        .website(env!("CARGO_PKG_HOMEPAGE"))
+        .issue_url(concat!(env!("CARGO_PKG_REPOSITORY"), "/issues"))
+        .debug_info_filename("frameguin-debug-info.txt")
+        // Placeholder rather than empty: libadwaita hides the Troubleshooting
+        // page entirely when debug info is blank, and this fills in later.
+        .debug_info("collecting…")
+        .build();
+    about.set_transient_for(parent);
+
+    let filling = about.clone();
+    glib::spawn_future_local(async move {
+        let info = debug_info().await;
+        filling.set_debug_info(&info);
+    });
+    about.present();
 }
 
 // --- autostart ---
@@ -644,11 +725,6 @@ fn build_window(
     page.add(&application);
 
     // Detected hardware as the header subtitle: one line, no key/value rows.
-    let dmi = |file: &str| {
-        fs::read_to_string(format!("/sys/class/dmi/id/{file}"))
-            .map(|s| s.trim().to_string())
-            .unwrap_or_else(|_| "unknown".into())
-    };
     let detected = if dmi("sys_vendor") == "Framework" {
         dmi("product_name")
     } else {
@@ -658,6 +734,16 @@ fn build_window(
     let view = adw::ToolbarView::new();
     let header = adw::HeaderBar::new();
     header.set_title_widget(Some(&adw::WindowTitle::new("Frameguin", &detected)));
+
+    let menu = gio::Menu::new();
+    menu.append(Some("_About Frameguin"), Some("app.about"));
+    menu.append(Some("_Quit"), Some("app.quit"));
+    let menu_button = gtk::MenuButton::builder()
+        .icon_name("open-menu-symbolic")
+        .menu_model(&menu)
+        .tooltip_text("Main menu")
+        .build();
+    header.pack_end(&menu_button);
     view.add_top_bar(&header);
     view.set_content(Some(&page));
     let toasts = adw::ToastOverlay::new();
@@ -889,6 +975,46 @@ fn setup_tray(app: &adw::Application, state: Rc<AppState>) {
 
 fn main() -> glib::ExitCode {
     let app = adw::Application::builder().application_id(APP_ID).build();
+
+    // The line is parsed, not just read: it must end in the bare version.
+    app.add_main_option(
+        "version",
+        b'V'.into(),
+        glib::OptionFlags::NONE,
+        glib::OptionArg::None,
+        "Show the version",
+        None,
+    );
+    // The About window's report, for the no-display and window-won't-open
+    // cases that produce bug reports in the first place.
+    app.add_main_option(
+        "debug-info",
+        glib::Char::from(0),
+        glib::OptionFlags::NONE,
+        glib::OptionArg::None,
+        "Print a hardware report",
+        None,
+    );
+    app.connect_handle_local_options(|_, options| {
+        let report = if options.contains("version") {
+            format!("frameguin {}\n", env!("CARGO_PKG_VERSION"))
+        } else if options.contains("debug-info") {
+            glib::MainContext::default().block_on(debug_info())
+        } else {
+            return ControlFlow::Continue(());
+        };
+        print!("{report}");
+        ControlFlow::Break(glib::ExitCode::SUCCESS)
+    });
+
+    app.add_action_entries([
+        gio::ActionEntry::builder("about")
+            .activate(|app: &adw::Application, _, _| show_about(app.active_window().as_ref()))
+            .build(),
+        gio::ActionEntry::builder("quit")
+            .activate(|app: &adw::Application, _, _| app.quit())
+            .build(),
+    ]);
 
     // Autostart launches with GIO's built-in --gapplication-service, which
     // registers the primary instance without emitting activate — so login

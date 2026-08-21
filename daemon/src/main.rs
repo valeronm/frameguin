@@ -293,6 +293,18 @@ impl Daemon {
         self.ec_guard()?.version_info().map_err(ec_err)
     }
 
+    /// The daemon's version and the path it was started from. The path is the
+    /// diagnostic: two install trees can hold the same version, and which
+    /// daemon runs is decided by the D-Bus activation file rather than by
+    /// PATH. Answers without touching the EC, so it works on any hardware.
+    async fn get_build(&self) -> fdo::Result<(String, String)> {
+        self.touch();
+        let exe = std::fs::read_link("/proc/self/exe")
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|_| "unknown".into());
+        Ok((env!("CARGO_PKG_VERSION").to_string(), exe))
+    }
+
     /// Returns the brightness percentage and the level preset it came from:
     /// "high", "medium", "low", "ultra-low", "auto", or "custom" (the EC
     /// reports custom after any raw percentage write; it can't be set).

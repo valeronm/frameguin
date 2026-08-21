@@ -4,17 +4,29 @@
 # install. Run with sudo.
 set -euo pipefail
 
+src="$(cd "$(dirname "$0")" && pwd)"
+
+# Installed as $prefix/libexec/frameguin-uninstall.sh, where removing is all
+# this can do. Its own location is the only record of the prefix it was
+# installed under, so an uninstall undoes that install rather than the default.
+default_prefix=/usr/local
+case "${0##*/}" in
+    *uninstall*)
+        set -- --uninstall "$@"
+        default_prefix="${src%/libexec}"
+        ;;
+esac
+
 if [ "$(id -u)" -ne 0 ]; then
     echo "run with sudo" >&2
     exit 1
 fi
 
-src="$(cd "$(dirname "$0")" && pwd)"
 app_id="io.github.valeronm.Frameguin"
 # /usr/local is the FHS slot for software installed outside the package
-# manager. Only the binaries follow the prefix: polkit, D-Bus and the icon
-# theme read from fixed system directories regardless of where this installs.
-prefix="${PREFIX:-/usr/local}"
+# manager. polkit, D-Bus and the icon theme read from fixed system
+# directories, so those files stay put wherever the rest goes.
+prefix="${PREFIX:-$default_prefix}"
 
 # A checkout has the binaries in cargo's build tree; a release tarball ships
 # them beside this script.
@@ -41,6 +53,10 @@ files=(
     644 "$data/$app_id.metainfo.xml"           "/usr/share/metainfo/$app_id.metainfo.xml"
     644 "$data/icons/$app_id.svg"              "/usr/share/icons/hicolor/scalable/apps/$app_id.svg"
     644 "$data/icons/$app_id-symbolic.svg"     "/usr/share/icons/hicolor/symbolic/apps/$app_id-symbolic.svg"
+    644 "$data/frameguin.1"                    "$prefix/share/man/man1/frameguin.1"
+    # This script, so --uninstall stays available: get.sh unpacks into a
+    # temporary directory it deletes, taking the only other copy with it.
+    755 "$src/install.sh"                      "$prefix/libexec/frameguin-uninstall.sh"
 )
 
 if [ "${1:-}" = "--uninstall" ]; then
@@ -48,6 +64,8 @@ if [ "${1:-}" = "--uninstall" ]; then
     # linger as a broken ghost after its binary and daemon are removed.
     pkill -x frameguin 2>/dev/null || true
     systemctl stop frameguin-daemon.service 2>/dev/null || true
+    # Removing this script while it runs is safe: bash reads through an open
+    # descriptor, which unlink does not invalidate.
     for ((i = 0; i < ${#files[@]}; i += 3)); do
         rm -f "${files[i + 2]}"
     done
@@ -57,13 +75,6 @@ if [ "${1:-}" = "--uninstall" ]; then
     echo "uninstalled. Per-user autostart entries remain; remove yours with:"
     echo "  rm -f ~/.config/autostart/$app_id.desktop"
     exit 0
-fi
-
-# Warn (but don't refuse — containers, CI, and pre-swap installs are all
-# legitimate) when this doesn't look like Framework hardware.
-if [ "$(cat /sys/class/dmi/id/sys_vendor 2>/dev/null)" != "Framework" ]; then
-    echo "warning: this does not look like a Framework laptop; installing anyway" >&2
-    echo "         (the app will show no controls on unsupported hardware)" >&2
 fi
 
 if [ ! -x "$built/frameguin-daemon" ] || [ ! -x "$built/frameguin" ]; then
@@ -101,6 +112,29 @@ if [ -n "$missing" ]; then
     exit 1
 fi
 
+# Everything that can refuse has run; what follows is advisory.
+
+# The other prefix having an install is the mixed-install case, and here is
+# where it is created — the app can only report it afterwards, from a process
+# with no privilege to undo it.
+for other in /usr/bin/frameguin /usr/local/bin/frameguin; do
+    [ "$other" = "$prefix/bin/frameguin" ] && continue
+    [ -e "$other" ] || continue
+    echo "warning: $other is already installed; two installs shadow each other" >&2
+    if [ "$other" = /usr/bin/frameguin ]; then
+        echo "         remove it with: sudo apt purge frameguin" >&2
+    else
+        echo "         remove it with: sudo /usr/local/libexec/frameguin-uninstall.sh" >&2
+    fi
+done
+
+# Warn (but don't refuse — containers, CI, and pre-swap installs are all
+# legitimate) when this doesn't look like Framework hardware.
+if [ "$(cat /sys/class/dmi/id/sys_vendor 2>/dev/null)" != "Framework" ]; then
+    echo "warning: this does not look like a Framework laptop; installing anyway" >&2
+    echo "         (the app will show no controls on unsupported hardware)" >&2
+fi
+
 # Stop running app instances so the update takes effect immediately, and
 # remember whether the invoking user had one — only that user's instance can
 # be restarted (a GUI is launched inside its owner's session).
@@ -112,7 +146,12 @@ if [ -n "${SUDO_USER:-}" ] && pgrep -x -u "$SUDO_USER" frameguin >/dev/null 2>&1
 fi
 pkill -x frameguin 2>/dev/null || true
 
-"$src/packaging/render-data.sh" "$prefix/libexec" "$data"
+# Asked of the binary being installed rather than tracked here: it is the one
+# thing that always knows, and --version needs no display or environment.
+# Expects one line ending in the version; render-data.sh rejects an empty one.
+version="$("$built/frameguin" --version)"
+"$src/packaging/render-data.sh" "$data" \
+    LIBEXECDIR="$prefix/libexec" VERSION="${version##* }"
 
 for ((i = 0; i < ${#files[@]}; i += 3)); do
     install -Dm"${files[i]}" "${files[i + 1]}" "${files[i + 2]}"

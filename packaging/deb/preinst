@@ -1,0 +1,11 @@
+#!/bin/sh
+set -e
+
+# The mirror of install.sh's own check: whichever installer runs second is the
+# one that can see the collision, and only it runs while the user is watching.
+if [ -e /usr/local/bin/frameguin ]; then
+    echo "warning: /usr/local/bin/frameguin is already installed; two installs shadow each other" >&2
+    echo "         remove it with: sudo /usr/local/libexec/frameguin-uninstall.sh" >&2
+fi
+
+#DEBHELPER#

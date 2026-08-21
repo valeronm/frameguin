@@ -11,33 +11,34 @@ expected="${1:-}"
 root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$root"
 
-version="$(cargo pkgid -p frameguin)"
-version="${version##*@}"
-
-if [ -n "$expected" ] && [ "$expected" != "$version" ]; then
-    echo "asked for $expected, crate is $version" >&2
+# Read the manifest, not `cargo pkgid`: that resolves through Cargo.lock, so a
+# bumped manifest with a stale lock would report the old version here while
+# CARGO_PKG_VERSION, cargo-deb and the metainfo all followed the new one.
+version="$(sed -n '/^\[workspace\.package\]/,/^\[/ s/^version = "\(.*\)"/\1/p' Cargo.toml)"
+if [ -z "$version" ]; then
+    echo "no version in [workspace.package] of Cargo.toml" >&2
     exit 1
 fi
+
+fail() {
+    echo "$1 says $2, crate is $version" >&2
+    exit 1
+}
+
+[ -z "$expected" ] || [ "$expected" = "$version" ] || fail "the caller" "$expected"
 
 # cargo-deb reads the version from Cargo.toml but ships the changelog and the
 # metainfo verbatim, so a bump that misses one announces the wrong release.
 # dpkg-parsechangelog rather than a regex: it is the parser dpkg itself uses,
 # and it comes with build-essential, which building this already needs.
-changelog_version="$(dpkg-parsechangelog -l packaging/changelog -SVersion)"
-if [ "${changelog_version%-*}" != "$version" ]; then
-    echo "packaging/changelog says $changelog_version, crate is $version" >&2
-    exit 1
-fi
+changelog="$(dpkg-parsechangelog -l packaging/changelog -SVersion)"
+[ "${changelog%-*}" = "$version" ] || fail "packaging/changelog" "$changelog"
 if [ "$(dpkg-parsechangelog -l packaging/changelog -SDistribution)" = "UNRELEASED" ]; then
     echo "packaging/changelog is still UNRELEASED — finalize it first" >&2
     exit 1
 fi
 
-metainfo_version="$(sed -n 's/.*<release version="\([^"]*\)".*/\1/p' \
-    data/*.metainfo.xml | head -1)"
-if [ "$metainfo_version" != "$version" ]; then
-    echo "metainfo <release> says $metainfo_version, crate is $version" >&2
-    exit 1
-fi
+metainfo="$(sed -n 's/.*<release version="\([^"]*\)".*/\1/p' data/*.metainfo.xml | head -1)"
+[ "$metainfo" = "$version" ] || fail "the metainfo <release>" "$metainfo"
 
 echo "$version"

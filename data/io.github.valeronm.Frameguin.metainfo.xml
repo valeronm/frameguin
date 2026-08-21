@@ -21,11 +21,6 @@
       authorized through polkit; on non-Framework hardware the app opens and
       reports that it found none.
     </p>
-    <p>
-      This is a community project, not affiliated with or endorsed by Framework
-      Computer Inc. "Framework" and the gear logo are trademarks of Framework
-      Computer Inc.
-    </p>
   </description>
 
   <launchable type="desktop-id">io.github.valeronm.Frameguin.desktop</launchable>
@@ -47,6 +42,7 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="0.1.1" date="2026-08-21"/>
     <release version="0.1.0" date="2026-08-20"/>
   </releases>
 </component>

@@ -28,10 +28,7 @@ Frameguin exposes the Framework laptop hardware controls that the kernel does \
 not: the battery charge limit, keyboard backlight, fingerprint reader LED \
 brightness, and haptic touchpad feedback, from a GTK4/libadwaita window and a \
 tray icon. A root D-Bus daemon holds the hardware access; the GUI is \
-unprivileged and setters are authorized through polkit.
-.
-A community project, not affiliated with or endorsed by Framework Computer \
-Inc. "Framework" and the gear logo are trademarks of Framework Computer Inc."""
+unprivileged and setters are authorized through polkit."""
 section = "utils"
 # No policykit-1 fallback: the app needs libadwaita 1.4, so the oldest
 # release it can run on already ships polkitd.
@@ -58,7 +55,7 @@ assets = [
     ["target/release/data/icons/io.github.valeronm.Frameguin.svg", "usr/share/icons/hicolor/scalable/apps/", "644"],
     ["target/release/data/icons/io.github.valeronm.Frameguin-symbolic.svg", "usr/share/icons/hicolor/symbolic/apps/", "644"],
     ["../README.md", "usr/share/doc/frameguin/README.md", "644"],
-    ["../packaging/deb/lintian-overrides", "usr/share/lintian/overrides/frameguin", "644"],
+    ["target/release/data/frameguin.1.gz", "usr/share/man/man1/frameguin.1.gz", "644"],
 ]
 
 # Installs the unit and generates the systemd maintainer-script snippets, so a

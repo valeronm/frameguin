@@ -24,8 +24,14 @@ cd "$root"
 
 version="$(./packaging/check-version.sh "$expected")"
 
-cargo build --release --workspace
-./packaging/render-data.sh /usr/libexec target/release/data
+# --locked: a committed lock that disagrees with the manifest is a release
+# defect, and cargo would otherwise rewrite it here without saying so.
+cargo build --release --workspace --locked
+./packaging/render-data.sh target/release/data \
+    LIBEXECDIR=/usr/libexec VERSION="$version"
+# Debian requires compressed manual pages and cargo-deb ships assets as-is.
+# -n so the same source produces the same bytes.
+gzip -9n target/release/data/frameguin.1
 
 deb="$(cargo deb -p frameguin --no-build)"
 
@@ -45,13 +51,10 @@ if ! grep -q " \./usr/lib/systemd/system/frameguin-daemon\.service\$" <<<"$conte
     exit 1
 fi
 
-# Guarded so a machine without the validators can still build.
-# initial-upload-closes-no-bugs is suppressed rather than overridden: it stops
-# firing once a second changelog entry exists, so an override for it would
-# ship to every user and quietly go dead.
+# Guarded so a machine without the validators can still build. The package
+# carries no lintian overrides: warnings are fatal and there are none.
 if command -v lintian >/dev/null; then
-    lintian --fail-on error,warning \
-        --suppress-tags initial-upload-closes-no-bugs "$deb"
+    lintian --fail-on error,warning "$deb"
 fi
 if command -v appstreamcli >/dev/null; then
     appstreamcli validate target/release/data/*.metainfo.xml

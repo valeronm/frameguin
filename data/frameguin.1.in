@@ -1,0 +1,69 @@
+.\" The date is this page's own last non-trivial change, per man-pages(7),
+.\" not the build date.
+.TH FRAMEGUIN 1 2026-08-21 "Frameguin @VERSION@" "User Commands"
+.SH NAME
+frameguin \- hardware controls for Framework laptops
+.SH SYNOPSIS
+.B frameguin
+.RI [ OPTION .\|.\|.]
+.SH DESCRIPTION
+.B frameguin
+is a GTK4/libadwaita application for the hardware controls a Framework
+laptop exposes through its embedded controller: the battery charge limit,
+keyboard backlight, fingerprint reader LED brightness and haptic touchpad
+feedback.
+.PP
+The application itself is unprivileged. Hardware access happens in
+.BR frameguin\-daemon ,
+a root daemon on the system bus that systemd starts on demand, and every
+state\-changing call is authorized through polkit. Controls appear only for
+the operations the board answers to, so an unsupported machine shows fewer
+of them rather than failing.
+.PP
+Run without options,
+.B frameguin
+opens its window. Closing the window hides it to the tray where one exists;
+.B Quit
+in the tray or the main menu exits.
+.SH OPTIONS
+.TP
+.BR \-V ", " \-\-version
+Print the version and exit.
+.TP
+.B \-\-debug\-info
+Print the board, both binaries' versions and the paths they ran from, the EC
+firmware version, and the capabilities the daemon probed successfully. This
+is what to include in a bug report; the same text is behind the copy button
+on the About window's Troubleshooting page.
+.IP
+Two different path prefixes in the output mean two installations are present
+and shadowing each other.
+.TP
+.B \-\-gapplication\-service
+Start in service mode, registering the tray icon without opening a window.
+The autostart entry uses this; it is not normally typed.
+.TP
+.BR \-h ", " \-\-help
+Print a usage summary.
+.SH FILES
+.TP
+.I ~/.config/autostart/io.github.valeronm.Frameguin.desktop
+Written and removed by the
+.B Start at login
+switch.
+.TP
+.I /var/lib/frameguin/state
+Haptic touchpad settings the daemon remembers, because the firmware will not
+report them back.
+.SH NOTES
+A battery charge limit set here lasts until reboot. UEFI setup re-sends its
+own stored value at every power-on, so the standing limit lives in BIOS
+setup rather than here.
+.SH BUGS
+https://github.com/valeronm/frameguin/issues
+.SH DIAGNOSTICS
+The daemon logs through the journal:
+.B journalctl -u frameguin-daemon.service
+.SH SEE ALSO
+.BR journalctl (1),
+.BR polkit (8)
