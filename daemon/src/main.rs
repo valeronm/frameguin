@@ -8,13 +8,15 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use framework_lib::chromium_ec::command::{EcCommands, EcRequestRaw};
 use framework_lib::chromium_ec::commands::{
+    ChargeStateCmd, EcRequestChargeStateGetV0, EcRequestGetUptimeInfo,
     EcRequestPwmGetKeyboardBacklight, FpLedBrightnessLevel,
 };
 use framework_lib::chromium_ec::{CrosEc, EcResult};
+use framework_lib::power;
 use framework_lib::touchpad::{self, ClickForce, HAPTIC_INTENSITY_LEVELS};
 use zbus::message::Header;
 use zbus::{fdo, interface, Connection};
@@ -42,51 +44,133 @@ struct Daemon {
     /// no re-apply needed, the hardware keeps itself.
     haptic_intensity: AtomicU8,
     click_force: AtomicU8,
+    /// The EC will not report its charge current limit back — the command is
+    /// write-only in every version (framework-system issue #180) — so the
+    /// daemon mirrors what it wrote. Unlike the touchpad's, this mirror
+    /// expires: the EC keeps the limit in RAM, which outlives host reboots
+    /// but not an EC restart.
+    charge_current_limit: Mutex<ChargeCurrentLimit>,
+    /// Read once and kept: reaching the design capacity walks the EC's whole
+    /// memmap battery block, and a pack cannot change while the daemon runs.
+    design_capacity: OnceLock<u32>,
 }
 
 const DEFAULT_HAPTIC_INTENSITY: u8 = 75;
 const DEFAULT_CLICK_FORCE: u8 = ClickForce::Medium as u8;
 const STATE_FILE: &str = "/var/lib/frameguin/state";
 
-/// Loads (`haptic_intensity`, `click_force`), falling back to the factory
-/// defaults. A missing file on a machine whose touchpad was already changed
-/// by other means will misreport until the first write — unavoidable, since
-/// the hardware can't be read.
-fn load_state() -> (u8, u8) {
-    let mut intensity = DEFAULT_HAPTIC_INTENSITY;
-    let mut force = DEFAULT_CLICK_FORCE;
+// Single source for the state file's keys: the loader matches on them and the
+// writer spells them, so a rename can't quietly break the round trip.
+const KEY_HAPTIC_INTENSITY: &str = "haptic_intensity";
+const KEY_CLICK_FORCE: &str = "click_force";
+const KEY_CURRENT_LIMIT: &str = "charge_current_limit";
+const KEY_CURRENT_LIMIT_UPTIME: &str = "charge_current_limit_ec_uptime";
+const KEY_CURRENT_LIMIT_WRITTEN_AT: &str = "charge_current_limit_written_at";
+
+/// The EC clamps each requested charge current against its limit, so the
+/// largest value is what "no limit" means to it — and 0 means never charge.
+const NO_CHARGE_CURRENT_LIMIT: u32 = u32::MAX;
+
+/// A charge current limit together with the EC clock reading that dates it.
+#[derive(Clone, Copy)]
+struct ChargeCurrentLimit {
+    milliamps: u32,
+    /// Seconds the EC had been running when the limit was written, paired
+    /// with the wall time of that same write.
+    ec_uptime: u64,
+    written_at: u64,
+}
+
+impl ChargeCurrentLimit {
+    /// Whether the EC can still be holding this limit. An EC that has been up
+    /// for less time than the write implies has restarted since, and a
+    /// restart drops the limit. The comparison carries slack because the EC
+    /// keeps its own time — its firmware documents 1% or worse frequency
+    /// error against the host clock.
+    ///
+    /// EC uptime is a 32-bit millisecond counter, so this reads as a restart
+    /// once every 49 days of EC uptime; the limit then shows as absent until
+    /// it is set again.
+    fn still_held(self, ec_uptime: u64, now: u64) -> bool {
+        let expected = self.ec_uptime + now.saturating_sub(self.written_at);
+        expected.saturating_sub(ec_uptime) <= (expected / 20).max(60)
+    }
+}
+
+struct State {
+    haptic_intensity: u8,
+    click_force: u8,
+    charge_current_limit: ChargeCurrentLimit,
+}
+
+/// Loads the mirrored control state, falling back to the factory defaults.
+/// A missing file on a machine whose touchpad was already changed by other
+/// means will misreport until the first write — unavoidable, since the
+/// hardware can't be read.
+fn load_state() -> State {
+    let mut state = State {
+        haptic_intensity: DEFAULT_HAPTIC_INTENSITY,
+        click_force: DEFAULT_CLICK_FORCE,
+        charge_current_limit: ChargeCurrentLimit {
+            milliamps: NO_CHARGE_CURRENT_LIMIT,
+            ec_uptime: 0,
+            written_at: 0,
+        },
+    };
     if let Ok(content) = std::fs::read_to_string(STATE_FILE) {
         for line in content.lines() {
-            match line.split_once('=') {
-                Some(("haptic_intensity", v)) => {
-                    if let Ok(v) = v.trim().parse()
+            let Some((key, value)) = line.split_once('=') else {
+                continue;
+            };
+            let value = value.trim();
+            match key {
+                KEY_HAPTIC_INTENSITY => {
+                    if let Ok(v) = value.parse()
                         && HAPTIC_INTENSITY_LEVELS.contains(&v)
                     {
-                        intensity = v;
+                        state.haptic_intensity = v;
                     }
                 }
-                Some(("click_force", v)) => {
-                    if let Ok(v) = v.trim().parse()
+                KEY_CLICK_FORCE => {
+                    if let Ok(v) = value.parse()
                         && click_force_valid(v)
                     {
-                        force = v;
+                        state.click_force = v;
                     }
+                }
+                KEY_CURRENT_LIMIT => {
+                    // A zero here would mirror a limit the setter refuses to
+                    // write, so read it as the absence of one.
+                    if let Ok(v) = value.parse()
+                        && v != 0
+                    {
+                        state.charge_current_limit.milliamps = v;
+                    }
+                }
+                KEY_CURRENT_LIMIT_UPTIME => {
+                    state.charge_current_limit.ec_uptime = value.parse().unwrap_or(0);
+                }
+                KEY_CURRENT_LIMIT_WRITTEN_AT => {
+                    state.charge_current_limit.written_at = value.parse().unwrap_or(0);
                 }
                 _ => {}
             }
         }
     }
-    (intensity, force)
+    state
 }
 
-// The directory is provisioned by StateDirectory= in the systemd unit.
-fn save_state(intensity: u8, force: u8) {
-    if let Err(e) = std::fs::write(
-        STATE_FILE,
-        format!("haptic_intensity={intensity}\nclick_force={force}\n"),
-    ) {
-        eprintln!("failed to persist state: {e}");
-    }
+fn unix_now() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+}
+
+/// Seconds since the EC last booted.
+fn ec_uptime_secs(ec: &CrosEc) -> EcResult<u64> {
+    let uptime_ms = EcRequestGetUptimeInfo {}.send_command(ec)?.time_since_ec_boot;
+    Ok(u64::from(uptime_ms) / 1000)
 }
 
 /// Single source for the click-force name/value mapping.
@@ -185,6 +269,35 @@ impl Daemon {
         *self.last_used.lock().unwrap() = Instant::now();
     }
 
+    // The directory is provisioned by StateDirectory= in the systemd unit.
+    fn save_state(&self) {
+        let limit = *self.charge_current_limit.lock().unwrap();
+        let content = format!(
+            "{KEY_HAPTIC_INTENSITY}={}\n{KEY_CLICK_FORCE}={}\n{KEY_CURRENT_LIMIT}={}\n\
+             {KEY_CURRENT_LIMIT_UPTIME}={}\n{KEY_CURRENT_LIMIT_WRITTEN_AT}={}\n",
+            self.haptic_intensity.load(Ordering::Relaxed),
+            self.click_force.load(Ordering::Relaxed),
+            limit.milliamps,
+            limit.ec_uptime,
+            limit.written_at,
+        );
+        if let Err(e) = std::fs::write(STATE_FILE, content) {
+            eprintln!("failed to persist state: {e}");
+        }
+    }
+
+    /// The battery's design capacity in mAh, `None` when no pack answers.
+    /// Only successful reads are cached, so a battery that is momentarily
+    /// unreadable isn't remembered as absent for the daemon's lifetime.
+    fn read_design_capacity(&self, ec: &CrosEc) -> Option<u32> {
+        if let Some(capacity) = self.design_capacity.get() {
+            return Some(*capacity);
+        }
+        let capacity = power::power_info(ec)?.battery?.design_capacity;
+        let _ = self.design_capacity.set(capacity);
+        Some(capacity)
+    }
+
     fn ec_guard(&self) -> fdo::Result<std::sync::MutexGuard<'_, CrosEc>> {
         self.ec
             .as_ref()
@@ -238,6 +351,21 @@ impl Daemon {
                 if ec.get_charge_limit().is_ok() {
                     caps.push("charge-limit".to_string());
                 }
+                // No same-path probe exists: the charge current limit is
+                // write-only, with no readback in any command version
+                // (framework-system issue #180). GET_CMD_VERSIONS is the
+                // closest harmless stand-in — it is side-effect-free and asks
+                // about the very command the setter sends. The battery read
+                // joins it because a limit is only ever expressed as a share
+                // of what the pack asks for: without its capacity the control
+                // has no rate to offer, so claiming it would offer a dead one.
+                if ec
+                    .cmd_version_supported(EcCommands::ChargeCurrentLimit as u32, 0)
+                    .unwrap_or(false)
+                    && self.read_design_capacity(&ec).is_some()
+                {
+                    caps.push("charge-current-limit".to_string());
+                }
                 if kbd_backlight_percent(&ec).is_ok() {
                     caps.push("keyboard-backlight".to_string());
                 }
@@ -287,6 +415,86 @@ impl Daemon {
         self.ec_guard()?
             .set_charge_limit(0, percent)
             .map_err(ec_err)
+    }
+
+    /// How fast the battery may charge, in mA, or `NO_CHARGE_CURRENT_LIMIT`
+    /// when nothing caps it. The EC cannot be asked what it holds, so this is
+    /// what the daemon last wrote, and it reports no limit once the EC has
+    /// restarted and dropped the value.
+    fn get_charge_current_limit(&self) -> fdo::Result<u32> {
+        self.touch();
+        let ec = self.ec_guard()?;
+        let limit = *self.charge_current_limit.lock().unwrap();
+        // Nothing mirrored is already the answer, so don't spend an EC round
+        // trip dating it.
+        if limit.milliamps == NO_CHARGE_CURRENT_LIMIT {
+            return Ok(NO_CHARGE_CURRENT_LIMIT);
+        }
+        let ec_uptime = ec_uptime_secs(&ec).map_err(ec_err)?;
+        if limit.still_held(ec_uptime, unix_now()) {
+            Ok(limit.milliamps)
+        } else {
+            Ok(NO_CHARGE_CURRENT_LIMIT)
+        }
+    }
+
+    /// The battery's design capacity in mAh, which is numerically also the
+    /// current that charges it at 1C — what turns a charge speed expressed as
+    /// a fraction of full rate into the milliamps the EC wants.
+    fn get_battery_design_capacity(&self) -> fdo::Result<u32> {
+        self.touch();
+        let ec = self.ec_guard()?;
+        self.read_design_capacity(&ec)
+            .ok_or_else(|| fdo::Error::Failed("no battery present".into()))
+    }
+
+    /// What the charger is pushing into the battery right now, in mA, and 0
+    /// whenever it isn't charging. This is the only observable effect a
+    /// charge current limit has, the limit itself being unreadable.
+    fn get_charge_current(&self) -> fdo::Result<u32> {
+        self.touch();
+        let state = EcRequestChargeStateGetV0 {
+            cmd: ChargeStateCmd::GetState as u8,
+            param: 0,
+        }
+        .send_command(&*self.ec_guard()?)
+        .map_err(ec_err)?;
+        Ok(state.chg_current)
+    }
+
+    /// Caps how fast the battery charges, in mA; `NO_CHARGE_CURRENT_LIMIT`
+    /// lifts the cap. Zero is refused: the EC clamps its requested current
+    /// against this value, so zero stops charging altogether rather than
+    /// meaning "unrestricted", and nothing would report that back.
+    async fn set_charge_current_limit(
+        &self,
+        milliamps: u32,
+        #[zbus(header)] header: Header<'_>,
+    ) -> fdo::Result<()> {
+        self.touch();
+        if milliamps == 0 {
+            return Err(fdo::Error::InvalidArgs(format!(
+                "0 stops charging; pass {NO_CHARGE_CURRENT_LIMIT} to remove the limit"
+            )));
+        }
+        self.authorize(&header).await?;
+        let ec_uptime = {
+            let ec = self.ec_guard()?;
+            // Always the unconditional form. The command's state-of-charge
+            // variant latches inside the EC: once applied it is never
+            // re-evaluated, so a later threshold cannot lift it
+            // (framework-system issue #342).
+            ec.set_charge_current_limit(milliamps, None)
+                .map_err(ec_err)?;
+            ec_uptime_secs(&ec).map_err(ec_err)?
+        };
+        *self.charge_current_limit.lock().unwrap() = ChargeCurrentLimit {
+            milliamps,
+            ec_uptime,
+            written_at: unix_now(),
+        };
+        self.save_state();
+        Ok(())
     }
 
     fn get_ec_version(&self) -> fdo::Result<String> {
@@ -367,7 +575,7 @@ impl Daemon {
         self.authorize(&header).await?;
         touchpad::set_haptic_intensity(percent).map_err(internal_err)?;
         self.haptic_intensity.store(percent, Ordering::Relaxed);
-        save_state(percent, self.click_force.load(Ordering::Relaxed));
+        self.save_state();
         Ok(())
     }
 
@@ -390,7 +598,7 @@ impl Daemon {
         self.authorize(&header).await?;
         touchpad::set_click_force(force).map_err(internal_err)?;
         self.click_force.store(force as u8, Ordering::Relaxed);
-        save_state(self.haptic_intensity.load(Ordering::Relaxed), force as u8);
+        self.save_state();
         Ok(())
     }
 
@@ -417,7 +625,7 @@ impl Daemon {
 fn main() -> zbus::Result<()> {
     let last_used = Arc::new(Mutex::new(Instant::now()));
     let clock = last_used.clone();
-    let (haptic_intensity, click_force) = load_state();
+    let state = load_state();
     let _conn = zbus::block_on(async move {
         let conn = Connection::system().await?;
         let authority = AuthorityProxy::new(&conn)
@@ -428,8 +636,10 @@ fn main() -> zbus::Result<()> {
             authority,
             last_used,
             capabilities: OnceLock::new(),
-            haptic_intensity: AtomicU8::new(haptic_intensity),
-            click_force: AtomicU8::new(click_force),
+            haptic_intensity: AtomicU8::new(state.haptic_intensity),
+            click_force: AtomicU8::new(state.click_force),
+            charge_current_limit: Mutex::new(state.charge_current_limit),
+            design_capacity: OnceLock::new(),
         };
         conn.object_server().at(OBJECT_PATH, daemon).await?;
         // Claim the name only once the object is served, so an activating
