@@ -16,10 +16,19 @@ it and the non-obvious constraints.
   for a handful of strings. Adding a control means: one probe + get/set
   methods in the daemon, one `Capabilities` field and one gated UI group in
   the app.
-- Tray presets write through the GUI widgets (`set_value`, `set_selected`)
-  rather than calling the daemon directly, so each control has exactly one
-  write path (debounce, error toast, tray sync) instead of two that can
-  drift.
+- A control the tray can also set gets an `apply_*` function owning the whole
+  write: the daemon call, the toast, the tray's copy, and moving the widget to
+  match. Both the window's handler and the tray preset call it; neither writes
+  around it. The two charge controls read the current value first and skip the
+  write when it is already there — a read, never a remembered one, because the
+  EC moves those two on its own and skipping on a stale belief would swallow
+  the request in silence. Controls the EC can't move by itself just write. Controls only the window sets (backlight, touchpad) write inline
+  in their handler — one caller needs no shared function, and giving it one
+  would be ceremony. Writing *by* moving the widget, which the tray used to
+  do, makes state the command channel: a widget already showing the requested
+  value emits no change, so the write is silently dropped — which is what a
+  tray click on a stale window hits. Debouncing stays with the widget that
+  needs it; a tray click is discrete.
 - D-Bus types name the value, not either end's convenience: a percentage is
   `y` (`u8`), never GTK's f64. The daemon validates every argument because
   any client can call it — an app-side clamp is UI convenience, not the check.
