@@ -42,7 +42,6 @@ depends = "$auto, polkitd, libgcc-s1"
 # has none, KDE and Xfce do. Not a hard dependency — the window works alone.
 recommends = "gnome-shell-extension-appindicator"
 maintainer-scripts = "../packaging/deb/"
-# Kept out of packaging/deb/ so the maintainer-scripts scan can't pick it up.
 changelog = "../packaging/changelog"
 assets = [
     ["target/release/frameguin", "usr/bin/", "755"],
@@ -59,6 +58,7 @@ assets = [
     ["target/release/data/icons/io.github.valeronm.Frameguin.svg", "usr/share/icons/hicolor/scalable/apps/", "644"],
     ["target/release/data/icons/io.github.valeronm.Frameguin-symbolic.svg", "usr/share/icons/hicolor/symbolic/apps/", "644"],
     ["../README.md", "usr/share/doc/frameguin/README.md", "644"],
+    ["../packaging/deb/lintian-overrides", "usr/share/lintian/overrides/frameguin", "644"],
 ]
 
 # Installs the unit and generates the systemd maintainer-script snippets, so a

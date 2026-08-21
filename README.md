@@ -59,7 +59,8 @@ Cargo workspace with two crates:
   daemon's absolute path and are rendered per prefix by
   `packaging/render-data.sh`.
 - `packaging/` — the `.deb` build (`build-deb.sh`, maintainer scripts,
-  Debian changelog); cargo-deb metadata lives in `app/Cargo.toml`.
+  Debian changelog), the tarball build (`build-tarball.sh`) and its
+  downloader (`get.sh`); cargo-deb metadata lives in `app/Cargo.toml`.
 
 ## Security model
 
@@ -84,7 +85,36 @@ layered:
 - **Surface** — a fixed set of operations with all inputs validated against
   hardware-accepted values; no raw command passthrough.
 
-## Build & install
+## Install
+
+Neither of these needs a Rust toolchain or the `-dev` packages.
+
+**Debian and Ubuntu** — take the `.deb` from the
+[latest release](https://github.com/valeronm/frameguin/releases/latest):
+
+```sh
+sudo apt install ./frameguin_*.deb
+```
+
+apt pulls in GTK 4, libadwaita and polkit, and `apt purge frameguin` removes
+the lot again.
+
+**Anything else** — a tarball carrying the same installer the source build
+uses:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/valeronm/frameguin/main/packaging/get.sh | sh
+```
+
+That downloads and unpacks as your user and runs only the installer under
+`sudo`. Read it first if you'd rather; it is
+[packaging/get.sh](packaging/get.sh), and doing the same by hand is just
+`tar -xzf` then `sudo ./install.sh`.
+
+A tarball declares no dependencies, so GTK 4 and libadwaita must already be
+present; the installer checks before writing anything.
+
+## Build from source
 
 Rust 1.97+ (pinned in `mise.toml` for [mise](https://mise.jdx.dev) users)
 and the system libraries:
@@ -110,14 +140,12 @@ no manifest field for build-time tools; without mise, `cargo install
 cargo-deb`.
 
 ```sh
-./packaging/build-deb.sh
-sudo apt install ./target/debian/frameguin_*.deb
+./packaging/build-deb.sh                            # target/debian/
+./packaging/build-tarball.sh                        # target/dist/
 ```
 
-The package installs under `/usr` and pulls in the GTK and polkit runtime
-libraries itself, so it needs neither a Rust toolchain nor the `-dev`
-packages on the target machine. Don't mix the two: `install.sh` and the
-package would write competing copies, and dpkg only tracks its own.
+The package installs under `/usr`. Don't run it and `install.sh` on the same
+machine: they write competing copies, and dpkg only tracks its own.
 
 Autostart (tray icon only at login, via GIO's `--gapplication-service`) is
 per user: toggle **Start at login** in the app, which writes/removes
@@ -125,6 +153,26 @@ per user: toggle **Start at login** in the app, which writes/removes
 binary rather than a path, so it survives a move between install prefixes and
 goes inert (via `TryExec`) if Frameguin is uninstalled — no uninstaller can
 remove a file from another user's home directory.
+
+### Releasing
+
+The version is spelled in several places that nothing derives from each
+other. Bump them all, then tag:
+
+- `version` in the workspace `Cargo.toml` (both crates inherit it)
+- `packaging/changelog` — a new entry, since cargo-deb ships this verbatim
+- `<release version=… date=…/>` in `data/*.metainfo.xml`
+- the `v`-prefixed git tag
+
+```sh
+./packaging/build-deb.sh --expect 0.2.0       # the whole gate, before tagging
+./packaging/build-tarball.sh --expect 0.2.0
+```
+
+`--expect` is what CI runs on a tag, so a release that would fail there fails
+here first. Pushing the tag builds both the `.deb` and the tarball and
+attaches them, with its checksum, to a GitHub release; the same workflow runs
+on every push and pull request without the release step.
 
 ## Uninstall
 

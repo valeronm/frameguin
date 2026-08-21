@@ -1,0 +1,4 @@
+# The only command-line flag, --gapplication-service, is already described by
+# GApplication's own --help-gapplication; the user documentation ships as the
+# README and the AppStream description a software centre renders.
+frameguin: no-manual-page

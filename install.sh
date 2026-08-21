@@ -16,6 +16,11 @@ app_id="io.github.valeronm.Frameguin"
 # theme read from fixed system directories regardless of where this installs.
 prefix="${PREFIX:-/usr/local}"
 
+# A checkout has the binaries in cargo's build tree; a release tarball ships
+# them beside this script.
+built="$src/target/release"
+[ -x "$built/frameguin" ] || built="$src"
+
 # Staged outside the build tree so a sudo run leaves no root-owned files in it.
 staging="$(mktemp -d)"
 trap 'rm -rf "$staging"' EXIT
@@ -24,8 +29,8 @@ data="$staging/data"
 # mode, source, destination triples — the single list both modes use. Kept as
 # separate elements rather than delimited strings so a path is never parsed.
 files=(
-    755 "$src/target/release/frameguin-daemon" "$prefix/libexec/frameguin-daemon"
-    755 "$src/target/release/frameguin"        "$prefix/bin/frameguin"
+    755 "$built/frameguin-daemon"              "$prefix/libexec/frameguin-daemon"
+    755 "$built/frameguin"                     "$prefix/bin/frameguin"
     644 "$data/$app_id.conf"                   "/etc/dbus-1/system.d/$app_id.conf"
     644 "$data/$app_id.service"                "/usr/share/dbus-1/system-services/$app_id.service"
     # /etc, not /usr/lib: this is a local-admin install, and a packaged one
@@ -61,8 +66,38 @@ if [ "$(cat /sys/class/dmi/id/sys_vendor 2>/dev/null)" != "Framework" ]; then
     echo "         (the app will show no controls on unsupported hardware)" >&2
 fi
 
-if [ ! -x "$src/target/release/frameguin-daemon" ] || [ ! -x "$src/target/release/frameguin" ]; then
-    echo "binaries missing — build first (as your user, not root): cargo build --release" >&2
+if [ ! -x "$built/frameguin-daemon" ] || [ ! -x "$built/frameguin" ]; then
+    echo "binaries missing from $built" >&2
+    echo "in a checkout, build them first (as your user, not root):" >&2
+    echo "  cargo build --release" >&2
+    exit 1
+fi
+
+# The tarball carries no dependency metadata the way the .deb does, so a
+# missing GTK stack surfaces here rather than as a loader error at launch.
+missing="$(ldd "$built/frameguin" "$built/frameguin-daemon" |
+    awk '/not found/ {print "  " $1}' | sort -u)"
+if [ -n "$missing" ]; then
+    # ID_LIKE carries the parent distribution, so derivatives match without
+    # being listed. The names below are a best effort for distributions this
+    # is not built on; the sonames above are the part that is always true.
+    # shellcheck source=/dev/null
+    . /etc/os-release 2>/dev/null || true
+    {
+        echo "these shared libraries are missing:"
+        echo "$missing"
+        echo "install the runtime libraries first:"
+        case " ${ID:-} ${ID_LIKE:-} " in
+            *" debian "*|*" ubuntu "*)
+                echo "  sudo apt install libgtk-4-1 libadwaita-1-0 polkitd"
+                echo "or install the .deb, which pulls them in itself." ;;
+            *" fedora "*) echo "  sudo dnf install gtk4 libadwaita polkit" ;;
+            *" arch "*)   echo "  sudo pacman -S gtk4 libadwaita polkit" ;;
+            *" suse "*)   echo "  sudo zypper install libgtk-4-1 libadwaita-1-0 polkit" ;;
+            *) echo "  GTK 4, libadwaita and polkit — your package manager can"
+               echo "  name the package for a soname above" ;;
+        esac
+    } >&2
     exit 1
 fi
 

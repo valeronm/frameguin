@@ -1,0 +1,114 @@
+name: build
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    # Pinned, not ubuntu-latest: cargo-deb derives Depends from the libraries
+    # present at build time, so the oldest release carrying the libadwaita 1.4
+    # the app needs is also the widest install target.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install build dependencies
+        # No debian/control to derive this from, so it is the same list README
+        # gives for building by hand; both have to change together.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential pkg-config \
+            libgtk-4-dev libadwaita-1-dev libudev-dev \
+            lintian appstream desktop-file-utils shellcheck
+
+      - name: Install the toolchain pinned in mise.toml
+        # so CI builds with the versions a developer builds with
+        id: toolchain
+        run: |
+          rust_version=$(sed -n 's/^rust = "\(.*\)"$/\1/p' mise.toml)
+          deb_version=$(sed -n 's/^"cargo:cargo-deb" = "\(.*\)"$/\1/p' mise.toml)
+          echo "deb=$deb_version" >>"$GITHUB_OUTPUT"
+          rustup toolchain install "$rust_version" --profile minimal --component clippy
+          rustup default "$rust_version"
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          # Also caches ~/.cargo/bin, so cargo-deb is built once per pin
+          # rather than on every push.
+          key: ${{ hashFiles('mise.toml') }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Install cargo-deb
+        # Checks the binary rather than letting cargo install decide, which
+        # would rebuild whenever the cache restores ~/.cargo/bin without the
+        # bookkeeping in ~/.cargo/.crates.toml.
+        env:
+          DEB_VERSION: ${{ steps.toolchain.outputs.deb }}
+        run: |
+          if [ "$(cargo deb --version 2>/dev/null)" != "cargo-deb $DEB_VERSION" ]; then
+            cargo install cargo-deb --version "$DEB_VERSION" --locked
+          fi
+
+      - name: Static checks
+        # install.sh runs as root and get.sh is fetched straight into a shell,
+        # so they get the same scrutiny as the code.
+        run: |
+          shellcheck install.sh packaging/*.sh
+          cargo clippy --workspace --release -- -D warnings
+
+      # Also runs lintian, appstreamcli and desktop-file-validate, and on a tag
+      # checks that every version the package carries matches the tag's.
+      - name: Build packages
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            expect=(--expect "${GITHUB_REF_NAME#v}")
+          else
+            expect=()
+          fi
+          ./packaging/build-deb.sh "${expect[@]}"
+          ./packaging/build-tarball.sh "${expect[@]}"
+
+      # Tags only: an untagged build carries the same version as the last
+      # release, so apt would refuse to install it over one.
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: github.ref_type == 'tag'
+        with:
+          name: packages
+          path: |
+            target/debian/*.deb
+            target/dist/*.tar.gz
+            target/dist/*.sha256
+
+  release:
+    if: github.ref_type == 'tag'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: packages
+          path: dist
+
+      - name: Create or update release
+        # update path: a moved tag (rebuilt release) replaces the assets
+        # instead of failing on the existing release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          assets=$(find dist -type f)
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" $assets --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$GITHUB_REF_NAME" $assets \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "frameguin $GITHUB_REF_NAME" \
+              --generate-notes
+          fi
