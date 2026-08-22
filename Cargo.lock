@@ -613,7 +613,7 @@ checksum = "d45db016d36b838f563236e9193d0ee6ce38f3f68b6c94e914b4929c96bbb890"
 
 [[package]]
 name = "frameguin"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "async-channel",
  "frameguin-wire",
@@ -625,7 +625,7 @@ dependencies = [
 
 [[package]]
 name = "frameguin-daemon"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "frameguin-wire",
  "framework_lib",
@@ -636,7 +636,7 @@ dependencies = [
 
 [[package]]
 name = "frameguin-wire"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "serde",
  "zbus",
