@@ -44,6 +44,7 @@ fn capability_names_are_kebab_case() {
         wire_string(Capability::FpBrightnessCustom),
         "fp-brightness-custom"
     );
+    assert_eq!(wire_string(Capability::FpOff), "fp-off");
     assert_eq!(wire_string(Capability::HapticTouchpad), "haptic-touchpad");
 }
 
@@ -54,6 +55,7 @@ fn fingerprint_level_names_are_kebab_case() {
     assert_eq!(wire_string(FpLevel::Medium), "medium");
     assert_eq!(wire_string(FpLevel::Low), "low");
     assert_eq!(wire_string(FpLevel::UltraLow), "ultra-low");
+    assert_eq!(wire_string(FpLevel::Off), "off");
     assert_eq!(wire_string(FpLevel::Custom), "custom");
 }
 
@@ -64,16 +66,10 @@ fn click_force_names_are_kebab_case() {
     assert_eq!(wire_string(ClickForce::High), "high");
 }
 
-/// Custom is the one level the EC reports but will not take, so a list of
-/// what a setter accepts cannot be `ALL` minus a trailing entry — that would
-/// make variant order load-bearing.
+/// Custom is the one level the EC reports but will not take.
 #[test]
-fn the_settable_levels_are_every_level_but_custom() {
+fn every_level_but_custom_is_settable() {
     for level in FpLevel::ALL {
-        assert_eq!(
-            level != FpLevel::Custom,
-            FpLevel::SETTABLE.contains(&level),
-            "{level:?} belongs in exactly one of ALL-minus-Custom and SETTABLE"
-        );
+        assert_eq!(level != FpLevel::Custom, level.is_settable(), "{level:?}");
     }
 }

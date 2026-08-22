@@ -23,7 +23,10 @@ Computer Inc. Licensed under the [MIT License](LICENSE).
   made elsewhere (Fn+Space, firmware auto mode).
 - **Fingerprint LED brightness** — level presets (auto/high/medium/low/
   ultra-low) in the tray, plus a custom percentage in the window. Older EC
-  firmware offers only high/medium/low.
+  firmware offers only high/medium/low. Off is there too, and is not the EC's
+  doing: the LED is the power indicator as well, so switching it off means
+  taking it off the EC's own policy through the kernel's LED class. Picking
+  any level hands it back.
 - **Haptic touchpad** — click feedback intensity (off/25/50/75/100%) and
   click force (low/medium/high), via `framework_lib` HID feature reports.
   Write-only firmware controls, so the daemon remembers what it set (mirrored

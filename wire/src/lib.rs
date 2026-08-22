@@ -42,6 +42,12 @@ pub enum Capability {
     /// V1 of the EC's fingerprint command: the raw percentage write, and with
     /// it the ultra-low and auto levels (framework-system issue #211).
     FpBrightnessCustom,
+    /// Darkening the LED, which the EC's command cannot express: it takes
+    /// 1-100 and reserves 0, the LED being the power indicator too. Off is
+    /// reached by taking the LED off the EC's own policy through the kernel's
+    /// LED class, so this capability answers for that interface rather than
+    /// for a command version.
+    FpOff,
     /// One name for both touchpad controls — same device, same firmware
     /// feature set, so nothing can support one and not the other.
     HapticTouchpad,
@@ -57,32 +63,47 @@ pub enum FpLevel {
     Medium,
     Low,
     UltraLow,
+    /// Dark, and the only level the EC is not driving — the LED belongs to
+    /// the host while it holds. Setting any other level is what gives it
+    /// back, so there is no separate way to switch the LED on.
+    Off,
     /// Get-only. The EC reports it after a raw percentage write and rejects
     /// it as a setting, so a caller reaches it by writing a percentage.
     Custom,
 }
 
 impl FpLevel {
-    /// The automatic mode, then brightest to dimmest, then the get-only one.
-    pub const ALL: [Self; 6] = [
+    /// The automatic mode, then brightest to dimmest with dark past the
+    /// dimmest, then the get-only one.
+    pub const ALL: [Self; 7] = [
         Self::Auto,
         Self::High,
         Self::Medium,
         Self::Low,
         Self::UltraLow,
+        Self::Off,
         Self::Custom,
     ];
 
-    /// The levels a setter accepts. Spelled out rather than derived from
-    /// [`FpLevel::ALL`], so that a caller offering only settable levels can't
-    /// be made wrong by the order the variants happen to be listed in.
-    pub const SETTABLE: [Self; 5] = [
-        Self::Auto,
-        Self::High,
-        Self::Medium,
-        Self::Low,
-        Self::UltraLow,
-    ];
+    /// Whether a setter takes this level. A predicate rather than a second
+    /// list, so that a caller offering only what it can apply cannot be made
+    /// wrong by the order the variants happen to be listed in.
+    #[must_use]
+    pub const fn is_settable(self) -> bool {
+        !matches!(self, Self::Custom)
+    }
+
+    /// The capability that answers for this level. Which levels a board has
+    /// is a fact about its firmware, and so belongs here rather than in the
+    /// process that links none of it.
+    #[must_use]
+    pub const fn requires(self) -> Capability {
+        match self {
+            Self::High | Self::Medium | Self::Low => Capability::FpBrightness,
+            Self::Auto | Self::UltraLow | Self::Custom => Capability::FpBrightnessCustom,
+            Self::Off => Capability::FpOff,
+        }
+    }
 }
 
 /// How hard the haptic touchpad has to be pressed to register a click.

@@ -89,6 +89,15 @@ merely that the write exists.
   Percentage and the ultra-low/auto levels need command v1, which older EC
   firmware lacks (framework-system issue #211), so they sit behind the
   `fp-brightness-custom` capability probed with `cmd_version_supported`.
+- Fingerprint LED off: the EC has no off — its level command rejects 0, and
+  its BBRAM slot reads a 0 back as full brightness, 0 being the uninitialized
+  value there. So off is the kernel's LED class instead
+  (`/sys/class/leds/chromeos:*:power`), making it the one control that does
+  not reach the hardware through the EC and the one whose state nothing can
+  read back — hence `EcStamp` dating the darkening, an EC restart returning
+  every LED to the EC without the kernel noticing. `darken_led` carries why
+  the writes go through the kernel rather than the `EC_CMD_LED_CONTROL` the
+  daemon could send itself.
 - Haptic touchpad: write-only (firmware ACKs GET_FEATURE with zeros) and
   persists in its own flash across suspend and reboot. The daemon mirrors
   state to `/var/lib/frameguin/state` so it can report what it set; nothing

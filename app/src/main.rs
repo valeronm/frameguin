@@ -273,26 +273,29 @@ fn fp_level_label(level: FpLevel) -> &'static str {
         FpLevel::Medium => "Medium",
         FpLevel::Low => "Low",
         FpLevel::UltraLow => "Ultra-low",
+        FpLevel::Off => "Off",
         FpLevel::Custom => "Custom",
     }
 }
 
-/// What a board without [`Capability::FpBrightnessCustom`] offers. Not wire
-/// vocabulary: no message names this set, and what belongs in it is decided
-/// by the daemon's probe — v1 of the EC command brought the percentage write
-/// and the ultra-low and auto levels in together, so a board without it has
-/// these three and no percentage write to report Custom after.
-const FP_BASIC: [FpLevel; 3] = [FpLevel::High, FpLevel::Medium, FpLevel::Low];
+/// The window's rows: every level this board has, Custom included.
+fn fp_rows(caps: Capabilities) -> Vec<FpLevel> {
+    FpLevel::ALL
+        .into_iter()
+        .filter(|level| caps.has(level.requires()))
+        .collect()
+}
 
-/// The tray's rows: only what a click can actually apply, so Custom — which
-/// the EC reports after a percentage write and no setter takes — is absent.
-/// The window's combo differs, showing everything the EC can report.
-fn fp_presets(custom: bool) -> &'static [FpLevel] {
-    if custom {
-        &FpLevel::SETTABLE
-    } else {
-        &FP_BASIC
-    }
+/// The tray's rows: the window's, less the one no click can apply.
+fn fp_presets(caps: Capabilities) -> Vec<FpLevel> {
+    fp_rows(caps)
+        .into_iter()
+        .filter(|level| level.is_settable())
+        .collect()
+}
+
+fn fp_level_labels(levels: &[FpLevel]) -> Vec<String> {
+    levels.iter().map(|level| fp_level_label(*level).into()).collect()
 }
 
 struct TrayIcon {
@@ -463,14 +466,11 @@ impl TrayIcon {
         if !caps.has(Capability::FpBrightness) {
             return None;
         }
-        let levels = fp_presets(caps.has(Capability::FpBrightnessCustom));
+        let levels = fp_presets(caps);
         let selected = self
             .fp_level
             .and_then(|level| levels.iter().position(|l| *l == level));
-        let options: Vec<String> = levels
-            .iter()
-            .map(|level| fp_level_label(*level).to_string())
-            .collect();
+        let options = fp_level_labels(&levels);
         let title = match selected {
             Some(index) => format!("Fingerprint LED ({})", options[index]),
             None => "Fingerprint LED".into(),
@@ -631,9 +631,9 @@ struct Ui {
     fp_combo: adw::ComboRow,
     /// The slider's row; shown only while the level is Custom.
     fp_custom_row: adw::ActionRow,
-    /// The levels behind the combo's rows, set once capabilities are known
-    /// (full set, or high/medium/low on v0-only firmware).
-    fp_levels: Cell<&'static [FpLevel]>,
+    /// The levels behind the combo's rows, narrowed to what this board
+    /// supports once capabilities are known.
+    fp_levels: RefCell<Vec<FpLevel>>,
     haptic_combo: adw::ComboRow,
     force_combo: adw::ComboRow,
     tray: Option<ksni::blocking::Handle<TrayIcon>>,
@@ -706,7 +706,7 @@ impl Ui {
 
     fn fp_combo_index(&self, level: FpLevel) -> u32 {
         self.fp_levels
-            .get()
+            .borrow()
             .iter()
             .position(|l| *l == level)
             .map_or(gtk::INVALID_LIST_POSITION, combo_index)
@@ -1136,7 +1136,7 @@ fn connect_fp_setter(ui: &Rc<Ui>, proxy: &FrameguinProxy<'static>) {
         if combo_ui.syncing.get() {
             return;
         }
-        let level = combo_ui.fp_levels.get()[row.selected() as usize];
+        let level = combo_ui.fp_levels.borrow()[row.selected() as usize];
         let ui = combo_ui.clone();
         let proxy = combo_proxy.clone();
         glib::spawn_future_local(async move {
@@ -1333,9 +1333,10 @@ fn build_window(
     page.add(&keyboard);
 
     let fingerprint = adw::PreferencesGroup::builder().title("Fingerprint").build();
+    // No model: which levels a board has is the daemon's answer, and the row
+    // it would show meanwhile is one the board may not have.
     let fp_combo = adw::ComboRow::builder()
         .title("LED level")
-        .model(&gtk::StringList::new(&FpLevel::ALL.map(fp_level_label)))
         .sensitive(false)
         .build();
     fingerprint.add(&fp_combo);
@@ -1431,7 +1432,7 @@ fn build_window(
         fp_scale,
         fp_combo,
         fp_custom_row: fp_row,
-        fp_levels: Cell::new(&FpLevel::ALL),
+        fp_levels: RefCell::new(Vec::new()),
         haptic_combo,
         force_combo,
         tray,
@@ -1509,15 +1510,12 @@ async fn init_from_daemon(ui: Rc<Ui>, groups: CapabilityWidgets, window: adw::Ap
     ui.caps.set(caps);
     groups.show_supported(caps);
     ui.sync_tray(TrayValues::caps(caps));
-    // Fixed for a firmware generation, so the combo's rows are chosen once
-    // rather than rebuilt by every reload. The widgets are built on the full
-    // set, so only firmware that lacks the v1 levels narrows them.
-    if caps.has(Capability::FpBrightness) && !caps.has(Capability::FpBrightnessCustom) {
-        ui.fp_levels.set(&FP_BASIC);
-        ui.fp_combo.set_model(Some(&gtk::StringList::new(
-            &FP_BASIC.map(fp_level_label),
-        )));
-    }
+    // Fixed for a board, so the combo's rows are chosen once here rather than
+    // rebuilt by every reload.
+    let rows = fp_rows(caps);
+    ui.fp_combo
+        .set_model(Some(&string_list(&fp_level_labels(&rows))));
+    ui.fp_levels.replace(rows);
     load_values(&ui, &proxy).await;
     connect_setters(&ui, &proxy);
 
