@@ -419,11 +419,14 @@ impl Daemon {
         Ok(max)
     }
 
+    /// Returns whether the EC was written, so a caller can tell a change from
+    /// a request for the ceiling already in place and not announce the two
+    /// the same way.
     async fn set_charge_limit(
         &self,
         percent: u8,
         #[zbus(header)] header: Header<'_>,
-    ) -> fdo::Result<()> {
+    ) -> fdo::Result<bool> {
         self.touch();
         if !(20..=100).contains(&percent) {
             return Err(fdo::Error::InvalidArgs("charge limit must be 20-100".into()));
@@ -433,12 +436,13 @@ impl Daemon {
         // Checked here rather than by the caller, so the answer comes from
         // the hardware and no client can act on a stale idea of it.
         if self.get_charge_limit()? == percent {
-            return Ok(());
+            return Ok(false);
         }
         self.authorize(&header).await?;
         self.ec_guard()?
             .set_charge_limit(0, percent)
-            .map_err(ec_err)
+            .map_err(ec_err)?;
+        Ok(true)
     }
 
     /// How fast the battery may charge, in mA, or `NO_CHARGE_CURRENT_LIMIT`
@@ -479,11 +483,12 @@ impl Daemon {
     /// lifts the cap. Zero is refused: the EC clamps its requested current
     /// against this value, so zero stops charging altogether rather than
     /// meaning "unrestricted", and nothing would report that back.
+    /// Returns whether the EC was written, as `set_charge_limit` does.
     async fn set_charge_current_limit(
         &self,
         milliamps: u32,
         #[zbus(header)] header: Header<'_>,
-    ) -> fdo::Result<()> {
+    ) -> fdo::Result<bool> {
         self.touch();
         if milliamps == 0 {
             return Err(fdo::Error::InvalidArgs(format!(
@@ -495,7 +500,7 @@ impl Daemon {
         // thing to the truth here is the daemon's own mirror, the EC having
         // no readback to offer.
         if self.get_charge_current_limit()? == milliamps {
-            return Ok(());
+            return Ok(false);
         }
         self.authorize(&header).await?;
         let ec_uptime = {
@@ -514,7 +519,7 @@ impl Daemon {
             written_at: unix_now(),
         };
         self.save_state();
-        Ok(())
+        Ok(true)
     }
 
     fn get_ec_version(&self) -> fdo::Result<String> {
@@ -672,5 +677,57 @@ fn main() -> zbus::Result<()> {
         if clock.lock().unwrap().elapsed() > IDLE_EXIT {
             return Ok(());
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ChargeCurrentLimit;
+
+    fn written_at(ec_uptime: u64, written_at: u64) -> ChargeCurrentLimit {
+        ChargeCurrentLimit {
+            milliamps: 2000,
+            ec_uptime,
+            written_at,
+        }
+    }
+
+    #[test]
+    fn a_limit_written_moments_ago_is_still_held() {
+        let limit = written_at(500_000, 1_000_000);
+        assert!(limit.still_held(500_002, 1_000_002));
+    }
+
+    #[test]
+    fn an_ec_that_has_run_the_elapsed_time_is_still_held() {
+        // A day passes with the EC up throughout.
+        let limit = written_at(500_000, 1_000_000);
+        assert!(limit.still_held(586_400, 1_086_400));
+    }
+
+    #[test]
+    fn an_ec_that_restarted_has_dropped_the_limit() {
+        // An hour of wall clock, but the EC reports a minute of uptime.
+        let limit = written_at(500_000, 1_000_000);
+        assert!(!limit.still_held(60, 1_003_600));
+    }
+
+    /// The EC's own clock is documented as 1% or worse against the host's, so
+    /// a tolerance that didn't scale would call a long-held limit expired.
+    #[test]
+    fn clock_drift_over_a_long_uptime_is_not_a_restart() {
+        let limit = written_at(0, 1_000_000);
+        // Ten days later the EC is 1% short of the elapsed wall time.
+        let elapsed = 10 * 86_400;
+        assert!(limit.still_held(elapsed - elapsed / 100, 1_000_000 + elapsed));
+    }
+
+    #[test]
+    fn a_short_hold_gets_the_floor_not_the_percentage() {
+        // Seconds after the write, five percent of nothing is nothing, so the
+        // 60s floor is what keeps a fresh limit from reading as expired.
+        let limit = written_at(10, 1_000_000);
+        assert!(limit.still_held(10, 1_000_030));
+        assert!(!limit.still_held(10, 1_000_200));
     }
 }

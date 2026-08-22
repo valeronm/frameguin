@@ -31,9 +31,10 @@ const CHARGE_CURRENT_SECONDS: u32 = 2;
 )]
 trait Frameguin {
     async fn get_charge_limit(&self) -> zbus::Result<u8>;
-    async fn set_charge_limit(&self, percent: u8) -> zbus::Result<()>;
+    /// True when the daemon wrote; false when the value was already set.
+    async fn set_charge_limit(&self, percent: u8) -> zbus::Result<bool>;
     async fn get_charge_current_limit(&self) -> zbus::Result<u32>;
-    async fn set_charge_current_limit(&self, milliamps: u32) -> zbus::Result<()>;
+    async fn set_charge_current_limit(&self, milliamps: u32) -> zbus::Result<bool>;
     async fn get_battery_design_capacity(&self) -> zbus::Result<u32>;
     async fn get_charge_current(&self) -> zbus::Result<u32>;
     async fn get_keyboard_backlight(&self) -> zbus::Result<u8>;
@@ -670,6 +671,16 @@ impl Ui {
         }
     }
 
+    /// Moves the fingerprint widgets onto a level without writing it back.
+    /// Unlike the charge controls, "custom" is a state the EC reports, so the
+    /// row it belongs on is read off the level rather than remembered.
+    fn show_fp_level(&self, level: &str) {
+        self.sync(|| {
+            self.fp_combo.set_selected(self.fp_combo_index(level));
+            self.fp_custom_row.set_visible(level == "custom");
+        });
+    }
+
     /// Moves the charge-limit widgets onto a ceiling without writing it back,
     /// the counterpart of [`Ui::show_charge_speed`] — change one and read the
     /// other.
@@ -886,7 +897,7 @@ fn connect_charge_speed_setter(ui: &Rc<Ui>, proxy: &FrameguinProxy<'static>) {
         let ui = speed_ui.clone();
         let proxy = speed_proxy.clone();
         glib::spawn_future_local(async move {
-            apply_charge_speed(&ui, &proxy, milliamps, Custom::Rederive).await;
+            apply_charge_speed(Sink::Window(&ui), &proxy, milliamps, Custom::Rederive).await;
         });
     });
 
@@ -897,7 +908,7 @@ fn connect_charge_speed_setter(ui: &Rc<Ui>, proxy: &FrameguinProxy<'static>) {
         let ui = scale_ui.clone();
         let proxy = scale_proxy.clone();
         glib::spawn_future_local(async move {
-            apply_charge_speed(&ui, &proxy, milliamps, Custom::Keep).await;
+            apply_charge_speed(Sink::Window(&ui), &proxy, milliamps, Custom::Keep).await;
         });
     });
 
@@ -954,6 +965,56 @@ fn connect_touchpad_setters(ui: &Rc<Ui>, proxy: &FrameguinProxy<'static>) {
     });
 }
 
+/// Where a write reports back to. A tray preset can arrive in a session whose
+/// window has never been built, and building a widget tree to hold a toast
+/// nobody will see is not worth it — so the tray answers for itself, and only
+/// the window carries the parts a window has.
+#[derive(Clone, Copy)]
+enum Sink<'a> {
+    Window(&'a Ui),
+    Tray(&'a ksni::blocking::Handle<TrayIcon>),
+}
+
+impl Sink<'_> {
+    fn toast(&self, message: &str) {
+        if let Sink::Window(ui) = self {
+            ui.toast(message);
+        }
+    }
+
+    fn show_charge_limit(&self, percent: u8, custom: Custom) {
+        match self {
+            Sink::Window(ui) => {
+                ui.sync_tray_charge_limit(percent);
+                ui.show_charge_limit(percent, custom);
+            }
+            Sink::Tray(handle) => tray_set_charge_limit(handle, percent),
+        }
+    }
+
+    fn show_charge_speed(&self, milliamps: u32, custom: Custom) {
+        match self {
+            Sink::Window(ui) => {
+                ui.sync_tray_charge_speed(milliamps);
+                ui.show_charge_speed(milliamps, custom);
+            }
+            // The capacity the tray already holds is the one the menu was
+            // drawn from, so it has nothing to learn here.
+            Sink::Tray(handle) => tray_set_charge_speed(handle, None, milliamps),
+        }
+    }
+
+    fn show_fp_level(&self, level: &str) {
+        match self {
+            Sink::Window(ui) => {
+                ui.sync_tray_fp_level(level);
+                ui.show_fp_level(level);
+            }
+            Sink::Tray(handle) => tray_set_fp_level(handle, level),
+        }
+    }
+}
+
 /// The one write for the charge limit. The window's row and the tray preset
 /// both come here, so neither can drift from the other on what it reports or
 /// what it tells the tray.
@@ -964,14 +1025,22 @@ fn connect_touchpad_setters(ui: &Rc<Ui>, proxy: &FrameguinProxy<'static>) {
 /// battery's capacity where the ceiling's are constants, and only the speed
 /// has a "full speed means no limit" case. A change to one is usually a
 /// change to both — read the sibling before editing either.
-async fn apply_charge_limit(ui: &Ui, proxy: &FrameguinProxy<'static>, percent: u8, custom: Custom) {
+async fn apply_charge_limit(
+    sink: Sink<'_>,
+    proxy: &FrameguinProxy<'static>,
+    percent: u8,
+    custom: Custom,
+) {
     match proxy.set_charge_limit(percent).await {
-        Ok(()) => {
-            ui.toast(&format!("Charge limit set to {percent}%"));
-            ui.sync_tray_charge_limit(percent);
-            ui.show_charge_limit(percent, custom);
+        // Silent when the daemon found the ceiling already there: announcing
+        // a write that didn't happen is a confirmation of nothing.
+        Ok(written) => {
+            if written {
+                sink.toast(&format!("Charge limit set to {percent}%"));
+            }
+            sink.show_charge_limit(percent, custom);
         }
-        Err(e) => ui.toast(&format!("Setting charge limit failed: {e}")),
+        Err(e) => sink.toast(&format!("Setting charge limit failed: {e}")),
     }
 }
 
@@ -979,39 +1048,42 @@ async fn apply_charge_limit(ui: &Ui, proxy: &FrameguinProxy<'static>, percent: u
 /// Callers resolve a speed to milliamps against the battery capacity they
 /// hold — the window's, or the tray's own copy.
 async fn apply_charge_speed(
-    ui: &Ui,
+    sink: Sink<'_>,
     proxy: &FrameguinProxy<'static>,
     milliamps: u32,
     custom: Custom,
 ) {
-    if let Err(e) = proxy.set_charge_current_limit(milliamps).await {
-        ui.toast(&format!("Setting charge speed failed: {e}"));
-        return;
+    let written = match proxy.set_charge_current_limit(milliamps).await {
+        Ok(written) => written,
+        Err(e) => {
+            sink.toast(&format!("Setting charge speed failed: {e}"));
+            return;
+        }
+    };
+    if written {
+        if milliamps == NO_CHARGE_CURRENT_LIMIT {
+            sink.toast("Charging at full speed");
+        } else {
+            sink.toast(&format!("Charge speed capped at {}", amps(milliamps)));
+        }
     }
-    if milliamps == NO_CHARGE_CURRENT_LIMIT {
-        ui.toast("Charging at full speed");
-    } else {
-        ui.toast(&format!("Charge speed capped at {}", amps(milliamps)));
-    }
-    ui.sync_tray_charge_speed(milliamps);
-    ui.show_charge_speed(milliamps, custom);
+    sink.show_charge_speed(milliamps, custom);
 }
 
 /// The one write for a fingerprint preset. "custom" is not one: the EC
 /// reports it after a raw percentage write, which goes through
 /// [`apply_fp_brightness`] instead.
-async fn apply_fp_level(ui: &Ui, proxy: &FrameguinProxy<'static>, level: &str) {
+async fn apply_fp_level(sink: Sink<'_>, proxy: &FrameguinProxy<'static>, level: &str) {
     if let Err(e) = proxy.set_fingerprint_level(level).await {
-        ui.toast(&format!("Setting fingerprint level failed: {e}"));
+        sink.toast(&format!("Setting fingerprint level failed: {e}"));
         return;
     }
-    ui.sync_tray_fp_level(level);
-    ui.sync(|| {
-        ui.fp_custom_row.set_visible(false);
-        ui.fp_combo.set_selected(ui.fp_combo_index(level));
-    });
-    // The preset resolves to a percentage only the EC knows.
-    if let Ok((percent, _)) = proxy.get_fingerprint_brightness().await {
+    sink.show_fp_level(level);
+    // The preset resolves to a percentage only the EC knows, and only the
+    // window has anywhere to put it.
+    if let Sink::Window(ui) = sink
+        && let Ok((percent, _)) = proxy.get_fingerprint_brightness().await
+    {
         ui.sync(|| ui.fp_scale.set_value(f64::from(percent)));
     }
 }
@@ -1066,7 +1138,7 @@ fn connect_fp_setter(ui: &Rc<Ui>, proxy: &FrameguinProxy<'static>) {
                 apply_fp_brightness(&ui, &proxy, percent).await;
                 return;
             }
-            apply_fp_level(&ui, &proxy, level).await;
+            apply_fp_level(Sink::Window(&ui), &proxy, level).await;
         });
     });
 }
@@ -1094,7 +1166,7 @@ fn connect_charge_setter(ui: &Rc<Ui>, proxy: &FrameguinProxy<'static>) {
         let ui = limit_ui.clone();
         let proxy = limit_proxy.clone();
         glib::spawn_future_local(async move {
-            apply_charge_limit(&ui, &proxy, percent, Custom::Rederive).await;
+            apply_charge_limit(Sink::Window(&ui), &proxy, percent, Custom::Rederive).await;
         });
     });
 
@@ -1105,7 +1177,7 @@ fn connect_charge_setter(ui: &Rc<Ui>, proxy: &FrameguinProxy<'static>) {
         let ui = scale_ui.clone();
         let proxy = scale_proxy.clone();
         glib::spawn_future_local(async move {
-            apply_charge_limit(&ui, &proxy, percent, Custom::Keep).await;
+            apply_charge_limit(Sink::Window(&ui), &proxy, percent, Custom::Keep).await;
         });
     });
 }
@@ -1537,10 +1609,9 @@ async fn load_values(ui: &Rc<Ui>, proxy: &FrameguinProxy<'static>) {
     if caps.fp_brightness {
         match proxy.get_fingerprint_brightness().await {
             Ok((percent, level)) => {
+                ui.show_fp_level(&level);
                 ui.sync(|| {
                     ui.fp_scale.set_value(f64::from(percent));
-                    ui.fp_combo.set_selected(ui.fp_combo_index(&level));
-                    ui.fp_custom_row.set_visible(level == "custom");
                     ui.fp_scale.set_sensitive(true);
                     ui.fp_combo.set_sensitive(true);
                 });
@@ -1607,6 +1678,12 @@ impl AppState {
         let mut slot = self.window.borrow_mut();
         slot.get_or_insert_with(|| build_window(app, self.tray.borrow().clone()))
             .clone()
+    }
+
+    /// The window's widgets if one has been built, without building one. A
+    /// tray preset needs somewhere to report, not a window.
+    fn built_ui(&self) -> Option<Rc<Ui>> {
+        self.window.borrow().as_ref().map(|(_, ui)| ui.clone())
     }
 }
 
@@ -1707,6 +1784,11 @@ fn setup_tray(app: &adw::Application, state: Rc<AppState>) {
             refresh_tray(&handle, proxy).await;
         }
         while let Ok(event) = rx.recv().await {
+            // Where a preset reports: the window when one has been built, the
+            // tray itself otherwise. Resolved once, so the fallback is stated
+            // in one place however many presets the menu grows.
+            let built = state.built_ui();
+            let sink = built.as_deref().map_or(Sink::Tray(&handle), Sink::Window);
             match event {
                 TrayEvent::Show => {
                     let window = state.window_for(&app).0;
@@ -1727,8 +1809,7 @@ fn setup_tray(app: &adw::Application, state: Rc<AppState>) {
                 // value emits no change, and the click would be swallowed.
                 TrayEvent::SetChargeLimit(percent) => {
                     if let Some(proxy) = &proxy {
-                        let ui = state.window_for(&app).1;
-                        apply_charge_limit(&ui, proxy, percent, Custom::Rederive).await;
+                        apply_charge_limit(sink, proxy, percent, Custom::Rederive).await;
                     }
                 }
                 TrayEvent::Refresh => {
@@ -1738,13 +1819,12 @@ fn setup_tray(app: &adw::Application, state: Rc<AppState>) {
                 }
                 TrayEvent::SetChargeSpeed(milliamps) => {
                     if let Some(proxy) = &proxy {
-                        let ui = state.window_for(&app).1;
-                        apply_charge_speed(&ui, proxy, milliamps, Custom::Rederive).await;
+                        apply_charge_speed(sink, proxy, milliamps, Custom::Rederive).await;
                     }
                 }
                 TrayEvent::SetFingerprintLevel(level) => {
                     if let Some(proxy) = &proxy {
-                        apply_fp_level(&state.window_for(&app).1, proxy, level).await;
+                        apply_fp_level(sink, proxy, level).await;
                     }
                 }
                 TrayEvent::Quit => app.quit(),
@@ -1805,4 +1885,67 @@ fn main() -> glib::ExitCode {
     app.connect_startup(move |app| setup_tray(app, startup_state.clone()));
     app.connect_activate(move |app| state.window_for(app).0.present());
     app.run()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        CHARGE_SPEEDS, MIN_CUSTOM_CHARGE_MA, NO_CHARGE_CURRENT_LIMIT, charge_speed_labels,
+        charge_speed_milliamps, charge_speed_position, scale_milliamps, with_custom_row,
+    };
+
+    /// A 4640 mAh pack, the Laptop 13's.
+    const CAPACITY: u32 = 4640;
+
+    #[test]
+    fn full_speed_lifts_the_limit_rather_than_naming_the_pack_rate() {
+        // Sending the capacity would install a real cap at 1C; the EC only
+        // stops clamping when the limit is the maximum.
+        assert_eq!(charge_speed_milliamps(CAPACITY, 0), NO_CHARGE_CURRENT_LIMIT);
+    }
+
+    #[test]
+    fn presets_are_fractions_of_the_pack_rate() {
+        assert_eq!(charge_speed_milliamps(CAPACITY, 1), 2320);
+        assert_eq!(charge_speed_milliamps(CAPACITY, 2), 1160);
+    }
+
+    #[test]
+    fn a_preset_round_trips_to_its_own_row() {
+        for index in 0..CHARGE_SPEEDS.len() {
+            let milliamps = charge_speed_milliamps(CAPACITY, index);
+            assert_eq!(charge_speed_position(CAPACITY, milliamps), Some(index));
+        }
+    }
+
+    #[test]
+    fn a_dialled_in_value_matches_no_preset() {
+        assert_eq!(charge_speed_position(CAPACITY, 1500), None);
+    }
+
+    /// A `GtkScale` is continuous while dragged, so without snapping a drag
+    /// lands on values like 984 mA that the row then displays as "1.0 A".
+    #[test]
+    fn the_slider_snaps_to_whole_steps() {
+        assert_eq!(scale_milliamps(984.0), 1000);
+        assert_eq!(scale_milliamps(1049.0), 1000);
+        assert_eq!(scale_milliamps(1050.0), 1100);
+    }
+
+    #[test]
+    fn the_slider_never_asks_for_a_current_that_stops_charging() {
+        let floor = scale_milliamps(MIN_CUSTOM_CHARGE_MA);
+        assert!(floor > 0);
+        assert_eq!(scale_milliamps(0.0), floor);
+        assert_eq!(scale_milliamps(-50.0), floor);
+    }
+
+    #[test]
+    fn labels_name_the_rate_and_end_with_the_custom_row() {
+        let labels = with_custom_row(charge_speed_labels(CAPACITY));
+        assert_eq!(labels.len(), CHARGE_SPEEDS.len() + 1);
+        assert_eq!(labels[0], "Full speed");
+        assert_eq!(labels[1], "Half (2.3 A)");
+        assert_eq!(labels[CHARGE_SPEEDS.len()], "Custom");
+    }
 }
