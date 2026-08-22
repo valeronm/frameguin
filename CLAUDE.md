@@ -95,6 +95,12 @@ the LED node rather than consulting `fp-off`.
 - Charge limit: the EC persists it in BBRAM, but UEFI setup re-sends its own
   stored value at every POST, so an app-set limit lasts until reboot and the
   standing value lives in BIOS setup.
+- Battery flags: the EC's discharging flag means "not being charged", not
+  "supplying the machine" — a full pack on a connected charger sets it, which
+  is a smart battery reporting zero charge current. `framework_tool --power`
+  prints "Battery discharging" in that state too. So `charge_flow` ignores it
+  and decides from the charging flag, the charger and the rate, which reads a
+  clean 0 mA at rest.
 - Fingerprint LED: 1–100 (0 rejected — it doubles as the power indicator).
   Percentage and the ultra-low/auto levels need command v1, which older EC
   firmware lacks (framework-system issue #211), so they sit behind the

@@ -11,8 +11,8 @@ use std::time::Duration;
 
 use adw::prelude::*;
 use frameguin_wire::{
-    Capability, ClickForce, FpLevel, FrameguinProxy, HAPTIC_INTENSITY_LEVELS,
-    NO_CHARGE_CURRENT_LIMIT,
+    BatteryState, Capability, ChargeFlow, ClickForce, FpLevel, FrameguinProxy,
+    HAPTIC_INTENSITY_LEVELS, NO_CHARGE_CURRENT_LIMIT,
 };
 use gtk4 as gtk;
 use gtk4::gio;
@@ -26,7 +26,7 @@ const SLIDER_DEBOUNCE: Duration = Duration::from_millis(200);
 /// them would be another authorized EC write.
 const SETTLE_DEBOUNCE: Duration = Duration::from_millis(700);
 const KBD_SYNC_SECONDS: u32 = 2;
-const CHARGE_CURRENT_SECONDS: u32 = 2;
+const BATTERY_STATE_SECONDS: u32 = 2;
 
 /// GTK carries adjustment values as f64. The cast alone saturates at 255, so
 /// the clamp is what holds the result inside the range the daemon accepts;
@@ -43,6 +43,29 @@ fn scale_percent(value: f64) -> u8 {
 /// Milliamps as the amps a person reads off a charger.
 fn amps(milliamps: u32) -> String {
     format!("{:.1} A", f64::from(milliamps) / 1000.0)
+}
+
+/// Which way charge is moving, with the rate where there is one to name. A
+/// rate of zero is dropped rather than rendered: "0.0 A" is what a pack
+/// reports in the moment either side of a direction changing, and it reads
+/// as a fault.
+fn charge_flow_label(state: BatteryState) -> String {
+    let direction = match state.flow {
+        ChargeFlow::Charging => "Charging",
+        ChargeFlow::Discharging => "Discharging",
+        ChargeFlow::Idle => return "Plugged in, not charging".to_string(),
+    };
+    if state.milliamps == 0 {
+        direction.to_string()
+    } else {
+        format!("{direction} at {}", amps(state.milliamps))
+    }
+}
+
+/// The whole state on one line, for the tray, which has no second line to
+/// put the charge on.
+fn battery_summary(state: BatteryState) -> String {
+    format!("{}% · {}", state.percent, charge_flow_label(state))
 }
 
 /// The milliamps a charge speed asks the daemon for. Shared by the window and
@@ -300,6 +323,12 @@ fn fp_level_labels(levels: &[FpLevel]) -> Vec<String> {
 
 struct TrayIcon {
     tx: async_channel::Sender<TrayEvent>,
+    /// The pack as the daemon last reported it, pushed in from the app. The
+    /// one value here that moves on its own, so the menu carries it only
+    /// because opening the menu is what asks for it — and a refresh that
+    /// fails to read leaves the last one standing, the push protocol having
+    /// no way to say "no longer known".
+    battery: Option<BatteryState>,
     /// Currently applied charge limit, pushed in from the app so the radio
     /// group can mark it; None until the first daemon read.
     charge_limit: Option<u8>,
@@ -347,38 +376,51 @@ impl ksni::Tray for TrayIcon {
         self.send(TrayEvent::Refresh);
     }
 
+    /// The menu, grouped by subsystem: the window, then the battery with its
+    /// reading above the controls that shape it, then the fingerprint LED,
+    /// then the way out.
+    ///
+    /// Each item decides for itself whether this board can offer it, so the
+    /// separators are placed by asking which groups came back with anything
+    /// rather than by restating those conditions here — a board with no
+    /// battery controls draws no separator around the gap where they would
+    /// have been.
     fn menu(&self) -> Vec<ksni::MenuItem<Self>> {
         use ksni::menu::StandardItem;
-        let mut items: Vec<ksni::MenuItem<Self>> = vec![
-            StandardItem {
-                label: "Open".into(),
-                activate: Box::new(|tray: &mut Self| tray.send(TrayEvent::Show)),
-                ..Default::default()
+        let groups: [Vec<ksni::MenuItem<Self>>; 4] = [
+            vec![
+                StandardItem {
+                    label: "Open".into(),
+                    activate: Box::new(|tray: &mut Self| tray.send(TrayEvent::Show)),
+                    ..Default::default()
+                }
+                .into(),
+            ],
+            [
+                self.battery_item(),
+                self.charge_limit_item(),
+                self.charge_speed_item(),
+            ]
+            .into_iter()
+            .flatten()
+            .collect(),
+            self.fp_level_item().into_iter().collect(),
+            vec![
+                StandardItem {
+                    label: "Quit Frameguin".into(),
+                    activate: Box::new(|tray: &mut Self| tray.send(TrayEvent::Quit)),
+                    ..Default::default()
+                }
+                .into(),
+            ],
+        ];
+        let mut items: Vec<ksni::MenuItem<Self>> = Vec::new();
+        for group in groups.into_iter().filter(|group| !group.is_empty()) {
+            if !items.is_empty() {
+                items.push(ksni::MenuItem::Separator);
             }
-            .into(),
-            ksni::MenuItem::Separator,
-        ];
-        // Each control decides for itself whether this board can offer it, so
-        // the trailing separator asks the list rather than restating the
-        // conditions.
-        let controls = [
-            self.charge_limit_item(),
-            self.charge_speed_item(),
-            self.fp_level_item(),
-        ];
-        let any_control = controls.iter().any(Option::is_some);
-        items.extend(controls.into_iter().flatten());
-        if any_control {
-            items.push(ksni::MenuItem::Separator);
+            items.extend(group);
         }
-        items.push(
-            StandardItem {
-                label: "Quit Frameguin".into(),
-                activate: Box::new(|tray: &mut Self| tray.send(TrayEvent::Quit)),
-                ..Default::default()
-            }
-            .into(),
-        );
         items
     }
 }
@@ -413,6 +455,26 @@ fn radio_submenu(
 }
 
 impl TrayIcon {
+    /// The reading heading the battery group, disabled so that it reads as
+    /// the line of text it is and no click can land on it. Asks the
+    /// capability like every other item, and the value on top of it: a board
+    /// that has the reading still has nothing to show until the first one
+    /// arrives.
+    fn battery_item(&self) -> Option<ksni::MenuItem<Self>> {
+        use ksni::menu::StandardItem;
+        if !self.caps?.has(Capability::BatteryState) {
+            return None;
+        }
+        Some(
+            StandardItem {
+                label: battery_summary(self.battery?),
+                enabled: false,
+                ..Default::default()
+            }
+            .into(),
+        )
+    }
+
     fn charge_limit_item(&self) -> Option<ksni::MenuItem<Self>> {
         if !self.caps?.has(Capability::ChargeLimit) {
             return None;
@@ -608,6 +670,13 @@ fn set_autostart(enabled: bool) -> std::io::Result<()> {
 
 struct Ui {
     toasts: adw::ToastOverlay,
+    /// The battery reading: the row carries the direction as its subtitle,
+    /// the label at its end the charge. The charge is the one figure here
+    /// the desktop already shows for itself, and it earns its place by
+    /// sitting directly above the ceiling — a pack level with its limit is
+    /// the answer to why nothing is charging.
+    state_row: adw::ActionRow,
+    state_percent: gtk::Label,
     limit_combo: adw::ComboRow,
     limit_scale: gtk::Scale,
     /// The slider's row; shown only while the ceiling is Custom.
@@ -656,6 +725,14 @@ impl Ui {
         if let Some(handle) = &self.tray {
             tray_push(handle, values);
         }
+    }
+
+    /// Shows a battery reading. No `sync` guard and no `Custom` question,
+    /// unlike every other show_ here: nothing on this row writes back, so
+    /// there is no handler to hold off.
+    fn show_battery_state(&self, state: BatteryState) {
+        self.state_percent.set_label(&format!("{}%", state.percent));
+        self.state_row.set_subtitle(&charge_flow_label(state));
     }
 
     /// Moves the fingerprint widgets onto a level without writing it back.
@@ -722,6 +799,7 @@ impl Ui {
 #[derive(Clone, Copy, Default)]
 struct TrayValues {
     caps: Option<Capabilities>,
+    battery: Option<BatteryState>,
     charge_limit: Option<u8>,
     design_capacity: Option<u32>,
     charge_current_limit: Option<u32>,
@@ -758,6 +836,7 @@ impl TrayValues {
 fn tray_push(handle: &ksni::blocking::Handle<TrayIcon>, values: TrayValues) {
     handle.update(move |tray| {
         tray.caps = values.caps.or(tray.caps);
+        tray.battery = values.battery.or(tray.battery);
         tray.charge_limit = values.charge_limit.or(tray.charge_limit);
         tray.design_capacity = values.design_capacity.or(tray.design_capacity);
         tray.charge_current_limit = values.charge_current_limit.or(tray.charge_current_limit);
@@ -795,7 +874,8 @@ fn debounce(
 
 // Widgets for absent capabilities stay hidden and insensitive, so their
 // handlers can never fire; connecting unconditionally keeps one wiring path.
-fn connect_setters(ui: &Rc<Ui>, proxy: &FrameguinProxy<'static>) {
+fn connect_handlers(ui: &Rc<Ui>, proxy: &FrameguinProxy<'static>) {
+    connect_battery_state(ui, proxy);
     connect_charge_setter(ui, proxy);
     connect_charge_speed_setter(ui, proxy);
     connect_kbd_setter(ui, proxy);
@@ -911,22 +991,26 @@ fn connect_charge_speed_setter(ui: &Rc<Ui>, proxy: &FrameguinProxy<'static>) {
             apply_charge_speed(Sink::Window(&ui), &proxy, milliamps, Custom::Keep).await;
         });
     });
+}
 
-    // The cap itself cannot be read back from the EC, so what the charger is
-    // actually doing is the only confirmation the app can offer that it took
-    // effect.
+/// The one row nothing writes to: it follows the pack, which moves whether
+/// or not anyone touches the app. Silent on a failed read — a toast every
+/// tick would bury the window over a reading that is due again in seconds.
+///
+/// The tick deliberately tells the tray nothing. Every push blocks on the
+/// tray's thread and makes it rebuild and re-signal the whole menu, which is
+/// not something to do twice a minute for a menu nobody has opened — the
+/// tray asks for its own reading when its menu is about to show.
+fn connect_battery_state(ui: &Rc<Ui>, proxy: &FrameguinProxy<'static>) {
     let poll_ui = ui.clone();
     let poll_proxy = proxy.clone();
-    poll_while_mapped(&ui.speed_combo, CHARGE_CURRENT_SECONDS, move || {
+    poll_while_mapped(&ui.state_row, BATTERY_STATE_SECONDS, move || {
         let ui = poll_ui.clone();
         let proxy = poll_proxy.clone();
         glib::spawn_future_local(async move {
-            let subtitle = match proxy.get_charge_current().await {
-                Ok(0) => "Not charging".to_string(),
-                Ok(milliamps) => format!("Charging at {}", amps(milliamps)),
-                Err(_) => return,
-            };
-            ui.speed_combo.set_subtitle(&subtitle);
+            if let Ok(state) = proxy.get_battery_state().await {
+                ui.show_battery_state(state);
+            }
         });
     });
 }
@@ -1276,6 +1360,10 @@ fn build_window(
     let page = adw::PreferencesPage::new();
 
     let battery = adw::PreferencesGroup::builder().title("Battery").build();
+    let state_row = adw::ActionRow::builder().title("Charge").build();
+    let state_percent = gtk::Label::new(None);
+    state_row.add_suffix(&state_percent);
+    battery.add(&state_row);
     let limit_labels = with_custom_row(charge_limit_labels());
     let limit_combo = adw::ComboRow::builder()
         .title("Charge limit")
@@ -1407,8 +1495,8 @@ fn build_window(
         .title("Frameguin")
         .default_width(420)
         // Tall enough for every control group at the default font scale;
-        // re-measure when adding a group.
-        .default_height(760)
+        // re-measure when adding a row.
+        .default_height(825)
         .content(&toasts)
         .icon_name(APP_ID)
         .build();
@@ -1419,6 +1507,8 @@ fn build_window(
 
     let ui = Rc::new(Ui {
         toasts,
+        state_row,
+        state_percent,
         limit_combo,
         limit_scale,
         limit_custom_row,
@@ -1447,6 +1537,7 @@ fn build_window(
 
     let groups = CapabilityWidgets {
         battery: battery.clone(),
+        state_row: ui.state_row.clone(),
         limit_combo: ui.limit_combo.clone(),
         speed_combo: ui.speed_combo.clone(),
         keyboard: keyboard.clone(),
@@ -1464,6 +1555,7 @@ fn build_window(
 /// with a single answer.
 struct CapabilityWidgets {
     battery: adw::PreferencesGroup,
+    state_row: adw::ActionRow,
     limit_combo: adw::ComboRow,
     speed_combo: adw::ComboRow,
     keyboard: adw::PreferencesGroup,
@@ -1473,9 +1565,12 @@ struct CapabilityWidgets {
 
 impl CapabilityWidgets {
     fn show_supported(&self, caps: Capabilities) {
+        let battery_state = caps.has(Capability::BatteryState);
         let charge_limit = caps.has(Capability::ChargeLimit);
         let charge_speed = caps.has(Capability::ChargeCurrentLimit);
-        self.battery.set_visible(charge_limit || charge_speed);
+        self.battery
+            .set_visible(battery_state || charge_limit || charge_speed);
+        self.state_row.set_visible(battery_state);
         self.limit_combo.set_visible(charge_limit);
         self.speed_combo.set_visible(charge_speed);
         self.keyboard
@@ -1517,7 +1612,7 @@ async fn init_from_daemon(ui: Rc<Ui>, groups: CapabilityWidgets, window: adw::Ap
         .set_model(Some(&string_list(&fp_level_labels(&rows))));
     ui.fp_levels.replace(rows);
     load_values(&ui, &proxy).await;
-    connect_setters(&ui, &proxy);
+    connect_handlers(&ui, &proxy);
 
     // The hardware moves while the app sits in the tray: the EC's battery
     // extender lowers the charge limit on its own, and framework_tool writes
@@ -1532,14 +1627,24 @@ async fn init_from_daemon(ui: Rc<Ui>, groups: CapabilityWidgets, window: adw::Ap
     });
 }
 
-/// The Battery group's half of a reload: the ceiling and the speed, each with
-/// its combo and slider. Returns what the tray should be told, for the one
-/// push [`load_values`] makes at the end.
-/// Returns what the tray should be told, for its caller to send together with
-/// everything else one reload learns.
+/// The Battery group's half of a reload: the reading at the top, then the
+/// ceiling and the speed with their combos and sliders. Returns what the
+/// tray should be told, for the one push [`load_values`] makes at the end.
 async fn load_battery_values(ui: &Rc<Ui>, proxy: &FrameguinProxy<'static>) -> TrayValues {
     let caps = ui.caps.get();
     let mut values = TrayValues::default();
+    if caps.has(Capability::BatteryState) {
+        // Read here as well as polled: the poll's first tick is a couple of
+        // seconds after the window appears, and an empty row until then
+        // reads as a control that failed rather than one still filling.
+        match proxy.get_battery_state().await {
+            Ok(state) => {
+                ui.show_battery_state(state);
+                values.battery = Some(state);
+            }
+            Err(e) => ui.toast(&format!("Reading battery state failed: {e}")),
+        }
+    }
     if caps.has(Capability::ChargeLimit) {
         match proxy.get_charge_limit().await {
             Ok(limit) => {
@@ -1703,6 +1808,11 @@ async fn refresh_tray(handle: &ksni::blocking::Handle<TrayIcon>, proxy: &Framegu
         let Ok(names) = proxy.get_capabilities().await else { return };
         Capabilities::from_probe(&names)
     };
+    let battery = if caps.has(Capability::BatteryState) {
+        proxy.get_battery_state().await.ok()
+    } else {
+        None
+    };
     let limit = if caps.has(Capability::ChargeLimit) {
         proxy.get_charge_limit().await.ok()
     } else {
@@ -1731,6 +1841,7 @@ async fn refresh_tray(handle: &ksni::blocking::Handle<TrayIcon>, proxy: &Framegu
         handle,
         TrayValues {
             caps: Some(caps),
+            battery,
             charge_limit: limit,
             design_capacity: capacity,
             charge_current_limit: speed,
@@ -1745,6 +1856,7 @@ fn setup_tray(app: &adw::Application, state: Rc<AppState>) {
     let (tx, rx) = async_channel::unbounded();
     let tray = TrayIcon {
         tx,
+        battery: None,
         charge_limit: None,
         charge_current_limit: None,
         design_capacity: None,
@@ -1881,12 +1993,63 @@ fn main() -> glib::ExitCode {
 #[cfg(test)]
 mod tests {
     use super::{
-        CHARGE_SPEEDS, MIN_CUSTOM_CHARGE_MA, NO_CHARGE_CURRENT_LIMIT, charge_speed_labels,
-        charge_speed_milliamps, charge_speed_position, scale_milliamps, with_custom_row,
+        BatteryState, CHARGE_SPEEDS, ChargeFlow, MIN_CUSTOM_CHARGE_MA, NO_CHARGE_CURRENT_LIMIT,
+        battery_summary, charge_flow_label, charge_speed_labels, charge_speed_milliamps,
+        charge_speed_position, scale_milliamps, with_custom_row,
     };
 
     /// A 4640 mAh pack, the Laptop 13's.
     const CAPACITY: u32 = 4640;
+
+    fn state(flow: ChargeFlow, milliamps: u32) -> BatteryState {
+        BatteryState {
+            percent: 62,
+            flow,
+            milliamps,
+        }
+    }
+
+    #[test]
+    fn a_moving_charge_is_named_with_its_rate() {
+        assert_eq!(
+            charge_flow_label(state(ChargeFlow::Charging, 2320)),
+            "Charging at 2.3 A"
+        );
+        assert_eq!(
+            charge_flow_label(state(ChargeFlow::Discharging, 1400)),
+            "Discharging at 1.4 A"
+        );
+    }
+
+    /// A pack reports no rate for a moment either side of a direction
+    /// changing, and "at 0.0 A" reads as a fault rather than as a reading.
+    #[test]
+    fn a_direction_without_a_rate_is_named_alone() {
+        assert_eq!(
+            charge_flow_label(state(ChargeFlow::Charging, 0)),
+            "Charging"
+        );
+    }
+
+    /// A full pack on a charger is the state the EC's own flags describe as
+    /// discharging, and the one a rate would say nothing useful about.
+    #[test]
+    fn a_pack_resting_on_its_charger_names_neither_a_direction_nor_a_rate() {
+        assert_eq!(
+            charge_flow_label(state(ChargeFlow::Idle, 0)),
+            "Plugged in, not charging"
+        );
+    }
+
+    /// The window splits charge and direction across a row's two halves; the
+    /// tray has one line for both.
+    #[test]
+    fn the_trays_line_carries_the_charge_as_well() {
+        assert_eq!(
+            battery_summary(state(ChargeFlow::Charging, 2320)),
+            "62% · Charging at 2.3 A"
+        );
+    }
 
     #[test]
     fn full_speed_lifts_the_limit_rather_than_naming_the_pack_rate() {

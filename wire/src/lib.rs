@@ -35,6 +35,10 @@ pub const HAPTIC_INTENSITY_LEVELS: [u8; 5] = [0, 25, 50, 75, 100];
 #[zvariant(crate = "zbus::zvariant", signature = "s")]
 #[serde(rename_all = "kebab-case")]
 pub enum Capability {
+    /// A pack the EC's memmap block answers for. The only reading in the
+    /// interface that moves on its own, and the only one no setter pairs
+    /// with.
+    BatteryState,
     ChargeLimit,
     ChargeCurrentLimit,
     KeyboardBacklight,
@@ -51,6 +55,39 @@ pub enum Capability {
     /// One name for both touchpad controls — same device, same firmware
     /// feature set, so nothing can support one and not the other.
     HapticTouchpad,
+}
+
+/// What the pack is doing, which is not the same question as what the EC's
+/// battery flags answer: the EC's discharging flag is set whenever the pack
+/// is not being charged, a full battery on a connected charger included.
+#[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug)]
+#[zvariant(crate = "zbus::zvariant", signature = "s")]
+#[serde(rename_all = "kebab-case")]
+pub enum ChargeFlow {
+    Charging,
+    /// Running the machine, which is what a pack does with no charger
+    /// attached.
+    Discharging,
+    /// A charger attached and nothing going into the pack — where one held
+    /// at its ceiling, or simply full, rests.
+    Idle,
+}
+
+/// What the EC says about the pack right now. The direction arrives as a
+/// name rather than as the flag byte it is decoded from, for the reason
+/// every other vocabulary here is a name: the process that must not link the
+/// EC library has no business knowing its bit layout.
+#[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug)]
+#[zvariant(crate = "zbus::zvariant")]
+pub struct BatteryState {
+    /// Charge as a share of the pack's last full charge, which is what the
+    /// EC measures it against — so it reaches 100% on a pack whose capacity
+    /// has faded well below its design one.
+    pub percent: u8,
+    pub flow: ChargeFlow,
+    /// How fast charge is moving, in mA, and 0 when nothing is. Unsigned in
+    /// both directions — `flow` is what gives it a sign.
+    pub milliamps: u32,
 }
 
 /// Fingerprint LED levels.
@@ -132,7 +169,7 @@ pub trait Frameguin {
     async fn get_charge_current_limit(&self) -> zbus::Result<u32>;
     async fn set_charge_current_limit(&self, milliamps: u32) -> zbus::Result<bool>;
     async fn get_battery_design_capacity(&self) -> zbus::Result<u32>;
-    async fn get_charge_current(&self) -> zbus::Result<u32>;
+    async fn get_battery_state(&self) -> zbus::Result<BatteryState>;
     async fn get_keyboard_backlight(&self) -> zbus::Result<u8>;
     async fn set_keyboard_backlight(&self, percent: u8) -> zbus::Result<()>;
     async fn get_capabilities(&self) -> zbus::Result<Vec<Capability>>;

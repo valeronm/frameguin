@@ -14,8 +14,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use frameguin_wire::{self as wire, HAPTIC_INTENSITY_LEVELS, NO_CHARGE_CURRENT_LIMIT};
 use framework_lib::chromium_ec::command::{EcCommands, EcRequestRaw};
 use framework_lib::chromium_ec::commands::{
-    ChargeStateCmd, EcRequestChargeStateGetV0, EcRequestGetUptimeInfo,
-    EcRequestPwmGetKeyboardBacklight, FpLedBrightnessLevel,
+    EcRequestGetUptimeInfo, EcRequestPwmGetKeyboardBacklight, FpLedBrightnessLevel,
 };
 use framework_lib::chromium_ec::{CrosEc, EcResult};
 use framework_lib::power;
@@ -374,6 +373,47 @@ fn kbd_backlight_percent(ec: &CrosEc) -> EcResult<u8> {
     Ok(EcRequestPwmGetKeyboardBacklight {}.send_command(ec)?.percent)
 }
 
+/// The EC's battery block in the wire's terms, and None when no pack
+/// answers. Direction and charger presence share one flag byte, so both come
+/// from the same read; the rate is unsigned whichever way charge is moving.
+fn battery_state(ec: &CrosEc) -> Option<wire::BatteryState> {
+    let info = power::power_info(ec)?;
+    let battery = info.battery?;
+    Some(wire::BatteryState {
+        // Against the last full charge, which is the EC's own denominator;
+        // a pack reporting more than full is clamped rather than shown.
+        percent: u8::try_from(battery.charge_percentage.min(100)).unwrap_or(100),
+        flow: charge_flow(battery.charging, info.ac_present, battery.present_rate),
+        milliamps: battery.present_rate,
+    })
+}
+
+/// What the pack is doing, from the EC's charging flag, its charger flag and
+/// the rate.
+///
+/// The discharging flag is deliberately not a parameter: it means "not being
+/// charged" rather than "supplying the machine", and a full pack on a
+/// connected charger sets it — a smart battery reporting zero charge
+/// current. The rate is what separates a pack at rest from one running the
+/// machine, and it reads a clean 0 at rest; a charger attached does not by
+/// itself mean nothing is draining, since too weak a one leaves the pack
+/// covering the difference.
+fn charge_flow(charging: bool, ac_present: bool, milliamps: u32) -> wire::ChargeFlow {
+    if charging {
+        wire::ChargeFlow::Charging
+    } else if ac_present && milliamps == 0 {
+        wire::ChargeFlow::Idle
+    } else {
+        wire::ChargeFlow::Discharging
+    }
+}
+
+/// What both battery readings answer with when no pack does. One spelling,
+/// because a client that matches on the text sees it from either.
+fn no_battery() -> fdo::Error {
+    fdo::Error::Failed("no battery present".into())
+}
+
 fn ec_err(e: impl std::fmt::Debug) -> fdo::Error {
     fdo::Error::Failed(format!("EC error: {e:?}"))
 }
@@ -551,6 +591,13 @@ impl Daemon {
             let mut caps = Vec::new();
             if let Some(ec) = &self.ec {
                 let ec = ec.lock().unwrap();
+                // The getter's own read, run for its answer rather than for
+                // a version or a neighbouring command: a pack that reports
+                // nothing here is exactly the one whose state cannot be
+                // shown.
+                if battery_state(&ec).is_some() {
+                    caps.push(wire::Capability::BatteryState);
+                }
                 if ec.get_charge_limit().is_ok() {
                     caps.push(wire::Capability::ChargeLimit);
                 }
@@ -658,21 +705,20 @@ impl Daemon {
         self.touch();
         let ec = self.ec_guard()?;
         self.read_design_capacity(&ec)
-            .ok_or_else(|| fdo::Error::Failed("no battery present".into()))
+            .ok_or_else(no_battery)
     }
 
-    /// What the charger is pushing into the battery right now, in mA, and 0
-    /// whenever it isn't charging. This is the only observable effect a
-    /// charge current limit has, the limit itself being unreadable.
-    fn get_charge_current(&self) -> fdo::Result<u32> {
+    /// The pack's charge, which way it is moving and how fast. The only
+    /// value here that changes without anyone setting it, so a caller
+    /// showing it has to re-read; every other getter answers with what was
+    /// last written or configured.
+    ///
+    /// It also carries the only observable effect a charge current limit
+    /// has, the limit itself being unreadable.
+    fn get_battery_state(&self) -> fdo::Result<wire::BatteryState> {
         self.touch();
-        let state = EcRequestChargeStateGetV0 {
-            cmd: ChargeStateCmd::GetState as u8,
-            param: 0,
-        }
-        .send_command(&*self.ec_guard()?)
-        .map_err(ec_err)?;
-        Ok(state.chg_current)
+        battery_state(&*self.ec_guard()?)
+            .ok_or_else(no_battery)
     }
 
     /// Caps how fast the battery charges, in mA; `NO_CHARGE_CURRENT_LIMIT`
@@ -887,7 +933,38 @@ fn main() -> zbus::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{active_in, triggers, EcStamp, HAPTIC_INTENSITY_LEVELS, LED_AUTO_TRIGGER};
+    use super::{
+        active_in, charge_flow, triggers, wire, EcStamp, HAPTIC_INTENSITY_LEVELS,
+        LED_AUTO_TRIGGER,
+    };
+
+    /// The state a full laptop sits in all day, and the one the EC's own
+    /// flags describe as discharging. Reading that flag put "Discharging" on
+    /// a machine that was plugged in and full.
+    #[test]
+    fn a_full_pack_on_its_charger_is_not_discharging() {
+        assert_eq!(charge_flow(false, true, 0), wire::ChargeFlow::Idle);
+    }
+
+    /// A charger too weak for the load leaves the pack covering the
+    /// difference, which the rate is the only witness to.
+    #[test]
+    fn a_pack_draining_under_a_weak_charger_is_discharging() {
+        assert_eq!(charge_flow(false, true, 900), wire::ChargeFlow::Discharging);
+    }
+
+    #[test]
+    fn nothing_attached_leaves_the_pack_running_the_machine() {
+        assert_eq!(charge_flow(false, false, 1400), wire::ChargeFlow::Discharging);
+        // Between two readings a pack can report no rate at all; with no
+        // charger it is still the only thing powering the machine.
+        assert_eq!(charge_flow(false, false, 0), wire::ChargeFlow::Discharging);
+    }
+
+    #[test]
+    fn charge_arriving_outranks_the_rest() {
+        assert_eq!(charge_flow(true, true, 2320), wire::ChargeFlow::Charging);
+    }
 
     /// A `trigger` file as the kernel writes it, shortened. Which trigger is
     /// in effect is carried by brackets and nothing else, so the parsing is

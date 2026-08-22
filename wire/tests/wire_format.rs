@@ -3,7 +3,7 @@
 //! so a rename, a reorder or a changed `signature` is a protocol break that
 //! no compiler on either side would report.
 
-use frameguin_wire::{Capability, ClickForce, FpLevel};
+use frameguin_wire::{BatteryState, Capability, ChargeFlow, ClickForce, FpLevel};
 use zbus::zvariant::serialized::Context;
 use zbus::zvariant::{to_bytes, Type, LE};
 
@@ -17,19 +17,25 @@ fn every_enum_crosses_the_bus_as_a_plain_string() {
     assert_eq!(Capability::SIGNATURE, "s");
     assert_eq!(FpLevel::SIGNATURE, "s");
     assert_eq!(ClickForce::SIGNATURE, "s");
+    assert_eq!(ChargeFlow::SIGNATURE, "s");
 }
 
 /// The shapes the interface actually carries, as they appear in
 /// introspection: `GetCapabilities` answers `as`, `GetFingerprintBrightness`
-/// answers `(ys)`.
+/// answers `(ys)`, `GetBatteryState` the battery block as a struct.
 #[test]
 fn the_composite_signatures_are_the_ones_the_methods_declare() {
     assert_eq!(Vec::<Capability>::SIGNATURE, "as");
     assert_eq!(<(u8, FpLevel)>::SIGNATURE, "(ys)");
+    // Field order is the protocol here, the members being positional and
+    // unnamed: reordering the struct silently re-maps every field a client
+    // reads.
+    assert_eq!(BatteryState::SIGNATURE, "(ysu)");
 }
 
 #[test]
 fn capability_names_are_kebab_case() {
+    assert_eq!(wire_string(Capability::BatteryState), "battery-state");
     assert_eq!(wire_string(Capability::ChargeLimit), "charge-limit");
     assert_eq!(
         wire_string(Capability::ChargeCurrentLimit),
@@ -64,6 +70,13 @@ fn click_force_names_are_kebab_case() {
     assert_eq!(wire_string(ClickForce::Low), "low");
     assert_eq!(wire_string(ClickForce::Medium), "medium");
     assert_eq!(wire_string(ClickForce::High), "high");
+}
+
+#[test]
+fn charge_flow_names_are_kebab_case() {
+    assert_eq!(wire_string(ChargeFlow::Charging), "charging");
+    assert_eq!(wire_string(ChargeFlow::Discharging), "discharging");
+    assert_eq!(wire_string(ChargeFlow::Idle), "idle");
 }
 
 /// Custom is the one level the EC reports but will not take.
