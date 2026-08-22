@@ -69,7 +69,6 @@ fn click_force_names_are_kebab_case() {
 /// make variant order load-bearing.
 #[test]
 fn the_settable_levels_are_every_level_but_custom() {
-    assert!(!FpLevel::SETTABLE.contains(&FpLevel::Custom));
     for level in FpLevel::ALL {
         assert_eq!(
             level != FpLevel::Custom,

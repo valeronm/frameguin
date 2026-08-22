@@ -168,7 +168,22 @@ const MIN_CUSTOM_CHARGE_MA: f64 = 100.0;
 /// "1.0 A", reporting a current nobody chose.
 const CUSTOM_CHARGE_STEP_MA: f64 = 100.0;
 
-const HAPTIC_LABELS: [&str; 5] = ["Off", "25%", "50%", "75%", "100%"];
+/// The haptic combo's rows, derived from the steps they select rather than
+/// kept in step with them by hand. The steps live in `wire` now, so the two
+/// lists can no longer be edited together, and a firmware generation that
+/// adds one would leave it unlabelled and unreachable.
+fn haptic_labels() -> Vec<String> {
+    HAPTIC_INTENSITY_LEVELS
+        .iter()
+        .map(|&percent| {
+            if percent == 0 {
+                "Off".to_string()
+            } else {
+                format!("{percent}%")
+            }
+        })
+        .collect()
+}
 
 fn click_force_label(force: ClickForce) -> &'static str {
     match force {
@@ -1337,7 +1352,7 @@ fn build_window(
     let haptic_combo = adw::ComboRow::builder()
         .title("Haptic intensity")
         .subtitle("Strength of the click feedback")
-        .model(&gtk::StringList::new(&HAPTIC_LABELS))
+        .model(&string_list(&haptic_labels()))
         .sensitive(false)
         .build();
     touchpad.add(&haptic_combo);
