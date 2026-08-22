@@ -10,6 +10,7 @@ use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use frameguin_wire::{self as wire, HAPTIC_INTENSITY_LEVELS, NO_CHARGE_CURRENT_LIMIT};
 use framework_lib::chromium_ec::command::{EcCommands, EcRequestRaw};
 use framework_lib::chromium_ec::commands::{
     ChargeStateCmd, EcRequestChargeStateGetV0, EcRequestGetUptimeInfo,
@@ -17,13 +18,11 @@ use framework_lib::chromium_ec::commands::{
 };
 use framework_lib::chromium_ec::{CrosEc, EcResult};
 use framework_lib::power;
-use framework_lib::touchpad::{self, ClickForce, HAPTIC_INTENSITY_LEVELS};
+use framework_lib::touchpad::{self, ClickForce};
 use zbus::message::Header;
 use zbus::{fdo, interface, Connection};
 use zbus_polkit::policykit1::{AuthorityProxy, CheckAuthorizationFlags, Subject};
 
-const BUS_NAME: &str = "io.github.valeronm.Frameguin";
-const OBJECT_PATH: &str = "/io/github/valeronm/Frameguin";
 const POLKIT_ACTION: &str = "io.github.valeronm.frameguin.manage";
 const IDLE_EXIT: Duration = Duration::from_mins(5);
 
@@ -36,7 +35,7 @@ struct Daemon {
     last_used: Arc<Mutex<Instant>>,
     /// Probed once per daemon lifetime; the EC feature set can't change
     /// while running.
-    capabilities: OnceLock<Vec<String>>,
+    capabilities: OnceLock<Vec<wire::Capability>>,
     /// Haptic touchpad controls are write-only (firmware ACKs `GET_FEATURE`
     /// but returns zeros — verified on hardware), and the touchpad persists
     /// them in its own flash across suspend and reboot. So the daemon
@@ -66,10 +65,6 @@ const KEY_CLICK_FORCE: &str = "click_force";
 const KEY_CURRENT_LIMIT: &str = "charge_current_limit";
 const KEY_CURRENT_LIMIT_UPTIME: &str = "charge_current_limit_ec_uptime";
 const KEY_CURRENT_LIMIT_WRITTEN_AT: &str = "charge_current_limit_written_at";
-
-/// The EC clamps each requested charge current against its limit, so the
-/// largest value is what "no limit" means to it — and 0 means never charge.
-const NO_CHARGE_CURRENT_LIMIT: u32 = u32::MAX;
 
 /// A charge current limit together with the EC clock reading that dates it.
 #[derive(Clone, Copy)]
@@ -133,7 +128,7 @@ fn load_state() -> State {
                 }
                 KEY_CLICK_FORCE => {
                     if let Ok(v) = value.parse()
-                        && click_force_valid(v)
+                        && wire_click_force(v).is_some()
                     {
                         state.click_force = v;
                     }
@@ -173,29 +168,20 @@ fn ec_uptime_secs(ec: &CrosEc) -> EcResult<u64> {
     Ok(u64::from(uptime_ms) / 1000)
 }
 
-/// Single source for the click-force name/value mapping.
-const CLICK_FORCES: [(&str, ClickForce); 3] = [
-    ("low", ClickForce::Low),
-    ("medium", ClickForce::Medium),
-    ("high", ClickForce::High),
-];
-
-fn click_force_from_name(name: &str) -> Option<ClickForce> {
-    CLICK_FORCES
-        .iter()
-        .find(|(n, _)| *n == name)
-        .map(|(_, force)| *force)
+fn ec_click_force(force: wire::ClickForce) -> ClickForce {
+    match force {
+        wire::ClickForce::Low => ClickForce::Low,
+        wire::ClickForce::Medium => ClickForce::Medium,
+        wire::ClickForce::High => ClickForce::High,
+    }
 }
 
-fn click_force_name(code: u8) -> &'static str {
-    CLICK_FORCES
-        .iter()
-        .find(|(_, force)| *force as u8 == code)
-        .map_or("medium", |(name, _)| *name)
-}
-
-fn click_force_valid(code: u8) -> bool {
-    CLICK_FORCES.iter().any(|(_, force)| *force as u8 == code)
+/// The EC code the state file carries, back to the wire's name; None for a
+/// code no force maps to.
+fn wire_click_force(code: u8) -> Option<wire::ClickForce> {
+    wire::ClickForce::ALL
+        .into_iter()
+        .find(|force| ec_click_force(*force) as u8 == code)
 }
 
 /// Known haptic touchpad models (`PixArt` PIDs). A curated device list, per
@@ -207,25 +193,28 @@ fn click_force_valid(code: u8) -> bool {
 /// pads.
 const HAPTIC_TOUCHPAD_PIDS: [u16; 1] = [0x1343];
 
-fn fp_level_from_name(name: &str) -> Option<FpLedBrightnessLevel> {
-    Some(match name {
-        "high" => FpLedBrightnessLevel::High,
-        "medium" => FpLedBrightnessLevel::Medium,
-        "low" => FpLedBrightnessLevel::Low,
-        "ultra-low" => FpLedBrightnessLevel::UltraLow,
-        "auto" => FpLedBrightnessLevel::Auto,
-        _ => return None,
+/// None for the one level the EC will not accept as a setting.
+fn ec_fp_level(level: wire::FpLevel) -> Option<FpLedBrightnessLevel> {
+    Some(match level {
+        wire::FpLevel::High => FpLedBrightnessLevel::High,
+        wire::FpLevel::Medium => FpLedBrightnessLevel::Medium,
+        wire::FpLevel::Low => FpLedBrightnessLevel::Low,
+        wire::FpLevel::UltraLow => FpLedBrightnessLevel::UltraLow,
+        wire::FpLevel::Auto => FpLedBrightnessLevel::Auto,
+        wire::FpLevel::Custom => return None,
     })
 }
 
-fn fp_level_name(level: Option<&FpLedBrightnessLevel>) -> &'static str {
+/// A level the EC does not name is custom: that is what it reports after a
+/// raw percentage write.
+fn wire_fp_level(level: Option<&FpLedBrightnessLevel>) -> wire::FpLevel {
     match level {
-        Some(FpLedBrightnessLevel::High) => "high",
-        Some(FpLedBrightnessLevel::Medium) => "medium",
-        Some(FpLedBrightnessLevel::Low) => "low",
-        Some(FpLedBrightnessLevel::UltraLow) => "ultra-low",
-        Some(FpLedBrightnessLevel::Auto) => "auto",
-        Some(FpLedBrightnessLevel::Custom) | None => "custom",
+        Some(FpLedBrightnessLevel::High) => wire::FpLevel::High,
+        Some(FpLedBrightnessLevel::Medium) => wire::FpLevel::Medium,
+        Some(FpLedBrightnessLevel::Low) => wire::FpLevel::Low,
+        Some(FpLedBrightnessLevel::UltraLow) => wire::FpLevel::UltraLow,
+        Some(FpLedBrightnessLevel::Auto) => wire::FpLevel::Auto,
+        Some(FpLedBrightnessLevel::Custom) | None => wire::FpLevel::Custom,
     }
 }
 
@@ -359,14 +348,14 @@ impl Daemon {
     /// probing something adjacent. The get-side probes below stand in for
     /// their setters only because those EC command pairs ship together in
     /// every firmware.
-    fn get_capabilities(&self) -> Vec<String> {
+    fn get_capabilities(&self) -> Vec<wire::Capability> {
         self.touch();
         let caps = self.capabilities.get_or_init(|| {
             let mut caps = Vec::new();
             if let Some(ec) = &self.ec {
                 let ec = ec.lock().unwrap();
                 if ec.get_charge_limit().is_ok() {
-                    caps.push("charge-limit".to_string());
+                    caps.push(wire::Capability::ChargeLimit);
                 }
                 // No same-path probe exists: the charge current limit is
                 // write-only, with no readback in any command version
@@ -381,13 +370,13 @@ impl Daemon {
                     .unwrap_or(false)
                     && self.read_design_capacity(&ec).is_some()
                 {
-                    caps.push("charge-current-limit".to_string());
+                    caps.push(wire::Capability::ChargeCurrentLimit);
                 }
                 if kbd_backlight_percent(&ec).is_ok() {
-                    caps.push("keyboard-backlight".to_string());
+                    caps.push(wire::Capability::KeyboardBacklight);
                 }
                 if ec.get_fp_led_level().is_ok() {
-                    caps.push("fp-brightness".to_string());
+                    caps.push(wire::Capability::FpBrightness);
                     // Older EC firmware implements only command v0 of
                     // FpLedLevelControl: presets high/medium/low. V1 added
                     // the raw-percentage write, and the same firmware
@@ -399,14 +388,14 @@ impl Daemon {
                         .cmd_version_supported(EcCommands::FpLedLevelControl as u32, 1)
                         .unwrap_or(false)
                     {
-                        caps.push("fp-brightness-custom".to_string());
+                        caps.push(wire::Capability::FpBrightnessCustom);
                     }
                 }
             }
             // One name for both haptic controls: they share the identical
             // support condition (same device, same firmware feature set).
             if haptic_touchpad_present() {
-                caps.push("haptic-touchpad".to_string());
+                caps.push(wire::Capability::HapticTouchpad);
             }
             caps
         });
@@ -540,25 +529,25 @@ impl Daemon {
         )
     }
 
-    /// Returns the brightness percentage and the level preset it came from:
-    /// "high", "medium", "low", "ultra-low", "auto", or "custom" (the EC
-    /// reports custom after any raw percentage write; it can't be set).
-    fn get_fingerprint_brightness(&self) -> fdo::Result<(u8, String)> {
+    /// Returns the brightness percentage and the preset it came from. That
+    /// can be `Custom`, which the EC reports after any raw percentage write
+    /// and which no setter accepts.
+    fn get_fingerprint_brightness(&self) -> fdo::Result<(u8, wire::FpLevel)> {
         self.touch();
         let (percent, level) = self.ec_guard()?.get_fp_led_level().map_err(ec_err)?;
-        Ok((percent, fp_level_name(level.as_ref()).to_string()))
+        Ok((percent, wire_fp_level(level.as_ref())))
     }
 
     async fn set_fingerprint_level(
         &self,
-        level: String,
+        level: wire::FpLevel,
         #[zbus(header)] header: Header<'_>,
     ) -> fdo::Result<()> {
         self.touch();
-        let level = fp_level_from_name(&level).ok_or_else(|| {
-            fdo::Error::InvalidArgs(format!(
-                "unknown level {level:?}; expected high/medium/low/ultra-low/auto"
-            ))
+        let level = ec_fp_level(level).ok_or_else(|| {
+            fdo::Error::InvalidArgs(
+                "custom is what the EC reports after a percentage write, not a level to set".into(),
+            )
         })?;
         self.authorize(&header).await?;
         self.ec_guard()?.set_fp_led_level(level).map_err(ec_err)
@@ -604,22 +593,21 @@ impl Daemon {
         Ok(())
     }
 
-    fn get_touchpad_click_force(&self) -> String {
+    fn get_touchpad_click_force(&self) -> wire::ClickForce {
         self.touch();
-        click_force_name(self.click_force.load(Ordering::Relaxed)).to_string()
+        // A code no force maps to reads as the factory default, the same
+        // answer this gives before anything has been written.
+        wire_click_force(self.click_force.load(Ordering::Relaxed))
+            .unwrap_or(wire::ClickForce::Medium)
     }
 
     async fn set_touchpad_click_force(
         &self,
-        force: String,
+        force: wire::ClickForce,
         #[zbus(header)] header: Header<'_>,
     ) -> fdo::Result<()> {
         self.touch();
-        let force = click_force_from_name(&force).ok_or_else(|| {
-            fdo::Error::InvalidArgs(format!(
-                "unknown click force {force:?}; expected low/medium/high"
-            ))
-        })?;
+        let force = ec_click_force(force);
         self.authorize(&header).await?;
         touchpad::set_click_force(force).map_err(internal_err)?;
         self.click_force.store(force as u8, Ordering::Relaxed);
@@ -666,10 +654,10 @@ fn main() -> zbus::Result<()> {
             charge_current_limit: Mutex::new(state.charge_current_limit),
             design_capacity: OnceLock::new(),
         };
-        conn.object_server().at(OBJECT_PATH, daemon).await?;
+        conn.object_server().at(wire::OBJECT_PATH, daemon).await?;
         // Claim the name only once the object is served, so an activating
         // client can't call into a not-yet-registered path.
-        conn.request_name(BUS_NAME).await?;
+        conn.request_name(wire::BUS_NAME).await?;
         Ok::<_, zbus::Error>(conn)
     })?;
     loop {
@@ -682,7 +670,19 @@ fn main() -> zbus::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::ChargeCurrentLimit;
+    use super::{ChargeCurrentLimit, HAPTIC_INTENSITY_LEVELS};
+
+    /// The app offers these steps but cannot link `framework_lib` to learn
+    /// them, so `wire` carries the list and this is what keeps the copy
+    /// honest. A firmware generation that changes the steps should fail here
+    /// rather than in a combo that silently offers the wrong ones.
+    #[test]
+    fn the_wire_haptic_steps_are_the_ones_the_touchpad_implements() {
+        assert_eq!(
+            HAPTIC_INTENSITY_LEVELS,
+            framework_lib::touchpad::HAPTIC_INTENSITY_LEVELS
+        );
+    }
 
     fn written_at(ec_uptime: u64, written_at: u64) -> ChargeCurrentLimit {
         ChargeCurrentLimit {

@@ -1,11 +1,12 @@
 [workspace]
-members = ["daemon", "app"]
+members = ["daemon", "app", "wire"]
 resolver = "2"
 
 [workspace.package]
 version = "0.1.1"
 
 [workspace.dependencies]
+frameguin-wire = { path = "wire" }
 zbus = "5.19.0"
 
 [workspace.lints.clippy]

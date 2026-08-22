@@ -5,17 +5,25 @@ it and the non-obvious constraints.
 
 ## Layout and contracts
 
-- Two crates, two binaries: `daemon/` runs as root and links the hardware
+- Three crates, two binaries: `daemon/` runs as root and links the hardware
   libraries (`framework_lib`, `hidapi`); `app/` is the GTK4/libadwaita UI and
-  links no hardware code. The split is the security model — the root process
-  carries no GUI, the GUI process has no hardware access — and the D-Bus
-  interface `io.github.valeronm.Frameguin1` is their only bridge.
-- Capability names (`charge-limit`, `keyboard-backlight`, `fp-brightness`,
-  `fp-brightness-custom`, `haptic-touchpad`) are the wire vocabulary and are
-  currently spelled in both crates; a shared crate was judged not worth it
-  for a handful of strings. Adding a control means: one probe + get/set
-  methods in the daemon, one `Capabilities` field and one gated UI group in
-  the app.
+  links no hardware code; `wire/` is the D-Bus vocabulary both share. The
+  split is the security model — the root process carries no GUI, the GUI
+  process has no hardware access — and the D-Bus interface
+  `io.github.valeronm.Frameguin1` is their only bridge. Nothing that touches
+  hardware may enter `wire/`: the app links it, so a dependency added there
+  lands in the unprivileged process too.
+- `wire/` holds the proxy the app calls through, the bus name and object
+  path, and the vocabularies as enums serializing as `s`. The daemon's
+  `#[interface]` impl cannot move there — it is an impl on the type owning
+  `CrosEc` — so the method set is still two declarations meeting only at
+  runtime, in the bus. What the enums buy is the other half: a capability,
+  level or click force the two ends spell differently used to be a
+  well-formed string that meant nothing to the receiver, and is now a
+  compile error. Adding a control means: one variant in `wire`, one probe +
+  get/set methods in the daemon, one gated UI group in the app — and nothing
+  in between, because the app holds the probe's answer as a set rather than
+  unpacking it into a flag per capability.
 - A control the tray can also set gets an `apply_*` function owning the whole
   write: the daemon call, the toast, the tray's copy, and moving the widget to
   match. Both the window's handler and the tray preset call it; neither writes

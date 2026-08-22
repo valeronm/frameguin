@@ -10,6 +10,10 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use adw::prelude::*;
+use frameguin_wire::{
+    Capability, ClickForce, FpLevel, FrameguinProxy, HAPTIC_INTENSITY_LEVELS,
+    NO_CHARGE_CURRENT_LIMIT,
+};
 use gtk4 as gtk;
 use gtk4::gio;
 use gtk4::glib;
@@ -23,33 +27,6 @@ const SLIDER_DEBOUNCE: Duration = Duration::from_millis(200);
 const SETTLE_DEBOUNCE: Duration = Duration::from_millis(700);
 const KBD_SYNC_SECONDS: u32 = 2;
 const CHARGE_CURRENT_SECONDS: u32 = 2;
-
-#[zbus::proxy(
-    interface = "io.github.valeronm.Frameguin1",
-    default_service = "io.github.valeronm.Frameguin",
-    default_path = "/io/github/valeronm/Frameguin"
-)]
-trait Frameguin {
-    async fn get_charge_limit(&self) -> zbus::Result<u8>;
-    /// True when the daemon wrote; false when the value was already set.
-    async fn set_charge_limit(&self, percent: u8) -> zbus::Result<bool>;
-    async fn get_charge_current_limit(&self) -> zbus::Result<u32>;
-    async fn set_charge_current_limit(&self, milliamps: u32) -> zbus::Result<bool>;
-    async fn get_battery_design_capacity(&self) -> zbus::Result<u32>;
-    async fn get_charge_current(&self) -> zbus::Result<u32>;
-    async fn get_keyboard_backlight(&self) -> zbus::Result<u8>;
-    async fn set_keyboard_backlight(&self, percent: u8) -> zbus::Result<()>;
-    async fn get_capabilities(&self) -> zbus::Result<Vec<String>>;
-    async fn get_ec_version(&self) -> zbus::Result<String>;
-    async fn get_build(&self) -> zbus::Result<(String, String)>;
-    async fn get_fingerprint_brightness(&self) -> zbus::Result<(u8, String)>;
-    async fn set_fingerprint_brightness(&self, percent: u8) -> zbus::Result<()>;
-    async fn set_fingerprint_level(&self, level: &str) -> zbus::Result<()>;
-    async fn get_haptic_intensity(&self) -> zbus::Result<u8>;
-    async fn set_haptic_intensity(&self, percent: u8) -> zbus::Result<()>;
-    async fn get_touchpad_click_force(&self) -> zbus::Result<String>;
-    async fn set_touchpad_click_force(&self, force: &str) -> zbus::Result<()>;
-}
 
 /// GTK carries adjustment values as f64. The cast alone saturates at 255, so
 /// the clamp is what holds the result inside the range the daemon accepts;
@@ -191,46 +168,36 @@ const MIN_CUSTOM_CHARGE_MA: f64 = 100.0;
 /// "1.0 A", reporting a current nobody chose.
 const CUSTOM_CHARGE_STEP_MA: f64 = 100.0;
 
-/// The daemon's "charge as fast as the battery asks".
-const NO_CHARGE_CURRENT_LIMIT: u32 = u32::MAX;
-
-/// The steps the Boreas haptic firmware implements, and the click-force
-/// names the daemon accepts.
-const HAPTIC_LEVELS: [u8; 5] = [0, 25, 50, 75, 100];
 const HAPTIC_LABELS: [&str; 5] = ["Off", "25%", "50%", "75%", "100%"];
-const CLICK_FORCES: [&str; 3] = ["low", "medium", "high"];
-const CLICK_FORCE_LABELS: [&str; 3] = ["Low", "Medium", "High"];
 
-/// What the connected board supports, per the daemon's probe. The default
-/// (all false) doubles as "not yet known".
-#[allow(
-    clippy::struct_excessive_bools,
-    reason = "one flag per wire capability, and a board can carry any subset \
-              — independent answers, not the exclusive states an enum models"
-)]
-#[derive(Clone, Copy, Default)]
-struct Capabilities {
-    charge_limit: bool,
-    charge_current_limit: bool,
-    keyboard_backlight: bool,
-    fp_brightness: bool,
-    /// V1 of the EC command: raw percentage plus the ultra-low/auto levels.
-    /// Old firmware supports only high/medium/low (framework-system #211).
-    fp_custom: bool,
-    haptic_touchpad: bool,
+fn click_force_label(force: ClickForce) -> &'static str {
+    match force {
+        ClickForce::Low => "Low",
+        ClickForce::Medium => "Medium",
+        ClickForce::High => "High",
+    }
 }
 
+/// What the connected board supports, per the daemon's probe: the set the
+/// daemon answered with, kept as one bit per [`Capability`] rather than
+/// unpacked into a flag apiece, so a new control is named in the vocabulary
+/// and gated in the UI with nothing to update in between. `Copy`, because
+/// the window holds it in a `Cell` and the tray in its own copy. The default
+/// (empty) doubles as "not yet known".
+#[derive(Clone, Copy, Default)]
+struct Capabilities(u32);
+
 impl Capabilities {
-    fn from_names(names: &[String]) -> Self {
-        let has = |name: &str| names.iter().any(|n| n == name);
-        Capabilities {
-            charge_limit: has("charge-limit"),
-            charge_current_limit: has("charge-current-limit"),
-            keyboard_backlight: has("keyboard-backlight"),
-            fp_brightness: has("fp-brightness"),
-            fp_custom: has("fp-brightness-custom"),
-            haptic_touchpad: has("haptic-touchpad"),
-        }
+    fn from_probe(probed: &[Capability]) -> Self {
+        Capabilities(
+            probed
+                .iter()
+                .fold(0, |bits, capability| bits | 1 << *capability as u32),
+        )
+    }
+
+    fn has(self, capability: Capability) -> bool {
+        self.0 & (1 << capability as u32) != 0
     }
 }
 
@@ -243,7 +210,7 @@ enum TrayEvent {
     /// Already resolved to milliamps against the capacity the menu was drawn
     /// from, so applying it needs nothing the window has to supply.
     SetChargeSpeed(u32),
-    SetFingerprintLevel(&'static str),
+    SetFingerprintLevel(FpLevel),
     Quit,
 }
 
@@ -284,21 +251,32 @@ fn charge_limit_labels() -> Vec<String> {
         .collect()
 }
 
-/// Daemon-side level names, in the order the fingerprint combo shows them.
-/// "custom" is get-only: the EC reports it after a raw percentage write.
-/// Firmware without the fp-brightness-custom capability supports only the
-/// BASIC slice (high/medium/low).
-const FP_LEVELS: [&str; 6] = ["auto", "high", "medium", "low", "ultra-low", "custom"];
-const FP_LEVEL_LABELS: [&str; 6] = ["Auto", "High", "Medium", "Low", "Ultra-low", "Custom"];
-const FP_BASIC: std::ops::Range<usize> = 1..4;
+fn fp_level_label(level: FpLevel) -> &'static str {
+    match level {
+        FpLevel::Auto => "Auto",
+        FpLevel::High => "High",
+        FpLevel::Medium => "Medium",
+        FpLevel::Low => "Low",
+        FpLevel::UltraLow => "Ultra-low",
+        FpLevel::Custom => "Custom",
+    }
+}
 
-/// Combo levels and labels for a firmware generation; tray presets are the
-/// same minus the trailing "custom" in the full set.
-fn fp_levels_labels(custom: bool) -> (&'static [&'static str], &'static [&'static str]) {
+/// What a board without [`Capability::FpBrightnessCustom`] offers. Not wire
+/// vocabulary: no message names this set, and what belongs in it is decided
+/// by the daemon's probe — v1 of the EC command brought the percentage write
+/// and the ultra-low and auto levels in together, so a board without it has
+/// these three and no percentage write to report Custom after.
+const FP_BASIC: [FpLevel; 3] = [FpLevel::High, FpLevel::Medium, FpLevel::Low];
+
+/// The tray's rows: only what a click can actually apply, so Custom — which
+/// the EC reports after a percentage write and no setter takes — is absent.
+/// The window's combo differs, showing everything the EC can report.
+fn fp_presets(custom: bool) -> &'static [FpLevel] {
     if custom {
-        (&FP_LEVELS, &FP_LEVEL_LABELS)
+        &FpLevel::SETTABLE
     } else {
-        (&FP_LEVELS[FP_BASIC], &FP_LEVEL_LABELS[FP_BASIC])
+        &FP_BASIC
     }
 }
 
@@ -312,9 +290,9 @@ struct TrayIcon {
     /// stays out: a fraction then has no rate to show or to send.
     charge_current_limit: Option<u32>,
     design_capacity: Option<u32>,
-    /// Current fingerprint LED level name, pushed in from the app; "custom"
-    /// marks no radio option.
-    fp_level: Option<String>,
+    /// Current fingerprint LED level, pushed in from the app; Custom marks no
+    /// radio option.
+    fp_level: Option<FpLevel>,
     /// Pushed in once the app reads the daemon's probe, and fixed for the
     /// daemon's run thereafter. None until then, which leaves the menu at
     /// Open/Quit.
@@ -418,7 +396,7 @@ fn radio_submenu(
 
 impl TrayIcon {
     fn charge_limit_item(&self) -> Option<ksni::MenuItem<Self>> {
-        if !self.caps?.charge_limit {
+        if !self.caps?.has(Capability::ChargeLimit) {
             return None;
         }
         let labels = charge_limit_labels();
@@ -436,7 +414,7 @@ impl TrayIcon {
     }
 
     fn charge_speed_item(&self) -> Option<ksni::MenuItem<Self>> {
-        if !self.caps?.charge_current_limit {
+        if !self.caps?.has(Capability::ChargeCurrentLimit) {
             return None;
         }
         // Still needed to turn the chosen speed into the milliamps the daemon
@@ -467,26 +445,21 @@ impl TrayIcon {
 
     fn fp_level_item(&self) -> Option<ksni::MenuItem<Self>> {
         let caps = self.caps?;
-        if !caps.fp_brightness {
+        if !caps.has(Capability::FpBrightness) {
             return None;
         }
-        // Presets only — "custom" is a state the EC reports, not an action,
-        // so the tray offers just the settable levels of this firmware
-        // generation.
-        let (mut levels, mut labels) = fp_levels_labels(caps.fp_custom);
-        if let Some(stripped) = levels.strip_suffix(&["custom"]) {
-            levels = stripped;
-            labels = &labels[..levels.len()];
-        }
+        let levels = fp_presets(caps.has(Capability::FpBrightnessCustom));
         let selected = self
             .fp_level
-            .as_deref()
             .and_then(|level| levels.iter().position(|l| *l == level));
+        let options: Vec<String> = levels
+            .iter()
+            .map(|level| fp_level_label(*level).to_string())
+            .collect();
         let title = match selected {
-            Some(index) => format!("Fingerprint LED ({})", labels[index]),
+            Some(index) => format!("Fingerprint LED ({})", options[index]),
             None => "Fingerprint LED".into(),
         };
-        let options = labels.iter().map(|label| (*label).to_string()).collect();
         Some(radio_submenu(title, selected, options, move |tray, index| {
             tray.send(TrayEvent::SetFingerprintLevel(levels[index]));
         }))
@@ -543,7 +516,12 @@ async fn debug_info() -> String {
         out.push_str(&line("EC", p.get_ec_version().await));
         out.push_str(&line(
             "capabilities",
-            p.get_capabilities().await.map(|c| c.join(" ")),
+            p.get_capabilities()
+                .await
+                // Variant names, not the wire's: the kebab spelling lives in
+                // one serde attribute, and a second copy to format from here
+                // is the drift these types exist to remove.
+                .map(|caps| format!("{caps:?}")),
         ));
     }
     out
@@ -638,9 +616,9 @@ struct Ui {
     fp_combo: adw::ComboRow,
     /// The slider's row; shown only while the level is Custom.
     fp_custom_row: adw::ActionRow,
-    /// The level names behind the combo's rows, set once capabilities are
-    /// known (full set, or high/medium/low on v0-only firmware).
-    fp_levels: Cell<&'static [&'static str]>,
+    /// The levels behind the combo's rows, set once capabilities are known
+    /// (full set, or high/medium/low on v0-only firmware).
+    fp_levels: Cell<&'static [FpLevel]>,
     haptic_combo: adw::ComboRow,
     force_combo: adw::ComboRow,
     tray: Option<ksni::blocking::Handle<TrayIcon>>,
@@ -665,19 +643,19 @@ impl Ui {
         }
     }
 
-    fn sync_tray_fp_level(&self, level: &str) {
+    fn sync_tray_fp_level(&self, level: FpLevel) {
         if let Some(handle) = &self.tray {
             tray_set_fp_level(handle, level);
         }
     }
 
     /// Moves the fingerprint widgets onto a level without writing it back.
-    /// Unlike the charge controls, "custom" is a state the EC reports, so the
+    /// Unlike the charge controls, Custom is a state the EC reports, so the
     /// row it belongs on is read off the level rather than remembered.
-    fn show_fp_level(&self, level: &str) {
+    fn show_fp_level(&self, level: FpLevel) {
         self.sync(|| {
             self.fp_combo.set_selected(self.fp_combo_index(level));
-            self.fp_custom_row.set_visible(level == "custom");
+            self.fp_custom_row.set_visible(level == FpLevel::Custom);
         });
     }
 
@@ -723,7 +701,7 @@ impl Ui {
         }
     }
 
-    fn fp_combo_index(&self, level: &str) -> u32 {
+    fn fp_combo_index(&self, level: FpLevel) -> u32 {
         self.fp_levels
             .get()
             .iter()
@@ -764,15 +742,18 @@ fn tray_set_charge_speed(
     });
 }
 
-fn tray_set_fp_level(handle: &ksni::blocking::Handle<TrayIcon>, level: &str) {
-    let level = level.to_string();
+fn tray_set_fp_level(handle: &ksni::blocking::Handle<TrayIcon>, level: FpLevel) {
     handle.update(move |tray| tray.fp_level = Some(level));
 }
 
 /// The app's one way of attaching to the daemon.
 async fn daemon_proxy() -> zbus::Result<FrameguinProxy<'static>> {
     let conn = zbus::Connection::system().await?;
-    FrameguinProxy::new(&conn).await
+    FrameguinProxy::builder(&conn)
+        .destination(frameguin_wire::BUS_NAME)?
+        .path(frameguin_wire::OBJECT_PATH)?
+        .build()
+        .await
 }
 
 /// (Re)arms a debounce slot: cancels any pending source and schedules `action`
@@ -938,7 +919,7 @@ fn connect_touchpad_setters(ui: &Rc<Ui>, proxy: &FrameguinProxy<'static>) {
         if haptic_ui.syncing.get() {
             return;
         }
-        let percent = HAPTIC_LEVELS[row.selected() as usize];
+        let percent = HAPTIC_INTENSITY_LEVELS[row.selected() as usize];
         let ui = haptic_ui.clone();
         let proxy = haptic_proxy.clone();
         glib::spawn_future_local(async move {
@@ -954,7 +935,7 @@ fn connect_touchpad_setters(ui: &Rc<Ui>, proxy: &FrameguinProxy<'static>) {
         if force_ui.syncing.get() {
             return;
         }
-        let force = CLICK_FORCES[row.selected() as usize];
+        let force = ClickForce::ALL[row.selected() as usize];
         let ui = force_ui.clone();
         let proxy = force_proxy.clone();
         glib::spawn_future_local(async move {
@@ -1004,7 +985,7 @@ impl Sink<'_> {
         }
     }
 
-    fn show_fp_level(&self, level: &str) {
+    fn show_fp_level(&self, level: FpLevel) {
         match self {
             Sink::Window(ui) => {
                 ui.sync_tray_fp_level(level);
@@ -1070,10 +1051,10 @@ async fn apply_charge_speed(
     sink.show_charge_speed(milliamps, custom);
 }
 
-/// The one write for a fingerprint preset. "custom" is not one: the EC
-/// reports it after a raw percentage write, which goes through
+/// The one write for a fingerprint preset. Custom is not one: the EC reports
+/// it after a raw percentage write, which goes through
 /// [`apply_fp_brightness`] instead.
-async fn apply_fp_level(sink: Sink<'_>, proxy: &FrameguinProxy<'static>, level: &str) {
+async fn apply_fp_level(sink: Sink<'_>, proxy: &FrameguinProxy<'static>, level: FpLevel) {
     if let Err(e) = proxy.set_fingerprint_level(level).await {
         sink.toast(&format!("Setting fingerprint level failed: {e}"));
         return;
@@ -1096,7 +1077,7 @@ async fn apply_fp_brightness(ui: &Ui, proxy: &FrameguinProxy<'static>, percent: 
         ui.toast(&format!("Setting fingerprint brightness failed: {e}"));
         return;
     }
-    ui.sync_tray_fp_level("custom");
+    ui.sync_tray_fp_level(FpLevel::Custom);
     ui.sync(|| ui.fp_custom_row.set_visible(true));
 }
 
@@ -1133,7 +1114,7 @@ fn connect_fp_setter(ui: &Rc<Ui>, proxy: &FrameguinProxy<'static>) {
         let ui = combo_ui.clone();
         let proxy = combo_proxy.clone();
         glib::spawn_future_local(async move {
-            if level == "custom" {
+            if level == FpLevel::Custom {
                 let percent = scale_percent(ui.fp_scale.value());
                 apply_fp_brightness(&ui, &proxy, percent).await;
                 return;
@@ -1328,7 +1309,7 @@ fn build_window(
     let fingerprint = adw::PreferencesGroup::builder().title("Fingerprint").build();
     let fp_combo = adw::ComboRow::builder()
         .title("LED level")
-        .model(&gtk::StringList::new(&FP_LEVEL_LABELS))
+        .model(&gtk::StringList::new(&FpLevel::ALL.map(fp_level_label)))
         .sensitive(false)
         .build();
     fingerprint.add(&fp_combo);
@@ -1352,7 +1333,9 @@ fn build_window(
     let force_combo = adw::ComboRow::builder()
         .title("Click force")
         .subtitle("How hard you press to click")
-        .model(&gtk::StringList::new(&CLICK_FORCE_LABELS))
+        .model(&gtk::StringList::new(
+            &ClickForce::ALL.map(click_force_label),
+        ))
         .sensitive(false)
         .build();
     touchpad.add(&force_combo);
@@ -1422,7 +1405,7 @@ fn build_window(
         fp_scale,
         fp_combo,
         fp_custom_row: fp_row,
-        fp_levels: Cell::new(fp_levels_labels(true).0),
+        fp_levels: Cell::new(&FpLevel::ALL),
         haptic_combo,
         force_combo,
         tray,
@@ -1463,13 +1446,17 @@ struct CapabilityWidgets {
 
 impl CapabilityWidgets {
     fn show_supported(&self, caps: Capabilities) {
-        self.battery
-            .set_visible(caps.charge_limit || caps.charge_current_limit);
-        self.limit_combo.set_visible(caps.charge_limit);
-        self.speed_combo.set_visible(caps.charge_current_limit);
-        self.keyboard.set_visible(caps.keyboard_backlight);
-        self.fingerprint.set_visible(caps.fp_brightness);
-        self.touchpad.set_visible(caps.haptic_touchpad);
+        let charge_limit = caps.has(Capability::ChargeLimit);
+        let charge_speed = caps.has(Capability::ChargeCurrentLimit);
+        self.battery.set_visible(charge_limit || charge_speed);
+        self.limit_combo.set_visible(charge_limit);
+        self.speed_combo.set_visible(charge_speed);
+        self.keyboard
+            .set_visible(caps.has(Capability::KeyboardBacklight));
+        self.fingerprint
+            .set_visible(caps.has(Capability::FpBrightness));
+        self.touchpad
+            .set_visible(caps.has(Capability::HapticTouchpad));
     }
 }
 
@@ -1492,18 +1479,18 @@ async fn init_from_daemon(ui: Rc<Ui>, groups: CapabilityWidgets, window: adw::Ap
             Vec::new()
         }
     };
-    let caps = Capabilities::from_names(&names);
+    let caps = Capabilities::from_probe(&names);
     ui.caps.set(caps);
     groups.show_supported(caps);
     ui.sync_tray_caps(caps);
     // Fixed for a firmware generation, so the combo's rows are chosen once
-    // rather than rebuilt by every reload.
-    if caps.fp_brightness {
-        let (levels, labels) = fp_levels_labels(caps.fp_custom);
-        ui.fp_levels.set(levels);
-        if !caps.fp_custom {
-            ui.fp_combo.set_model(Some(&gtk::StringList::new(labels)));
-        }
+    // rather than rebuilt by every reload. The widgets are built on the full
+    // set, so only firmware that lacks the v1 levels narrows them.
+    if caps.has(Capability::FpBrightness) && !caps.has(Capability::FpBrightnessCustom) {
+        ui.fp_levels.set(&FP_BASIC);
+        ui.fp_combo.set_model(Some(&gtk::StringList::new(
+            &FP_BASIC.map(fp_level_label),
+        )));
     }
     load_values(&ui, &proxy).await;
     connect_setters(&ui, &proxy);
@@ -1531,7 +1518,7 @@ async fn load_battery_values(
     let caps = ui.caps.get();
     let mut tray_limit = None;
     let mut tray_speed = None;
-    if caps.charge_limit {
+    if caps.has(Capability::ChargeLimit) {
         match proxy.get_charge_limit().await {
             Ok(limit) => {
                 ui.show_charge_limit(limit, Custom::Rederive);
@@ -1544,7 +1531,7 @@ async fn load_battery_values(
             Err(e) => ui.toast(&format!("Reading charge limit failed: {e}")),
         }
     }
-    if caps.charge_current_limit {
+    if caps.has(Capability::ChargeCurrentLimit) {
         // A pack's design capacity can't change under a running app, so it is
         // read once and the labels built from it stay put.
         if ui.design_capacity.get().is_none() {
@@ -1597,7 +1584,7 @@ async fn load_values(ui: &Rc<Ui>, proxy: &FrameguinProxy<'static>) {
     let caps = ui.caps.get();
     let mut tray_level = None;
     let (tray_limit, tray_speed) = load_battery_values(ui, proxy).await;
-    if caps.keyboard_backlight {
+    if caps.has(Capability::KeyboardBacklight) {
         match proxy.get_keyboard_backlight().await {
             Ok(percent) => ui.sync(|| {
                 ui.kbd_scale.set_value(f64::from(percent));
@@ -1606,10 +1593,10 @@ async fn load_values(ui: &Rc<Ui>, proxy: &FrameguinProxy<'static>) {
             Err(e) => ui.toast(&format!("Reading keyboard backlight failed: {e}")),
         }
     }
-    if caps.fp_brightness {
+    if caps.has(Capability::FpBrightness) {
         match proxy.get_fingerprint_brightness().await {
             Ok((percent, level)) => {
-                ui.show_fp_level(&level);
+                ui.show_fp_level(level);
                 ui.sync(|| {
                     ui.fp_scale.set_value(f64::from(percent));
                     ui.fp_scale.set_sensitive(true);
@@ -1620,12 +1607,13 @@ async fn load_values(ui: &Rc<Ui>, proxy: &FrameguinProxy<'static>) {
             Err(e) => ui.toast(&format!("Reading fingerprint brightness failed: {e}")),
         }
     }
-    if caps.haptic_touchpad {
+    if caps.has(Capability::HapticTouchpad) {
         match proxy.get_haptic_intensity().await {
             Ok(percent) => {
-                let index = HAPTIC_LEVELS.iter().position(|l| *l == percent).unwrap_or(3);
+                let row = HAPTIC_INTENSITY_LEVELS.iter().position(|l| *l == percent);
                 ui.sync(|| {
-                    ui.haptic_combo.set_selected(combo_index(index));
+                    ui.haptic_combo
+                        .set_selected(row.map_or(gtk::INVALID_LIST_POSITION, combo_index));
                     ui.haptic_combo.set_sensitive(true);
                 });
             }
@@ -1633,9 +1621,10 @@ async fn load_values(ui: &Rc<Ui>, proxy: &FrameguinProxy<'static>) {
         }
         match proxy.get_touchpad_click_force().await {
             Ok(force) => {
-                let index = CLICK_FORCES.iter().position(|f| *f == force).unwrap_or(1);
+                let row = ClickForce::ALL.iter().position(|f| *f == force);
                 ui.sync(|| {
-                    ui.force_combo.set_selected(combo_index(index));
+                    ui.force_combo
+                        .set_selected(row.map_or(gtk::INVALID_LIST_POSITION, combo_index));
                     ui.force_combo.set_sensitive(true);
                 });
             }
@@ -1705,16 +1694,16 @@ async fn refresh_tray(handle: &ksni::blocking::Handle<TrayIcon>, proxy: &Framegu
         caps
     } else {
         let Ok(names) = proxy.get_capabilities().await else { return };
-        Capabilities::from_names(&names)
+        Capabilities::from_probe(&names)
     };
-    let limit = if caps.charge_limit {
+    let limit = if caps.has(Capability::ChargeLimit) {
         proxy.get_charge_limit().await.ok()
     } else {
         None
     };
     let mut capacity = known_capacity;
     let mut speed = None;
-    if caps.charge_current_limit {
+    if caps.has(Capability::ChargeCurrentLimit) {
         if capacity.is_none() {
             capacity = proxy.get_battery_design_capacity().await.ok();
         }
@@ -1722,7 +1711,7 @@ async fn refresh_tray(handle: &ksni::blocking::Handle<TrayIcon>, proxy: &Framegu
             speed = proxy.get_charge_current_limit().await.ok();
         }
     }
-    let level = if caps.fp_brightness {
+    let level = if caps.has(Capability::FpBrightness) {
         proxy
             .get_fingerprint_brightness()
             .await

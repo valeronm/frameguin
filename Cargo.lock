@@ -616,6 +616,7 @@ name = "frameguin"
 version = "0.1.1"
 dependencies = [
  "async-channel",
+ "frameguin-wire",
  "gtk4",
  "ksni",
  "libadwaita",
@@ -626,10 +627,19 @@ dependencies = [
 name = "frameguin-daemon"
 version = "0.1.1"
 dependencies = [
+ "frameguin-wire",
  "framework_lib",
  "hidapi",
  "zbus",
  "zbus_polkit",
+]
+
+[[package]]
+name = "frameguin-wire"
+version = "0.1.1"
+dependencies = [
+ "serde",
+ "zbus",
 ]
 
 [[package]]
