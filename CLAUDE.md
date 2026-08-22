@@ -54,9 +54,18 @@ operation, and a probe vouches for an operation only by a side-effect-free
 exercise of that operation's own code path, or by curated knowledge — not by
 an adjacent, easier check. The reason is concrete: the touchscreen's version
 read succeeds on hardware whose enable command does not, so a version-based
-probe would have offered a control that silently does nothing. Where no
-harmless same-path probe exists (write-only controls), the support condition
-is hardcoded with a comment explaining why.
+probe would have offered a control that silently does nothing.
+
+Write-only controls have no same-path probe to run, and take one of two other
+forms. Asking the firmware whether it implements the exact command the setter
+sends (`cmd_version_supported`) is a probe about that command and nothing
+else, which is what separates it from the touchscreen trap — that was a
+*different* command answering for the one that mattered. Where even that isn't
+available, the condition is hardcoded with a comment explaining why. A probe
+may also require more than command support: `charge-current-limit` needs a
+readable battery too, because a cap is only offered as a share of what the
+pack asks for, and a capability should mean the control works rather than
+merely that the write exists.
 
 ## Hardware facts that shape the code
 
