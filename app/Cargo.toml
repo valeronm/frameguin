@@ -28,11 +28,9 @@ maintainer = "Valerii Myronov <valeriy@hey.com>"
 copyright = "2026 Valerii Myronov"
 license-file = ["../LICENSE", "0"]
 extended-description = """\
-Frameguin exposes the Framework laptop hardware controls that the kernel does \
-not: the battery charge limit, keyboard backlight, fingerprint reader LED \
-brightness, and haptic touchpad feedback, from a GTK4/libadwaita window and a \
-tray icon. A root D-Bus daemon holds the hardware access; the GUI is \
-unprivileged and setters are authorized through polkit."""
+Settings are changed from a GTK4/libadwaita window, or from a tray menu that \
+needs no window open. A root D-Bus daemon holds the hardware access; the GUI \
+is unprivileged and setters are authorized through polkit."""
 section = "utils"
 # No policykit-1 fallback: the app needs libadwaita 1.4, so the oldest
 # release it can run on already ships polkitd.

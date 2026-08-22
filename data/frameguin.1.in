@@ -1,6 +1,6 @@
 .\" The date is this page's own last non-trivial change, per man-pages(7),
 .\" not the build date.
-.TH FRAMEGUIN 1 2026-08-21 "Frameguin @VERSION@" "User Commands"
+.TH FRAMEGUIN 1 2026-08-22 "Frameguin @VERSION@" "User Commands"
 .SH NAME
 frameguin \- hardware controls for Framework laptops
 .SH SYNOPSIS
@@ -8,10 +8,8 @@ frameguin \- hardware controls for Framework laptops
 .RI [ OPTION .\|.\|.]
 .SH DESCRIPTION
 .B frameguin
-is a GTK4/libadwaita application for the hardware controls a Framework
-laptop exposes through its embedded controller: the battery charge limit,
-keyboard backlight, fingerprint reader LED brightness and haptic touchpad
-feedback.
+manages the hardware settings of a Framework laptop, from a window or a
+tray icon.
 .PP
 The application itself is unprivileged. Hardware access happens in
 .BR frameguin\-daemon ,

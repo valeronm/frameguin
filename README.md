@@ -1,7 +1,8 @@
 # Frameguin
 
-A small GNOME (GTK4/libadwaita) app for Framework laptop hardware controls,
-written in Rust and split into an unprivileged GUI and a root D-Bus daemon.
+An app for managing the hardware settings of a Framework laptop, from a
+window or a tray icon. Written in Rust and split into an unprivileged GUI
+and a root D-Bus daemon.
 
 This is a community project, not affiliated with or endorsed by Framework
 Computer Inc. "Framework" and the gear logo are trademarks of Framework
@@ -10,7 +11,7 @@ Computer Inc. Licensed under the [MIT License](LICENSE).
 [**Latest release**](https://github.com/valeronm/frameguin/releases/latest)
 · [Install](#install) · [Report a bug](https://github.com/valeronm/frameguin/issues)
 
-<img src="screenshot.png" alt="Frameguin window showing battery, keyboard, fingerprint, and touchpad controls" width="420">
+<img src="screenshot.png" alt="The Frameguin window, one group per piece of hardware" width="420">
 
 ## What it does
 
@@ -25,6 +26,8 @@ stored value at every POST, so the standing limit lives in BIOS setup.
 
 Closing the window hides it to the tray; **Quit Frameguin** in the tray menu
 is the real exit. **Start at login** brings up the tray icon only.
+
+<img src="screenshot-tray.png" alt="The Frameguin tray menu, with one control expanded to its presets" width="280">
 
 ## Alternatives
 
@@ -260,7 +263,9 @@ other. Bump them all, then tag:
 - `packaging/changelog` — a new entry, with a distribution rather than
   `UNRELEASED`, and the Debian revision suffix (`0.2.0-1`) the check strips
   before comparing
-- `<release version=… date=…/>` in `data/*.metainfo.xml`
+- `<release version=… date=…/>` in `data/*.metainfo.xml`, at the top of the
+  block — the check reads the first entry, so one appended below passes while
+  the newest release stays wrong
 - `Cargo.lock`, which any `cargo` command refreshes — the builds pass
   `--locked`, so a lock that disagrees with the manifest stops them
 - the `v`-prefixed git tag

@@ -56,8 +56,13 @@ fi
 if command -v lintian >/dev/null; then
     lintian --fail-on error,warning "$deb"
 fi
+# --no-net: without it the validator fetches every URL in the file, so the
+# gate answers for GitHub's reachability rather than this metadata, and a
+# filtered network stalls it with the whole workspace already built. It also
+# ties a local check to the repo's published state, since the screenshots
+# name a branch.
 if command -v appstreamcli >/dev/null; then
-    appstreamcli validate target/release/data/*.metainfo.xml
+    appstreamcli validate --no-net target/release/data/*.metainfo.xml
 fi
 if command -v desktop-file-validate >/dev/null; then
     desktop-file-validate target/release/data/*.desktop

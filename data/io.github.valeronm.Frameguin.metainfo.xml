@@ -9,17 +9,13 @@
 
   <description>
     <p>
-      Frameguin exposes the Framework laptop hardware controls that the kernel
-      does not: the battery charge limit, keyboard backlight, fingerprint
-      reader LED brightness, and haptic touchpad feedback. Every control is
-      also reachable from a tray icon, so the common adjustments need no
-      window.
+      Settings are changed from the application window, or from a tray menu
+      that needs no window open.
     </p>
     <p>
-      Controls appear only for the hardware the board reports, so a machine
-      shows exactly what it can actually change. Changing a setting is
-      authorized through polkit; on non-Framework hardware the app opens and
-      reports that it found none.
+      Controls appear only for the hardware the board reports. Changing a
+      setting is authorized through polkit; on non-Framework hardware the app
+      opens and reports that it found none.
     </p>
   </description>
 
@@ -28,7 +24,11 @@
   <screenshots>
     <screenshot type="default">
       <image>https://raw.githubusercontent.com/valeronm/frameguin/main/screenshot.png</image>
-      <caption>Battery, keyboard, fingerprint, and touchpad controls</caption>
+      <caption>The application window</caption>
+    </screenshot>
+    <screenshot>
+      <image>https://raw.githubusercontent.com/valeronm/frameguin/main/screenshot-tray.png</image>
+      <caption>The tray menu</caption>
     </screenshot>
   </screenshots>
 
