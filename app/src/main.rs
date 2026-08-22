@@ -480,8 +480,12 @@ impl TrayIcon {
             return None;
         }
         let labels = charge_limit_labels();
+        // Spelled here rather than read off the labels, the way the other
+        // two titles name their selected option: the row for 100% reads "No
+        // limit", which as a title would come out "Charge limit (No limit)".
+        // Each word is the better one where it sits, so the two differ.
         let title = match self.charge_limit {
-            Some(100) => "Charge limit (off)".into(),
+            Some(100) => "Charge limit (Off)".into(),
             Some(limit) => format!("Charge limit ({limit}%)"),
             None => "Charge limit".into(),
         };
