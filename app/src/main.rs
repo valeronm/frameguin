@@ -637,15 +637,9 @@ impl Ui {
         self.syncing.set(false);
     }
 
-    fn sync_tray_charge_limit(&self, percent: u8) {
+    fn sync_tray(&self, values: TrayValues) {
         if let Some(handle) = &self.tray {
-            tray_set_charge_limit(handle, percent);
-        }
-    }
-
-    fn sync_tray_fp_level(&self, level: FpLevel) {
-        if let Some(handle) = &self.tray {
-            tray_set_fp_level(handle, level);
+            tray_push(handle, values);
         }
     }
 
@@ -695,12 +689,6 @@ impl Ui {
         });
     }
 
-    fn sync_tray_charge_speed(&self, milliamps: u32) {
-        if let Some(handle) = &self.tray {
-            tray_set_charge_speed(handle, self.design_capacity.get(), milliamps);
-        }
-    }
-
     fn fp_combo_index(&self, level: FpLevel) -> u32 {
         self.fp_levels
             .get()
@@ -709,41 +697,57 @@ impl Ui {
             .map_or(gtk::INVALID_LIST_POSITION, combo_index)
     }
 
-    fn sync_tray_caps(&self, caps: Capabilities) {
-        if let Some(handle) = &self.tray {
-            tray_set_caps(handle, caps);
+}
+
+/// What a caller knows about the tray's state. A field left None is one this
+/// caller cannot speak for, and the menu keeps what it already holds — which
+/// is what makes a write from a window that has not read the battery yet safe
+/// to apply: it knows the milliamps but not the capacity, and the menu's own
+/// copy is the better one.
+#[derive(Clone, Copy, Default)]
+struct TrayValues {
+    caps: Option<Capabilities>,
+    charge_limit: Option<u8>,
+    design_capacity: Option<u32>,
+    charge_current_limit: Option<u32>,
+    fp_level: Option<FpLevel>,
+}
+
+impl TrayValues {
+    fn caps(caps: Capabilities) -> Self {
+        Self {
+            caps: Some(caps),
+            ..Self::default()
+        }
+    }
+
+    fn charge_limit(percent: u8) -> Self {
+        Self {
+            charge_limit: Some(percent),
+            ..Self::default()
+        }
+    }
+
+    fn fp_level(level: FpLevel) -> Self {
+        Self {
+            fp_level: Some(level),
+            ..Self::default()
         }
     }
 }
 
-// The tray-push protocol, owned in one place: both the window's Ui and the
-// tray-only startup path go through these.
-fn tray_set_caps(handle: &ksni::blocking::Handle<TrayIcon>, caps: Capabilities) {
-    handle.update(move |tray| tray.caps = Some(caps));
-}
-
-fn tray_set_charge_limit(handle: &ksni::blocking::Handle<TrayIcon>, percent: u8) {
-    handle.update(move |tray| tray.charge_limit = Some(percent));
-}
-
-fn tray_set_charge_speed(
-    handle: &ksni::blocking::Handle<TrayIcon>,
-    design_capacity: Option<u32>,
-    milliamps: u32,
-) {
+/// The tray-push protocol, owned in one place: the window's `Ui`, the write
+/// sinks and the tray-only startup path all come through here. Everything a
+/// caller knows travels in one `update`, because each one blocks on the tray's
+/// thread and makes it rebuild and re-signal the whole menu.
+fn tray_push(handle: &ksni::blocking::Handle<TrayIcon>, values: TrayValues) {
     handle.update(move |tray| {
-        // A write from a window that hasn't read the battery yet knows the
-        // milliamps but not the capacity, and the menu's own copy is the
-        // better one — never trade a known capacity for None.
-        if design_capacity.is_some() {
-            tray.design_capacity = design_capacity;
-        }
-        tray.charge_current_limit = Some(milliamps);
+        tray.caps = values.caps.or(tray.caps);
+        tray.charge_limit = values.charge_limit.or(tray.charge_limit);
+        tray.design_capacity = values.design_capacity.or(tray.design_capacity);
+        tray.charge_current_limit = values.charge_current_limit.or(tray.charge_current_limit);
+        tray.fp_level = values.fp_level.or(tray.fp_level);
     });
-}
-
-fn tray_set_fp_level(handle: &ksni::blocking::Handle<TrayIcon>, level: FpLevel) {
-    handle.update(move |tray| tray.fp_level = Some(level));
 }
 
 /// The app's one way of attaching to the daemon.
@@ -963,35 +967,42 @@ impl Sink<'_> {
         }
     }
 
-    fn show_charge_limit(&self, percent: u8, custom: Custom) {
+    /// Sends what this sink can vouch for to the tray, wherever it lives.
+    fn push_tray(&self, values: TrayValues) {
         match self {
-            Sink::Window(ui) => {
-                ui.sync_tray_charge_limit(percent);
-                ui.show_charge_limit(percent, custom);
-            }
-            Sink::Tray(handle) => tray_set_charge_limit(handle, percent),
+            Sink::Window(ui) => ui.sync_tray(values),
+            Sink::Tray(handle) => tray_push(handle, values),
+        }
+    }
+
+    fn show_charge_limit(&self, percent: u8, custom: Custom) {
+        self.push_tray(TrayValues::charge_limit(percent));
+        if let Sink::Window(ui) = self {
+            ui.show_charge_limit(percent, custom);
         }
     }
 
     fn show_charge_speed(&self, milliamps: u32, custom: Custom) {
-        match self {
-            Sink::Window(ui) => {
-                ui.sync_tray_charge_speed(milliamps);
-                ui.show_charge_speed(milliamps, custom);
-            }
-            // The capacity the tray already holds is the one the menu was
-            // drawn from, so it has nothing to learn here.
-            Sink::Tray(handle) => tray_set_charge_speed(handle, None, milliamps),
+        self.push_tray(TrayValues {
+            // Only a window holds a capacity to send. The capacity the tray
+            // already has is the one its menu was drawn from, so a tray write
+            // has nothing to teach it here.
+            design_capacity: match self {
+                Sink::Window(ui) => ui.design_capacity.get(),
+                Sink::Tray(_) => None,
+            },
+            charge_current_limit: Some(milliamps),
+            ..TrayValues::default()
+        });
+        if let Sink::Window(ui) = self {
+            ui.show_charge_speed(milliamps, custom);
         }
     }
 
     fn show_fp_level(&self, level: FpLevel) {
-        match self {
-            Sink::Window(ui) => {
-                ui.sync_tray_fp_level(level);
-                ui.show_fp_level(level);
-            }
-            Sink::Tray(handle) => tray_set_fp_level(handle, level),
+        self.push_tray(TrayValues::fp_level(level));
+        if let Sink::Window(ui) = self {
+            ui.show_fp_level(level);
         }
     }
 }
@@ -1077,7 +1088,7 @@ async fn apply_fp_brightness(ui: &Ui, proxy: &FrameguinProxy<'static>, percent: 
         ui.toast(&format!("Setting fingerprint brightness failed: {e}"));
         return;
     }
-    ui.sync_tray_fp_level(FpLevel::Custom);
+    ui.sync_tray(TrayValues::fp_level(FpLevel::Custom));
     ui.sync(|| ui.fp_custom_row.set_visible(true));
 }
 
@@ -1482,7 +1493,7 @@ async fn init_from_daemon(ui: Rc<Ui>, groups: CapabilityWidgets, window: adw::Ap
     let caps = Capabilities::from_probe(&names);
     ui.caps.set(caps);
     groups.show_supported(caps);
-    ui.sync_tray_caps(caps);
+    ui.sync_tray(TrayValues::caps(caps));
     // Fixed for a firmware generation, so the combo's rows are chosen once
     // rather than rebuilt by every reload. The widgets are built on the full
     // set, so only firmware that lacks the v1 levels narrows them.
@@ -1511,13 +1522,11 @@ async fn init_from_daemon(ui: Rc<Ui>, groups: CapabilityWidgets, window: adw::Ap
 /// The Battery group's half of a reload: the ceiling and the speed, each with
 /// its combo and slider. Returns what the tray should be told, for the one
 /// push [`load_values`] makes at the end.
-async fn load_battery_values(
-    ui: &Rc<Ui>,
-    proxy: &FrameguinProxy<'static>,
-) -> (Option<u8>, Option<u32>) {
+/// Returns what the tray should be told, for its caller to send together with
+/// everything else one reload learns.
+async fn load_battery_values(ui: &Rc<Ui>, proxy: &FrameguinProxy<'static>) -> TrayValues {
     let caps = ui.caps.get();
-    let mut tray_limit = None;
-    let mut tray_speed = None;
+    let mut values = TrayValues::default();
     if caps.has(Capability::ChargeLimit) {
         match proxy.get_charge_limit().await {
             Ok(limit) => {
@@ -1526,7 +1535,7 @@ async fn load_battery_values(
                     ui.limit_combo.set_sensitive(true);
                     ui.limit_scale.set_sensitive(true);
                 });
-                tray_limit = Some(limit);
+                values.charge_limit = Some(limit);
             }
             Err(e) => ui.toast(&format!("Reading charge limit failed: {e}")),
         }
@@ -1566,12 +1575,14 @@ async fn load_battery_values(
                     ui.speed_combo.set_sensitive(known);
                     ui.speed_scale.set_sensitive(known);
                 });
-                tray_speed = Some(milliamps);
+                values.charge_current_limit = Some(milliamps);
             }
             Err(e) => ui.toast(&format!("Reading charge speed failed: {e}")),
         }
     }
-    (tray_limit, tray_speed)
+    // Read above if the capability is there at all, and only once per run.
+    values.design_capacity = ui.design_capacity.get();
+    values
 }
 
 /// Re-reads every supported control and moves the widgets to match, pushing
@@ -1582,8 +1593,7 @@ async fn load_battery_values(
 /// on a menu nobody has opened.
 async fn load_values(ui: &Rc<Ui>, proxy: &FrameguinProxy<'static>) {
     let caps = ui.caps.get();
-    let mut tray_level = None;
-    let (tray_limit, tray_speed) = load_battery_values(ui, proxy).await;
+    let mut values = load_battery_values(ui, proxy).await;
     if caps.has(Capability::KeyboardBacklight) {
         match proxy.get_keyboard_backlight().await {
             Ok(percent) => ui.sync(|| {
@@ -1602,7 +1612,7 @@ async fn load_values(ui: &Rc<Ui>, proxy: &FrameguinProxy<'static>) {
                     ui.fp_scale.set_sensitive(true);
                     ui.fp_combo.set_sensitive(true);
                 });
-                tray_level = Some(level);
+                values.fp_level = Some(level);
             }
             Err(e) => ui.toast(&format!("Reading fingerprint brightness failed: {e}")),
         }
@@ -1631,23 +1641,7 @@ async fn load_values(ui: &Rc<Ui>, proxy: &FrameguinProxy<'static>) {
             Err(e) => ui.toast(&format!("Reading click force failed: {e}")),
         }
     }
-    if let Some(handle) = &ui.tray {
-        let capacity = ui.design_capacity.get();
-        handle.update(move |tray| {
-            if let Some(limit) = tray_limit {
-                tray.charge_limit = Some(limit);
-            }
-            if capacity.is_some() {
-                tray.design_capacity = capacity;
-            }
-            if let Some(speed) = tray_speed {
-                tray.charge_current_limit = Some(speed);
-            }
-            if let Some(level) = tray_level {
-                tray.fp_level = Some(level);
-            }
-        });
-    }
+    ui.sync_tray(values);
 }
 
 /// Window and tray state shared between activation and tray events. The
@@ -1720,21 +1714,16 @@ async fn refresh_tray(handle: &ksni::blocking::Handle<TrayIcon>, proxy: &Framegu
     } else {
         None
     };
-    handle.update(move |tray| {
-        tray.caps = Some(caps);
-        if let Some(limit) = limit {
-            tray.charge_limit = Some(limit);
-        }
-        if capacity.is_some() {
-            tray.design_capacity = capacity;
-        }
-        if let Some(speed) = speed {
-            tray.charge_current_limit = Some(speed);
-        }
-        if let Some(level) = level {
-            tray.fp_level = Some(level);
-        }
-    });
+    tray_push(
+        handle,
+        TrayValues {
+            caps: Some(caps),
+            charge_limit: limit,
+            design_capacity: capacity,
+            charge_current_limit: speed,
+            fp_level: level,
+        },
+    );
 }
 
 fn setup_tray(app: &adw::Application, state: Rc<AppState>) {
