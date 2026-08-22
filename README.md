@@ -14,23 +14,14 @@ Computer Inc. Licensed under the [MIT License](LICENSE).
 
 ## What it does
 
-- **Battery charge limit** — via `framework_lib` speaking EC host commands
-  directly (the kernel does not expose Framework's charge limit). Quick
-  presets (60/80/100%) in the tray menu. A limit set here lasts until reboot:
-  UEFI setup re-sends its own stored value at every POST, so the standing
-  limit lives in BIOS setup.
-- **Keyboard backlight** — via `framework_lib`; the slider follows changes
-  made elsewhere (Fn+Space, firmware auto mode).
-- **Fingerprint LED brightness** — level presets (auto/high/medium/low/
-  ultra-low) in the tray, plus a custom percentage in the window. Older EC
-  firmware offers only high/medium/low. Off is there too, and is not the EC's
-  doing: the LED is the power indicator as well, so switching it off means
-  taking it off the EC's own policy through the kernel's LED class. Picking
-  any level hands it back.
-- **Haptic touchpad** — click feedback intensity (off/25/50/75/100%) and
-  click force (low/medium/high), via `framework_lib` HID feature reports.
-  Write-only firmware controls, so the daemon remembers what it set (mirrored
-  to /var/lib/frameguin — the touchpad itself persists across reboots).
+- **Battery** — the current flowing in or out, a ceiling on how full it
+  charges, and a cap on the charging rate.
+- **Keyboard** — backlight brightness, following changes made elsewhere.
+- **Fingerprint reader** — LED brightness as a level or a percentage, and off.
+- **Touchpad** — haptic click intensity and click force.
+
+A charge limit set here lasts until reboot: UEFI setup re-sends its own
+stored value at every POST, so the standing limit lives in BIOS setup.
 
 Closing the window hides it to the tray; **Quit Frameguin** in the tray menu
 is the real exit. **Start at login** brings up the tray icon only.
