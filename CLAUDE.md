@@ -24,6 +24,24 @@ it and the non-obvious constraints.
   get/set methods in the daemon, one gated UI group in the app — and nothing
   in between, because the app holds the probe's answer as a set rather than
   unpacking it into a flag per capability.
+- Inside `app/`, a module boundary is drawn where it makes a class of mistake
+  impossible, not where a file got long. `format.rs` holds the presets, the
+  values behind them and every label; `caps.rs` holds the probe's answer.
+  Neither links GTK or the bus, so the window and the tray cannot disagree
+  about what a preset sends or what it is called, and `Capabilities`' private
+  field means the app can only offer what the daemon answered with — the
+  probe rule, held up by the compiler at this end. `tray.rs` links no GTK
+  either, which matters because its menu runs on ksni's own thread; its
+  fields are private, so `tray_push` is the only way that state moves.
+  `ui.rs` is the largest and stays that way on purpose: `Ui`'s fields are
+  private to it, which is what `Sink` and the `apply_*` writes living there
+  buys. `board.rs` is the one read that bypasses the bus, `about.rs` the
+  report and the dialog that renders it, `autostart.rs` the desktop entry
+  whose path and content cannot be written apart. `main.rs` keeps only what
+  has to know both front-ends: the app id, the bus attachment, the lazily
+  built window, and the tray event loop — exhaustive over `TrayEvent`, so a
+  new variant fails to build until it is handled there. The no-GTK rules are
+  the ones nothing checks: an import is all it takes to lose one.
 - A control the tray can also set gets an `apply_*` function owning the whole
   write: the daemon call, the toast, the tray's copy, and moving the widget to
   match. Both the window's handler and the tray preset call it; neither writes
