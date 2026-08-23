@@ -42,6 +42,22 @@ it and the non-obvious constraints.
   built window, and the tray event loop — exhaustive over `TrayEvent`, so a
   new variant fails to build until it is handled there. The no-GTK rules are
   the ones nothing checks: an import is all it takes to lose one.
+- Inside `daemon/`, the modules are drawn by how a control reaches the
+  hardware, so the filename answers which way: `ec.rs` the EC, `led.rs` the
+  kernel's LED class, `touchpad.rs` the pad's own HID transport, with `fp.rs`
+  for the arbitration the first two make necessary — the fingerprint LED has
+  two possible drivers and one at a time. The rest divide by job: `board.rs`
+  the DMI vendor read deciding whether there is an EC to open, `state.rs` the
+  mirror for what cannot be read back, `probe.rs` the probe rule beside the
+  code it governs. Each module's own doc carries why; what is worth saying
+  here is what none of them can. `ec.rs` is not every EC call — a plain
+  command is sent from the bus method that wants it, and what lands in `ec.rs`
+  is a call needing more than the raw command: a correction, a cache, or a
+  translation into the wire's terms. `main.rs` keeps the `Daemon` object,
+  polkit, the idle exit and the `#[interface]` surface, and the hardware calls
+  stay inline there for the same reason — the order around them (validate,
+  skip a write already in place, authorize, write) is the policy, and
+  splitting the write out would leave that order legible at neither end.
 - A control the tray can also set gets an `apply_*` function owning the whole
   write: the daemon call, the toast, the tray's copy, and moving the widget to
   match. Both the window's handler and the tray preset call it; neither writes
@@ -75,7 +91,7 @@ it and the non-obvious constraints.
 
 ## The probe rule
 
-`get_capabilities` in the daemon documents it: one capability per exposed
+`daemon/src/probe.rs` documents it: one capability per exposed
 operation, and a probe vouches for an operation only by a side-effect-free
 exercise of that operation's own code path, or by curated knowledge — not by
 an adjacent, easier check. The reason is concrete: the touchscreen's version
@@ -129,7 +145,7 @@ the LED node rather than consulting `fp-off`.
   (`/sys/class/leds/chromeos:*:power`), making it the one control that does
   not reach the hardware through the EC and the one whose state nothing can
   read back — hence `EcStamp` dating the darkening, an EC restart returning
-  every LED to the EC without the kernel noticing. `darken_led` carries why
+  every LED to the EC without the kernel noticing. `led::darken` carries why
   the writes go through the kernel rather than the `EC_CMD_LED_CONTROL` the
   daemon could send itself.
 - Haptic touchpad: write-only (firmware ACKs GET_FEATURE with zeros) and

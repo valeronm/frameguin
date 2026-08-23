@@ -18,6 +18,14 @@ use zbus::zvariant::Type;
 pub const BUS_NAME: &str = "io.github.valeronm.Frameguin";
 pub const OBJECT_PATH: &str = "/io/github/valeronm/Frameguin";
 
+/// The DMI `sys_vendor` of the hardware this is for. Both ends test it and
+/// neither can see the other's answer: the daemon gates opening the EC on it,
+/// the app titles its window from it, and a pair that disagreed would either
+/// name a board whose every control errors or deny one that works. A string
+/// both ends must agree on, like the haptic steps below — reading it is each
+/// end's own business, spelling it is not.
+pub const VENDOR: &str = "Framework";
+
 /// Charge as fast as the battery asks. The EC clamps every requested charge
 /// current against its limit, so the largest value is the one that imposes
 /// none; 0 at the other end would mean never charge, which no setter accepts.

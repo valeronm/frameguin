@@ -10,8 +10,9 @@ pub(crate) fn dmi(file: &str) -> String {
 }
 
 /// The board's name, and None on anything that isn't a Framework. The same
-/// vendor test the daemon gates its EC on, so the two can't disagree about
-/// whether there is hardware here to control.
+/// vendor test the daemon gates its EC on — spelled in `wire` so the two
+/// cannot come to different answers about whether there is hardware here to
+/// control.
 pub(crate) fn detected() -> Option<String> {
-    (dmi("sys_vendor") == "Framework").then(|| dmi("product_name"))
+    (dmi("sys_vendor") == frameguin_wire::VENDOR).then(|| dmi("product_name"))
 }
