@@ -25,7 +25,7 @@ use framework_lib::power;
 use crate::board;
 
 pub(crate) struct Ec {
-    cros: Mutex<CrosEc>,
+    ec: Mutex<CrosEc>,
     /// Read once and kept: reaching it walks the EC's whole memmap battery
     /// block, and a pack cannot change under a running daemon. Filled by
     /// whichever walk gets there first, so nothing spends a round trip on it
@@ -40,24 +40,24 @@ impl Ec {
     /// it from being constructed there rather than a courtesy.
     pub(crate) fn open() -> Option<Self> {
         board::is_framework().then(|| Self {
-            cros: Mutex::new(CrosEc::new()),
+            ec: Mutex::new(CrosEc::new()),
             design_capacity: OnceLock::new(),
         })
     }
 
-    fn cros(&self) -> MutexGuard<'_, CrosEc> {
-        self.cros.lock().unwrap()
+    fn ec(&self) -> MutexGuard<'_, CrosEc> {
+        self.ec.lock().unwrap()
     }
 
     /// The ceiling the EC holds. Its command answers with a floor as well,
     /// which nothing here sets or reports.
     pub(crate) fn charge_limit(&self) -> EcResult<u8> {
-        let (_min, max) = self.cros().get_charge_limit()?;
+        let (_min, max) = self.ec().get_charge_limit()?;
         Ok(max)
     }
 
     pub(crate) fn set_charge_limit(&self, percent: u8) -> EcResult<()> {
-        self.cros().set_charge_limit(0, percent)
+        self.ec().set_charge_limit(0, percent)
     }
 
     /// Caps the charging current and dates the write in one lock: the stamp is
@@ -67,16 +67,16 @@ impl Ec {
     /// latches inside the EC: once applied it is never re-evaluated, so a
     /// later threshold cannot lift it (framework-system issue #342).
     pub(crate) fn set_charge_current_limit(&self, milliamps: u32) -> EcResult<EcStamp> {
-        let cros = self.cros();
-        cros.set_charge_current_limit(milliamps, None)?;
-        EcStamp::now(&cros)
+        let ec = self.ec();
+        ec.set_charge_current_limit(milliamps, None)?;
+        EcStamp::now(&ec)
     }
 
     /// The EC's whole memmap battery block, and the one place the design
     /// capacity is cached — so a walk made for any other answer pays for the
     /// next caller that wants only the capacity.
     fn power(&self) -> Option<power::PowerInfo> {
-        let info = power::power_info(&self.cros())?;
+        let info = power::power_info(&self.ec())?;
         if let Some(battery) = &info.battery {
             let _ = self.design_capacity.set(battery.design_capacity);
         }
@@ -115,49 +115,49 @@ impl Ec {
     /// 5% reads as 4%. This EC command returns the exact stored percent.
     pub(crate) fn keyboard_backlight(&self) -> EcResult<u8> {
         Ok(EcRequestPwmGetKeyboardBacklight {}
-            .send_command(&self.cros())?
+            .send_command(&self.ec())?
             .percent)
     }
 
     pub(crate) fn set_keyboard_backlight(&self, percent: u8) {
-        self.cros().set_keyboard_backlight(percent);
+        self.ec().set_keyboard_backlight(percent);
     }
 
     /// The brightness percentage and the level the EC reports it as. `Custom`
     /// is what it answers after any raw percentage write.
     pub(crate) fn fp_level(&self) -> EcResult<(u8, wire::FpLevel)> {
-        let (percent, level) = self.cros().get_fp_led_level()?;
+        let (percent, level) = self.ec().get_fp_led_level()?;
         Ok((percent, wire_fp_level(level.as_ref())))
     }
 
     pub(crate) fn set_fp_level(&self, level: FpLedBrightnessLevel) -> EcResult<()> {
-        self.cros().set_fp_led_level(level)
+        self.ec().set_fp_led_level(level)
     }
 
     pub(crate) fn set_fp_percentage(&self, percent: u8) -> EcResult<()> {
-        self.cros().set_fp_led_percentage(percent)
+        self.ec().set_fp_led_percentage(percent)
     }
 
     pub(crate) fn version(&self) -> EcResult<String> {
-        self.cros().version_info()
+        self.ec().version_info()
     }
 
     /// Whether the firmware implements a command at the given version — and
     /// `Err` when the EC would not say, which is not the same answer. What to
     /// make of a silent EC is the caller's to decide.
     pub(crate) fn command_supported(&self, command: EcCommands, version: u8) -> EcResult<bool> {
-        self.cros().cmd_version_supported(command as u32, version)
+        self.ec().cmd_version_supported(command as u32, version)
     }
 
     /// Dates a write about to be made against the EC's own life.
     pub(crate) fn stamp(&self) -> EcResult<EcStamp> {
-        EcStamp::now(&self.cros())
+        EcStamp::now(&self.ec())
     }
 
     /// Whether the EC has been running without interruption since `stamp` was
     /// taken — which is to say whether what it was holding then is still there.
     pub(crate) fn same_boot_as(&self, stamp: EcStamp) -> EcResult<bool> {
-        Ok(stamp.same_boot(uptime_secs(&self.cros())?, unix_now()))
+        Ok(stamp.same_boot(uptime_secs(&self.ec())?, unix_now()))
     }
 }
 
@@ -172,9 +172,9 @@ pub(crate) struct EcStamp {
 impl EcStamp {
     /// Taken against both clocks at once, which is what makes a later reading
     /// of the EC's comparable to the host's.
-    fn now(cros: &CrosEc) -> EcResult<Self> {
+    fn now(ec: &CrosEc) -> EcResult<Self> {
         Ok(Self {
-            ec_uptime: uptime_secs(cros)?,
+            ec_uptime: uptime_secs(ec)?,
             written_at: unix_now(),
         })
     }
@@ -202,9 +202,9 @@ fn unix_now() -> u64 {
 }
 
 /// Seconds since the EC last booted.
-fn uptime_secs(cros: &CrosEc) -> EcResult<u64> {
+fn uptime_secs(ec: &CrosEc) -> EcResult<u64> {
     let uptime_ms = EcRequestGetUptimeInfo {}
-        .send_command(cros)?
+        .send_command(ec)?
         .time_since_ec_boot;
     Ok(u64::from(uptime_ms) / 1000)
 }
