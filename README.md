@@ -17,7 +17,6 @@ Computer Inc. Licensed under the [MIT License](LICENSE).
 
 - **Battery** — the current flowing in or out, a ceiling on how full it
   charges, and a cap on the charging rate.
-- **Keyboard** — backlight brightness, following changes made elsewhere.
 - **Fingerprint reader** — LED brightness as a level or a percentage, and off.
 - **Touchpad** — haptic click intensity and click force.
 

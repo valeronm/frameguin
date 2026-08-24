@@ -946,6 +946,7 @@ impl CapabilityWidgets {
         self.state_row.set_visible(battery_state);
         self.limit_combo.set_visible(charge_limit);
         self.speed_combo.set_visible(charge_speed);
+        // Withheld from every board by `caps::offered`, so this reads false.
         self.keyboard
             .set_visible(caps.has(Capability::KeyboardBacklight));
         self.fingerprint
