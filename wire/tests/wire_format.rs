@@ -30,7 +30,7 @@ fn the_composite_signatures_are_the_ones_the_methods_declare() {
     // Field order is the protocol here, the members being positional and
     // unnamed: reordering the struct silently re-maps every field a client
     // reads.
-    assert_eq!(BatteryState::SIGNATURE, "(ysu)");
+    assert_eq!(BatteryState::SIGNATURE, "(ysuu)");
 }
 
 #[test]

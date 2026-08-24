@@ -96,6 +96,11 @@ pub struct BatteryState {
     /// How fast charge is moving, in mA, and 0 when nothing is. Unsigned in
     /// both directions — `flow` is what gives it a sign.
     pub milliamps: u32,
+    /// The pack's terminal voltage in mV, as read in the same moment as the
+    /// rate. It sags under load and rises towards the end of a charge, so the
+    /// power a rate carries has to be taken against this reading rather than
+    /// against the pack's nominal voltage.
+    pub millivolts: u32,
 }
 
 /// Fingerprint LED levels.

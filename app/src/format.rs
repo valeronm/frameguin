@@ -69,6 +69,17 @@ pub(crate) fn amps(milliamps: u32) -> String {
     format!("{:.1} A", f64::from(milliamps) / 1000.0)
 }
 
+/// The rate as power, which is the figure a charger and a machine's draw are
+/// both rated in. `None` when the pack reports no voltage, for the reason a
+/// zero rate is dropped: the number would read as a fault rather than as a
+/// reading.
+fn watts(state: BatteryState) -> Option<String> {
+    (state.millivolts != 0).then(|| {
+        let watts = f64::from(state.milliamps) * f64::from(state.millivolts) / 1_000_000.0;
+        format!("{watts:.1} W")
+    })
+}
+
 /// Which way charge is moving, with the rate where there is one to name. A
 /// rate of zero is dropped rather than rendered: "0.0 A" is what a pack
 /// reports in the moment either side of a direction changing, and it reads
@@ -80,9 +91,12 @@ pub(crate) fn charge_flow_label(state: BatteryState) -> String {
         ChargeFlow::Idle => return "Plugged in, not charging".to_string(),
     };
     if state.milliamps == 0 {
-        direction.to_string()
-    } else {
-        format!("{direction} at {}", amps(state.milliamps))
+        return direction.to_string();
+    }
+    let rate = amps(state.milliamps);
+    match watts(state) {
+        Some(watts) => format!("{direction} at {rate} ({watts})"),
+        None => format!("{direction} at {rate}"),
     }
 }
 
@@ -216,24 +230,39 @@ mod tests {
     /// A 4640 mAh pack, the Laptop 13's.
     const CAPACITY: u32 = 4640;
 
+    /// Mid-charge on the same pack's four cells.
+    const MILLIVOLTS: u32 = 15_400;
+
     fn state(flow: ChargeFlow, milliamps: u32) -> BatteryState {
         BatteryState {
             percent: 62,
             flow,
             milliamps,
+            millivolts: MILLIVOLTS,
         }
     }
 
     #[test]
-    fn a_moving_charge_is_named_with_its_rate() {
+    fn a_moving_charge_is_named_with_its_rate_and_its_power() {
         assert_eq!(
             charge_flow_label(state(ChargeFlow::Charging, 2320)),
-            "Charging at 2.3 A"
+            "Charging at 2.3 A (35.7 W)"
         );
         assert_eq!(
             charge_flow_label(state(ChargeFlow::Discharging, 1400)),
-            "Discharging at 1.4 A"
+            "Discharging at 1.4 A (21.6 W)"
         );
+    }
+
+    /// Power is the rate against the voltage of that same moment, so a pack
+    /// that answers with no voltage names the rate alone rather than 0.0 W.
+    #[test]
+    fn a_rate_without_a_voltage_is_named_without_its_power() {
+        let unread = BatteryState {
+            millivolts: 0,
+            ..state(ChargeFlow::Discharging, 1400)
+        };
+        assert_eq!(charge_flow_label(unread), "Discharging at 1.4 A");
     }
 
     /// A pack reports no rate for a moment either side of a direction
@@ -262,7 +291,7 @@ mod tests {
     fn the_trays_line_carries_the_charge_as_well() {
         assert_eq!(
             battery_summary(state(ChargeFlow::Charging, 2320)),
-            "62% · Charging at 2.3 A"
+            "62% · Charging at 2.3 A (35.7 W)"
         );
     }
 

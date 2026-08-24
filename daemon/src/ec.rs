@@ -96,6 +96,7 @@ impl Ec {
             percent: u8::try_from(battery.charge_percentage.min(100)).unwrap_or(100),
             flow: charge_flow(battery.charging, info.ac_present, battery.present_rate),
             milliamps: battery.present_rate,
+            millivolts: battery.present_voltage,
         })
     }
 
