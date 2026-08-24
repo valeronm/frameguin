@@ -1,18 +1,21 @@
-//! What the embedded controller is asked, and the vocabulary the two ends
-//! spell it in.
+//! The embedded controller: one method per operation the daemon performs on
+//! it, and the vocabulary the two ends spell those operations in.
 //!
-//! Not every EC call: the plain ones are sent from the bus method that wants
-//! them. What lands here is a call needing more than the raw command — a
-//! correction, a cache, or a translation between the EC's terms and the
-//! wire's. Two devices are deliberately absent: the fingerprint LED's off,
-//! which the kernel arbitrates ([`crate::led`]), and the haptic touchpad,
-//! which `framework_lib` drives over HID ([`crate::touchpad`]).
+//! [`Ec`] is the only thing in the daemon holding a `CrosEc`. Every method
+//! takes the lock and releases it before returning, and none calls another
+//! through the handle — `Mutex` does not re-enter, so a method that wants two
+//! commands under one lock issues both against the guard it already holds, as
+//! [`Ec::set_charge_current_limit`] does.
+//!
+//! Two devices are deliberately absent: the fingerprint LED's off, which the
+//! kernel arbitrates ([`crate::led`]), and the haptic touchpad, which
+//! `framework_lib` drives over HID ([`crate::touchpad`]).
 
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Mutex, MutexGuard, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use frameguin_wire as wire;
-use framework_lib::chromium_ec::command::EcRequestRaw;
+use framework_lib::chromium_ec::command::{EcCommands, EcRequestRaw};
 use framework_lib::chromium_ec::commands::{
     EcRequestGetUptimeInfo, EcRequestPwmGetKeyboardBacklight, FpLedBrightnessLevel,
 };
@@ -21,12 +24,141 @@ use framework_lib::power;
 
 use crate::board;
 
-/// The EC handle, and None on hardware that has none. `CrosEc::new()` panics
-/// outright when `framework_lib` finds no driver (an empty driver list on
-/// e.g. aarch64 without `/dev/cros_ec`), so the vendor check is what keeps it
-/// from being constructed there rather than a courtesy.
-pub(crate) fn open() -> Option<Mutex<CrosEc>> {
-    board::is_framework().then(|| Mutex::new(CrosEc::new()))
+pub(crate) struct Ec {
+    cros: Mutex<CrosEc>,
+    /// Read once and kept: reaching it walks the EC's whole memmap battery
+    /// block, and a pack cannot change under a running daemon. Filled by
+    /// whichever walk gets there first, so nothing spends a round trip on it
+    /// alone.
+    design_capacity: OnceLock<u32>,
+}
+
+impl Ec {
+    /// The EC, and None on hardware that has none. `CrosEc::new()` panics
+    /// outright when `framework_lib` finds no driver (an empty driver list on
+    /// e.g. aarch64 without `/dev/cros_ec`), so the vendor check is what keeps
+    /// it from being constructed there rather than a courtesy.
+    pub(crate) fn open() -> Option<Self> {
+        board::is_framework().then(|| Self {
+            cros: Mutex::new(CrosEc::new()),
+            design_capacity: OnceLock::new(),
+        })
+    }
+
+    fn cros(&self) -> MutexGuard<'_, CrosEc> {
+        self.cros.lock().unwrap()
+    }
+
+    /// The ceiling the EC holds. Its command answers with a floor as well,
+    /// which nothing here sets or reports.
+    pub(crate) fn charge_limit(&self) -> EcResult<u8> {
+        let (_min, max) = self.cros().get_charge_limit()?;
+        Ok(max)
+    }
+
+    pub(crate) fn set_charge_limit(&self, percent: u8) -> EcResult<()> {
+        self.cros().set_charge_limit(0, percent)
+    }
+
+    /// Caps the charging current and dates the write in one lock: the stamp is
+    /// only worth anything taken against the same EC the write reached.
+    ///
+    /// Always the unconditional form. The command's state-of-charge variant
+    /// latches inside the EC: once applied it is never re-evaluated, so a
+    /// later threshold cannot lift it (framework-system issue #342).
+    pub(crate) fn set_charge_current_limit(&self, milliamps: u32) -> EcResult<EcStamp> {
+        let cros = self.cros();
+        cros.set_charge_current_limit(milliamps, None)?;
+        EcStamp::now(&cros)
+    }
+
+    /// The EC's whole memmap battery block, and the one place the design
+    /// capacity is cached — so a walk made for any other answer pays for the
+    /// next caller that wants only the capacity.
+    fn power(&self) -> Option<power::PowerInfo> {
+        let info = power::power_info(&self.cros())?;
+        if let Some(battery) = &info.battery {
+            let _ = self.design_capacity.set(battery.design_capacity);
+        }
+        Some(info)
+    }
+
+    /// The EC's battery block in the wire's terms, and None when no pack
+    /// answers. Direction and charger presence share one flag byte, so both
+    /// come from the same read; the rate is unsigned whichever way charge is
+    /// moving.
+    pub(crate) fn battery_state(&self) -> Option<wire::BatteryState> {
+        let info = self.power()?;
+        let battery = info.battery?;
+        Some(wire::BatteryState {
+            // Against the last full charge, which is the EC's own denominator;
+            // a pack reporting more than full is clamped rather than shown.
+            percent: u8::try_from(battery.charge_percentage.min(100)).unwrap_or(100),
+            flow: charge_flow(battery.charging, info.ac_present, battery.present_rate),
+            milliamps: battery.present_rate,
+        })
+    }
+
+    /// The battery's design capacity in mAh, `None` when no pack answers. Only
+    /// successful reads are remembered, so a battery that is momentarily
+    /// unreadable isn't taken for an absent one for the rest of the run.
+    pub(crate) fn design_capacity(&self) -> Option<u32> {
+        if let Some(capacity) = self.design_capacity.get() {
+            return Some(*capacity);
+        }
+        Some(self.power()?.battery?.design_capacity)
+    }
+
+    /// `framework_lib`'s `get_keyboard_backlight()` reads via `PWM_GET_DUTY`,
+    /// and the percent survives two floor divisions (percent→duty in the EC,
+    /// then duty→percent in the lib), coming back one low for most values —
+    /// 5% reads as 4%. This EC command returns the exact stored percent.
+    pub(crate) fn keyboard_backlight(&self) -> EcResult<u8> {
+        Ok(EcRequestPwmGetKeyboardBacklight {}
+            .send_command(&self.cros())?
+            .percent)
+    }
+
+    pub(crate) fn set_keyboard_backlight(&self, percent: u8) {
+        self.cros().set_keyboard_backlight(percent);
+    }
+
+    /// The brightness percentage and the level the EC reports it as. `Custom`
+    /// is what it answers after any raw percentage write.
+    pub(crate) fn fp_level(&self) -> EcResult<(u8, wire::FpLevel)> {
+        let (percent, level) = self.cros().get_fp_led_level()?;
+        Ok((percent, wire_fp_level(level.as_ref())))
+    }
+
+    pub(crate) fn set_fp_level(&self, level: FpLedBrightnessLevel) -> EcResult<()> {
+        self.cros().set_fp_led_level(level)
+    }
+
+    pub(crate) fn set_fp_percentage(&self, percent: u8) -> EcResult<()> {
+        self.cros().set_fp_led_percentage(percent)
+    }
+
+    pub(crate) fn version(&self) -> EcResult<String> {
+        self.cros().version_info()
+    }
+
+    /// Whether the firmware implements a command at the given version — and
+    /// `Err` when the EC would not say, which is not the same answer. What to
+    /// make of a silent EC is the caller's to decide.
+    pub(crate) fn command_supported(&self, command: EcCommands, version: u8) -> EcResult<bool> {
+        self.cros().cmd_version_supported(command as u32, version)
+    }
+
+    /// Dates a write about to be made against the EC's own life.
+    pub(crate) fn stamp(&self) -> EcResult<EcStamp> {
+        EcStamp::now(&self.cros())
+    }
+
+    /// Whether the EC has been running without interruption since `stamp` was
+    /// taken — which is to say whether what it was holding then is still there.
+    pub(crate) fn same_boot_as(&self, stamp: EcStamp) -> EcResult<bool> {
+        Ok(stamp.same_boot(uptime_secs(&self.cros())?, unix_now()))
+    }
 }
 
 /// A write dated against the EC's own life: seconds the EC had been running
@@ -40,15 +172,11 @@ pub(crate) struct EcStamp {
 impl EcStamp {
     /// Taken against both clocks at once, which is what makes a later reading
     /// of the EC's comparable to the host's.
-    pub(crate) fn now(ec: &CrosEc) -> EcResult<Self> {
+    fn now(cros: &CrosEc) -> EcResult<Self> {
         Ok(Self {
-            ec_uptime: ec_uptime_secs(ec)?,
+            ec_uptime: uptime_secs(cros)?,
             written_at: unix_now(),
         })
-    }
-
-    pub(crate) fn still_current(self, ec: &CrosEc) -> EcResult<bool> {
-        Ok(self.same_boot(ec_uptime_secs(ec)?, unix_now()))
     }
 
     /// Whether the EC has been running without interruption since. An EC that
@@ -74,8 +202,10 @@ fn unix_now() -> u64 {
 }
 
 /// Seconds since the EC last booted.
-fn ec_uptime_secs(ec: &CrosEc) -> EcResult<u64> {
-    let uptime_ms = EcRequestGetUptimeInfo {}.send_command(ec)?.time_since_ec_boot;
+fn uptime_secs(cros: &CrosEc) -> EcResult<u64> {
+    let uptime_ms = EcRequestGetUptimeInfo {}
+        .send_command(cros)?
+        .time_since_ec_boot;
     Ok(u64::from(uptime_ms) / 1000)
 }
 
@@ -94,7 +224,7 @@ pub(crate) fn ec_fp_level(level: wire::FpLevel) -> Option<FpLedBrightnessLevel> 
 
 /// A level the EC does not name is custom: that is what it reports after a
 /// raw percentage write.
-pub(crate) fn wire_fp_level(level: Option<&FpLedBrightnessLevel>) -> wire::FpLevel {
+fn wire_fp_level(level: Option<&FpLedBrightnessLevel>) -> wire::FpLevel {
     match level {
         Some(FpLedBrightnessLevel::High) => wire::FpLevel::High,
         Some(FpLedBrightnessLevel::Medium) => wire::FpLevel::Medium,
@@ -103,50 +233,6 @@ pub(crate) fn wire_fp_level(level: Option<&FpLedBrightnessLevel>) -> wire::FpLev
         Some(FpLedBrightnessLevel::Auto) => wire::FpLevel::Auto,
         Some(FpLedBrightnessLevel::Custom) | None => wire::FpLevel::Custom,
     }
-}
-
-/// `framework_lib`'s `get_keyboard_backlight()` reads via `PWM_GET_DUTY`, and the
-/// percent survives two floor divisions (percent→duty in the EC, then
-/// duty→percent in the lib), coming back one low for most values — 5% reads
-/// as 4%. This EC command returns the exact stored percent instead.
-pub(crate) fn kbd_backlight_percent(ec: &CrosEc) -> EcResult<u8> {
-    Ok(EcRequestPwmGetKeyboardBacklight {}.send_command(ec)?.percent)
-}
-
-/// The design capacity, kept for the process rather than per `Daemon`: a pack
-/// cannot change under a running daemon, and reaching it walks the EC's whole
-/// memmap battery block. Set only from a walk already being made for some
-/// other answer, so nothing here spends a round trip on it alone.
-static DESIGN_CAPACITY: OnceLock<u32> = OnceLock::new();
-
-/// The EC's battery block in the wire's terms, and None when no pack
-/// answers. Direction and charger presence share one flag byte, so both come
-/// from the same read; the rate is unsigned whichever way charge is moving.
-pub(crate) fn battery_state(ec: &CrosEc) -> Option<wire::BatteryState> {
-    let info = power::power_info(ec)?;
-    let battery = info.battery?;
-    // This walk already carries the capacity, so the reading that runs every
-    // couple of seconds is what spares the first caller its own walk.
-    let _ = DESIGN_CAPACITY.set(battery.design_capacity);
-    Some(wire::BatteryState {
-        // Against the last full charge, which is the EC's own denominator;
-        // a pack reporting more than full is clamped rather than shown.
-        percent: u8::try_from(battery.charge_percentage.min(100)).unwrap_or(100),
-        flow: charge_flow(battery.charging, info.ac_present, battery.present_rate),
-        milliamps: battery.present_rate,
-    })
-}
-
-/// The battery's design capacity in mAh, `None` when no pack answers. Only
-/// successful reads are remembered, so a battery that is momentarily
-/// unreadable isn't taken for an absent one for the rest of the run.
-pub(crate) fn battery_design_capacity(ec: &CrosEc) -> Option<u32> {
-    if let Some(capacity) = DESIGN_CAPACITY.get() {
-        return Some(*capacity);
-    }
-    let capacity = power::power_info(ec)?.battery?.design_capacity;
-    let _ = DESIGN_CAPACITY.set(capacity);
-    Some(capacity)
 }
 
 /// What the pack is doing, from the EC's charging flag, its charger flag and

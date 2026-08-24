@@ -50,14 +50,15 @@ it and the non-obvious constraints.
   the DMI vendor read deciding whether there is an EC to open, `state.rs` the
   mirror for what cannot be read back, `probe.rs` the probe rule beside the
   code it governs. Each module's own doc carries why; what is worth saying
-  here is what none of them can. `ec.rs` is not every EC call — a plain
-  command is sent from the bus method that wants it, and what lands in `ec.rs`
-  is a call needing more than the raw command: a correction, a cache, or a
-  translation into the wire's terms. `main.rs` keeps the `Daemon` object,
-  polkit, the idle exit and the `#[interface]` surface, and the hardware calls
-  stay inline there for the same reason — the order around them (validate,
-  skip a write already in place, authorize, write) is the policy, and
-  splitting the write out would leave that order legible at neither end.
+  here is what none of them can. `ec.rs` is every EC call: `Ec` is the only
+  holder of the `CrosEc`, one method per operation, each taking the lock and
+  releasing it before returning and none reaching the handle through another —
+  `Mutex` does not re-enter, so a method wanting two commands under one lock
+  issues both against the guard it holds. `main.rs` keeps the `Daemon` object,
+  polkit, the idle exit and the `#[interface]` surface, and what stays inline
+  there is the *order* — validate, skip a write already in place, authorize,
+  write. That order is the policy, and splitting the write out would leave it
+  legible at neither end.
 - A control the tray can also set gets an `apply_*` function owning the whole
   write: the daemon call, the toast, the tray's copy, and moving the widget to
   match. Both the window's handler and the tray preset call it; neither writes
@@ -100,7 +101,7 @@ probe would have offered a control that silently does nothing.
 
 Write-only controls have no same-path probe to run, and take one of two other
 forms. Asking the firmware whether it implements the exact command the setter
-sends (`cmd_version_supported`) is a probe about that command and nothing
+sends (`Ec::command_supported`) is a probe about that command and nothing
 else, which is what separates it from the touchscreen trap — that was a
 *different* command answering for the one that mattered. Where even that isn't
 available, the condition is hardcoded with a comment explaining why. A probe
@@ -138,7 +139,7 @@ the LED node rather than consulting `fp-off`.
 - Fingerprint LED: 1–100 (0 rejected — it doubles as the power indicator).
   Percentage and the ultra-low/auto levels need command v1, which older EC
   firmware lacks (framework-system issue #211), so they sit behind the
-  `fp-brightness-custom` capability probed with `cmd_version_supported`.
+  `fp-brightness-custom` capability probed with `Ec::command_supported`.
 - Fingerprint LED off: the EC has no off — its level command rejects 0, and
   its BBRAM slot reads a 0 back as full brightness, 0 being the uninitialized
   value there. So off is the kernel's LED class instead

@@ -15,16 +15,15 @@ mod touchpad;
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU8, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use frameguin_wire::{self as wire, HAPTIC_INTENSITY_LEVELS, NO_CHARGE_CURRENT_LIMIT};
-use framework_lib::chromium_ec::{CrosEc, EcResult};
 use zbus::message::Header;
 use zbus::{Connection, fdo, interface};
 use zbus_polkit::policykit1::{AuthorityProxy, CheckAuthorizationFlags, Subject};
 
-use crate::ec::{EcStamp, battery_design_capacity, battery_state, kbd_backlight_percent, wire_fp_level};
+use crate::ec::{Ec, EcStamp};
 use crate::fp::FpWrite;
 use crate::state::{ChargeCurrentLimit, State};
 
@@ -32,8 +31,8 @@ const POLKIT_ACTION: &str = "io.github.valeronm.frameguin.manage";
 const IDLE_EXIT: Duration = Duration::from_mins(5);
 
 struct Daemon {
-    /// None on hardware with no Framework EC — see [`ec::open`].
-    ec: Option<Mutex<CrosEc>>,
+    /// None on hardware with no Framework EC — see [`Ec::open`].
+    ec: Option<Ec>,
     authority: AuthorityProxy<'static>,
     last_used: Arc<Mutex<Instant>>,
     /// Probed once per daemon lifetime; the EC feature set can't change
@@ -85,24 +84,27 @@ impl Daemon {
 
     /// The mirrored charge current limit, or `NO_CHARGE_CURRENT_LIMIT` once
     /// the EC has restarted and dropped whatever was written.
-    fn held_charge_current_limit(&self, ec: &CrosEc) -> EcResult<u32> {
+    fn held_charge_current_limit(&self) -> fdo::Result<u32> {
+        // Asked for before the mirror is read: a board with no EC has no
+        // limit to report, and answering the sentinel would call that "no
+        // limit set" rather than "no such control".
+        let ec = self.ec()?;
         let limit = *self.charge_current_limit.lock().unwrap();
         // Nothing mirrored is already the answer, so don't spend an EC round
         // trip dating it.
         if limit.milliamps == NO_CHARGE_CURRENT_LIMIT {
             return Ok(NO_CHARGE_CURRENT_LIMIT);
         }
-        Ok(if limit.stamp.still_current(ec)? {
+        Ok(if ec.same_boot_as(limit.stamp).map_err(ec_err)? {
             limit.milliamps
         } else {
             NO_CHARGE_CURRENT_LIMIT
         })
     }
 
-    fn ec_guard(&self) -> fdo::Result<MutexGuard<'_, CrosEc>> {
+    fn ec(&self) -> fdo::Result<&Ec> {
         self.ec
             .as_ref()
-            .map(|ec| ec.lock().unwrap())
             // NotSupported (not Failed): lets a caller distinguish "wrong
             // hardware, permanently" from a transient EC error.
             .ok_or_else(|| fdo::Error::NotSupported("no Framework EC on this hardware".into()))
@@ -145,8 +147,7 @@ impl Daemon {
 
     fn get_charge_limit(&self) -> fdo::Result<u8> {
         self.touch();
-        let (_min, max) = self.ec_guard()?.get_charge_limit().map_err(ec_err)?;
-        Ok(max)
+        self.ec()?.charge_limit().map_err(ec_err)
     }
 
     /// Returns whether the EC was written, so a caller can tell a change from
@@ -169,9 +170,7 @@ impl Daemon {
             return Ok(false);
         }
         self.authorize(&header).await?;
-        self.ec_guard()?
-            .set_charge_limit(0, percent)
-            .map_err(ec_err)?;
+        self.ec()?.set_charge_limit(percent).map_err(ec_err)?;
         Ok(true)
     }
 
@@ -181,8 +180,7 @@ impl Daemon {
     /// restarted and dropped the value.
     fn get_charge_current_limit(&self) -> fdo::Result<u32> {
         self.touch();
-        let ec = self.ec_guard()?;
-        self.held_charge_current_limit(&ec).map_err(ec_err)
+        self.held_charge_current_limit()
     }
 
     /// The battery's design capacity in mAh, which is numerically also the
@@ -190,8 +188,7 @@ impl Daemon {
     /// a fraction of full rate into the milliamps the EC wants.
     fn get_battery_design_capacity(&self) -> fdo::Result<u32> {
         self.touch();
-        let ec = self.ec_guard()?;
-        battery_design_capacity(&ec).ok_or_else(no_battery)
+        self.ec()?.design_capacity().ok_or_else(no_battery)
     }
 
     /// The pack's charge, which way it is moving and how fast. The only
@@ -203,7 +200,7 @@ impl Daemon {
     /// has, the limit itself being unreadable.
     fn get_battery_state(&self) -> fdo::Result<wire::BatteryState> {
         self.touch();
-        battery_state(&*self.ec_guard()?).ok_or_else(no_battery)
+        self.ec()?.battery_state().ok_or_else(no_battery)
     }
 
     /// Caps how fast the battery charges, in mA; `NO_CHARGE_CURRENT_LIMIT`
@@ -230,16 +227,10 @@ impl Daemon {
             return Ok(false);
         }
         self.authorize(&header).await?;
-        let stamp = {
-            let ec = self.ec_guard()?;
-            // Always the unconditional form. The command's state-of-charge
-            // variant latches inside the EC: once applied it is never
-            // re-evaluated, so a later threshold cannot lift it
-            // (framework-system issue #342).
-            ec.set_charge_current_limit(milliamps, None)
-                .map_err(ec_err)?;
-            EcStamp::now(&ec).map_err(ec_err)?
-        };
+        let stamp = self
+            .ec()?
+            .set_charge_current_limit(milliamps)
+            .map_err(ec_err)?;
         *self.charge_current_limit.lock().unwrap() = ChargeCurrentLimit { milliamps, stamp };
         self.save_state();
         Ok(true)
@@ -247,7 +238,7 @@ impl Daemon {
 
     fn get_ec_version(&self) -> fdo::Result<String> {
         self.touch();
-        self.ec_guard()?.version_info().map_err(ec_err)
+        self.ec()?.version().map_err(ec_err)
     }
 
     /// The daemon's version and the path it was started from. The path is the
@@ -270,12 +261,12 @@ impl Daemon {
     /// is the one the EC will light it at when the host lets go.
     fn get_fingerprint_brightness(&self) -> fdo::Result<(u8, wire::FpLevel)> {
         self.touch();
-        let ec = self.ec_guard()?;
-        let (percent, level) = ec.get_fp_led_level().map_err(ec_err)?;
-        if self.fp_off_led(&ec).is_some() {
+        let ec = self.ec()?;
+        let (percent, level) = ec.fp_level().map_err(ec_err)?;
+        if self.fp_off_led(ec).is_some() {
             return Ok((percent, wire::FpLevel::Off));
         }
-        Ok((percent, wire_fp_level(level.as_ref())))
+        Ok((percent, level))
     }
 
     async fn set_fingerprint_level(
@@ -351,7 +342,7 @@ impl Daemon {
 
     fn get_keyboard_backlight(&self) -> fdo::Result<u8> {
         self.touch();
-        kbd_backlight_percent(&*self.ec_guard()?).map_err(ec_err)
+        self.ec()?.keyboard_backlight().map_err(ec_err)
     }
 
     async fn set_keyboard_backlight(
@@ -364,7 +355,7 @@ impl Daemon {
             return Err(fdo::Error::InvalidArgs("backlight must be 0-100".into()));
         }
         self.authorize(&header).await?;
-        self.ec_guard()?.set_keyboard_backlight(percent);
+        self.ec()?.set_keyboard_backlight(percent);
         Ok(())
     }
 }
@@ -379,7 +370,7 @@ fn main() -> zbus::Result<()> {
             .await
             .map_err(|e| zbus::Error::Failure(e.to_string()))?;
         let daemon = Daemon {
-            ec: ec::open(),
+            ec: Ec::open(),
             authority,
             last_used,
             capabilities: OnceLock::new(),

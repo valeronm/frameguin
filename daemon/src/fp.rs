@@ -9,11 +9,10 @@
 use std::path::{Path, PathBuf};
 
 use frameguin_wire as wire;
-use framework_lib::chromium_ec::CrosEc;
 use framework_lib::chromium_ec::commands::FpLedBrightnessLevel;
 use zbus::fdo;
 
-use crate::ec::EcStamp;
+use crate::ec::Ec;
 use crate::{Daemon, ec, ec_err, internal_err, led};
 
 /// A settled fingerprint write, resolved from its arguments before anyone is
@@ -50,7 +49,7 @@ impl Daemon {
     /// dark, on an EC that has not restarted since it was darkened — and None
     /// whenever it is lit. Answering with the node rather than a bool is what
     /// lets the caller that acts on it skip looking the LED up again.
-    pub(crate) fn fp_off_led(&self, ec: &CrosEc) -> Option<PathBuf> {
+    pub(crate) fn fp_off_led(&self, ec: &Ec) -> Option<PathBuf> {
         let dir = led::controllable_power()?;
         if !led::dark_in_kernel(&dir) {
             return None;
@@ -59,7 +58,7 @@ impl Daemon {
         // one: a LED this daemon did not darken has no stamp to date, and the
         // kernel's record is then the only account of it there is.
         match *self.fp_off.lock().unwrap() {
-            Some(stamp) => stamp.still_current(ec).unwrap_or(false).then_some(dir),
+            Some(stamp) => ec.same_boot_as(stamp).unwrap_or(false).then_some(dir),
             None => Some(dir),
         }
     }
@@ -68,25 +67,29 @@ impl Daemon {
     /// LED back before it goes out, or it lands on one the host is holding and
     /// the EC no longer lights — so that release belongs here, in the write
     /// itself, rather than in each caller's memory of it.
+    ///
+    /// The `&Ec` handed down from here settles the no-EC case once for the
+    /// whole write; it is not one lock spanning it, since each call through
+    /// the handle takes and drops its own.
     pub(crate) fn write_fingerprint(&self, write: FpWrite) -> fdo::Result<()> {
-        let ec = self.ec_guard()?;
+        let ec = self.ec()?;
         match write {
-            FpWrite::Dark(dir) => self.darken_fp_led(&dir, &ec),
+            FpWrite::Dark(dir) => self.darken_fp_led(&dir, ec),
             FpWrite::Level(level) => {
-                self.release_fp_led(&ec);
-                ec.set_fp_led_level(level).map_err(ec_err)
+                self.release_fp_led(ec);
+                ec.set_fp_level(level).map_err(ec_err)
             }
             FpWrite::Percentage(percent) => {
-                self.release_fp_led(&ec);
-                ec.set_fp_led_percentage(percent).map_err(ec_err)
+                self.release_fp_led(ec);
+                ec.set_fp_percentage(percent).map_err(ec_err)
             }
         }
     }
 
-    fn darken_fp_led(&self, dir: &Path, ec: &CrosEc) -> fdo::Result<()> {
+    fn darken_fp_led(&self, dir: &Path, ec: &Ec) -> fdo::Result<()> {
         // Dated before the write rather than after it, so a restart between
         // the two is read as having dropped it.
-        let stamp = EcStamp::now(ec).map_err(ec_err)?;
+        let stamp = ec.stamp().map_err(ec_err)?;
         led::darken(dir).map_err(internal_err)?;
         *self.fp_off.lock().unwrap() = Some(stamp);
         self.save_state();
@@ -97,7 +100,7 @@ impl Daemon {
     /// write of a level or a percentage is visible rather than swallowed by
     /// an LED the EC no longer drives. Only what the daemon itself arranged
     /// is undone.
-    fn release_fp_led(&self, ec: &CrosEc) {
+    fn release_fp_led(&self, ec: &Ec) {
         let Some(dir) = self.fp_off_led(ec) else {
             return;
         };

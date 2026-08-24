@@ -13,30 +13,25 @@
 //! daemon lifetime, so one transient read denying a capability would deny it
 //! for the whole run. Setters validate against the thing itself.
 
-use std::sync::Mutex;
-
 use frameguin_wire as wire;
-use framework_lib::chromium_ec::CrosEc;
 use framework_lib::chromium_ec::command::EcCommands;
 
-use crate::ec::{battery_state, kbd_backlight_percent};
+use crate::ec::Ec;
 use crate::{led, touchpad};
 
 /// `ec` is None on hardware with no Framework EC, which leaves everything but
-/// the touchpad unsupported. Takes the mutex rather than a guard so the EC is
-/// released before the touchpad's HID enumeration, which needs no EC.
-pub(crate) fn capabilities(ec: Option<&Mutex<CrosEc>>) -> Vec<wire::Capability> {
+/// the touchpad unsupported.
+pub(crate) fn capabilities(ec: Option<&Ec>) -> Vec<wire::Capability> {
     let mut caps = Vec::new();
     if let Some(ec) = ec {
-        let ec = &*ec.lock().unwrap();
         // The getter's own read, run for its answer rather than for a version
         // or a neighbouring command: a pack that reports nothing here is
         // exactly the one whose state cannot be shown.
-        let battery = battery_state(ec).is_some();
+        let battery = ec.battery_state().is_some();
         if battery {
             caps.push(wire::Capability::BatteryState);
         }
-        if ec.get_charge_limit().is_ok() {
+        if ec.charge_limit().is_ok() {
             caps.push(wire::Capability::ChargeLimit);
         }
         // No same-path probe exists: the charge current limit is write-only,
@@ -48,17 +43,20 @@ pub(crate) fn capabilities(ec: Option<&Mutex<CrosEc>>) -> Vec<wire::Capability> 
         // has no rate to offer, so claiming it would offer a dead one. The
         // reading above answers that — a pack's capacity and its state come
         // from the same memmap block, so a readable one has both.
+        // An EC that won't answer is read as "no": a probe runs once per
+        // daemon lifetime, so offering on a silent read would keep offering a
+        // control that may not be there for the whole run.
         if ec
-            .cmd_version_supported(EcCommands::ChargeCurrentLimit as u32, 0)
+            .command_supported(EcCommands::ChargeCurrentLimit, 0)
             .unwrap_or(false)
             && battery
         {
             caps.push(wire::Capability::ChargeCurrentLimit);
         }
-        if kbd_backlight_percent(ec).is_ok() {
+        if ec.keyboard_backlight().is_ok() {
             caps.push(wire::Capability::KeyboardBacklight);
         }
-        if ec.get_fp_led_level().is_ok() {
+        if ec.fp_level().is_ok() {
             caps.push(wire::Capability::FpBrightness);
             // Older EC firmware implements only command v0 of
             // FpLedLevelControl: presets high/medium/low. V1 added the
@@ -68,7 +66,7 @@ pub(crate) fn capabilities(ec: Option<&Mutex<CrosEc>>) -> Vec<wire::Capability> 
             // side-effect-free and asks about the exact command the setters
             // use.
             if ec
-                .cmd_version_supported(EcCommands::FpLedLevelControl as u32, 1)
+                .command_supported(EcCommands::FpLedLevelControl, 1)
                 .unwrap_or(false)
             {
                 caps.push(wire::Capability::FpBrightnessCustom);
