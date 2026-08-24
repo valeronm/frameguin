@@ -140,6 +140,14 @@ the LED node rather than consulting `fp-off`.
   Percentage and the ultra-low/auto levels need command v1, which older EC
   firmware lacks (framework-system issue #211), so they sit behind the
   `fp-brightness-custom` capability probed with `Ec::command_supported`.
+- Fingerprint LED level: acknowledged at once, applied 100 ms later. The EC's
+  `fp_led_level_control` stores the level in BBRAM and defers
+  `change_pwm_led_maximum_duty`, which is what moves the PWM duty the
+  brightness actually is. Until it fires the LED still carries the previous
+  level, and `led_set_brightness` treats any nonzero value as "colour on" at
+  whatever duty stands — so lighting the LED in that window shows the old
+  brightness, whichever write does the lighting. `release_fp_led` waits the
+  hook out before handing the LED back.
 - Fingerprint LED off: the EC has no off — its level command rejects 0, and
   its BBRAM slot reads a 0 back as full brightness, 0 being the uninitialized
   value there. So off is the kernel's LED class instead

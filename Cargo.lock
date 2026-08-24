@@ -627,6 +627,7 @@ dependencies = [
 name = "frameguin-daemon"
 version = "0.1.2"
 dependencies = [
+ "async-io",
  "frameguin-wire",
  "framework_lib",
  "hidapi",

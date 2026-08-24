@@ -7,13 +7,21 @@
 //! the EC has to be the one to make.
 
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
+use async_io::Timer;
 use frameguin_wire as wire;
 use framework_lib::chromium_ec::commands::FpLedBrightnessLevel;
 use zbus::fdo;
 
 use crate::ec::Ec;
 use crate::{Daemon, ec, ec_err, internal_err, led};
+
+/// How long the EC's own deferred hook takes to move the LED's PWM duty to a
+/// level just written, plus margin — the hook is scheduled at 100 ms, not
+/// promised for then. Waited out rather than polled: nothing the EC answers
+/// reports the duty, only the level it will eventually become.
+const FP_LEVEL_SETTLE: Duration = Duration::from_millis(150);
 
 /// A settled fingerprint write, resolved from its arguments before anyone is
 /// asked to authorize one. `Dark` carries the LED's node because finding it is
@@ -59,25 +67,28 @@ impl Daemon {
             .then_some(dir)
     }
 
-    /// The one path to the fingerprint LED. An EC-driven write has to have the
-    /// LED back before it goes out, or it lands on one the host is holding and
-    /// the EC no longer lights — so that release belongs here, in the write
-    /// itself, rather than in each caller's memory of it.
+    /// The one path to the fingerprint LED, and the order a change out of Off
+    /// has to be made in: the level first, then the LED handed back.
+    ///
+    /// The release lives in the write rather than in each caller's memory of
+    /// it, since an EC-driven write that skipped it would never be seen.
     ///
     /// The `&Ec` handed down from here settles the no-EC case once for the
     /// whole write; it is not one lock spanning it, since each call through
     /// the handle takes and drops its own.
-    pub(crate) fn write_fingerprint(&self, write: FpWrite) -> fdo::Result<()> {
+    pub(crate) async fn write_fingerprint(&self, write: FpWrite) -> fdo::Result<()> {
         let ec = self.ec()?;
         match write {
             FpWrite::Dark(dir) => self.darken_fp_led(&dir, ec),
             FpWrite::Level(level) => {
-                self.release_fp_led(ec);
-                ec.set_fp_level(level).map_err(ec_err)
+                ec.set_fp_level(level).map_err(ec_err)?;
+                self.release_fp_led(ec).await;
+                Ok(())
             }
             FpWrite::Percentage(percent) => {
-                self.release_fp_led(ec);
-                ec.set_fp_percentage(percent).map_err(ec_err)
+                ec.set_fp_percentage(percent).map_err(ec_err)?;
+                self.release_fp_led(ec).await;
+                Ok(())
             }
         }
     }
@@ -96,10 +107,15 @@ impl Daemon {
     /// write of a level or a percentage is visible rather than swallowed by
     /// an LED the EC no longer drives. Only what the daemon itself arranged
     /// is undone.
-    fn release_fp_led(&self, ec: &Ec) {
+    ///
+    /// Waits [`FP_LEVEL_SETTLE`] out first: the EC applies a level late, and
+    /// lighting the LED before it lands shows the previous level — a flash of
+    /// the old brightness on the way out of Off.
+    async fn release_fp_led(&self, ec: &Ec) {
         let Some(dir) = self.fp_off_led(ec) else {
             return;
         };
+        Timer::after(FP_LEVEL_SETTLE).await;
         let _ = led::release(&dir);
         *self.fp_off.lock().unwrap() = None;
         self.save_state();

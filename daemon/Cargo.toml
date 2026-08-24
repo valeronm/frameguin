@@ -8,6 +8,8 @@ license = "MIT"
 workspace = true
 
 [dependencies]
+# Already in the tree via zbus; named for the fingerprint LED's one timer.
+async-io = "2"
 frameguin-wire = { workspace = true }
 framework_lib = { version = "0.6.5", default-features = false, features = ["hidapi"] }
 hidapi = "2"

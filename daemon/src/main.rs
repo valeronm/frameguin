@@ -277,7 +277,7 @@ impl Daemon {
         self.touch();
         let write = FpWrite::for_level(level)?;
         self.authorize(&header).await?;
-        self.write_fingerprint(write)
+        self.write_fingerprint(write).await
     }
 
     async fn set_fingerprint_brightness(
@@ -292,7 +292,7 @@ impl Daemon {
             return Err(fdo::Error::InvalidArgs("brightness must be 1-100".into()));
         }
         self.authorize(&header).await?;
-        self.write_fingerprint(FpWrite::Percentage(percent))
+        self.write_fingerprint(FpWrite::Percentage(percent)).await
     }
 
     fn get_haptic_intensity(&self) -> u8 {
