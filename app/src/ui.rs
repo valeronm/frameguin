@@ -868,8 +868,8 @@ pub(crate) fn build_window(
         .title("Frameguin")
         .default_width(420)
         // Tall enough for every control group at the default font scale;
-        // re-measure when adding a row.
-        .default_height(825)
+        // re-measure when the rows change.
+        .default_height(710)
         .content(&toasts)
         .icon_name(APP_ID)
         .build();
