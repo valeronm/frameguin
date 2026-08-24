@@ -50,17 +50,13 @@ impl Daemon {
     /// whenever it is lit. Answering with the node rather than a bool is what
     /// lets the caller that acts on it skip looking the LED up again.
     pub(crate) fn fp_off_led(&self, ec: &Ec) -> Option<PathBuf> {
-        let dir = led::controllable_power()?;
-        if !led::dark_in_kernel(&dir) {
-            return None;
-        }
+        let dir = led::power_held_dark()?;
         // The stamp can only ever withdraw the kernel's account, never supply
         // one: a LED this daemon did not darken has no stamp to date, and the
         // kernel's record is then the only account of it there is.
-        match *self.fp_off.lock().unwrap() {
-            Some(stamp) => ec.same_boot_as(stamp).unwrap_or(false).then_some(dir),
-            None => Some(dir),
-        }
+        (*self.fp_off.lock().unwrap())
+            .is_none_or(|stamp| ec.same_boot_as(stamp).unwrap_or(false))
+            .then_some(dir)
     }
 
     /// The one path to the fingerprint LED. An EC-driven write has to have the

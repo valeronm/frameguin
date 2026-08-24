@@ -17,8 +17,8 @@ const NO_TRIGGER: &str = "none";
 
 /// A `trigger` file's listing: every trigger the kernel offers, each paired
 /// with whether it is the one in effect — which the file marks, and marks
-/// only, by bracketing it. One decoding of that convention, so the two
-/// questions asked of the file cannot come to disagree about it.
+/// only, by bracketing it. One decoding of that convention, so no two
+/// questions asked of the file can come to disagree about it.
 fn triggers(listed: &str) -> impl Iterator<Item = (&str, bool)> {
     listed.split_whitespace().map(|token| {
         token
@@ -32,13 +32,17 @@ fn active_in(listed: &str) -> Option<&str> {
     triggers(listed).find_map(|(name, active)| active.then_some(name))
 }
 
-/// The kernel's node for the EC's power LED, which is the LED the fingerprint
-/// commands dim, and only when it is one this daemon can both darken and hand
-/// back. Its name carries the LED's colour, and which colours a power LED has
-/// is a board's business, so find it by the function it ends with rather than
-/// by one board's spelling of it. A node offering no auto trigger is not a
-/// control: it could be darkened and never released.
-pub(crate) fn controllable_power() -> Option<PathBuf> {
+/// The kernel's node for the EC's power LED, with the `trigger` listing that
+/// vouched for it — every question asked of that file is answered from the
+/// one read.
+///
+/// This is the LED the fingerprint commands dim, and it counts only when it
+/// is one this daemon can both darken and hand back. Its name carries the
+/// LED's colour, and which colours a power LED has is a board's business, so
+/// find it by the function it ends with rather than by one board's spelling
+/// of it. A node offering no auto trigger is not a control: it could be
+/// darkened and never released.
+fn power_node() -> Option<(PathBuf, String)> {
     let dir = std::fs::read_dir("/sys/class/leds").ok()?.find_map(|entry| {
         let entry = entry.ok()?;
         let name = entry.file_name();
@@ -47,22 +51,29 @@ pub(crate) fn controllable_power() -> Option<PathBuf> {
     })?;
     let listed = std::fs::read_to_string(dir.join("trigger")).ok()?;
     (dir.join("brightness").exists() && triggers(&listed).any(|(name, _)| name == AUTO_TRIGGER))
-        .then_some(dir)
+        .then_some((dir, listed))
 }
 
-/// Whether the kernel is holding the LED dark, in the exact arrangement
-/// [`darken`] leaves — a LED parked on some third trigger is somebody else's
-/// and not ours to read as off.
+/// The node for a power LED this daemon could take and give back, whatever
+/// state it is in now.
+pub(crate) fn controllable_power() -> Option<PathBuf> {
+    power_node().map(|(dir, _)| dir)
+}
+
+/// That same node, but only while the kernel is holding the LED dark in the
+/// exact arrangement [`darken`] leaves — a LED parked on some third trigger
+/// is somebody else's and not ours to read as off.
 ///
 /// This is the kernel's record of what it last commanded rather than a
 /// reading: the driver implements no `brightness_get`, and the EC's LED
 /// command answers only with which colours exist. So a write that goes
 /// straight to the EC (`ectool led`) passes unseen, while a host reboot
 /// re-probes the driver and re-attaches the trigger, which reads as on.
-pub(crate) fn dark_in_kernel(dir: &Path) -> bool {
-    let listed = std::fs::read_to_string(dir.join("trigger")).unwrap_or_default();
-    active_in(&listed) == Some(NO_TRIGGER)
-        && std::fs::read_to_string(dir.join("brightness")).is_ok_and(|value| value.trim() == "0")
+pub(crate) fn power_held_dark() -> Option<PathBuf> {
+    let (dir, listed) = power_node()?;
+    let held_dark = active_in(&listed) == Some(NO_TRIGGER)
+        && std::fs::read_to_string(dir.join("brightness")).is_ok_and(|value| value.trim() == "0");
+    held_dark.then_some(dir)
 }
 
 /// Takes the LED off the EC's policy and darkens it.
