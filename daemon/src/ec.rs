@@ -94,7 +94,12 @@ impl Ec {
             // Against the last full charge, which is the EC's own denominator;
             // a pack reporting more than full is clamped rather than shown.
             percent: u8::try_from(battery.charge_percentage.min(100)).unwrap_or(100),
-            flow: charge_flow(battery.charging, info.ac_present, battery.present_rate),
+            flow: charge_flow(ChargeSignals {
+                charging: battery.charging,
+                discharging: battery.discharging,
+                ac_present: info.ac_present,
+                milliamps: battery.present_rate,
+            }),
             milliamps: battery.present_rate,
             millivolts: battery.present_voltage,
         })
@@ -236,20 +241,46 @@ fn wire_fp_level(level: Option<&FpLedBrightnessLevel>) -> wire::FpLevel {
     }
 }
 
+/// The readings a direction is decided from, carried together because
+/// `charging`, `discharging` and `ac_present` are bare booleans: named fields
+/// are what stops a caller permuting them into a well-formed call that
+/// answers a different question.
+#[derive(Clone, Copy, Default)]
+struct ChargeSignals {
+    charging: bool,
+    discharging: bool,
+    ac_present: bool,
+    milliamps: u32,
+}
+
 /// What the pack is doing, from the EC's charging flag, its charger flag and
 /// the rate.
 ///
-/// The discharging flag is deliberately not a parameter: it means "not being
-/// charged" rather than "supplying the machine", and a full pack on a
-/// connected charger sets it — a smart battery reporting zero charge
-/// current. The rate is what separates a pack at rest from one running the
-/// machine, and it reads a clean 0 at rest; a charger attached does not by
-/// itself mean nothing is draining, since too weak a one leaves the pack
-/// covering the difference.
-fn charge_flow(charging: bool, ac_present: bool, milliamps: u32) -> wire::ChargeFlow {
+/// Neither flag set is a state of its own, and the one the ceiling produces:
+/// the EC clears both while its charge limiter holds the pack there, which is
+/// what ACPI's charge-limiting convention asks of it so the host stops drawing
+/// a direction. The charge current decays for as long as a minute after the
+/// limiter engages, and taking that decay for the pack running the machine
+/// names tens of watts leaving a battery that is losing none.
+///
+/// Set on its own, the discharging flag means "not being charged" rather than
+/// "supplying the machine" — a pack sitting full on a charger sets it. The
+/// rate is what separates that pack from one running the machine, and it
+/// reads a clean 0 at rest. A charger attached does not by itself mean
+/// nothing is draining, since too weak a one leaves the pack covering the
+/// difference, and the EC does flag that as discharging.
+fn charge_flow(
+    ChargeSignals {
+        charging,
+        discharging,
+        ac_present,
+        milliamps,
+    }: ChargeSignals,
+) -> wire::ChargeFlow {
+    let draining = discharging && milliamps > 0;
     if charging {
         wire::ChargeFlow::Charging
-    } else if ac_present && milliamps == 0 {
+    } else if ac_present && !draining {
         wire::ChargeFlow::Idle
     } else {
         wire::ChargeFlow::Discharging
@@ -258,7 +289,17 @@ fn charge_flow(charging: bool, ac_present: bool, milliamps: u32) -> wire::Charge
 
 #[cfg(test)]
 mod tests {
-    use super::{EcStamp, charge_flow, ec_fp_level, wire, wire_fp_level};
+    use super::{ChargeSignals, EcStamp, charge_flow, ec_fp_level, wire, wire_fp_level};
+
+    /// A charger attached and the pack held at its ceiling: the EC claiming
+    /// no direction, nothing moving. Each case below names only what it
+    /// changes from that.
+    fn at_the_ceiling() -> ChargeSignals {
+        ChargeSignals {
+            ac_present: true,
+            ..ChargeSignals::default()
+        }
+    }
 
     /// The two tables are written out separately — `FpLedBrightnessLevel`
     /// derives no `PartialEq`, so neither can be derived from the other the
@@ -278,27 +319,73 @@ mod tests {
     /// a machine that was plugged in and full.
     #[test]
     fn a_full_pack_on_its_charger_is_not_discharging() {
-        assert_eq!(charge_flow(false, true, 0), wire::ChargeFlow::Idle);
+        let full = ChargeSignals {
+            discharging: true,
+            ..at_the_ceiling()
+        };
+        assert_eq!(charge_flow(full), wire::ChargeFlow::Idle);
+    }
+
+    /// The decaying window the function's own doc describes: 303 mA is well
+    /// into the fall, not a pack running the machine.
+    #[test]
+    fn a_pack_held_at_its_ceiling_is_not_discharging_while_its_current_decays() {
+        let decaying = ChargeSignals {
+            milliamps: 303,
+            ..at_the_ceiling()
+        };
+        assert_eq!(charge_flow(decaying), wire::ChargeFlow::Idle);
     }
 
     /// A charger too weak for the load leaves the pack covering the
-    /// difference, which the rate is the only witness to.
+    /// difference, which the EC flags as discharging.
     #[test]
     fn a_pack_draining_under_a_weak_charger_is_discharging() {
-        assert_eq!(charge_flow(false, true, 900), wire::ChargeFlow::Discharging);
+        let weak = ChargeSignals {
+            discharging: true,
+            milliamps: 900,
+            ..at_the_ceiling()
+        };
+        assert_eq!(charge_flow(weak), wire::ChargeFlow::Discharging);
     }
 
     #[test]
     fn nothing_attached_leaves_the_pack_running_the_machine() {
-        assert_eq!(charge_flow(false, false, 1400), wire::ChargeFlow::Discharging);
+        let unplugged = ChargeSignals {
+            discharging: true,
+            milliamps: 1400,
+            ..ChargeSignals::default()
+        };
+        assert_eq!(charge_flow(unplugged), wire::ChargeFlow::Discharging);
         // Between two readings a pack can report no rate at all; with no
         // charger it is still the only thing powering the machine.
-        assert_eq!(charge_flow(false, false, 0), wire::ChargeFlow::Discharging);
+        let unplugged_at_rest = ChargeSignals {
+            milliamps: 0,
+            ..unplugged
+        };
+        assert_eq!(charge_flow(unplugged_at_rest), wire::ChargeFlow::Discharging);
+        // The limiter's own state cannot arise off a charger, but a pack with
+        // nothing attached is running the machine whatever the flags say.
+        let unplugged_unflagged = ChargeSignals {
+            discharging: false,
+            ..unplugged
+        };
+        assert_eq!(
+            charge_flow(unplugged_unflagged),
+            wire::ChargeFlow::Discharging
+        );
     }
 
+    /// `framework_lib` leaves open whether both flags can stand at once.
     #[test]
     fn charge_arriving_outranks_the_rest() {
-        assert_eq!(charge_flow(true, true, 2320), wire::ChargeFlow::Charging);
+        let charging = ChargeSignals {
+            charging: true,
+            discharging: true,
+            ac_present: true,
+            milliamps: 2320,
+        };
+        assert_eq!(charge_flow(charging), wire::ChargeFlow::Charging);
     }
 
     fn taken(ec_uptime: u64, written_at: u64) -> EcStamp {

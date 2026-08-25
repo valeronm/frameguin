@@ -84,10 +84,17 @@ fn watts(state: BatteryState) -> Option<String> {
 /// rate of zero is dropped rather than rendered: "0.0 A" is what a pack
 /// reports in the moment either side of a direction changing, and it reads
 /// as a fault.
+///
+/// A rate arriving under `Idle` names the charge ending rather than nothing
+/// at all. That pairing has one source: the daemon reaches `Idle` with a rate
+/// only where the EC claims neither direction, which is the state its charge
+/// limiter holds the pack in while the current falls away. A pack simply
+/// resting at its ceiling reports a clean zero, so the two never collide.
 pub(crate) fn charge_flow_label(state: BatteryState) -> String {
     let direction = match state.flow {
         ChargeFlow::Charging => "Charging",
         ChargeFlow::Discharging => "Discharging",
+        ChargeFlow::Idle if state.milliamps > 0 => "Finishing charge",
         ChargeFlow::Idle => return "Plugged in, not charging".to_string(),
     };
     if state.milliamps == 0 {
@@ -282,6 +289,17 @@ mod tests {
         assert_eq!(
             charge_flow_label(state(ChargeFlow::Idle, 0)),
             "Plugged in, not charging"
+        );
+    }
+
+    /// The charge limiter holds the pack with the current still falling away,
+    /// and the watts are the point: saying only "not charging" there hides a
+    /// reading the pack is still giving.
+    #[test]
+    fn a_charge_winding_down_at_the_limit_is_named_with_its_rate() {
+        assert_eq!(
+            charge_flow_label(state(ChargeFlow::Idle, 2320)),
+            "Finishing charge at 2.3 A (35.7 W)"
         );
     }
 

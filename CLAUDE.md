@@ -133,9 +133,16 @@ the LED node rather than consulting `fp-off`.
 - Battery flags: the EC's discharging flag means "not being charged", not
   "supplying the machine" — a full pack on a connected charger sets it, which
   is a smart battery reporting zero charge current. `framework_tool --power`
-  prints "Battery discharging" in that state too. So `charge_flow` ignores it
-  and decides from the charging flag, the charger and the rate, which reads a
-  clean 0 mA at rest.
+  prints "Battery discharging" in that state too. So the flag alone never
+  decides: `charge_flow` weighs it against the charger and the rate, which
+  reads a clean 0 mA at rest.
+- Neither battery flag set is a fourth state, and the charge limit produces
+  it. The limit arms the EC's battery sustainer, which switches to
+  `CHARGE_CONTROL_IDLE` on reaching the ceiling and clears both flags there,
+  ACPI's charge-limiting convention asking that the host stop drawing a
+  direction. The charge current then decays for as long as a minute, so the
+  window has a large rate and no direction — and a pack whose charge does not
+  move, which is the check that settles what the reading means.
 - Fingerprint LED: 1–100 (0 rejected — it doubles as the power indicator).
   Percentage and the ultra-low/auto levels need command v1, which older EC
   firmware lacks (framework-system issue #211), so they sit behind the
