@@ -92,10 +92,12 @@ it and the non-obvious constraints.
   to drift.
 - Inside `daemon/`, the modules are drawn by how a control reaches the
   hardware, so the filename answers which way: `ec.rs` the EC, `led.rs` the
-  kernel's LED class, `touchpad.rs` the pad's own HID transport, with `fp.rs`
+  kernel's LED class, `touchpad.rs` the pad's own HID transport, `gpio.rs` a
+  pad on the processor through the GPIO character device, with `fp.rs`
   for the arbitration the first two make necessary — the fingerprint LED has
   two possible drivers and one at a time. The rest divide by job: `board.rs`
-  the DMI vendor read deciding whether there is an EC to open, `state.rs` the
+  the DMI reads — the vendor deciding whether there is an EC to open, the
+  product name deciding which board's pads are which — `state.rs` the
   mirror for what cannot be read back, `probe.rs` the probe rule beside the
   code it governs. Each module's own doc carries why; what is worth saying
   here is what none of them can. `ec.rs` is every EC call: `Ec` is the only
@@ -109,7 +111,7 @@ it and the non-obvious constraints.
   legible at neither end.
 - A control the tray can also set gets an `apply_*` function owning the whole
   write: the daemon call, the toast, the tray's copy, and moving the widget to
-  match. Both the window's handler and the tray preset call it; neither writes
+  match. Both the window's handler and the tray item call it; neither writes
   around it. Controls only the window sets (backlight, touchpad) write inline
   in their handler — one caller needs no shared function, and giving it one
   would be ceremony. Writing *by* moving the widget, which the tray used to
@@ -117,15 +119,37 @@ it and the non-obvious constraints.
   value emits no change, so the write is silently dropped — which is what a
   tray click on a stale window hits. Debouncing stays with the widget that
   needs it; a tray click is discrete.
-- The two charge setters skip a write whose value is already set, and skip it
-  before the polkit call for the same reason argument checks come first —
-  nobody should answer a prompt for a write that won't happen. The skip
-  belongs in the daemon rather than in a caller: `set_charge_limit` asks the
-  EC and `set_charge_current_limit` asks its own mirror, the closest either
-  can get to the truth, where a client could only consult its own stale idea
-  of it. The rest write unconditionally, because only this app moves their
-  values — bar the keyboard backlight, which the EC writes too and which the
-  window therefore polls.
+- Every window widget is already carrying the user's choice when its handler
+  runs — `notify` fires after the move, for a combo as much as for a switch —
+  so a refused write leaves the window asserting a state the hardware never
+  took. Correct it where both hold: the prior value is recoverable without a
+  read, and the wrong assertion is one a reader acts on rather than merely
+  looks at. The touchscreen is the case that meets them, its prior value
+  being the negation and its wrong claim being "touch is off"; everything
+  else here would have to capture a value before the write or re-read after
+  it, for a stale row that outlives nothing worse than the next reload.
+- The tray offers one menu item per control, not per value, and every control
+  takes the same shape: a submenu over the states it offers, named after the
+  one in force. A value dialled in from the window is not among them, so no
+  row is marked — but whether the title still names it is the control's own
+  call, and they differ deliberately: the charge ones spell the raw value,
+  since a menu that said nothing about a limit set from the window would be
+  worse than one naming a row it cannot mark. Two-state controls go through
+  the same shape rather than drawing a checkmark; `touchscreen_item` carries
+  why. What a row sends is a *state*, never a gesture: a click saying only
+  "toggle" would invert whatever
+  the app believed by the time it landed, which is the command-channel mistake
+  above in its other form — there a widget's position stood in for the
+  command, here the gesture would.
+- A setter skips a write already in place where a client's idea of the value
+  can be stale, and skips it before the polkit call for the same reason
+  argument checks come first — nobody should answer a prompt for a write that
+  won't happen. The skip belongs in the daemon rather than in a caller, asked
+  of the closest thing to the truth each one has: `set_charge_limit` asks the
+  EC, `set_charge_current_limit` its own mirror, `set_touchscreen_enabled` the
+  pad. What decides is whether a client can be stale, not whether the value is
+  readable: the keyboard backlight is both readable and written by the EC, and
+  skips nothing, because the window polls it while mapped and so is not.
 - D-Bus types name the value, not either end's convenience: a percentage is
   `y` (`u8`), never GTK's f64. The daemon validates every argument because
   any client can call it — an app-side clamp is UI convenience, not the check.
@@ -133,9 +157,10 @@ it and the non-obvious constraints.
   means the method awaits polkit, `fdo::Result` that it can fail — neither
   implies it touches the EC (`get_capabilities` does, and is neither). zbus
   boxes sync and async alike, so never reach for `async` to get concurrency.
-- The daemon's connection runs on one executor thread and the EC calls block
-  rather than await, so a slow EC read stalls every other task on that
-  connection — the cold `get_capabilities` probe most of all. The fix is to
+- The daemon's connection runs on one executor thread and every hardware call
+  blocks rather than awaits, so a slow one stalls every other task on that
+  connection — the cold `get_capabilities` probe most of all, which now walks
+  pinctrl for the touchscreen's pad as well as waking the EC. The fix is to
   move the call off the executor onto a blocking pool, not more `async`.
 
 ## The probe rule
@@ -143,15 +168,19 @@ it and the non-obvious constraints.
 `daemon/src/probe.rs` documents it: one capability per exposed
 operation, and a probe vouches for an operation only by a side-effect-free
 exercise of that operation's own code path, or by curated knowledge — not by
-an adjacent, easier check. The reason is concrete: the touchscreen's version
-read succeeds on hardware whose enable command does not, so a version-based
-probe would have offered a control that silently does nothing.
+an adjacent, easier check. The reason is concrete, and turned out to be worse
+than first understood: the touchscreen's version read succeeds on a panel that
+has no enable command at all. What stops touch is a pad on the processor,
+which the controller neither knows about nor answers for — so a version-based
+probe would have vouched not for a command that fails on some hardware, but
+for one this panel does not implement. That the Laptop 12's panel does
+implement it is the point sharpened: the read said nothing either way.
 
 Write-only controls have no same-path probe to run, and take one of two other
 forms. Asking the firmware whether it implements the exact command the setter
 sends (`Ec::command_supported`) is a probe about that command and nothing
-else, which is what separates it from the touchscreen trap — that was a
-*different* command answering for the one that mattered. Where even that isn't
+else, which is what separates it from the touchscreen trap — there a read
+answered for a command the panel turned out not to have. Where even that isn't
 available, the condition is hardcoded with a comment explaining why. A probe
 may also require more than command support: `charge-current-limit` needs a
 readable battery too, because a cap is only offered as a share of what the
@@ -170,14 +199,13 @@ the LED node rather than consulting `fp-off`.
 
 ## What the hardware forces on the code
 
-`docs/hardware.md` is what the machine does — the EC's three access routes,
-the battery block and the gauge behind it, the fingerprint LED's deferred
-apply, the touchpad's missing readback. Findings belong there rather than
-here, since they stay true whoever is talking to the hardware; what belongs
-here is what they force on *this* code. The exception is a finding that is
-the evidence for a rule stated here, like the touchscreen's version read
-under the probe rule — separating those would leave the rule asserted and
-its reason a file away.
+`docs/hardware.md` is what the machine does, a chapter per subsystem — naming
+them here as well would be a second index to keep true. Findings belong there
+rather than here, since they stay true whoever is talking to the hardware;
+what belongs here is what they force on *this* code. The exception is a
+finding that is the evidence for a rule stated here, like the touchscreen's
+version read under the probe rule — separating those would leave the rule
+asserted and its reason a file away.
 
 - The daemon holds `Ec` as an `Option` behind the DMI vendor check, never
   constructing it speculatively: `CrosEc::new()` panics outright where
@@ -189,7 +217,14 @@ its reason a file away.
   reason. A value with no readback at all is mirrored instead: in `state.rs`
   for the touchpad, by dating the write against the EC's uptime for the
   fingerprint LED's darkness, and by both for the charge current limit, whose
-  mirror expires with the EC that took it.
+  mirror expires with the EC that took it. The touchscreen needs neither: its
+  pad carries the level, so the getter asks the hardware. Its second writer is
+  the platform firmware rather than this daemon — a lid opening drives the pad
+  back, as a resume does — and neither is something the app is told about, so
+  both front ends can show a value the firmware has already moved. The window
+  re-reads on being mapped; the tray asks when its menu opens, which is a
+  request it cannot wait for, so the first menu after such a change still
+  draws the old value and the one after it is right.
 - What the pack is asked directly falls into two groups, and the split is why
   one has a capability and the other does not. The temperature, cell voltages
   and alarms have no fallback, so they are one operation behind

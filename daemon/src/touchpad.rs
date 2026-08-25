@@ -25,12 +25,12 @@ const HAPTIC_PIDS: [u16; 1] = [0x1343];
 /// getter returns it, and the mirror stores the code this maps to.
 pub(crate) const DEFAULT_CLICK_FORCE: wire::ClickForce = wire::ClickForce::Medium;
 
-pub(crate) fn haptic_present() -> bool {
-    hidapi::HidApi::new().is_ok_and(|api| {
-        api.device_list().any(|dev| {
-            dev.vendor_id() == touchpad::PIX_VID && HAPTIC_PIDS.contains(&dev.product_id())
-        })
-    })
+/// Takes the enumeration rather than making one: `HidApi::new` walks every
+/// HID device on the machine before a caller asks it anything, and the probe
+/// has more than one device to look for.
+pub(crate) fn haptic_present(hid: &hidapi::HidApi) -> bool {
+    hid.device_list()
+        .any(|dev| dev.vendor_id() == touchpad::PIX_VID && HAPTIC_PIDS.contains(&dev.product_id()))
 }
 
 pub(crate) fn click_force(force: wire::ClickForce) -> ClickForce {

@@ -1,6 +1,6 @@
 .\" The date is this page's own last non-trivial change, per man-pages(7),
 .\" not the build date.
-.TH FRAMEGUIN 1 2026-08-22 "Frameguin @VERSION@" "User Commands"
+.TH FRAMEGUIN 1 2026-08-26 "Frameguin @VERSION@" "User Commands"
 .SH NAME
 frameguin \- hardware controls for Framework laptops
 .SH SYNOPSIS
@@ -57,6 +57,11 @@ report them back.
 A battery charge limit set here lasts until reboot. UEFI setup re-sends its
 own stored value at every power-on, so the standing limit lives in BIOS
 setup rather than here.
+.PP
+A touchscreen switched off comes back on when the lid is opened, after a
+suspend, and at the next restart. The panel's enable is a line the firmware
+re-asserts rather than a setting anything stores, so nothing carries the
+choice across.
 .SH BUGS
 https://github.com/valeronm/frameguin/issues
 .SH DIAGNOSTICS

@@ -13,6 +13,7 @@ use crate::caps::{Capabilities, fp_presets};
 use crate::format::{
     CHARGE_SPEED_LABELS, amps, battery_summary, charge_limit_labels, charge_limit_percent,
     charge_limit_position, charge_speed_milliamps, charge_speed_position, fp_level_labels,
+    touchscreen_labels, touchscreen_position, touchscreen_state,
 };
 use crate::reading::Feed;
 
@@ -28,6 +29,11 @@ pub(crate) enum TrayEvent {
     /// from, so applying it needs nothing the window has to supply.
     SetChargeSpeed(u32),
     SetFingerprintLevel(FpLevel),
+    /// The state to move to, which is what the row that was clicked names.
+    /// The menu's mark can be a moment stale — the pad is where the truth is
+    /// and a suspend moves it — so "off" has to still mean off when it
+    /// arrives, rather than inverting whatever the app believes by then.
+    SetTouchscreen(bool),
     Quit,
 }
 
@@ -50,6 +56,9 @@ pub(crate) struct TrayIcon {
     /// Current fingerprint LED level, pushed in from the app; Custom marks no
     /// radio option.
     fp_level: Option<FpLevel>,
+    /// Whether the touch panel is on, pushed in from the app; None until the
+    /// first daemon read, which leaves the group unmarked.
+    touchscreen: Option<bool>,
     /// Pushed in once the app reads the daemon's probe, and fixed for the
     /// daemon's run thereafter. None until then, which leaves the menu at
     /// Open/Quit.
@@ -66,6 +75,7 @@ impl TrayIcon {
             charge_current_limit: None,
             design_capacity: None,
             fp_level: None,
+            touchscreen: None,
             caps: None,
         }
     }
@@ -94,14 +104,21 @@ impl ksni::Tray for TrayIcon {
 
     /// The menu renders from values pushed in earlier, which the EC and other
     /// tools can invalidate at any time, so opening it asks for fresh ones.
-    /// They arrive a moment later and ksni re-renders once they land.
+    /// Asking is all it can do: ksni publishes the menu the moment this
+    /// returns, so the values land after the menu that needed them and the
+    /// open menu keeps whatever it drew with. They are in place for the next
+    /// open, which is why a control something else moved — the touchscreen
+    /// across a lid, a limit the EC's extender lowered — reads one menu
+    /// behind rather than staying wrong.
     fn menu_about_to_show(&mut self) {
         self.send(TrayEvent::Refresh);
     }
 
-    /// The menu, grouped by subsystem: the window, then the battery with its
-    /// reading above the controls that shape it, then the fingerprint LED,
-    /// then the way out.
+    /// The menu, grouped by subsystem, in the order the window's own page
+    /// puts them — the battery leads with its reading above the controls that
+    /// shape it, and the way in and the way out bracket the lot. The array
+    /// below is the list; naming the groups here as well would be a second
+    /// place to update every time one is added.
     ///
     /// Each item decides for itself whether this board can offer it, so the
     /// separators are placed by asking which groups came back with anything
@@ -110,7 +127,7 @@ impl ksni::Tray for TrayIcon {
     /// have been.
     fn menu(&self) -> Vec<ksni::MenuItem<Self>> {
         use ksni::menu::StandardItem;
-        let groups: [Vec<ksni::MenuItem<Self>>; 4] = [
+        let groups: [Vec<ksni::MenuItem<Self>>; 5] = [
             vec![
                 StandardItem {
                     label: "Open".into(),
@@ -128,6 +145,7 @@ impl ksni::Tray for TrayIcon {
             .flatten()
             .collect(),
             self.fp_level_item().into_iter().collect(),
+            self.touchscreen_item().into_iter().collect(),
             vec![
                 StandardItem {
                     label: "Quit Frameguin".into(),
@@ -205,7 +223,7 @@ impl TrayIcon {
         }
         let labels = charge_limit_labels();
         // Spelled here rather than read off the labels, the way the other
-        // two titles name their selected option: the row for 100% reads "No
+        // titles name their selected option: the row for 100% reads "No
         // limit", which as a title would come out "Charge limit (No limit)".
         // Each word is the better one where it sits, so the two differ.
         let title = match self.charge_limit {
@@ -280,6 +298,30 @@ impl TrayIcon {
             },
         ))
     }
+
+    /// Two states named as presets, through the same submenu the rest use.
+    /// A checkmark would say as much in less room, but it draws in a column
+    /// the submenus around it do not have, so the row sits out of line with
+    /// every other control. Unknown leaves the group unmarked rather than
+    /// hiding the item, as it does for the presets: an option to pick is
+    /// worth offering before a reading has arrived, and picking one names
+    /// the state outright.
+    fn touchscreen_item(&self) -> Option<ksni::MenuItem<Self>> {
+        if !self.caps?.has(Capability::Touchscreen) {
+            return None;
+        }
+        let selected = self.touchscreen.and_then(touchscreen_position);
+        let options = touchscreen_labels();
+        let title = match selected {
+            Some(index) => format!("Touchscreen ({})", options[index]),
+            None => "Touchscreen".into(),
+        };
+        Some(radio_submenu(title, selected, options, |tray, row| {
+            if let Some(enabled) = touchscreen_state(row) {
+                tray.send(TrayEvent::SetTouchscreen(enabled));
+            }
+        }))
+    }
 }
 
 /// What a caller knows about the tray's state. A field left None is one this
@@ -295,6 +337,7 @@ pub(crate) struct TrayValues {
     pub(crate) design_capacity: Option<u32>,
     pub(crate) charge_current_limit: Option<u32>,
     pub(crate) fp_level: Option<FpLevel>,
+    pub(crate) touchscreen: Option<bool>,
 }
 
 impl TrayValues {
@@ -318,6 +361,13 @@ impl TrayValues {
             ..Self::default()
         }
     }
+
+    pub(crate) fn touchscreen(enabled: bool) -> Self {
+        Self {
+            touchscreen: Some(enabled),
+            ..Self::default()
+        }
+    }
 }
 
 /// The tray-push protocol, owned in one place: the window's `Ui`, the write
@@ -332,6 +382,7 @@ pub(crate) fn tray_push(handle: &ksni::blocking::Handle<TrayIcon>, values: TrayV
         tray.design_capacity = values.design_capacity.or(tray.design_capacity);
         tray.charge_current_limit = values.charge_current_limit.or(tray.charge_current_limit);
         tray.fp_level = values.fp_level.or(tray.fp_level);
+        tray.touchscreen = values.touchscreen.or(tray.touchscreen);
     });
 }
 
@@ -341,7 +392,7 @@ pub(crate) fn tray_push(handle: &ksni::blocking::Handle<TrayIcon>, values: TrayV
 pub(crate) async fn refresh_tray(handle: &ksni::blocking::Handle<TrayIcon>, feed: &Rc<Feed>) {
     // One write at the end. Every `update` blocks this thread on the tray's
     // own, and makes it rebuild the entire menu and signal it over D-Bus, so
-    // a field-at-a-time refresh would do that four times for one menu.
+    // a field-at-a-time refresh would do that once per field.
     let Ok(proxy) = feed.proxy().await else {
         return;
     };
@@ -384,6 +435,11 @@ pub(crate) async fn refresh_tray(handle: &ksni::blocking::Handle<TrayIcon>, feed
     } else {
         None
     };
+    let touchscreen = if caps.has(Capability::Touchscreen) {
+        proxy.get_touchscreen_enabled().await.ok()
+    } else {
+        None
+    };
     tray_push(
         handle,
         TrayValues {
@@ -393,6 +449,7 @@ pub(crate) async fn refresh_tray(handle: &ksni::blocking::Handle<TrayIcon>, feed
             design_capacity: capacity,
             charge_current_limit: speed,
             fp_level: level,
+            touchscreen,
         },
     );
 }

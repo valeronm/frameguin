@@ -2,8 +2,9 @@
 //!
 //! One capability per exposed operation, and each probe must be a
 //! side-effect-free exercise of the same code path the operation uses — never
-//! a related-but-easier check (a board can support reading a subsystem's
-//! version while its enable command works only on other hardware). Where no
+//! a related-but-easier check (a subsystem answers a version read while the
+//! command that would act on it works only on other hardware, or is not a
+//! command it implements at all — see the touchscreen). Where no
 //! harmless same-path probe exists, hardcode the support condition here
 //! instead of probing something adjacent. The get-side probes below stand in
 //! for their setters only because those EC command pairs ship together in
@@ -15,9 +16,10 @@
 
 use frameguin_wire as wire;
 use framework_lib::chromium_ec::command::EcCommands;
+use framework_lib::touchscreen;
 
 use crate::ec::Ec;
-use crate::{led, touchpad};
+use crate::{gpio, led, touchpad};
 
 /// `ec` is None on hardware with no Framework EC, which leaves everything but
 /// the touchpad unsupported.
@@ -93,10 +95,58 @@ pub(crate) fn capabilities(ec: Option<&Ec>) -> Vec<wire::Capability> {
             }
         }
     }
+    // One walk of the HID bus for every device asked about below. Building an
+    // `HidApi` enumerates the lot, so one per question would pay for the whole
+    // bus twice on the coldest call this daemon has.
+    let hid = hidapi::HidApi::new().ok();
     // One name for both haptic controls: they share the identical support
     // condition (same device, same firmware feature set).
-    if touchpad::haptic_present() {
+    if hid.as_ref().is_some_and(touchpad::haptic_present) {
         caps.push(wire::Capability::HapticTouchpad);
     }
+    // Outside the EC's block: the enable line is the processor's, so a board
+    // whose EC would not open can still have one. Two questions of different
+    // hardware, and the capability is both — the board says which pad carries
+    // the enable, the controller on the bus says anything is behind it.
+    // Panels and mainboards are sold apart and the chassis takes any pairing,
+    // so a board of the right generation behind a panel with no touch would
+    // otherwise offer a switch with nothing on the end of it.
+    //
+    // The pad half runs the setter's own line request through `level`, which
+    // is side-effect-free and fails on everything the write would fail on: a
+    // chip that will not open, a locked pad, a line another driver holds. It
+    // goes first because it opens with a single DMI read that every board but
+    // one fails, which spares the rest both this pad's directory walks and
+    // the sift through the enumeration below.
+    if gpio::touchscreen().is_some_and(|pad| pad.level().is_ok())
+        && hid.as_ref().is_some_and(panel_present)
+    {
+        caps.push(wire::Capability::Touchscreen);
+    }
     caps
+}
+
+/// Touch controllers a board's enable pad is what gates, by the identity they
+/// announce on the bus.
+///
+/// Keyed on the controller rather than on which panel it shipped in, as the
+/// haptic touchpad is: the enable is a board signal reaching the display
+/// connector, so it gates whichever touch panel is plugged into it.
+///
+/// A controller belongs here once this daemon can switch it off. The Laptop
+/// 12's Ilitek is absent for that reason and no deeper one: it is switched
+/// off by a vendor HID command rather than by the board's pad, which is a
+/// second way into the same control rather than a second control — the
+/// capability and its setter name the panel, not the route to it. Adding it
+/// means teaching [`gpio`]'s side a sibling, not giving the app a new name
+/// to learn.
+///
+/// Curated, so it decides the offer and nothing else. A controller missing
+/// from this list is a control not shown, never a write refused — the setter
+/// never consults it.
+const TOUCH_CONTROLLERS: [(u16, u16); 1] = [(touchscreen::HX_VID, touchscreen::HX_PID)];
+
+fn panel_present(hid: &hidapi::HidApi) -> bool {
+    hid.device_list()
+        .any(|dev| TOUCH_CONTROLLERS.contains(&(dev.vendor_id(), dev.product_id())))
 }

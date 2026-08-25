@@ -70,6 +70,13 @@ pub enum Capability {
     /// One name for both touchpad controls — same device, same firmware
     /// feature set, so nothing can support one and not the other.
     HapticTouchpad,
+    /// Switching the touch panel off. Named for the panel rather than for the
+    /// way it is reached, which differs by board and is the daemon's business
+    /// alone: this end asks whether touch can be switched, never how. Offered
+    /// where a panel is fitted and this daemon knows how to switch that
+    /// board's — two facts about separately sold parts, so neither answers
+    /// for the other.
+    Touchscreen,
 }
 
 /// Something wrong with the pack, as the pack itself judges it — named rather
@@ -309,4 +316,9 @@ pub trait Frameguin {
     async fn set_haptic_intensity(&self, percent: u8) -> zbus::Result<()>;
     async fn get_touchpad_click_force(&self) -> zbus::Result<ClickForce>;
     async fn set_touchpad_click_force(&self, force: ClickForce) -> zbus::Result<()>;
+    /// Whether the touch panel is on. Read from the pad the setter drives,
+    /// so it answers for the hardware rather than for what this app last
+    /// asked — including a value some other writer, or a boot, put there.
+    async fn get_touchscreen_enabled(&self) -> zbus::Result<bool>;
+    async fn set_touchscreen_enabled(&self, enabled: bool) -> zbus::Result<()>;
 }

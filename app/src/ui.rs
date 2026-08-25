@@ -176,6 +176,7 @@ pub(crate) struct Ui {
     fp_levels: RefCell<Vec<FpLevel>>,
     haptic_combo: adw::ComboRow,
     force_combo: adw::ComboRow,
+    touchscreen_switch: adw::SwitchRow,
     tray: Option<ksni::blocking::Handle<TrayIcon>>,
     /// Where the charge row's reading comes from, shared with the battery
     /// report so the two windows cost the EC one walk between them rather than
@@ -218,6 +219,10 @@ impl Ui {
             self.fp_combo.set_selected(self.fp_combo_index(level));
             self.fp_custom_row.set_visible(level == FpLevel::Custom);
         });
+    }
+
+    fn show_touchscreen(&self, enabled: bool) {
+        self.sync(|| self.touchscreen_switch.set_active(enabled));
     }
 
     /// Moves the charge-limit widgets onto a ceiling without writing it back,
@@ -288,6 +293,23 @@ fn connect_handlers(ui: &Rc<Ui>, proxy: &FrameguinProxy<'static>) {
     connect_kbd_setter(ui, proxy);
     connect_fp_setter(ui, proxy);
     connect_touchpad_setters(ui, proxy);
+    connect_touchscreen_setter(ui, proxy);
+}
+
+fn connect_touchscreen_setter(ui: &Rc<Ui>, proxy: &FrameguinProxy<'static>) {
+    let switch_ui = ui.clone();
+    let switch_proxy = proxy.clone();
+    ui.touchscreen_switch.connect_active_notify(move |row| {
+        if switch_ui.syncing.get() {
+            return;
+        }
+        let enabled = row.is_active();
+        let ui = switch_ui.clone();
+        let proxy = switch_proxy.clone();
+        glib::spawn_future_local(async move {
+            apply_touchscreen(Sink::Window(&ui), &proxy, enabled).await;
+        });
+    });
 }
 
 /// Wires a slider whose value reaches the hardware when a drag ends rather
@@ -509,6 +531,23 @@ impl Sink<'_> {
             ui.show_fp_level(level);
         }
     }
+
+    fn show_touchscreen(&self, enabled: bool) {
+        self.push_tray(TrayValues::touchscreen(enabled));
+        if let Sink::Window(ui) = self {
+            ui.show_touchscreen(enabled);
+        }
+    }
+
+    /// Puts a widget back to the value that still stands after a write the
+    /// hardware refused, which only a window has: the tray's copy never moved,
+    /// and pushing it would block this thread while ksni rebuilt the whole
+    /// menu to merge a value it already holds.
+    fn restore_touchscreen(&self, enabled: bool) {
+        if let Sink::Window(ui) = self {
+            ui.show_touchscreen(enabled);
+        }
+    }
 }
 
 /// The one write for the charge limit. The window's row and the tray preset
@@ -585,6 +624,29 @@ pub(crate) async fn apply_fp_level(
         && let Ok((percent, _)) = proxy.get_fingerprint_brightness().await
     {
         ui.sync(|| ui.fp_scale.set_value(f64::from(percent)));
+    }
+}
+
+/// The one write for the touchscreen. The window's switch and the tray's row
+/// both come here, so neither can drift from the other on what it reports or
+/// what it tells the tray.
+///
+/// Unlike its siblings this one puts a widget *back* when the write fails.
+/// The switch is already carrying the requested value by then — the click is
+/// what moved it — and what it would otherwise assert is "touch is off",
+/// which someone believes by waiting for a tap that never comes. A refused
+/// polkit prompt is the ordinary way to get here, not an exotic one.
+pub(crate) async fn apply_touchscreen(
+    sink: Sink<'_>,
+    proxy: &FrameguinProxy<'static>,
+    enabled: bool,
+) {
+    match proxy.set_touchscreen_enabled(enabled).await {
+        Ok(()) => sink.show_touchscreen(enabled),
+        Err(e) => {
+            sink.toast(&format!("Switching the touchscreen failed: {e}"));
+            sink.restore_touchscreen(!enabled);
+        }
     }
 }
 
@@ -841,6 +903,15 @@ pub(crate) fn build_window(
     touchpad.add(&force_combo);
     page.add(&touchpad);
 
+    let display = adw::PreferencesGroup::builder().title("Display").build();
+    let touchscreen_switch = adw::SwitchRow::builder()
+        .title("Touchscreen")
+        .subtitle("Comes back on at the next lid open, resume or restart")
+        .sensitive(false)
+        .build();
+    display.add(&touchscreen_switch);
+    page.add(&display);
+
     let application = adw::PreferencesGroup::builder()
         .title("Application")
         .build();
@@ -909,6 +980,7 @@ pub(crate) fn build_window(
         fp_levels: RefCell::new(Vec::new()),
         haptic_combo,
         force_combo,
+        touchscreen_switch,
         tray,
         feed,
     });
@@ -928,6 +1000,7 @@ pub(crate) fn build_window(
         keyboard: keyboard.clone(),
         fingerprint: fingerprint.clone(),
         touchpad: touchpad.clone(),
+        display: display.clone(),
     };
     // The report goes into the issue body rather than onto the clipboard with
     // instructions to paste it somewhere.
@@ -983,6 +1056,7 @@ struct CapabilityWidgets {
     keyboard: adw::PreferencesGroup,
     fingerprint: adw::PreferencesGroup,
     touchpad: adw::PreferencesGroup,
+    display: adw::PreferencesGroup,
 }
 
 impl CapabilityWidgets {
@@ -1002,6 +1076,7 @@ impl CapabilityWidgets {
             .set_visible(caps.has(Capability::FpBrightness));
         self.touchpad
             .set_visible(caps.has(Capability::HapticTouchpad));
+        self.display.set_visible(caps.has(Capability::Touchscreen));
     }
 }
 
@@ -1523,6 +1598,19 @@ async fn load_values(ui: &Rc<Ui>, proxy: &FrameguinProxy<'static>) {
                 });
             }
             Err(e) => ui.toast(&format!("Reading click force failed: {e}")),
+        }
+    }
+    if caps.has(Capability::Touchscreen) {
+        match proxy.get_touchscreen_enabled().await {
+            // The pad carries the state, so this is the hardware's answer
+            // rather than a value the daemon remembered — a panel switched
+            // off before this app ran, or by a boot, arrives the same way.
+            Ok(enabled) => {
+                ui.show_touchscreen(enabled);
+                ui.touchscreen_switch.set_sensitive(true);
+                values.touchscreen = Some(enabled);
+            }
+            Err(e) => ui.toast(&format!("Reading the touchscreen failed: {e}")),
         }
     }
     ui.sync_tray(values);

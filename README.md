@@ -19,9 +19,14 @@ Computer Inc. Licensed under the [MIT License](LICENSE).
   charges, and a cap on the charging rate.
 - **Fingerprint reader** — LED brightness as a level or a percentage, and off.
 - **Touchpad** — haptic click intensity and click force.
+- **Display** — switching the touchscreen off.
 
 A charge limit set here lasts until reboot: UEFI setup re-sends its own
 stored value at every POST, so the standing limit lives in BIOS setup.
+
+A touchscreen switched off comes back when the lid is opened, after a suspend,
+and at the next restart — the panel's enable is a line the firmware re-asserts
+rather than a setting anything stores.
 
 Closing the window hides it to the tray; **Quit Frameguin** in the tray menu
 is the real exit. **Start at login** brings up the tray icon only.
@@ -181,9 +186,9 @@ new boards work without code changes. The board name in the header comes
 from DMI sysfs. Frameguin currently covers the everyday controls, with more
 of `framework_tool`'s surface planned.
 
-What the hardware itself does — the EC's access routes, the battery block and
-the gauge behind it, the fingerprint LED's deferred apply, the touchpad's
-missing readback — is written up in [`docs/hardware.md`](docs/hardware.md).
+What the hardware itself does — how each subsystem is reached, what it will
+and will not report, and the quirks that shape any code talking to it — is
+written up in [`docs/hardware.md`](docs/hardware.md), a chapter per subsystem.
 Much of it is not documented elsewhere, so it may be useful whatever you are
 building against these machines.
 

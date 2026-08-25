@@ -5,5 +5,5 @@ Comment=Hardware controls for Framework laptops
 Exec=frameguin
 Icon=io.github.valeronm.Frameguin
 Categories=Settings;HardwareSettings;
-Keywords=Framework;battery;charge;current;rate;fingerprint;led;touchpad;haptic;laptop;
+Keywords=Framework;battery;charge;current;rate;fingerprint;led;touchpad;haptic;touchscreen;touch;display;laptop;
 Terminal=false

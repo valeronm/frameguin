@@ -269,6 +269,117 @@ nothing needs re-applying after a resume — the hardware keeps its own state.
 The firmware implements **five intensity steps** rather than the 0–100 its HID
 descriptor advertises.
 
+## Touchscreen
+
+Two panels, two unrelated mechanisms — and on the Laptop 13, a control
+reached through neither the EC nor the panel itself, which is what makes it
+unlike every other one here.
+
+**The Laptop 13's Himax panel has no off command**, and this is where it
+parts company with the Laptop 12. The Himax HID interface answers version
+reads and carries a vendor collection of config and firmware-staging reports,
+but nothing that stops it reporting. What gates it is a board signal reaching
+the display connector, driven by a pad on the processor — `GPP_B_18` on the
+Laptop 13 Pro, driven low to cut touch. So the control is a level on a line,
+and the controller is never addressed at all.
+
+The Laptop 12's Ilitek controller is the opposite: it takes a vendor HID
+command to switch touch off, which is what `framework_lib`'s `enable_touch`
+sends: that path opens only the Ilitek vendor ID, so `--touchscreen-enable`
+works on the Laptop 12 and nowhere else, whatever `--help` implies by listing
+it unconditionally. A control for one panel is not a control for the other,
+and a probe that found the Ilitek would be vouching for a command this pad
+knows nothing about.
+
+**The enable is a pin on the display connector.** Framework's published
+mainboard pinout gives that connector a touch group beside the video pairs: a
+`3V_TS` supply on 29 and 30, a USB 2.0 pair on 31 and 32, then `TS_EN`,
+`TS_RST`, `TS_INT_N`, `TS_SDA` and `TS_SCL` on 33 through 37. The partial
+schematics show the I²C half fitted — series resistors, clamp diodes, a shared
+ESD array — on every Laptop 13 mainboard back to the first, from both silicon
+vendors. The USB half is not universal: the AMD boards omit it, and where a
+board has no use for the pair it goes elsewhere, to Bluetooth on the Laptop 13
+Pro and to camera power on the Chromebook Edition. So touch arrives over an
+I²C controller belonging to the processor, which is the other half of why the
+EC has nothing to say about it.
+
+**Those pins predate touch by several mainboard generations**, which is why a
+touch panel works in front of a board that shipped long before one was sold.
+Nothing about the board changes; the cable does. The panel's own connector is
+an ordinary 40-pin eDP panel pinout — backlight power on 36 through 39 — so
+the eDP cable is a rewiring harness rather than a straight-through, and it is
+the part that carries the touch group across.
+
+**Panels and mainboards are sold apart** and the chassis takes any pairing, so
+neither answers for the other. Which pad carries the enable is a fact about
+the mainboard; whether anything is behind it is a fact about the panel. A
+board of the right generation behind a panel with no touch has the pad and
+nothing on the end of it.
+
+**A switched supply marks a board designed for touch.** Where a touchscreen
+shipped with the machine, the supply at pins 29 and 30 comes from a load
+switch with a named enable — `gpio_ec_ts_pwr_en` into a switch shared with the
+eDP logic rail on the Laptop 13 Pro, `EN_PP3300_TCHSCR` on the Chromebook
+Edition. Where touch was only a reserved possibility, that supply reaches the
+connector from a system rail through a fuse: protection, with no enable
+anywhere on the path. On those boards the panel's power follows whatever the
+system rail does and nothing can address it.
+
+**What drives the enable pin is published for one board only.** On the Laptop
+13 Pro it is `SOC_TS_0_EN_LS`, the level-shifted pad this control drives.
+Elsewhere the net leaves the connector page for a sheet the partial schematics
+do not include, so the far end is unknown — and since it carries no pull-up or
+pull-down at the connector on any board, its resting level cannot be read off
+the published pages either. Whether an older board can gate touch at all is
+undecided from the documents: a pad driving that line would be controllable
+the same way, a tie to a rail would not. The names lean toward a driver — both
+Core Ultra generations put a level shifter in the path, which is done to a
+driven signal and not to a tie, and the Chromebook Edition calls its
+equivalent `USI_REPORT_EN`. Settling it needs the machine, and pinctrl's
+debugfs pin dump is the way: it gives every pad's mode and level, and a driven
+enable shows up there as an output already holding a level. Asking ACPI
+instead does not work — see below.
+
+**The pad keeps its level once the line is released.** Intel's pinctrl leaves
+`PADCFG` as the last requester set it, so a process can drive the pad and exit
+without the setting going with it.
+
+**The enable is not an ACPI resource of the touch device, but firmware drives
+it anyway.** The controller's `_CRS` declares two things and no more: the I²C
+connection, and a `GpioInt` on pin 44 — its interrupt, the one in
+`/proc/interrupts`. No `GpioIo`, for the enable or for `TS_RST`. So the pad
+cannot be discovered from the device that depends on it, on a board where the
+pad is *known* to gate touch. Anyone surveying another board should skip this
+test: it answers "no processor pad" where there demonstrably is one. The
+pinctrl pin dump is what finds it — an unclaimed pad in GPIO mode, output
+driver enabled, no `[LOCKED`.
+
+Firmware reaches it through a helper instead. `STSP(on, delay, pad)` calls
+`\_SB.SGOV` on pad `0x001A1012`, and the EC's lid queries call it: `_Q01` on
+lid close with 0, `_Q02` on lid open with 1 after a 250 ms settle. The
+platform's screen-on notification calls it with 1 as well. The pad constant is
+not decoded here beyond its low byte, 18, matching `GPP_B_18` — but **opening
+the lid was observed to switch touch back on** after this control had switched
+it off, which is what identifies the pad rather than the arithmetic. Whether
+screen-on drives it independently of the lid has not been observed, only read
+off the tables. Either way, an app-set "off" is not durable against a lid.
+
+**Off does not survive a suspend** — observed, and explicable from two
+directions at once: the pad returns to its firmware default on resume, and
+the EC brings the panel's own
+rail up independently — `gpio_ec_ts_pwr_en` is driven in `POWER_S3S0` and
+`POWER_S0S3`, grouped with the SSD and speaker-amp rails. That is power
+sequencing rather than a control, and there is no touchscreen host command
+anywhere in the EC's custom set. Moving the control into the EC would need
+both a command and a flag its power sequence honours, or the first resume
+would undo it.
+
+**The state reads back**, which nothing else off the EC manages: Intel's
+pinctrl answers a get from the output latch whenever the output driver is
+enabled, so the pad reports the level being driven. The caveat is narrow — a
+pad restored in another mode would answer from the input instead, which on
+this pad is disabled and therefore meaningless.
+
 ## Sources
 
 - [FrameworkComputer/EmbeddedController](https://github.com/FrameworkComputer/EmbeddedController)
@@ -277,9 +388,19 @@ descriptor advertises.
   block, the static/dynamic split and the status bits; the per-board
   devicetree under `zephyr/program/framework/` names each pack and the
   battery temperature sensor node.
+- [FrameworkComputer/Framework-Laptop-13](https://github.com/FrameworkComputer/Framework-Laptop-13)
+  — the mainboard connector pinouts and a partial schematic per generation,
+  which is where the display connector's touch group and the circuits around
+  it are readable. Full schematics are not published: any sheet these
+  reference for the far end of a signal is outside the set, which is the limit
+  every unresolved question above runs into.
 - [FrameworkComputer/framework-system](https://github.com/FrameworkComputer/framework-system)
   — `framework_tool` and `framework_lib`, and the issue tracker where the
-  command-version and readback limitations above are recorded.
+  command-version and readback limitations above are recorded. Its
+  `laptop13pro-touchscreen-disable` branch (unmerged, head `f3a4cbb4`) is
+  where the touchscreen enable pad was first named; the pairing recorded
+  above was confirmed on the machine rather than taken from it, since a topic
+  branch is not something a reader can rely on finding.
 - TI **bq40z50** technical reference manual — the register map and the set
   conditions for every status bit. SLUUA43A covers the R2 revision and
   SLUUBU5A the R3, which differ in their ManufacturerAccess status bits.

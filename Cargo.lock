@@ -632,6 +632,7 @@ dependencies = [
  "frameguin-wire",
  "framework_lib",
  "hidapi",
+ "libc",
  "zbus",
  "zbus_polkit",
 ]

@@ -8,6 +8,7 @@
 mod board;
 mod ec;
 mod fp;
+mod gpio;
 mod led;
 mod probe;
 mod state;
@@ -49,6 +50,18 @@ struct Daemon {
     /// here is only the date of the write — see [`fp`] for what that dating
     /// settles.
     fp_off: Mutex<Option<EcStamp>>,
+}
+
+/// The touch panel's enable line, or the same permanent refusal
+/// [`Daemon::ec`] gives for a missing EC — `NotSupported` rather than
+/// `Failed`, so a caller can tell wrong hardware from a read that went wrong.
+/// A free function where that one is a method, because the daemon holds no
+/// state this needs: it is resolved per call, so both methods validate
+/// against the pad rather than against what was true at startup.
+fn touchscreen_pad() -> fdo::Result<gpio::Pad> {
+    gpio::touchscreen().ok_or_else(|| {
+        fdo::Error::NotSupported("no touchscreen enable line on this hardware".into())
+    })
 }
 
 fn ec_err(e: impl std::fmt::Debug) -> fdo::Error {
@@ -347,6 +360,51 @@ impl Daemon {
         self.click_force.store(force as u8, Ordering::Relaxed);
         self.save_state();
         Ok(())
+    }
+
+    /// Whether the touch panel is on, read from the pad the setter drives.
+    /// Alone among the controls that reach the hardware without the EC, this
+    /// one needs no mirror: the pad holds the level, so a value set before
+    /// this daemon started — or by the firmware at power-on — reads the same
+    /// as one it wrote itself.
+    fn get_touchscreen_enabled(&self) -> fdo::Result<bool> {
+        self.touch();
+        touchscreen_pad()?.level().map_err(internal_err)
+    }
+
+    /// Switches the touch panel on or off by driving its controller's enable
+    /// line. The controller is cut off rather than asked to stop reporting,
+    /// so nothing in the panel keeps a preference and off does not outlive a
+    /// suspend: the pad returns to its firmware default on resume, and the
+    /// EC brings the panel's own rail back up on the way into S0 besides.
+    /// Nothing re-applies it, because the state is readable — a caller that
+    /// wants it back off can see that it isn't and say so.
+    ///
+    /// Returns nothing where the charge setters return whether they wrote:
+    /// they report a skip so a caller can word its announcement differently,
+    /// and this control makes no announcement — the switch's own position is
+    /// the answer, and it is already where the caller asked.
+    async fn set_touchscreen_enabled(
+        &self,
+        enabled: bool,
+        #[zbus(header)] header: Header<'_>,
+    ) -> fdo::Result<()> {
+        self.touch();
+        // Located before the prompt for the reason arguments are checked
+        // before it: a board with no such line can only end in an error, and
+        // nobody should answer for a write that cannot happen.
+        let pad = touchscreen_pad()?;
+        // Already there: nothing to write, and nothing worth a prompt, as in
+        // the charge setters — except that here the truth is the pad itself
+        // rather than an EC round trip or a mirror. Which makes the skip
+        // matter more, not less: a suspend puts the panel back on behind
+        // whoever asked for it off, so a client acting on what it last saw is
+        // the ordinary case rather than the careless one.
+        if pad.level().map_err(internal_err)? == enabled {
+            return Ok(());
+        }
+        self.authorize(&header).await?;
+        pad.drive(enabled).map_err(internal_err)
     }
 
     fn get_keyboard_backlight(&self) -> fdo::Result<u8> {

@@ -373,6 +373,35 @@ pub(crate) fn haptic_labels() -> Vec<String> {
         .collect()
 }
 
+/// The touchscreen's two states as the tray names them, on first, each beside
+/// the state its row means.
+///
+/// One array rather than a list of labels and an index constant beside it: a
+/// menu row is picked by position, so the pairing is what a click depends on,
+/// and spelling it in two places is what lets a reordering mark one row while
+/// writing the other.
+const TOUCHSCREEN_STATES: [(&str, bool); 2] = [("On", true), ("Off", false)];
+
+pub(crate) fn touchscreen_labels() -> Vec<String> {
+    TOUCHSCREEN_STATES
+        .iter()
+        .map(|(label, _)| (*label).to_string())
+        .collect()
+}
+
+/// Which row a state sits on, for marking the group.
+pub(crate) fn touchscreen_position(enabled: bool) -> Option<usize> {
+    TOUCHSCREEN_STATES
+        .iter()
+        .position(|(_, state)| *state == enabled)
+}
+
+/// What a row means, for sending it. None for a row nothing is listed at,
+/// which a group drawn from these labels cannot produce.
+pub(crate) fn touchscreen_state(row: usize) -> Option<bool> {
+    TOUCHSCREEN_STATES.get(row).map(|(_, state)| *state)
+}
+
 pub(crate) fn click_force_label(force: ClickForce) -> &'static str {
     match force {
         ClickForce::Low => "Low",
@@ -387,8 +416,22 @@ mod tests {
         BatteryState, CHARGE_SPEEDS, ChargeFlow, MIN_CUSTOM_CHARGE_MA, NO_CHARGE_CURRENT_LIMIT,
         battery_summary, capacity, charge_direction, charge_flow_label, charge_speed_labels,
         charge_speed_milliamps, charge_speed_position, health_label, power_label, scale_milliamps,
-        volts, watt_hours, with_custom_row,
+        touchscreen_labels, touchscreen_position, touchscreen_state, volts, watt_hours,
+        with_custom_row,
     };
+
+    /// The row a state marks is the row that sends it back. A menu picks by
+    /// position, so this is the only thing standing between the mark and the
+    /// write — reorder the labels and both move together, or this fails.
+    #[test]
+    fn a_touchscreen_row_sends_the_state_it_is_marked_for() {
+        for enabled in [true, false] {
+            let row = touchscreen_position(enabled).expect("both states are listed");
+            assert_eq!(touchscreen_state(row), Some(enabled));
+        }
+        assert_eq!(touchscreen_labels().len(), 2);
+        assert_eq!(touchscreen_state(2), None);
+    }
 
     /// A pack that has lost some of what it was built to hold, which is what
     /// the report's health row exists to say.
