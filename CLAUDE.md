@@ -191,9 +191,15 @@ the LED node rather than consulting `fp-off`.
   `busctl call io.github.valeronm.Frameguin /io/github/valeronm/Frameguin
   io.github.valeronm.Frameguin1 GetCapabilities`.
 - Non-Framework hardware is a test case in its own right: expected behavior
-  is "No Framework hardware detected" in the header, no controls, fast, no
-  error toast. Both real regressions so far (port-I/O probe stalls, the
-  aarch64 panic) showed up only there.
+  is "No Framework hardware detected" in the header, a status page naming the
+  vendor where the controls would be, fast, no error toast. Both real
+  regressions so far (port-I/O probe stalls, the aarch64 panic) showed up only
+  there.
+- A window with no controls says which of its three reasons it is — no
+  Framework hardware, a daemon it could not reach, a Framework board that
+  answered with no capabilities. They look identical as a bare empty window,
+  and only one of the three is a bug worth a report, so the page carries the
+  distinction rather than a toast that is gone by the time anyone asks.
 
 ## Conventions
 
