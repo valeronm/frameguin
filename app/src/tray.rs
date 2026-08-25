@@ -238,12 +238,17 @@ impl TrayIcon {
             (None, Some(milliamps)) => format!("Charge speed ({})", amps(milliamps)),
             (None, None) => "Charge speed".into(),
         };
-        Some(radio_submenu(title, selected, labels, move |tray, index| {
-            tray.send(TrayEvent::SetChargeSpeed(charge_speed_milliamps(
-                design_capacity,
-                index,
-            )));
-        }))
+        Some(radio_submenu(
+            title,
+            selected,
+            labels,
+            move |tray, index| {
+                tray.send(TrayEvent::SetChargeSpeed(charge_speed_milliamps(
+                    design_capacity,
+                    index,
+                )));
+            },
+        ))
     }
 
     fn fp_level_item(&self) -> Option<ksni::MenuItem<Self>> {
@@ -260,9 +265,14 @@ impl TrayIcon {
             Some(index) => format!("Fingerprint LED ({})", options[index]),
             None => "Fingerprint LED".into(),
         };
-        Some(radio_submenu(title, selected, options, move |tray, index| {
-            tray.send(TrayEvent::SetFingerprintLevel(levels[index]));
-        }))
+        Some(radio_submenu(
+            title,
+            selected,
+            options,
+            move |tray, index| {
+                tray.send(TrayEvent::SetFingerprintLevel(levels[index]));
+            },
+        ))
     }
 }
 
@@ -332,7 +342,8 @@ pub(crate) async fn refresh_tray(
     // Capabilities and the battery's capacity are both fixed for the daemon's
     // run, so what the menu already holds of them is kept and only the values
     // that can change are asked for again.
-    let Some((known_caps, known_capacity)) = handle.update(|tray| (tray.caps, tray.design_capacity))
+    let Some((known_caps, known_capacity)) =
+        handle.update(|tray| (tray.caps, tray.design_capacity))
     else {
         return;
     };

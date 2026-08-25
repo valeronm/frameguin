@@ -43,12 +43,14 @@ fn active_in(listed: &str) -> Option<&str> {
 /// of it. A node offering no auto trigger is not a control: it could be
 /// darkened and never released.
 fn power_node() -> Option<(PathBuf, String)> {
-    let dir = std::fs::read_dir("/sys/class/leds").ok()?.find_map(|entry| {
-        let entry = entry.ok()?;
-        let name = entry.file_name();
-        let name = name.to_str()?;
-        (name.starts_with("chromeos:") && name.ends_with(":power")).then(|| entry.path())
-    })?;
+    let dir = std::fs::read_dir("/sys/class/leds")
+        .ok()?
+        .find_map(|entry| {
+            let entry = entry.ok()?;
+            let name = entry.file_name();
+            let name = name.to_str()?;
+            (name.starts_with("chromeos:") && name.ends_with(":power")).then(|| entry.path())
+        })?;
     let listed = std::fs::read_to_string(dir.join("trigger")).ok()?;
     (dir.join("brightness").exists() && triggers(&listed).any(|(name, _)| name == AUTO_TRIGGER))
         .then_some((dir, listed))
@@ -118,7 +120,10 @@ mod tests {
             active_in(&LISTED.replace("chromeos-auto", "[chromeos-auto]")),
             Some(AUTO_TRIGGER)
         );
-        assert_eq!(active_in(&LISTED.replace("none", "[none]")), Some(NO_TRIGGER));
+        assert_eq!(
+            active_in(&LISTED.replace("none", "[none]")),
+            Some(NO_TRIGGER)
+        );
     }
 
     /// Nothing bracketed means the kernel named no trigger, which is not the

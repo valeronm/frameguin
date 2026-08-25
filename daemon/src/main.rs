@@ -160,7 +160,9 @@ impl Daemon {
     ) -> fdo::Result<bool> {
         self.touch();
         if !(20..=100).contains(&percent) {
-            return Err(fdo::Error::InvalidArgs("charge limit must be 20-100".into()));
+            return Err(fdo::Error::InvalidArgs(
+                "charge limit must be 20-100".into(),
+            ));
         }
         // Already there: nothing to write, and nothing worth an authorization
         // prompt either — same reason arguments are validated before asking.

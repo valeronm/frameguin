@@ -796,7 +796,9 @@ pub(crate) fn build_window(
     keyboard.add(&kbd_row);
     page.add(&keyboard);
 
-    let fingerprint = adw::PreferencesGroup::builder().title("Fingerprint").build();
+    let fingerprint = adw::PreferencesGroup::builder()
+        .title("Fingerprint")
+        .build();
     // No model: which levels a board has is the daemon's answer, and the row
     // it would show meanwhile is one the board may not have.
     let fp_combo = adw::ComboRow::builder()
@@ -832,7 +834,9 @@ pub(crate) fn build_window(
     touchpad.add(&force_combo);
     page.add(&touchpad);
 
-    let application = adw::PreferencesGroup::builder().title("Application").build();
+    let application = adw::PreferencesGroup::builder()
+        .title("Application")
+        .build();
     let autostart_row = adw::SwitchRow::builder()
         .title("Start at login")
         .subtitle("Show only the tray icon until opened")

@@ -5,7 +5,7 @@
 
 use frameguin_wire::{BatteryState, Capability, ChargeFlow, ClickForce, FpLevel};
 use zbus::zvariant::serialized::Context;
-use zbus::zvariant::{to_bytes, Type, LE};
+use zbus::zvariant::{LE, Type, to_bytes};
 
 fn wire_string<T: serde::Serialize + Type>(value: T) -> String {
     let encoded = to_bytes(Context::new_dbus(LE, 0), &value).unwrap();

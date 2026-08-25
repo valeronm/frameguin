@@ -363,7 +363,10 @@ mod tests {
             milliamps: 0,
             ..unplugged
         };
-        assert_eq!(charge_flow(unplugged_at_rest), wire::ChargeFlow::Discharging);
+        assert_eq!(
+            charge_flow(unplugged_at_rest),
+            wire::ChargeFlow::Discharging
+        );
         // The limiter's own state cannot arise off a charger, but a pack with
         // nothing attached is running the machine whatever the flags say.
         let unplugged_unflagged = ChargeSignals {

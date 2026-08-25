@@ -27,8 +27,9 @@ pub(crate) const DEFAULT_CLICK_FORCE: wire::ClickForce = wire::ClickForce::Mediu
 
 pub(crate) fn haptic_present() -> bool {
     hidapi::HidApi::new().is_ok_and(|api| {
-        api.device_list()
-            .any(|dev| dev.vendor_id() == touchpad::PIX_VID && HAPTIC_PIDS.contains(&dev.product_id()))
+        api.device_list().any(|dev| {
+            dev.vendor_id() == touchpad::PIX_VID && HAPTIC_PIDS.contains(&dev.product_id())
+        })
     })
 }
 
@@ -81,7 +82,11 @@ mod tests {
     fn the_stored_codes_are_the_ones_the_hid_report_carries() {
         use super::ClickForce;
         assert_eq!(
-            [ClickForce::Low as u8, ClickForce::Medium as u8, ClickForce::High as u8],
+            [
+                ClickForce::Low as u8,
+                ClickForce::Medium as u8,
+                ClickForce::High as u8
+            ],
             [1, 2, 3]
         );
     }

@@ -5,8 +5,7 @@
 //! ceiling of 100% is called.
 
 use frameguin_wire::{
-    BatteryState, ChargeFlow, ClickForce, FpLevel, HAPTIC_INTENSITY_LEVELS,
-    NO_CHARGE_CURRENT_LIMIT,
+    BatteryState, ChargeFlow, ClickForce, FpLevel, HAPTIC_INTENSITY_LEVELS, NO_CHARGE_CURRENT_LIMIT,
 };
 
 const CHARGE_PRESETS: [u8; 3] = [60, 80, 100];
