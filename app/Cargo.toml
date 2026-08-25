@@ -16,6 +16,7 @@ async-channel = "2.5.0"
 frameguin-wire = { workspace = true }
 gtk4 = "0.11.4"
 ksni = { version = "0.3", default-features = false, features = ["async-io", "blocking"] }
+serde = { workspace = true }
 zbus = { workspace = true }
 
 # One package ships both binaries, so the daemon is listed as an asset rather

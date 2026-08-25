@@ -620,6 +620,7 @@ dependencies = [
  "gtk4",
  "ksni",
  "libadwaita",
+ "serde",
  "zbus",
 ]
 

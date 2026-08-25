@@ -7,6 +7,7 @@ version = "0.1.3"
 
 [workspace.dependencies]
 frameguin-wire = { path = "wire" }
+serde = { version = "1", features = ["derive"] }
 zbus = "5.19.0"
 
 [workspace.lints.clippy]

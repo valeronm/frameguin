@@ -1,6 +1,8 @@
 //! The About window and the hardware report behind its copy button, kept
 //! together so `--debug-info` and the copy button can't come to differ.
 
+use std::time::Duration;
+
 use adw::prelude::*;
 use gtk4 as gtk;
 use gtk4::gio;
@@ -15,12 +17,75 @@ const DAEMON_UNIT: &str = "frameguin-daemon.service";
 /// Where a report is filed. `concat!` rather than a runtime format so the
 /// About window's link and the issue `report_issue` opens are one expression.
 const ISSUES_URL: &str = concat!(env!("CARGO_PKG_REPOSITORY"), "/issues");
+/// How long systemd gets to answer, in place of dbus-daemon's own 25 seconds.
+const UNIT_STATE_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// One row of systemd's `ListUnitsByNames`. zvariant decodes positionally, so
+/// the unread fields must stay, and stay in order: dropping one desyncs every
+/// field after it rather than truncating the row.
+#[derive(serde::Deserialize, zbus::zvariant::Type)]
+#[zvariant(crate = "zbus::zvariant")]
+struct UnitStatus {
+    _name: String,
+    _description: String,
+    load_state: String,
+    active_state: String,
+    sub_state: String,
+    _followed: String,
+    _path: zbus::zvariant::OwnedObjectPath,
+    _job_id: u32,
+    _job_type: String,
+    _job_path: zbus::zvariant::OwnedObjectPath,
+}
+
+#[zbus::proxy(
+    interface = "org.freedesktop.systemd1.Manager",
+    default_service = "org.freedesktop.systemd1",
+    default_path = "/org/freedesktop/systemd1"
+)]
+trait Systemd {
+    /// One call where a resolved object path and three property reads would
+    /// be four, and it answers for a unit that was never installed rather
+    /// than failing on it — which is the case this is asked for.
+    async fn list_units_by_names(&self, names: &[&str]) -> zbus::Result<Vec<UnitStatus>>;
+}
+
+/// What systemd makes of the daemon's unit: masked, failed and
+/// never-installed are three different problems that leave the same files on
+/// disk, or none at all. Asked on the connection that has just failed to
+/// reach the daemon, since it is the same bus — and bounded, because
+/// everything on this branch is asked when something is already not
+/// answering, and a line saying the question went unanswered beats a full
+/// report a minute after the click.
+async fn unit_state(connection: &zbus::Connection) -> zbus::Result<String> {
+    let ask = async {
+        let manager = SystemdProxy::new(connection).await?;
+        let units = manager.list_units_by_names(&[DAEMON_UNIT]).await?;
+        let Some(unit) = units.into_iter().next() else {
+            return Ok("not listed".to_string());
+        };
+        Ok(format!(
+            "{}, {}, {}",
+            unit.load_state, unit.active_state, unit.sub_state
+        ))
+    };
+    glib::future_with_timeout(UNIT_STATE_TIMEOUT, ask)
+        .await
+        // A failure rather than a value: every other row in this report is
+        // something a service said, and a wait that ran out is not one.
+        .unwrap_or_else(|_| {
+            Err(zbus::Error::Failure(format!(
+                "no answer in {}s",
+                UNIT_STATE_TIMEOUT.as_secs()
+            )))
+        })
+}
 
 /// Which of an install's service files are actually on disk, for a report
 /// whose bus call failed: it separates nothing installed from a package
 /// install, a tarball install, or one of each shadowing the other. What it
-/// cannot separate is installed-and-not-starting — systemd is the only
-/// witness to that, and this asks the filesystem.
+/// cannot separate is installed-and-not-starting, which is what `unit_state`
+/// asks systemd for beside it.
 ///
 /// The libexec candidates include one derived from this binary's own prefix,
 /// because `install.sh` takes the prefix as a parameter — a `PREFIX=/opt`
@@ -102,13 +167,17 @@ pub(crate) async fn debug_info() -> String {
     match &build {
         Ok(v) => out.push_str(&format!("daemon: {v}\n")),
         // A daemon that answered has just named its own version and path,
-        // which is everything the inventory would say. One that did not
-        // leaves a report unable to tell an absent install from a present
-        // one, which is the whole question at that point.
-        Err(e) => out.push_str(&format!(
-            "daemon: {e}\nservice files: {}\n",
-            installed_service_files()
-        )),
+        // which is everything the two lines below would say.
+        Err(e) => {
+            out.push_str(&format!("daemon: {e}\n"));
+            if let Ok(p) = &proxy {
+                // Labelled with the unit asked about, which the answer does
+                // not name: a drifted unit name would report "not-found" as
+                // confidently as a missing install does.
+                out.push_str(&line(DAEMON_UNIT, unit_state(p.inner().connection()).await));
+            }
+            out.push_str(&format!("service files: {}\n", installed_service_files()));
+        }
     }
 
     out.push_str(&format!(

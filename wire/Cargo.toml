@@ -10,5 +10,5 @@ workspace = true
 # Nothing that touches hardware belongs here: the app links this crate, and
 # the daemon holding the only hardware access is the security model.
 [dependencies]
-serde = { version = "1", features = ["derive"] }
+serde = { workspace = true }
 zbus = { workspace = true }
