@@ -181,6 +181,12 @@ new boards work without code changes. The board name in the header comes
 from DMI sysfs. Frameguin currently covers the everyday controls, with more
 of `framework_tool`'s surface planned.
 
+What the hardware itself does — the EC's access routes, the battery block and
+the gauge behind it, the fingerprint LED's deferred apply, the touchpad's
+missing readback — is written up in [`docs/hardware.md`](docs/hardware.md).
+Much of it is not documented elsewhere, so it may be useful whatever you are
+building against these machines.
+
 Cargo workspace:
 
 - `daemon/` (`frameguin-daemon`) — owns

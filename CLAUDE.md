@@ -168,78 +168,41 @@ daemon lifetime, so one transient read would deny it for the whole run. So
 setters validate against the thing itself: `set_fingerprint_level` looks up
 the LED node rather than consulting `fp-off`.
 
-## Hardware facts that shape the code
+## What the hardware forces on the code
 
-- Keyboard backlight: read via `EcRequestPwmGetKeyboardBacklight` because
-  `framework_lib::get_keyboard_backlight()` goes through PWM duty and floors
-  twice (5% reads as 4%). The EC is also a second writer (Fn+Space, a
-  firmware auto mode on newer boards), which is why the slider polls the EC
-  while mapped.
-- Charge limit: the EC persists it in BBRAM, but UEFI setup re-sends its own
-  stored value at every POST, so an app-set limit lasts until reboot and the
-  standing value lives in BIOS setup.
-- Battery flags: the EC's discharging flag means "not being charged", not
-  "supplying the machine" — a full pack on a connected charger sets it, which
-  is a smart battery reporting zero charge current. `framework_tool --power`
-  prints "Battery discharging" in that state too. So the flag alone never
-  decides: `charge_flow` weighs it against the charger and the rate, which
-  reads a clean 0 mA at rest.
-- Neither battery flag set is a fourth state, and the charge limit produces
-  it. The limit arms the EC's battery sustainer, which switches to
-  `CHARGE_CONTROL_IDLE` on reaching the ceiling and clears both flags there,
-  ACPI's charge-limiting convention asking that the host stop drawing a
-  direction. The charge current then decays for as long as a minute, so the
-  window has a large rate and no direction — and a pack whose charge does not
-  move, which is the check that settles what the reading means.
-- Anything the EC does not publish in its memmap is reached from the pack
-  itself, over the EC's I2C passthrough at port 3, address 0x0b — the same on
-  every Framework board, since every battery in the EC's own devicetree
-  declares `battery-smart` and they share a gauge IC. What is read that way
-  falls into two groups, differing in whether a fallback exists. The
-  temperature, the cell voltages and the alarm bits have none, so they are one
-  operation behind `BatteryCondition`, probed by the getter's own read and
-  nested under a readable pack — a mainboard running standalone must not spend
-  transfers asking a battery that is not there what it thinks. The cycle count
-  and the manufacturing date each fall back to the EC's own answer or to
-  nothing, so they need no capability and are read inside `battery_info`,
-  once per daemon run and then remembered — absence included, or a board that
-  cannot answer would be asked again on every walk.
-- Two of the EC's own answers about the pack are not worth taking, and both
-  are asked of the pack instead: its thermal array's battery entry is the
-  pack's sensor relayed, coarser and older than asking the pack, and missing
-  on the boards whose EC does not relay it; its published cycle count is part
-  of a *static* block refreshed only when the battery is initialized, so it
-  can be weeks behind. `SB_TEMPERATURE` and `Ec::cycle_count` carry the
-  firmware detail behind both.
-- Fingerprint LED: 1–100 (0 rejected — it doubles as the power indicator).
-  Percentage and the ultra-low/auto levels need command v1, which older EC
-  firmware lacks (framework-system issue #211), so they sit behind the
-  `fp-brightness-custom` capability probed with `Ec::command_supported`.
-- Fingerprint LED level: acknowledged at once, applied 100 ms later. The EC's
-  `fp_led_level_control` stores the level in BBRAM and defers
-  `change_pwm_led_maximum_duty`, which is what moves the PWM duty the
-  brightness actually is. Until it fires the LED still carries the previous
-  level, and `led_set_brightness` treats any nonzero value as "colour on" at
-  whatever duty stands — so lighting the LED in that window shows the old
-  brightness, whichever write does the lighting. `release_fp_led` waits the
-  hook out before handing the LED back.
-- Fingerprint LED off: the EC has no off — its level command rejects 0, and
-  its BBRAM slot reads a 0 back as full brightness, 0 being the uninitialized
-  value there. So off is the kernel's LED class instead
-  (`/sys/class/leds/chromeos:*:power`), making it the one control that does
-  not reach the hardware through the EC and the one whose state nothing can
-  read back — hence `EcStamp` dating the darkening, an EC restart returning
-  every LED to the EC without the kernel noticing. `led::darken` carries why
-  the writes go through the kernel rather than the `EC_CMD_LED_CONTROL` the
-  daemon could send itself.
-- Haptic touchpad: write-only (firmware ACKs GET_FEATURE with zeros) and
-  persists in its own flash across suspend and reboot. The daemon mirrors
-  state to `/var/lib/frameguin/state` so it can report what it set; nothing
-  is re-applied because the hardware keeps its own state.
-- `CrosEc::new()` panics when `framework_lib` finds no driver (aarch64, no
-  `/dev/cros_ec`), so the daemon constructs it only behind the DMI vendor
-  check and holds it as `Option`, answering with empty capabilities
-  elsewhere.
+`docs/hardware.md` is what the machine does — the EC's three access routes,
+the battery block and the gauge behind it, the fingerprint LED's deferred
+apply, the touchpad's missing readback. Findings belong there rather than
+here, since they stay true whoever is talking to the hardware; what belongs
+here is what they force on *this* code. The exception is a finding that is
+the evidence for a rule stated here, like the touchscreen's version read
+under the probe rule — separating those would leave the rule asserted and
+its reason a file away.
+
+- The daemon holds `Ec` as an `Option` behind the DMI vendor check, never
+  constructing it speculatively: `CrosEc::new()` panics outright where
+  `framework_lib` finds no driver. Nothing the EC answers for is offered
+  there — the haptic touchpad still is, being reached over HID, which is why
+  its probe sits outside that branch.
+- A value the EC is a second writer for cannot be shown from what was last
+  written — the keyboard backlight's slider polls while mapped for that
+  reason. A value with no readback at all is mirrored instead: in `state.rs`
+  for the touchpad, by dating the write against the EC's uptime for the
+  fingerprint LED's darkness, and by both for the charge current limit, whose
+  mirror expires with the EC that took it.
+- What the pack is asked directly falls into two groups, and the split is why
+  one has a capability and the other does not. The temperature, cell voltages
+  and alarms have no fallback, so they are one operation behind
+  `BatteryCondition`, probed by the getter's own read and nested under a
+  readable pack — a mainboard running standalone must not spend transfers
+  asking a battery that is not there what it thinks. The cycle count and the
+  manufacturing date each fall back to the EC's answer or to nothing, so they
+  need no capability and are read inside `battery_info`, once per run and then
+  remembered, absence included.
+- A direction is never taken from the EC's flags alone; `charge_flow` weighs
+  them against the charger and the rate, because the flags do not mean what
+  their names suggest and the charge limiter produces a state they cannot
+  express.
 
 ## Build, run, verify
 
