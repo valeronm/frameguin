@@ -1,3 +1,14 @@
+frameguin (0.1.3-1) unstable; urgency=medium
+
+  * Name the charge rate in watts as well as amps.
+  * Name a charge held at the limit as one, instead of reporting it as a
+    discharge of tens of watts.
+  * Hold the fingerprint LED dark when it is set to off, rather than flashing
+    the previous brightness first.
+  * Drop the keyboard backlight slider: the keyboard's own keys already set it.
+
+ -- Valerii Myronov <valeriy@hey.com>  Tue, 25 Aug 2026 11:47:30 +0100
+
 frameguin (0.1.2-1) unstable; urgency=medium
 
   * Add a charge speed control: charge at half or a quarter of the rate the
