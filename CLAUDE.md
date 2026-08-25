@@ -13,6 +13,18 @@ it and the non-obvious constraints.
   `io.github.valeronm.Frameguin1` is their only bridge. Nothing that touches
   hardware may enter `wire/`: the app links it, so a dependency added there
   lands in the unprivileged process too.
+- `io.github.valeronm.Frameguin1` is private to those two binaries rather than
+  published API. They are built, installed and upgraded as one — `install.sh`
+  stops the app and the daemon and brings both back on the new build, and the
+  package does the same — so an app talking to a daemon of another version is
+  not a state this project has to work in, and nothing outside the pair is a
+  caller it answers for. Renaming a method, dropping one or respelling a
+  capability is a free change needing no deprecation window. (`busctl` against
+  it stays a fine way to inspect a running daemon; it is a debugging tool, not
+  a client the interface holds still for.) None of this loosens what `wire/`
+  is for: the two ends still restate the interface separately and still meet
+  only at runtime, so within one version the vocabularies are what keep them
+  from drifting apart.
 - `wire/` holds the proxy the app calls through, the bus name and object
   path, and the vocabularies as enums serializing as `s`. The daemon's
   `#[interface]` impl cannot move there — it is an impl on the type owning
@@ -35,13 +47,49 @@ it and the non-obvious constraints.
   fields are private, so `tray_push` is the only way that state moves.
   `ui.rs` is the largest and stays that way on purpose: `Ui`'s fields are
   private to it, which is what `Sink` and the `apply_*` writes living there
-  buys. `board.rs` is the one read that bypasses the bus, `about.rs` the
-  report and the dialog that renders it, `autostart.rs` the desktop entry
-  whose path and content cannot be written apart. `main.rs` keeps only what
-  has to know both front-ends: the app id, the bus attachment, the lazily
-  built window, and the tray event loop — exhaustive over `TrayEvent`, so a
-  new variant fails to build until it is handled there. The no-GTK rules are
-  the ones nothing checks: an import is all it takes to lose one.
+  buys. `battery.rs` is the battery report, the app's one window that only
+  reads — no sync guard, no debounce, no tray push — and every field it holds
+  is a descendant of the page its subscription hangs on, so nothing in it can
+  reach back up the widget tree and outlive the window. `reading.rs` is the
+  pack's reading, taken once for however many views show it: the charge row
+  and the report render the same walk of the same block, and each polling for
+  itself made the EC answer twice and let the two windows sit a tick apart, so
+  a view subscribes and the feed does the reading; it also holds the two facts
+  fixed for a daemon's run that every window wants — the bus connection and
+  the probe's answer — so the window, the report and the tray share one of
+  each. (`about.rs` dials for itself, deliberately: its report also runs from
+  `--debug-info` where no app state exists, and a bug report wants a fresh
+  answer rather than one the app is already holding.) `mapped.rs` is
+  the rule both timers and subscriptions obey, that nothing repeats while its
+  widget is off screen: `while_mapped` takes what `acquire` returns on map and
+  drops it on unmap, so stopping is a `Drop` rather than something each caller
+  remembers. `board.rs` is the one read
+  that bypasses the bus, `about.rs` the report and the dialog that renders it,
+  `autostart.rs` the desktop entry whose path and content cannot be written
+  apart. `main.rs` keeps what has to know both front-ends — the app id, the
+  bus attachment, the lazily built window, the shared reading, and the tray
+  event loop, exhaustive over `TrayEvent` so a new variant fails to build
+  until it is handled there — along with the application-wide odds and ends
+  that belong nowhere else: the command-line options and the actions no
+  module of its own owns. The no-GTK rules are the ones nothing
+  checks: an import is all it takes to lose one.
+- The two windows are reached differently, and which way is decided by whether
+  the window survives being closed. The main window hides rather than closing
+  wherever there is a tray to hide to, so its slot in `AppState` outlives it —
+  and the slot is also where the tray finds the `Rc<Ui>` it reports presets
+  into, so `window_for` builds it once and both front-ends take it from there.
+  (Where the tray failed to spawn there is no second front-end to reach it,
+  which is what keeps that slot honest in the session where the window really
+  is destroyed on close.) The report is destroyed on close, so a
+  slot would hold a dead window: it goes through a `gio` action on the
+  application instead, and finds an already-open copy in the application's own
+  window list, which GTK keeps accurate for free. Where a window is opened
+  from more than one place, the module owning it owns the `ActionEntry` too
+  and keeps its builder private, so the action is not merely the agreed way in
+  but the only one that compiles — `battery.rs` does this because both
+  front-ends reach the report. `about.rs` does not, and needs not: only the
+  window's menu opens it, so `main.rs` holding that entry leaves nothing able
+  to drift.
 - Inside `daemon/`, the modules are drawn by how a control reaches the
   hardware, so the filename answers which way: `ec.rs` the EC, `led.rs` the
   kernel's LED class, `touchpad.rs` the pad's own HID transport, with `fp.rs`
@@ -143,6 +191,26 @@ the LED node rather than consulting `fp-off`.
   direction. The charge current then decays for as long as a minute, so the
   window has a large rate and no direction — and a pack whose charge does not
   move, which is the check that settles what the reading means.
+- Anything the EC does not publish in its memmap is reached from the pack
+  itself, over the EC's I2C passthrough at port 3, address 0x0b — the same on
+  every Framework board, since every battery in the EC's own devicetree
+  declares `battery-smart` and they share a gauge IC. What is read that way
+  falls into two groups, differing in whether a fallback exists. The
+  temperature, the cell voltages and the alarm bits have none, so they are one
+  operation behind `BatteryCondition`, probed by the getter's own read and
+  nested under a readable pack — a mainboard running standalone must not spend
+  transfers asking a battery that is not there what it thinks. The cycle count
+  and the manufacturing date each fall back to the EC's own answer or to
+  nothing, so they need no capability and are read inside `battery_info`,
+  once per daemon run and then remembered — absence included, or a board that
+  cannot answer would be asked again on every walk.
+- Two of the EC's own answers about the pack are not worth taking, and both
+  are asked of the pack instead: its thermal array's battery entry is the
+  pack's sensor relayed, coarser and older than asking the pack, and missing
+  on the boards whose EC does not relay it; its published cycle count is part
+  of a *static* block refreshed only when the battery is initialized, so it
+  can be weeks behind. `SB_TEMPERATURE` and `Ec::cycle_count` carry the
+  firmware detail behind both.
 - Fingerprint LED: 1–100 (0 rejected — it doubles as the power indicator).
   Percentage and the ultra-low/auto levels need command v1, which older EC
   firmware lacks (framework-system issue #211), so they sit behind the

@@ -5,9 +5,12 @@
 
 mod about;
 mod autostart;
+mod battery;
 mod board;
 mod caps;
 mod format;
+mod mapped;
+mod reading;
 mod tray;
 mod ui;
 
@@ -20,6 +23,7 @@ use frameguin_wire::FrameguinProxy;
 use gtk4::gio;
 use gtk4::glib;
 
+use crate::reading::Feed;
 use crate::tray::{TrayEvent, TrayIcon, refresh_tray};
 use crate::ui::{
     Custom, Sink, Ui, apply_charge_limit, apply_charge_speed, apply_fp_level, build_window,
@@ -44,12 +48,16 @@ async fn daemon_proxy() -> zbus::Result<FrameguinProxy<'static>> {
 struct AppState {
     window: RefCell<Option<(adw::ApplicationWindow, Rc<Ui>)>>,
     tray: RefCell<Option<ksni::blocking::Handle<TrayIcon>>>,
+    /// The pack's reading, taken once for however many windows show it. Here
+    /// because it belongs to neither of them: the report can be open with no
+    /// window built, and the window outlives any report.
+    feed: Rc<Feed>,
 }
 
 impl AppState {
     fn window_for(&self, app: &adw::Application) -> (adw::ApplicationWindow, Rc<Ui>) {
         let mut slot = self.window.borrow_mut();
-        slot.get_or_insert_with(|| build_window(app, self.tray.borrow().clone()))
+        slot.get_or_insert_with(|| build_window(app, self.tray.borrow().clone(), self.feed.clone()))
             .clone()
     }
 
@@ -77,22 +85,23 @@ fn setup_tray(app: &adw::Application, state: Rc<AppState>) {
     let app = app.clone();
     glib::spawn_future_local(async move {
         let _hold = hold;
-        // One connection for the tray's whole life: opening the menu refreshes
-        // it, and dialling the bus each time would put a connect and an
-        // authentication handshake in front of a menu that has to feel instant.
-        let proxy = daemon_proxy().await.ok();
         // Populate the menu right away: in tray-only mode (autostart) nothing
         // else fetches capabilities until the window is first opened, which
         // would leave the menu at Open/Quit.
-        if let Some(proxy) = &proxy {
-            refresh_tray(&handle, proxy).await;
-        }
+        refresh_tray(&handle, &state.feed).await;
         while let Ok(event) = rx.recv().await {
             // Where a preset reports: the window when one has been built, the
             // tray itself otherwise. Resolved once, so the fallback is stated
             // in one place however many presets the menu grows.
             let built = state.built_ui();
             let sink = built.as_deref().map_or(Sink::Tray(&handle), Sink::Window);
+            // Asked for per write rather than held from startup. The feed
+            // keeps the connection once it has one, so this costs a borrow and
+            // no handshake — and it costs nothing at all to a session whose
+            // first dial failed, where a held `Option` would have swallowed
+            // every preset click for as long as the tray ran while the menu
+            // beside it went on refreshing.
+            let proxy = state.feed.proxy().await.ok();
             match event {
                 TrayEvent::Show => {
                     let window = state.window_for(&app).0;
@@ -116,11 +125,7 @@ fn setup_tray(app: &adw::Application, state: Rc<AppState>) {
                         apply_charge_limit(sink, proxy, percent, Custom::Rederive).await;
                     }
                 }
-                TrayEvent::Refresh => {
-                    if let Some(proxy) = &proxy {
-                        refresh_tray(&handle, proxy).await;
-                    }
-                }
+                TrayEvent::Refresh => refresh_tray(&handle, &state.feed).await,
                 TrayEvent::SetChargeSpeed(milliamps) => {
                     if let Some(proxy) = &proxy {
                         apply_charge_speed(sink, proxy, milliamps, Custom::Rederive).await;
@@ -131,6 +136,10 @@ fn setup_tray(app: &adw::Application, state: Rc<AppState>) {
                         apply_fp_level(sink, proxy, level).await;
                     }
                 }
+                // Through the action, like the window's row: the report has
+                // one way in, and a caller reaching past it is how two front-
+                // ends come to open a window differently.
+                TrayEvent::ShowBatteryDetails => app.activate_action(battery::ACTION, None),
                 TrayEvent::Quit => app.quit(),
             }
         }
@@ -171,7 +180,17 @@ fn main() -> glib::ExitCode {
         ControlFlow::Break(glib::ExitCode::SUCCESS)
     });
 
+    // Built before the actions rather than beside the handlers below: the
+    // report's action needs the feed it holds.
+    let state = Rc::new(AppState::default());
+
     app.add_action_entries([
+        // An action rather than a handler on either caller: the window's
+        // charge row and the tray's reading both open the report, and only an
+        // action reaches it from the tray, which builds no widgets and holds
+        // no window. The entry is the report's own, so nothing here can reach
+        // past it to the window it opens.
+        battery::action(state.feed.clone()),
         gio::ActionEntry::builder("about")
             .activate(|app: &adw::Application, _, _| about::show(app.active_window().as_ref()))
             .build(),
@@ -184,7 +203,6 @@ fn main() -> glib::ExitCode {
     // registers the primary instance without emitting activate — so login
     // brings up only the tray; the first Show or plain launch builds the
     // window.
-    let state = Rc::new(AppState::default());
     let startup_state = state.clone();
     app.connect_startup(move |app| setup_tray(app, startup_state.clone()));
     app.connect_activate(move |app| state.window_for(app).0.present());

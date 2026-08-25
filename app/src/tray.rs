@@ -4,7 +4,9 @@
 //! It draws with no window open, so it keeps its own copy of everything the
 //! menu names, pushed in by whoever last read or wrote it.
 
-use frameguin_wire::{BatteryState, Capability, FpLevel, FrameguinProxy};
+use std::rc::Rc;
+
+use frameguin_wire::{BatteryState, Capability, FpLevel};
 
 use crate::APP_ID;
 use crate::caps::{Capabilities, fp_presets};
@@ -12,9 +14,14 @@ use crate::format::{
     CHARGE_SPEED_LABELS, amps, battery_summary, charge_limit_labels, charge_limit_percent,
     charge_limit_position, charge_speed_milliamps, charge_speed_position, fp_level_labels,
 };
+use crate::reading::Feed;
 
 pub(crate) enum TrayEvent {
     Show,
+    /// The battery report, which the menu's own reading heads. Carries
+    /// nothing: the report reads for itself rather than being handed the
+    /// summary the menu happens to hold.
+    ShowBatteryDetails,
     Refresh,
     SetChargeLimit(u8),
     /// Already resolved to milliamps against the capacity the menu was drawn
@@ -173,20 +180,19 @@ fn radio_submenu(
 }
 
 impl TrayIcon {
-    /// The reading heading the battery group, disabled so that it reads as
-    /// the line of text it is and no click can land on it. Asks the
-    /// capability like every other item, and the value on top of it: a board
-    /// that has the reading still has nothing to show until the first one
-    /// arrives.
+    /// The reading heading the battery group, and the way into the full
+    /// report. Asks the capability like every other item, and the value on top
+    /// of it: a board that has the reading still has nothing to show until the
+    /// first one arrives.
     fn battery_item(&self) -> Option<ksni::MenuItem<Self>> {
         use ksni::menu::StandardItem;
-        if !self.caps?.has(Capability::BatteryState) {
+        if !self.caps?.has(Capability::Battery) {
             return None;
         }
         Some(
             StandardItem {
                 label: battery_summary(self.battery?),
-                enabled: false,
+                activate: Box::new(|tray: &mut Self| tray.send(TrayEvent::ShowBatteryDetails)),
                 ..Default::default()
             }
             .into(),
@@ -332,49 +338,43 @@ pub(crate) fn tray_push(handle: &ksni::blocking::Handle<TrayIcon>, values: TrayV
 /// Reads the values the menu renders from. The tray keeps its own copies
 /// because it has to draw with no window open, so they are pulled from the
 /// daemon rather than from the window's widgets.
-pub(crate) async fn refresh_tray(
-    handle: &ksni::blocking::Handle<TrayIcon>,
-    proxy: &FrameguinProxy<'static>,
-) {
-    // One read and one write. Every `update` blocks this thread on the tray's
+pub(crate) async fn refresh_tray(handle: &ksni::blocking::Handle<TrayIcon>, feed: &Rc<Feed>) {
+    // One write at the end. Every `update` blocks this thread on the tray's
     // own, and makes it rebuild the entire menu and signal it over D-Bus, so
     // a field-at-a-time refresh would do that four times for one menu.
-    // Capabilities and the battery's capacity are both fixed for the daemon's
-    // run, so what the menu already holds of them is kept and only the values
-    // that can change are asked for again.
-    let Some((known_caps, known_capacity)) =
-        handle.update(|tray| (tray.caps, tray.design_capacity))
-    else {
+    let Ok(proxy) = feed.proxy().await else {
         return;
     };
-    let caps = if let Some(caps) = known_caps {
-        caps
-    } else {
-        let Ok(names) = proxy.get_capabilities().await else {
-            return;
-        };
-        Capabilities::from_probe(&names)
+    // The feed's answer rather than a probe of the tray's own, and asked
+    // unconditionally: it is a cached value after the first ask, where reading
+    // the menu's copy would cost a hop onto ksni's thread to save nothing. The
+    // menu keeps a copy because it draws over there, not because it caches.
+    let Ok(caps) = feed.capabilities().await else {
+        return;
     };
-    let battery = if caps.has(Capability::BatteryState) {
-        proxy.get_battery_state().await.ok()
+    // The one block read in the app that does not go through the feed: the
+    // feed's may pull the pack's condition with it, which a menu opening
+    // cannot wait on. A second walk of the memmap is the cheaper half of that
+    // trade.
+    let info = if caps.has(Capability::Battery) {
+        proxy.get_battery_info().await.ok()
     } else {
         None
     };
+    let battery = info.as_ref().map(|info| info.state);
+    let capacity = info.as_ref().map(|info| info.design_capacity);
     let limit = if caps.has(Capability::ChargeLimit) {
         proxy.get_charge_limit().await.ok()
     } else {
         None
     };
-    let mut capacity = known_capacity;
-    let mut speed = None;
-    if caps.has(Capability::ChargeCurrentLimit) {
-        if capacity.is_none() {
-            capacity = proxy.get_battery_design_capacity().await.ok();
-        }
-        if capacity.is_some() {
-            speed = proxy.get_charge_current_limit().await.ok();
-        }
-    }
+    // Without a capacity the speeds have no rate to name, so the menu leaves
+    // the submenu out and the limit goes unasked.
+    let speed = if caps.has(Capability::ChargeCurrentLimit) && capacity.is_some() {
+        proxy.get_charge_current_limit().await.ok()
+    } else {
+        None
+    };
     let level = if caps.has(Capability::FpBrightness) {
         proxy
             .get_fingerprint_brightness()

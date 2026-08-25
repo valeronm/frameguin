@@ -51,12 +51,6 @@ struct Daemon {
     fp_off: Mutex<Option<EcStamp>>,
 }
 
-/// What both battery readings answer with when no pack does. One spelling,
-/// because a client that matches on the text sees it from either.
-fn no_battery() -> fdo::Error {
-    fdo::Error::Failed("no battery present".into())
-}
-
 fn ec_err(e: impl std::fmt::Debug) -> fdo::Error {
     fdo::Error::Failed(format!("EC error: {e:?}"))
 }
@@ -185,24 +179,37 @@ impl Daemon {
         self.held_charge_current_limit()
     }
 
-    /// The battery's design capacity in mAh, which is numerically also the
-    /// current that charges it at 1C — what turns a charge speed expressed as
-    /// a fraction of full rate into the milliamps the EC wants.
-    fn get_battery_design_capacity(&self) -> fdo::Result<u32> {
+    /// Everything the EC's battery block says about the pack, for a reader
+    /// looking at the pack rather than at the controls that shape it. One walk
+    /// of the block, so the reading it carries cannot disagree with the rest
+    /// of what it reports.
+    ///
+    /// The charge is the one value here that changes without anyone setting
+    /// it, so a caller showing it has to re-read; it is also the only
+    /// observable effect a charge current limit has, the limit itself being
+    /// unreadable.
+    fn get_battery_info(&self) -> fdo::Result<wire::BatteryInfo> {
         self.touch();
-        self.ec()?.design_capacity().ok_or_else(no_battery)
+        // Spelled here rather than shared with the reading below, which fails
+        // for a different reason and says so: a passthrough that stays silent
+        // is not an absent pack, and can happen with one fitted.
+        self.ec()?
+            .battery_info()
+            .ok_or_else(|| fdo::Error::Failed("no battery present".into()))
     }
 
-    /// The pack's charge, which way it is moving and how fast. The only
-    /// value here that changes without anyone setting it, so a caller
-    /// showing it has to re-read; every other getter answers with what was
-    /// last written or configured.
-    ///
-    /// It also carries the only observable effect a charge current limit
-    /// has, the limit itself being unreadable.
-    fn get_battery_state(&self) -> fdo::Result<wire::BatteryState> {
+    /// What the pack says about itself past the EC's summary: its temperature,
+    /// its cell voltages, and any alarms it is raising. Separate from the
+    /// report above because it reaches the pack over the EC's I2C passthrough
+    /// rather than reading the EC's own block, so a board can answer one and
+    /// not the other — and because a transfer per cell plus two, to a device
+    /// the EC is also driving, is not something to spend on a caller that
+    /// shows none of it.
+    fn get_battery_condition(&self) -> fdo::Result<wire::BatteryCondition> {
         self.touch();
-        self.ec()?.battery_state().ok_or_else(no_battery)
+        self.ec()?
+            .battery_condition()
+            .ok_or_else(|| fdo::Error::Failed("the battery did not answer".into()))
     }
 
     /// Caps how fast the battery charges, in mA; `NO_CHARGE_CURRENT_LIMIT`

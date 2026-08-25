@@ -3,7 +3,10 @@
 //! so a rename, a reorder or a changed `signature` is a protocol break that
 //! no compiler on either side would report.
 
-use frameguin_wire::{BatteryState, Capability, ChargeFlow, ClickForce, FpLevel};
+use frameguin_wire::{
+    BatteryAlarm, BatteryCondition, BatteryInfo, BatteryState, Capability, ChargeFlow, ClickForce,
+    FpLevel,
+};
 use zbus::zvariant::serialized::Context;
 use zbus::zvariant::{LE, Type, to_bytes};
 
@@ -18,11 +21,13 @@ fn every_enum_crosses_the_bus_as_a_plain_string() {
     assert_eq!(FpLevel::SIGNATURE, "s");
     assert_eq!(ClickForce::SIGNATURE, "s");
     assert_eq!(ChargeFlow::SIGNATURE, "s");
+    assert_eq!(BatteryAlarm::SIGNATURE, "s");
 }
 
 /// The shapes the interface actually carries, as they appear in
 /// introspection: `GetCapabilities` answers `as`, `GetFingerprintBrightness`
-/// answers `(ys)`, `GetBatteryState` the battery block as a struct.
+/// answers `(ys)`, `GetBatteryInfo` the battery block as a struct carrying a
+/// struct.
 #[test]
 fn the_composite_signatures_are_the_ones_the_methods_declare() {
     assert_eq!(Vec::<Capability>::SIGNATURE, "as");
@@ -31,11 +36,32 @@ fn the_composite_signatures_are_the_ones_the_methods_declare() {
     // unnamed: reordering the struct silently re-maps every field a client
     // reads.
     assert_eq!(BatteryState::SIGNATURE, "(ysuu)");
+    // The report carries the reading rather than restating its fields, so the
+    // block above appears nested inside this one — flattening it would be a
+    // protocol break that reads in the diff like a tidy-up.
+    assert_eq!(BatteryInfo::SIGNATURE, "((ysuu)uuuuubbsssss)");
+    // The pack's own report: cell voltages, alarms by name, and a temperature
+    // in tenths of a degree.
+    assert_eq!(BatteryCondition::SIGNATURE, "(auasn)");
+}
+
+#[test]
+fn battery_alarm_names_are_kebab_case() {
+    assert_eq!(wire_string(BatteryAlarm::OverCharged), "over-charged");
+    assert_eq!(
+        wire_string(BatteryAlarm::OverTemperature),
+        "over-temperature"
+    );
+    assert_eq!(wire_string(BatteryAlarm::SafetyFault), "safety-fault");
 }
 
 #[test]
 fn capability_names_are_kebab_case() {
-    assert_eq!(wire_string(Capability::BatteryState), "battery-state");
+    assert_eq!(wire_string(Capability::Battery), "battery");
+    assert_eq!(
+        wire_string(Capability::BatteryCondition),
+        "battery-condition"
+    );
     assert_eq!(wire_string(Capability::ChargeLimit), "charge-limit");
     assert_eq!(
         wire_string(Capability::ChargeCurrentLimit),

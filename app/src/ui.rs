@@ -25,11 +25,13 @@ use crate::format::{
     CHARGE_LIMIT_CUSTOM, CHARGE_SPEED_CUSTOM, CHARGE_SPEED_LABELS, CUSTOM_CHARGE_STEP_MA,
     MIN_CHARGE_LIMIT, MIN_CUSTOM_CHARGE_MA, amps, charge_flow_label, charge_limit_labels,
     charge_limit_percent, charge_limit_position, charge_speed_labels, charge_speed_milliamps,
-    charge_speed_position, click_force_label, fp_level_labels, haptic_labels, scale_milliamps,
-    scale_percent, with_custom_row,
+    charge_speed_position, click_force_label, fp_level_labels, haptic_labels, percent_label,
+    scale_milliamps, scale_percent, with_custom_row,
 };
+use crate::mapped::poll_while_mapped;
+use crate::reading::{Feed, Wants, show_while_mapped};
 use crate::tray::{TrayIcon, TrayValues, tray_push};
-use crate::{APP_ID, about, autostart, board, daemon_proxy};
+use crate::{APP_ID, about, autostart, battery, board};
 
 const SLIDER_DEBOUNCE: Duration = Duration::from_millis(200);
 /// Keys and the wheel on a slider that otherwise writes only when a drag
@@ -38,7 +40,6 @@ const SLIDER_DEBOUNCE: Duration = Duration::from_millis(200);
 /// them would be another authorized EC write.
 const SETTLE_DEBOUNCE: Duration = Duration::from_millis(700);
 const KBD_SYNC_SECONDS: u32 = 2;
-const BATTERY_STATE_SECONDS: u32 = 2;
 /// How long the window waits before asking an unreachable daemon again, and
 /// the ceiling the wait doubles up to. Bounded rather than endless-fast: the
 /// service is bus-activated, so every attempt is a start attempt.
@@ -176,6 +177,10 @@ pub(crate) struct Ui {
     haptic_combo: adw::ComboRow,
     force_combo: adw::ComboRow,
     tray: Option<ksni::blocking::Handle<TrayIcon>>,
+    /// Where the charge row's reading comes from, shared with the battery
+    /// report so the two windows cost the EC one walk between them rather than
+    /// one apiece.
+    feed: Rc<Feed>,
 }
 
 impl Ui {
@@ -201,7 +206,7 @@ impl Ui {
     /// unlike every other show_ here: nothing on this row writes back, so
     /// there is no handler to hold off.
     fn show_battery_state(&self, state: BatteryState) {
-        self.state_percent.set_label(&format!("{}%", state.percent));
+        self.state_percent.set_label(&percent_label(state.percent));
         self.state_row.set_subtitle(&charge_flow_label(state));
     }
 
@@ -277,7 +282,7 @@ fn debounce(
 // Widgets for absent capabilities stay hidden and insensitive, so their
 // handlers can never fire; connecting unconditionally keeps one wiring path.
 fn connect_handlers(ui: &Rc<Ui>, proxy: &FrameguinProxy<'static>) {
-    connect_battery_state(ui, proxy);
+    connect_battery_state(ui);
     connect_charge_setter(ui, proxy);
     connect_charge_speed_setter(ui, proxy);
     connect_kbd_setter(ui, proxy);
@@ -396,24 +401,22 @@ fn connect_charge_speed_setter(ui: &Rc<Ui>, proxy: &FrameguinProxy<'static>) {
 }
 
 /// The one row nothing writes to: it follows the pack, which moves whether
-/// or not anyone touches the app. Silent on a failed read — a toast every
-/// tick would bury the window over a reading that is due again in seconds.
+/// or not anyone touches the app.
 ///
-/// The tick deliberately tells the tray nothing. Every push blocks on the
+/// Fed rather than polled. The report shows the same walk of the same block,
+/// and a row that read it for itself would have the two windows asking the EC
+/// separately for one answer — see [`crate::reading`]. This row wants none of
+/// the extras, so it asks for none, and the feed spends those calls only where
+/// something would show them.
+///
+/// The feed deliberately tells the tray nothing. Every push blocks on the
 /// tray's thread and makes it rebuild and re-signal the whole menu, which is
 /// not something to do twice a minute for a menu nobody has opened — the
 /// tray asks for its own reading when its menu is about to show.
-fn connect_battery_state(ui: &Rc<Ui>, proxy: &FrameguinProxy<'static>) {
-    let poll_ui = ui.clone();
-    let poll_proxy = proxy.clone();
-    poll_while_mapped(&ui.state_row, BATTERY_STATE_SECONDS, move || {
-        let ui = poll_ui.clone();
-        let proxy = poll_proxy.clone();
-        glib::spawn_future_local(async move {
-            if let Ok(state) = proxy.get_battery_state().await {
-                ui.show_battery_state(state);
-            }
-        });
+fn connect_battery_state(ui: &Rc<Ui>) {
+    let row_ui = ui.clone();
+    show_while_mapped(&ui.feed, &ui.state_row, Wants::default(), move |reading| {
+        row_ui.show_battery_state(reading.info.state);
     });
 }
 
@@ -722,52 +725,27 @@ fn connect_kbd_setter(ui: &Rc<Ui>, proxy: &FrameguinProxy<'static>) {
     });
 }
 
-/// Runs `tick` every `seconds` for as long as `widget` is on screen: a
-/// resident app whose window is hidden does no periodic work, and neither
-/// does one whose board lacks the control, since an unsupported row is never
-/// mapped.
-fn poll_while_mapped(widget: &impl IsA<gtk::Widget>, seconds: u32, tick: impl Fn() + 'static) {
-    let tick = Rc::new(tick);
-    let source: Rc<RefCell<Option<glib::SourceId>>> = Rc::default();
-    let arm: Rc<dyn Fn()> = {
-        let source = source.clone();
-        Rc::new(move || {
-            let tick = tick.clone();
-            let id = glib::timeout_add_seconds_local(seconds, move || {
-                tick();
-                glib::ControlFlow::Continue
-            });
-            if let Some(old) = source.replace(Some(id)) {
-                old.remove();
-            }
-        })
-    };
-    let map_arm = arm.clone();
-    widget.as_ref().connect_map(move |_| map_arm());
-    let unmap_source = source;
-    widget.as_ref().connect_unmap(move |_| {
-        if let Some(id) = unmap_source.take() {
-            id.remove();
-        }
-    });
-    // The window is usually already on screen when setters connect (init is
-    // async), so map won't fire for the current visibility.
-    if widget.as_ref().is_mapped() {
-        arm();
-    }
-}
-
 #[expect(clippy::too_many_lines, reason = "flat widget construction")]
 pub(crate) fn build_window(
     app: &adw::Application,
     tray: Option<ksni::blocking::Handle<TrayIcon>>,
+    feed: Rc<Feed>,
 ) -> (adw::ApplicationWindow, Rc<Ui>) {
     let page = adw::PreferencesPage::new();
 
     let battery = adw::PreferencesGroup::builder().title("Battery").build();
-    let state_row = adw::ActionRow::builder().title("Charge").build();
+    // The one row here that opens something rather than setting something.
+    // Named as an action rather than wired to a handler, so the row and the
+    // tray's reading reach the report the same way and neither has to hold a
+    // bus connection to offer it.
+    let state_row = adw::ActionRow::builder()
+        .title("Charge")
+        .activatable(true)
+        .action_name(format!("app.{}", battery::ACTION))
+        .build();
     let state_percent = gtk::Label::new(None);
     state_row.add_suffix(&state_percent);
+    state_row.add_suffix(&gtk::Image::from_icon_name("go-next-symbolic"));
     battery.add(&state_row);
     let limit_labels = with_custom_row(charge_limit_labels());
     let limit_combo = adw::ComboRow::builder()
@@ -932,6 +910,7 @@ pub(crate) fn build_window(
         haptic_combo,
         force_combo,
         tray,
+        feed,
     });
 
     let autostart_ui = ui.clone();
@@ -971,7 +950,7 @@ pub(crate) fn build_window(
         ui: ui.clone(),
         groups,
         empty,
-        proxy: RefCell::default(),
+        answered: Cell::default(),
         probing: Cell::default(),
         next_attempt: Cell::new(FIRST_RETRY_SECONDS),
         retry: Cell::default(),
@@ -1008,12 +987,12 @@ struct CapabilityWidgets {
 
 impl CapabilityWidgets {
     fn show_supported(&self, caps: Capabilities) {
-        let battery_state = caps.has(Capability::BatteryState);
+        let battery = caps.has(Capability::Battery);
         let charge_limit = caps.has(Capability::ChargeLimit);
         let charge_speed = caps.has(Capability::ChargeCurrentLimit);
         self.battery
-            .set_visible(battery_state || charge_limit || charge_speed);
-        self.state_row.set_visible(battery_state);
+            .set_visible(battery || charge_limit || charge_speed);
+        self.state_row.set_visible(battery);
         self.limit_combo.set_visible(charge_limit);
         self.speed_combo.set_visible(charge_speed);
         // Withheld from every board by `caps::offered`, so this reads false.
@@ -1239,11 +1218,13 @@ struct Init {
     ui: Rc<Ui>,
     groups: CapabilityWidgets,
     empty: EmptyPage,
-    /// The connection a probe that reached the daemon left behind, kept for
-    /// the reloads, which have none of their own. Its presence is also the
-    /// answer to whether asking again could tell us anything new: a daemon
-    /// that answered will answer the same way for as long as it runs.
-    proxy: RefCell<Option<FrameguinProxy<'static>>>,
+    /// Whether a probe has reached the daemon, which is the answer to whether
+    /// asking again could tell us anything new: one that answered will answer
+    /// the same way for as long as it runs. A flag rather than the connection
+    /// it used to be kept as — the feed holds the connection, and a handle
+    /// stored to be tested for presence says the wrong thing about why it is
+    /// there.
+    answered: Cell<bool>,
     /// Set while a probe is in flight, so the two things that start one — the
     /// window mapping and the countdown reaching zero — cannot both be in it.
     probing: Cell<bool>,
@@ -1264,15 +1245,21 @@ impl Init {
     /// which is how a service that started late is picked up without the
     /// reader finding the button.
     async fn refresh(self: &Rc<Self>) {
-        let proxy = self.proxy.borrow().clone();
-        match proxy {
-            Some(proxy) if !self.ui.caps.get().is_empty() => load_values(&self.ui, &proxy).await,
-            // Answered, with nothing to reload: a board that supports none of
-            // these controls and a machine that is not a Framework are what
-            // they are, and asking again would spawn the root daemon once per
-            // window opened to be told so a second time.
-            Some(_) => {}
-            None => self.fill().await,
+        if !self.answered.get() {
+            self.fill().await;
+            return;
+        }
+        // Answered, with nothing to reload: a board that supports none of
+        // these controls and a machine that is not a Framework are what they
+        // are, and asking again would spawn the root daemon once per window
+        // opened to be told so a second time.
+        if self.ui.caps.get().is_empty() {
+            return;
+        }
+        // Cached since the probe, so this cannot realistically fail; nothing
+        // to say if it does, the next map asking again.
+        if let Ok(proxy) = self.ui.feed.proxy().await {
+            load_values(&self.ui, &proxy).await;
         }
     }
 
@@ -1355,22 +1342,25 @@ impl Init {
         let ui = &self.ui;
         // The page rather than a toast: a toast is gone in seconds and leaves
         // a window whose emptiness has no explanation on it.
-        let proxy = match daemon_proxy().await {
+        // Both through the feed rather than dialled and asked here: a fresh
+        // handshake per window and a second cold probe per session are what a
+        // window answering for itself costs, and the feed outlives any of
+        // them. The probe's answer reaching it here is also what spares the
+        // report a probe of its own.
+        let proxy = match ui.feed.proxy().await {
             Ok(p) => p,
             Err(e) => return Some(Empty::DaemonUnavailable(e.to_string())),
         };
-        let names = match proxy.get_capabilities().await {
-            Ok(names) => names,
+        let caps = match ui.feed.capabilities().await {
+            Ok(caps) => caps,
             Err(e) => return Some(Empty::DaemonUnavailable(e.to_string())),
         };
-        let caps = Capabilities::from_probe(&names);
         ui.caps.set(caps);
         self.groups.show_supported(caps);
         ui.sync_tray(TrayValues::caps(caps));
-        // Kept whatever the answer was: the reloads have no probe to build a
-        // connection of their own, and holding it is also what tells a later
-        // refresh that this daemon has already said its piece.
-        self.proxy.replace(Some(proxy.clone()));
+        // Set whatever the answer was: what a later refresh needs to know is
+        // that this daemon has said its piece, not what it said.
+        self.answered.set(true);
         if caps.is_empty() {
             // The daemon gates its EC on the same vendor string the app
             // reads, so an empty answer is expected on anything else and says
@@ -1402,14 +1392,23 @@ impl Init {
 async fn load_battery_values(ui: &Rc<Ui>, proxy: &FrameguinProxy<'static>) -> TrayValues {
     let caps = ui.caps.get();
     let mut values = TrayValues::default();
-    if caps.has(Capability::BatteryState) {
-        // Read here as well as polled: the poll's first tick is a couple of
-        // seconds after the window appears, and an empty row until then
-        // reads as a control that failed rather than one still filling.
-        match proxy.get_battery_state().await {
-            Ok(state) => {
-                ui.show_battery_state(state);
-                values.battery = Some(state);
+    // The design capacity the reading below carries, kept for the charge
+    // speeds further down: it is numerically the pack's 1C current, which is
+    // what turns their fractions into milliamps.
+    let mut design_capacity = None;
+    if caps.has(Capability::Battery) {
+        // Read here as well as fed: the feed's first tick is a couple of
+        // seconds after the window appears, and an empty row until then reads
+        // as a control that failed rather than one still filling. Through the
+        // feed rather than around it, so the row and whatever else is showing
+        // the pack are painted from one walk of the block — and so the tray is
+        // pushed the same reading the row got rather than a second one taken a
+        // moment later.
+        match ui.feed.read().await {
+            Ok(info) => {
+                ui.show_battery_state(info.state);
+                values.battery = Some(info.state);
+                design_capacity = Some(info.design_capacity);
             }
             Err(e) => ui.toast(&format!("Reading battery state failed: {e}")),
         }
@@ -1430,27 +1429,27 @@ async fn load_battery_values(ui: &Rc<Ui>, proxy: &FrameguinProxy<'static>) -> Tr
     if caps.has(Capability::ChargeCurrentLimit) {
         // A pack's design capacity can't change under a running app, so it is
         // read once and the labels built from it stay put.
-        if ui.design_capacity.get().is_none() {
-            match proxy.get_battery_design_capacity().await {
-                Ok(capacity) => {
-                    ui.design_capacity.set(Some(capacity));
-                    let labels = with_custom_row(charge_speed_labels(capacity));
-                    // 1C is as fast as the pack ever asks, so a slider beyond
-                    // it would only offer limits that never bind. Floored to
-                    // the step the value rounds to, so the far end of the
-                    // track is a position that sends what it shows rather
-                    // than a sliver that rounds back down.
-                    let top = (f64::from(capacity) / CUSTOM_CHARGE_STEP_MA).floor()
-                        * CUSTOM_CHARGE_STEP_MA;
-                    ui.sync(|| {
-                        ui.speed_combo.set_model(Some(&string_list(&labels)));
-                        ui.speed_scale
-                            .adjustment()
-                            .set_upper(top.max(MIN_CUSTOM_CHARGE_MA));
-                    });
-                }
-                Err(e) => ui.toast(&format!("Reading battery capacity failed: {e}")),
-            }
+        // Nothing to fall back to where the reading failed, and nothing that
+        // should be: every rate this control offers or sends is a fraction of
+        // this figure, so a second guess at it would be a second answer to
+        // "how fast is full speed". The combo stays insensitive below until it
+        // arrives, and the next reload asks again.
+        if ui.design_capacity.get().is_none()
+            && let Some(capacity) = design_capacity
+        {
+            ui.design_capacity.set(Some(capacity));
+            let labels = with_custom_row(charge_speed_labels(capacity));
+            // 1C is as fast as the pack ever asks, so a slider beyond it would
+            // only offer limits that never bind. Floored to the step the value
+            // rounds to, so the far end of the track is a position that sends
+            // what it shows rather than a sliver that rounds back down.
+            let top = (f64::from(capacity) / CUSTOM_CHARGE_STEP_MA).floor() * CUSTOM_CHARGE_STEP_MA;
+            ui.sync(|| {
+                ui.speed_combo.set_model(Some(&string_list(&labels)));
+                ui.speed_scale
+                    .adjustment()
+                    .set_upper(top.max(MIN_CUSTOM_CHARGE_MA));
+            });
         }
         match proxy.get_charge_current_limit().await {
             Ok(milliamps) => {

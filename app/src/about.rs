@@ -155,6 +155,10 @@ pub(crate) async fn debug_info() -> String {
 
     // The two binaries first and adjacent, since comparing their paths is
     // what the report is read for; the hardware they found follows.
+    //
+    // Dialled rather than taken from the app's shared connection: this also
+    // runs from `--debug-info`, where there is no app to have one, and a
+    // report of whether the daemon answers wants asking afresh.
     let proxy = daemon_proxy().await;
     let build = match &proxy {
         Ok(p) => p

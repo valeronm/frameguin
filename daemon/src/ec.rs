@@ -19,18 +19,105 @@ use framework_lib::chromium_ec::command::{EcCommands, EcRequestRaw};
 use framework_lib::chromium_ec::commands::{
     EcRequestGetUptimeInfo, EcRequestPwmGetKeyboardBacklight, FpLedBrightnessLevel,
 };
+use framework_lib::chromium_ec::i2c_passthrough::i2c_read;
 use framework_lib::chromium_ec::{CrosEc, EcResult};
 use framework_lib::power;
 
 use crate::board;
 
+/// Reaching the pack directly, past the EC's own copy of what it says. The
+/// port and address are the same on every Framework board — one Nuvoton EC,
+/// one gauge IC — and the address is the 7-bit form of the 8-bit 0x16 the
+/// datasheet names.
+const BATTERY_I2C_PORT: u8 = 3;
+const BATTERY_I2C_ADDR: u16 = 0x0b;
+/// `SB_CYCLE_COUNT` in the Smart Battery spec, and the register the EC itself
+/// reads for the value it publishes.
+const SB_CYCLE_COUNT: u16 = 0x17;
+/// `SB_MANUFACTURE_DATE`, packed into one word — see [`manufactured_iso`].
+const SB_MANUFACTURE_DATE: u16 = 0x1b;
+/// The per-cell voltages, in the order the pack numbers its cells. The
+/// registers run backwards against that numbering, which is the datasheet's
+/// doing rather than a mistake here: 0x3F is cell 1 and 0x3C is cell 4.
+const SB_CELL_VOLTAGES: [u16; 4] = [0x3f, 0x3e, 0x3d, 0x3c];
+/// `SB_BATTERY_STATUS`, whose alarm bits are decoded by [`alarms`]. The EC
+/// reads this register too, but publishes only the two direction flags out of
+/// it — the alarms have nowhere in the memmap to go.
+const SB_BATTERY_STATUS: u16 = 0x16;
+/// `SB_TEMPERATURE`, in tenths of a Kelvin.
+///
+/// The EC polls this same register and republishes it into its thermal sensor
+/// array — its devicetree node is `cros-ec,temp-sensor-battery` at the pack's
+/// own I2C address, described as "the last polled battery temperature". So
+/// this is not a second opinion but the same sensor read first-hand: at the
+/// tenth of a degree it measures in rather than the whole degree the array
+/// carries, as freshly as the ask, and on every board rather than only those
+/// that wire the relay.
+const SB_TEMPERATURE: u16 = 0x08;
+
+/// Tenths of a Kelvin between absolute zero and freezing, for turning the
+/// pack's reading into tenths of a degree Celsius. The true offset is 2731.5;
+/// rounding it costs at most a twentieth of a degree, which is half of what
+/// the sensor resolves, and matches what `framework_tool` prints.
+const FREEZING_DECIKELVIN: i32 = 2732;
+
+/// Which bit of the status word raises which alarm. Only the two that mean a
+/// fault — [`wire::BatteryAlarm`] carries why the word's other set bits do
+/// not, and every one of them is raised by a pack working exactly as it
+/// should.
+const SB_ALARM_BITS: [(u16, wire::BatteryAlarm); 2] = [
+    (1 << 15, wire::BatteryAlarm::OverCharged),
+    (1 << 12, wire::BatteryAlarm::OverTemperature),
+];
+
+/// The pack asking that charging stop, and that discharging stop. Absent from
+/// the table above because neither means anything alone — the gauge raises
+/// each at the ordinary end of its direction — and present here because
+/// together they cannot be ordinary at all. See [`wire::BatteryAlarm`].
+const SB_TERMINATE_CHARGE: u16 = 1 << 14;
+const SB_TERMINATE_DISCHARGE: u16 = 1 << 11;
+
+/// The daemon's one way of asking the embedded controller anything.
+///
+/// Where an answer comes from is this type's business and no caller's: most
+/// are read on the spot, a few are remembered, and nothing outside this module
+/// can tell which — that is what makes remembering more of them later a change
+/// here rather than everywhere. A value is only remembered where asking again
+/// could not give a different answer, with one stated exception in [`Memo`].
 pub(crate) struct Ec {
     ec: Mutex<CrosEc>,
-    /// Read once and kept: reaching it walks the EC's whole memmap battery
-    /// block, and a pack cannot change under a running daemon. Filled by
-    /// whichever walk gets there first, so nothing spends a round trip on it
-    /// alone.
-    design_capacity: OnceLock<u32>,
+    memo: Memo,
+}
+
+/// What this run has already learned from the EC and will not ask for again.
+///
+/// Private, so a remembered answer can never become part of a caller's
+/// vocabulary: everything here is reached through the method that would
+/// otherwise have done the reading.
+#[derive(Default)]
+struct Memo {
+    /// The one value here that can change while it is held — see
+    /// [`Ec::cycle_count`]. A cycle takes hours to accumulate and this daemon
+    /// exits after five idle minutes, so "will not have changed" stands in for
+    /// the "cannot have changed" the rest of this struct is held to.
+    cycle_count: OnceLock<Option<u32>>,
+    /// When the pack was built, which the EC publishes nowhere and which
+    /// cannot change at all.
+    manufacture_date: OnceLock<Option<String>>,
+}
+
+/// Remembers what a read answered, absence included, and asks only once.
+///
+/// The two entries below reach the pack over I2C, and both are read on every
+/// walk of the battery block — which the window's charge row asks for every
+/// couple of seconds, not just the report. So what has to be remembered is the
+/// *answer* rather than the success: a pack that keeps no manufacturing date,
+/// or a board whose passthrough does not answer at all, would otherwise be
+/// asked again on every one of those walks, forever, for something that cannot
+/// arrive. The daemon exits after five idle minutes, which bounds how long a
+/// remembered absence stands.
+fn remembered<T: Clone>(slot: &OnceLock<Option<T>>, read: impl FnOnce() -> Option<T>) -> Option<T> {
+    slot.get_or_init(read).clone()
 }
 
 impl Ec {
@@ -41,7 +128,7 @@ impl Ec {
     pub(crate) fn open() -> Option<Self> {
         board::is_framework().then(|| Self {
             ec: Mutex::new(CrosEc::new()),
-            design_capacity: OnceLock::new(),
+            memo: Memo::default(),
         })
     }
 
@@ -72,47 +159,116 @@ impl Ec {
         EcStamp::now(&ec)
     }
 
-    /// The EC's whole memmap battery block, and the one place the design
-    /// capacity is cached — so a walk made for any other answer pays for the
-    /// next caller that wants only the capacity.
+    /// The EC's whole memmap battery block.
     fn power(&self) -> Option<power::PowerInfo> {
-        let info = power::power_info(&self.ec())?;
-        if let Some(battery) = &info.battery {
-            let _ = self.design_capacity.set(battery.design_capacity);
-        }
-        Some(info)
+        power::power_info(&self.ec())
     }
 
-    /// The EC's battery block in the wire's terms, and None when no pack
-    /// answers. Direction and charger presence share one flag byte, so both
-    /// come from the same read; the rate is unsigned whichever way charge is
-    /// moving.
-    pub(crate) fn battery_state(&self) -> Option<wire::BatteryState> {
+    /// Whether a pack answers in the EC's block at all.
+    ///
+    /// The two steps here are the only ones [`Ec::battery_info`] can fail at —
+    /// everything past them reads fields out of the block this walked, or
+    /// falls back where the pack will not answer. So this exercises that
+    /// getter's own path rather than an easier neighbour, which is what the
+    /// probe rule asks, without building a report to throw away.
+    ///
+    /// Calling the getter itself would go one step further and cost more than
+    /// a struct: it would run the reads behind `cycle_count` and
+    /// `manufacture_date` inside the cold probe, and one unlucky transfer
+    /// there would have the daemon remember an absence for its whole run.
+    pub(crate) fn battery_present(&self) -> bool {
+        self.power().is_some_and(|info| info.battery.is_some())
+    }
+
+    /// The same block in full, for a reader looking at the pack rather than at
+    /// the controls that shape it. One walk, so the reading it carries is that
+    /// walk's rather than a second one taken a moment later.
+    pub(crate) fn battery_info(&self) -> Option<wire::BatteryInfo> {
         let info = self.power()?;
-        let battery = info.battery?;
-        Some(wire::BatteryState {
-            // Against the last full charge, which is the EC's own denominator;
-            // a pack reporting more than full is clamped rather than shown.
-            percent: u8::try_from(battery.charge_percentage.min(100)).unwrap_or(100),
-            flow: charge_flow(ChargeSignals {
-                charging: battery.charging,
-                discharging: battery.discharging,
-                ac_present: info.ac_present,
-                milliamps: battery.present_rate,
-            }),
-            milliamps: battery.present_rate,
-            millivolts: battery.present_voltage,
+        let battery = info.battery.as_ref()?;
+        Some(wire::BatteryInfo {
+            state: wire_battery_state(&info, battery),
+            remaining_capacity: battery.remaining_capacity,
+            last_full_capacity: battery.last_full_charge_capacity,
+            design_capacity: battery.design_capacity,
+            design_millivolts: battery.design_voltage,
+            // The pack's own count where it answers, the EC's published copy
+            // otherwise — that copy is frozen at the last battery init, so it
+            // is a floor rather than a reading.
+            cycle_count: self.cycle_count().unwrap_or(battery.cycle_count),
+            charger_connected: info.ac_present,
+            critical: battery.level_critical,
+            manufacturer: battery.manufacturer.clone(),
+            model: battery.model_number.clone(),
+            serial: battery.serial_number.clone(),
+            chemistry: battery.battery_type.clone(),
+            manufactured: self.manufacture_date().unwrap_or_default(),
         })
     }
 
-    /// The battery's design capacity in mAh, `None` when no pack answers. Only
-    /// successful reads are remembered, so a battery that is momentarily
-    /// unreadable isn't taken for an absent one for the rest of the run.
-    pub(crate) fn design_capacity(&self) -> Option<u32> {
-        if let Some(capacity) = self.design_capacity.get() {
-            return Some(*capacity);
-        }
-        Some(self.power()?.battery?.design_capacity)
+    /// How many cycles the pack counts, asked of the pack rather than read
+    /// from the EC's memmap copy, and None where it will not answer.
+    ///
+    /// The memmap copy is part of the EC's *static* battery block, which
+    /// `update_static_battery_info` fills only while its `need_static` flag is
+    /// set — on a battery presence change, or on the paths that revive a pack
+    /// that was unresponsive or deeply discharged — and which clears that flag
+    /// as soon as one read succeeds. So the published count is the one taken
+    /// when the EC last initialized the battery, and since the EC outlives
+    /// host reboots that can be weeks ago. Everything else in the block is
+    /// either genuinely fixed (design capacity, the strings) or lives in the
+    /// dynamic half that every charger pass refreshes; the cycle count is the
+    /// one value that both moves and is published as static.
+    ///
+    /// Read once per daemon run and kept — see [`remembered`] for why the
+    /// answer is held even when it is "the pack will not say". A cycle takes
+    /// hours to accumulate and this daemon exits after five idle minutes, so
+    /// the held value is never older than the session asking for it.
+    fn cycle_count(&self) -> Option<u32> {
+        remembered(&self.memo.cycle_count, || {
+            Some(u32::from(self.sb_word(SB_CYCLE_COUNT)?))
+        })
+    }
+
+    /// When the pack was built, as `YYYY-MM-DD`, from the pack's own register:
+    /// the EC's block has no room for a date and publishes none.
+    fn manufacture_date(&self) -> Option<String> {
+        remembered(&self.memo.manufacture_date, || {
+            manufactured_iso(self.sb_word(SB_MANUFACTURE_DATE)?)
+        })
+    }
+
+    /// What the pack says about itself past the EC's summary: each cell's
+    /// voltage, and the alarms it is raising.
+    ///
+    /// Not memoized and not in the EC's block at all. The memmap publishes one
+    /// voltage for the whole pack, no temperature of its own and none of the
+    /// alarms, and all of these move, so they are read afresh — a transfer per
+    /// cell plus two, which is why only a caller showing them asks.
+    pub(crate) fn battery_condition(&self) -> Option<wire::BatteryCondition> {
+        let cell_millivolts: Vec<u32> = SB_CELL_VOLTAGES
+            .iter()
+            .map(|register| self.sb_word(*register).map(u32::from))
+            .collect::<Option<_>>()?;
+        Some(wire::BatteryCondition {
+            cell_millivolts,
+            alarms: alarms(self.sb_word(SB_BATTERY_STATUS)?),
+            decicelsius: decicelsius(self.sb_word(SB_TEMPERATURE)?),
+        })
+    }
+
+    /// One word from the pack over the EC's I2C passthrough, which is how
+    /// everything the EC does not publish for itself is reached. Every such
+    /// read is a transfer to a device the EC is also driving, so callers ask
+    /// for one only where the EC's own copy is absent or known stale.
+    fn sb_word(&self, register: u16) -> Option<u16> {
+        let response =
+            i2c_read(&self.ec(), BATTERY_I2C_PORT, BATTERY_I2C_ADDR, register, 2).ok()?;
+        response.is_successful().ok()?;
+        Some(u16::from_le_bytes([
+            *response.data.first()?,
+            *response.data.get(1)?,
+        ]))
     }
 
     /// `framework_lib`'s `get_keyboard_backlight()` reads via `PWM_GET_DUTY`,
@@ -241,6 +397,64 @@ fn wire_fp_level(level: Option<&FpLedBrightnessLevel>) -> wire::FpLevel {
     }
 }
 
+/// The alarms a status word is raising, by name. A word raising none — the
+/// ordinary case — gives an empty list rather than a state of its own.
+fn alarms(status: u16) -> Vec<wire::BatteryAlarm> {
+    let mut raised: Vec<wire::BatteryAlarm> = SB_ALARM_BITS
+        .iter()
+        .filter(|(bit, _)| status & bit != 0)
+        .map(|(_, alarm)| *alarm)
+        .collect();
+    if status & SB_TERMINATE_CHARGE != 0 && status & SB_TERMINATE_DISCHARGE != 0 {
+        raised.push(wire::BatteryAlarm::SafetyFault);
+    }
+    raised
+}
+
+/// The pack's packed manufacturing date as the ISO-8601 the wire carries: day
+/// in the low five bits, month in the next four, years since 1980 in the rest.
+///
+/// None on a word that decodes to no real date, which is what an uninitialized
+/// register reads as — a pack that was never given a date reports zeros, and
+/// "1980-00-00" is worse than saying nothing.
+fn manufactured_iso(packed: u16) -> Option<String> {
+    let day = packed & 0x1f;
+    let month = (packed >> 5) & 0x0f;
+    if day == 0 || month == 0 || month > 12 {
+        return None;
+    }
+    Some(format!("{:04}-{month:02}-{day:02}", 1980 + (packed >> 9)))
+}
+
+/// The pack's reading as tenths of a degree Celsius. Signed, because a machine
+/// left in the cold reads below freezing; saturating, because the arithmetic
+/// is only unbounded in a word the pack could not have produced.
+fn decicelsius(decikelvin: u16) -> i16 {
+    i16::try_from(i32::from(decikelvin) - FREEZING_DECIKELVIN).unwrap_or(i16::MAX)
+}
+
+/// The moving part of the battery block in the wire's terms, taken from a
+/// block the caller already holds rather than read for itself — so a report
+/// and the reading inside it come from one walk.
+fn wire_battery_state(
+    info: &power::PowerInfo,
+    battery: &power::BatteryInformation,
+) -> wire::BatteryState {
+    wire::BatteryState {
+        // Against the last full charge, which is the EC's own denominator; a
+        // pack reporting more than full is clamped rather than shown.
+        percent: u8::try_from(battery.charge_percentage.min(100)).unwrap_or(100),
+        flow: charge_flow(ChargeSignals {
+            charging: battery.charging,
+            discharging: battery.discharging,
+            ac_present: info.ac_present,
+            milliamps: battery.present_rate,
+        }),
+        milliamps: battery.present_rate,
+        millivolts: battery.present_voltage,
+    }
+}
+
 /// The readings a direction is decided from, carried together because
 /// `charging`, `discharging` and `ac_present` are bare booleans: named fields
 /// are what stops a caller permuting them into a well-formed call that
@@ -289,7 +503,90 @@ fn charge_flow(
 
 #[cfg(test)]
 mod tests {
-    use super::{ChargeSignals, EcStamp, charge_flow, ec_fp_level, wire, wire_fp_level};
+    use super::{
+        ChargeSignals, EcStamp, SB_TERMINATE_CHARGE, SB_TERMINATE_DISCHARGE, alarms, charge_flow,
+        decicelsius, ec_fp_level, manufactured_iso, wire, wire_fp_level,
+    };
+
+    /// The reading `framework_tool` prints as 34.2 C for the same word.
+    #[test]
+    fn the_packs_decikelvin_reads_as_tenths_of_a_degree() {
+        assert_eq!(decicelsius(3074), 342);
+    }
+
+    /// The offset puts freezing at 2732, so a pack below it is a temperature
+    /// rather than an underflow.
+    #[test]
+    fn a_cold_pack_reads_below_zero() {
+        assert_eq!(decicelsius(2732), 0);
+        assert_eq!(decicelsius(2632), -100);
+    }
+
+    /// The pack's own packed form, taken from a real label: 2026-05-14.
+    #[test]
+    fn a_packed_date_unpacks_to_the_day_the_pack_was_built() {
+        let packed = ((2026 - 1980) << 9) | (5 << 5) | 0x0e;
+        assert_eq!(manufactured_iso(packed).as_deref(), Some("2026-05-14"));
+    }
+
+    /// A register nobody wrote reads as zeros, which is not the first of
+    /// January 1980.
+    #[test]
+    fn an_unwritten_date_register_is_no_date_at_all() {
+        assert_eq!(manufactured_iso(0), None);
+        // A year with a day but no month, and a month past December.
+        assert_eq!(manufactured_iso(1), None);
+        assert_eq!(manufactured_iso((13 << 5) | 1), None);
+    }
+
+    /// The ordinary reading: initialized and discharging, both states rather
+    /// than alarms.
+    #[test]
+    fn a_pack_running_normally_raises_no_alarm() {
+        assert!(alarms(0x00c0).is_empty());
+    }
+
+    #[test]
+    fn each_alarm_bit_is_named() {
+        assert_eq!(alarms(1 << 15), vec![wire::BatteryAlarm::OverCharged]);
+        assert_eq!(alarms(1 << 12), vec![wire::BatteryAlarm::OverTemperature]);
+    }
+
+    /// The bits a healthy pack sets in the course of its work: full, empty,
+    /// asking that charging or discharging end. Reading any of them as a fault
+    /// would put a red row on a battery that had merely finished charging.
+    #[test]
+    fn the_states_a_working_pack_sets_are_not_faults() {
+        for bit in [1 << 14, 1 << 11, 1 << 9, 1 << 8, 1 << 5, 1 << 4] {
+            assert!(alarms(bit).is_empty(), "bit {bit:#x} read as an alarm");
+        }
+    }
+
+    /// Neither terminate alarm means anything alone, and the gauge raises each
+    /// only in the direction it applies to — one while charging, the other
+    /// while discharging. Both at once is the safety alert or permanent
+    /// failure that is the only other way either is set.
+    #[test]
+    fn asking_to_stop_both_ways_at_once_is_a_fault() {
+        let both = SB_TERMINATE_CHARGE | SB_TERMINATE_DISCHARGE;
+        assert_eq!(alarms(both), vec![wire::BatteryAlarm::SafetyFault]);
+        // And still a fault beside the state bits a pack sets while it holds.
+        assert_eq!(alarms(both | 0x00c0), vec![wire::BatteryAlarm::SafetyFault]);
+    }
+
+    /// Alarms are a set, not a state: a pack in trouble raises several at
+    /// once, and reporting only the first would hide the rest.
+    #[test]
+    fn a_pack_in_trouble_raises_every_alarm_it_has() {
+        let status = (1 << 15) | (1 << 12) | 0x00c0;
+        assert_eq!(
+            alarms(status),
+            vec![
+                wire::BatteryAlarm::OverCharged,
+                wire::BatteryAlarm::OverTemperature
+            ]
+        );
+    }
 
     /// A charger attached and the pack held at its ceiling: the EC claiming
     /// no direction, nothing moving. Each case below names only what it

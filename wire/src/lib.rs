@@ -43,10 +43,11 @@ pub const HAPTIC_INTENSITY_LEVELS: [u8; 5] = [0, 25, 50, 75, 100];
 #[zvariant(crate = "zbus::zvariant", signature = "s")]
 #[serde(rename_all = "kebab-case")]
 pub enum Capability {
-    /// A pack the EC's memmap block answers for. The only reading in the
-    /// interface that moves on its own, and the only one no setter pairs
-    /// with.
-    BatteryState,
+    /// A pack the EC's memmap block answers for, and so [`BatteryInfo`] — the
+    /// one reading here that no setter pairs with. Named for the pack rather
+    /// than for a method, because what a board either has or hasn't is the
+    /// battery; which calls that makes answerable is this end's business.
+    Battery,
     ChargeLimit,
     ChargeCurrentLimit,
     KeyboardBacklight,
@@ -60,9 +61,73 @@ pub enum Capability {
     /// LED class, so this capability answers for that interface rather than
     /// for a command version.
     FpOff,
+    /// What the pack says about itself past the EC's summary of it — its
+    /// temperature, its cell voltages, and the alarms it is raising. One name
+    /// for all three: they are the same device over the same transport,
+    /// reached by the same passthrough, so a board answering for one answers
+    /// for the others.
+    BatteryCondition,
     /// One name for both touchpad controls — same device, same firmware
     /// feature set, so nothing can support one and not the other.
     HapticTouchpad,
+}
+
+/// Something wrong with the pack, as the pack itself judges it — named rather
+/// than left as the bit it is decoded from, the same reason [`ChargeFlow`] is
+/// a name.
+///
+/// Only the two the gauge raises for a fault. Its status word carries four
+/// more that read like warnings and are not: the terminate-charge and
+/// terminate-discharge alarms are how a pack asks for charging or discharging
+/// to end, which it does at every full charge and every empty one — the
+/// datasheet counts "valid charge terminations" as a lifetime statistic. The
+/// remaining-time and remaining-capacity alarms fire against thresholds the
+/// host sets, which on a laptop is the desktop's job and not this app's. And
+/// the fully-charged, fully-discharged, discharging and initialized bits are
+/// states rather than alarms — the EC's own console prints them as a separate
+/// group, and the charge percentage says all four better.
+#[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug)]
+#[zvariant(crate = "zbus::zvariant", signature = "s")]
+#[serde(rename_all = "kebab-case")]
+pub enum BatteryAlarm {
+    /// Charged past what the pack considers safe.
+    OverCharged,
+    OverTemperature,
+    /// The pack asking that charging *and* discharging both stop, which it
+    /// does for a safety alert, a permanent failure, or a pack reporting
+    /// itself absent.
+    ///
+    /// Derived from two bits rather than read from one, and sound because the
+    /// two cannot both be raised by ordinary operation: each is set routinely
+    /// only from the gauge's own termination logic, one of which requires the
+    /// pack to be charging and the other to be discharging. Together they
+    /// leave no reading but a fault — and they are the only sight this
+    /// interface has of the over-current and under-voltage faults, which the
+    /// two alarms above do not cover.
+    SafetyFault,
+}
+
+/// What the pack reports about itself that the EC's block does not carry.
+///
+/// Every part of it comes from the pack over the EC's I2C passthrough, in one
+/// call because one reader wants them together and each transfer is a message
+/// to a device the EC is also driving.
+#[derive(Serialize, Deserialize, Type, Clone, PartialEq, Eq, Debug)]
+#[zvariant(crate = "zbus::zvariant")]
+pub struct BatteryCondition {
+    /// Each cell's terminal voltage in mV, in the order the pack numbers them.
+    /// What these are worth is the spread between them: the EC publishes only
+    /// the pack total, which stays healthy-looking while one cell drifts.
+    pub cell_millivolts: Vec<u32>,
+    /// Empty on a pack raising none, which is the ordinary case.
+    pub alarms: Vec<BatteryAlarm>,
+    /// The pack's own temperature in tenths of a degree Celsius, which is the
+    /// resolution its sensor works in — whole degrees would be this end
+    /// rounding away what the pack measured. The EC polls this same sensor and
+    /// republishes it whole into its thermal array; read here first-hand, it
+    /// is current rather than last-polled, and answers on boards whose EC does
+    /// not relay it.
+    pub decicelsius: i16,
 }
 
 /// What the pack is doing, which is not the same question as what the EC's
@@ -101,6 +166,55 @@ pub struct BatteryState {
     /// power a rate carries has to be taken against this reading rather than
     /// against the pack's nominal voltage.
     pub millivolts: u32,
+}
+
+/// Everything the EC's memmap battery block says about the pack, for a reader
+/// looking at the pack itself rather than at the controls that shape it.
+/// The block is fetched whole or not at all, and [`BatteryState`] — its moving
+/// part — is what a caller showing only a charge takes out of it. Carried as
+/// that struct rather than restated as fields, so a report and the row above
+/// it cannot come from two different moments.
+///
+/// What the pack says about *itself* is deliberately absent — its temperature,
+/// its cells, its alarms. Those are reached over the EC's I2C passthrough
+/// rather than read from this block, cost a transfer apiece, and are asked for
+/// separately under [`Capability::BatteryCondition`].
+#[derive(Serialize, Deserialize, Type, Clone, PartialEq, Eq, Debug)]
+#[zvariant(crate = "zbus::zvariant")]
+pub struct BatteryInfo {
+    pub state: BatteryState,
+    /// What the pack holds now, in mAh.
+    pub remaining_capacity: u32,
+    /// What it last charged to in full, in mAh, and the denominator behind
+    /// `state.percent`. It falls as the pack ages, which is what lets a pack
+    /// read 100% while holding less than it once did.
+    pub last_full_capacity: u32,
+    /// What it was built to hold, in mAh. Taken against `last_full_capacity`
+    /// it is the pack's wear.
+    pub design_capacity: u32,
+    /// The pack's nominal voltage in mV — what it is rated at, where
+    /// `state.millivolts` is what it reads now.
+    pub design_millivolts: u32,
+    /// The pack's own count where it answers, and the EC's published copy
+    /// otherwise — which is a floor rather than a reading, being frozen at
+    /// whenever the EC last initialized the battery.
+    pub cycle_count: u32,
+    /// Whether a charger is attached, which `state.flow` does not settle: one
+    /// too weak to cover the machine leaves the pack making up the
+    /// difference, and that reads as discharging with a charger plugged in.
+    pub charger_connected: bool,
+    /// The EC's own low-charge alarm — its threshold, not one this app picks.
+    pub critical: bool,
+    pub manufacturer: String,
+    pub model: String,
+    pub serial: String,
+    /// The cell chemistry, which the EC's memmap calls the battery type.
+    pub chemistry: String,
+    /// When the pack was built, as `YYYY-MM-DD`, and empty where it does not
+    /// say. A date has no D-Bus type of its own, and ISO-8601 is the value's
+    /// own written form rather than either end's convenience — which is why it
+    /// travels as text where every other figure here travels as a number.
+    pub manufactured: String,
 }
 
 /// Fingerprint LED levels.
@@ -181,8 +295,8 @@ pub trait Frameguin {
     async fn set_charge_limit(&self, percent: u8) -> zbus::Result<bool>;
     async fn get_charge_current_limit(&self) -> zbus::Result<u32>;
     async fn set_charge_current_limit(&self, milliamps: u32) -> zbus::Result<bool>;
-    async fn get_battery_design_capacity(&self) -> zbus::Result<u32>;
-    async fn get_battery_state(&self) -> zbus::Result<BatteryState>;
+    async fn get_battery_info(&self) -> zbus::Result<BatteryInfo>;
+    async fn get_battery_condition(&self) -> zbus::Result<BatteryCondition>;
     async fn get_keyboard_backlight(&self) -> zbus::Result<u8>;
     async fn set_keyboard_backlight(&self, percent: u8) -> zbus::Result<()>;
     async fn get_capabilities(&self) -> zbus::Result<Vec<Capability>>;

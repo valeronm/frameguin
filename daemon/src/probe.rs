@@ -24,12 +24,23 @@ use crate::{led, touchpad};
 pub(crate) fn capabilities(ec: Option<&Ec>) -> Vec<wire::Capability> {
     let mut caps = Vec::new();
     if let Some(ec) = ec {
-        // The getter's own read, run for its answer rather than for a version
-        // or a neighbouring command: a pack that reports nothing here is
-        // exactly the one whose state cannot be shown.
-        let battery = ec.battery_state().is_some();
+        // The report's own walk, run for the one thing that can stop it
+        // answering rather than for a version or a neighbouring command: a
+        // pack that reports nothing here is exactly the one whose state cannot
+        // be shown.
+        let battery = ec.battery_present();
         if battery {
-            caps.push(wire::Capability::BatteryState);
+            caps.push(wire::Capability::Battery);
+            // The getter's own read, and the only probe here that
+            // reaches the pack rather than the EC: what it answers for is the
+            // I2C passthrough working, which nothing about a readable memmap
+            // promises. Nested under a readable pack because these are lines
+            // of its report rather than readings offered on their own — and
+            // because a mainboard running with no battery must not spend
+            // transfers asking one what it thinks.
+            if ec.battery_condition().is_some() {
+                caps.push(wire::Capability::BatteryCondition);
+            }
         }
         if ec.charge_limit().is_ok() {
             caps.push(wire::Capability::ChargeLimit);
