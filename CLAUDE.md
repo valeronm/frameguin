@@ -180,6 +180,10 @@ the LED node rather than consulting `fp-off`.
   files and need sudo, so the user runs them.
 - `clippy::pedantic` is on workspace-wide and CI gates on `-D warnings`, so
   both crates build warning-free. CI lints only the binaries, not test code.
+- CI also gates on `cargo fmt --all --check`, with the style edition pinned
+  in `rustfmt.toml` rather than inferred from each crate's own edition — so
+  an edition bump cannot reformat the tree as a side effect. Run `cargo fmt`
+  before pushing; nothing local enforces it.
 - Smoke test: run `target/debug/frameguin`. The app is single-instance, so a
   second launch only activates the resident one — kill it first to exercise
   a fresh build.

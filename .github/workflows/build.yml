@@ -34,7 +34,7 @@ jobs:
           rust_version=$(sed -n 's/^rust = "\(.*\)"$/\1/p' mise.toml)
           deb_version=$(sed -n 's/^"cargo:cargo-deb" = "\(.*\)"$/\1/p' mise.toml)
           echo "deb=$deb_version" >>"$GITHUB_OUTPUT"
-          rustup toolchain install "$rust_version" --profile minimal --component clippy
+          rustup toolchain install "$rust_version" --profile minimal --component clippy,rustfmt
           rustup default "$rust_version"
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
@@ -59,6 +59,9 @@ jobs:
         # install.sh runs as root and get.sh is fetched straight into a shell,
         # so they get the same scrutiny as the code.
         run: |
+          # First because it compiles nothing: a formatting slip fails here in
+          # seconds rather than after clippy has built the workspace.
+          cargo fmt --all --check
           shellcheck install.sh packaging/*.sh
           cargo clippy --workspace --release -- -D warnings
           # Release so the dependency artifacts carry over to the packages
