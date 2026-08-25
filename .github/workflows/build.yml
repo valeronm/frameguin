@@ -99,23 +99,33 @@ jobs:
     permissions:
       contents: write
     steps:
+      # Before the download: checkout cleans the workspace, which would take
+      # the artifacts with it. Only the changelog the notes are rendered from
+      # is needed here, so the default shallow fetch is enough.
+      - uses: actions/checkout@v7
+
       - uses: actions/download-artifact@v8
         with:
           name: packages
           path: dist
 
       - name: Create or update release
-        # update path: a moved tag (rebuilt release) replaces the assets
-        # instead of failing on the existing release
+        # update path: a moved tag (rebuilt release) replaces the assets and
+        # the notes instead of failing on the existing release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           assets=$(find dist -type f)
+          # Outside dist, so it cannot be picked up as a release asset.
+          ./packaging/release-notes.sh >"$RUNNER_TEMP/notes.md"
           if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$GITHUB_REF_NAME" $assets --clobber --repo "$GITHUB_REPOSITORY"
+            gh release edit "$GITHUB_REF_NAME" \
+              --repo "$GITHUB_REPOSITORY" \
+              --notes-file "$RUNNER_TEMP/notes.md"
           else
             gh release create "$GITHUB_REF_NAME" $assets \
               --repo "$GITHUB_REPOSITORY" \
               --title "frameguin $GITHUB_REF_NAME" \
-              --generate-notes
+              --notes-file "$RUNNER_TEMP/notes.md"
           fi

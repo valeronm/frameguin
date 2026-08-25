@@ -277,7 +277,9 @@ other. Bump them all, then tag:
 `check-version.sh` cross-checks the copies against `Cargo.toml`; `--expect`
 adds the tag. A release that would fail in CI fails here first. Pushing the
 tag builds both artifacts and attaches them, with the tarball's checksum, to
-a GitHub release.
+a GitHub release whose body is the newest changelog stanza, rendered by
+`packaging/release-notes.sh` — so the bullets written for `apt changelog`
+are what the release page says too.
 The same workflow runs on every push to `main` and every pull request without
 the release step.
 
