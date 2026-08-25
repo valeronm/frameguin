@@ -358,11 +358,18 @@ Firmware reaches it through a helper instead. `STSP(on, delay, pad)` calls
 `\_SB.SGOV` on pad `0x001A1012`, and the EC's lid queries call it: `_Q01` on
 lid close with 0, `_Q02` on lid open with 1 after a 250 ms settle. The
 platform's screen-on notification calls it with 1 as well. The pad constant is
-not decoded here beyond its low byte, 18, matching `GPP_B_18` — but **opening
-the lid was observed to switch touch back on** after this control had switched
-it off, which is what identifies the pad rather than the arithmetic. Whether
-screen-on drives it independently of the lid has not been observed, only read
-off the tables. Either way, an app-set "off" is not durable against a lid.
+not decoded here beyond its low byte, 18, matching `GPP_B_18` — what
+identifies the pad is the observation rather than the arithmetic: **with the
+pad driven low and the line released, opening the lid drove it high**, watched
+directly in the pin dump with `systemd-inhibit` holding the lid switch so no
+suspend could account for it. The pad had held low for twenty seconds before
+that, which is the control case for the same run. Lid close was invisible
+because it drives low and the pad was already there. The screen-on call site
+did **not** fire in the same test: blanking and waking the display through
+GNOME's screensaver left the pad low throughout. So that call exists in the
+tables without being reached by an ordinary blank — which is worth knowing
+mostly as a warning that the tables list more callers than a session will
+exercise. The lid is the one that costs a user their setting.
 
 **Off does not survive a suspend** — observed, and explicable from two
 directions at once: the pad returns to its firmware default on resume, and
