@@ -18,7 +18,7 @@
 use std::rc::Rc;
 
 use adw::prelude::*;
-use frameguin_wire::Capability;
+use frameguin_wire::{Capability, cause};
 use gtk4 as gtk;
 use gtk4::gio;
 use gtk4::glib;
@@ -59,6 +59,9 @@ struct Report {
     voltage: gtk::Label,
     power: gtk::Label,
     charger: gtk::Label,
+    /// Hidden on a board whose pack will not answer over I2C, which is the
+    /// same capability the spread's row below waits on.
+    temperature_row: adw::ActionRow,
     temperature: gtk::Label,
     /// Shown only while the EC's own low-charge alarm stands, which is the
     /// one thing here a reader should not have to go looking for.
@@ -199,7 +202,61 @@ fn present(app: &adw::Application, feed: &Rc<Feed>) {
 /// window.
 fn build(app: &adw::Application, feed: &Rc<Feed>) -> adw::Window {
     let page = adw::PreferencesPage::new();
+    let report = build_rows(&page);
 
+    let view = adw::ToolbarView::new();
+    view.add_top_bar(&adw::HeaderBar::new());
+    view.set_content(Some(&page));
+    let toasts = adw::ToastOverlay::new();
+    toasts.set_child(Some(&view));
+
+    let window = adw::Window::builder()
+        .application(app)
+        .title("Battery")
+        .default_width(420)
+        // Tall enough for every group at the default font scale; re-measure
+        // when the rows change.
+        .default_height(680)
+        .content(&toasts)
+        .build();
+    window.set_widget_name(WINDOW_NAME);
+
+    let feed = feed.clone();
+    glib::spawn_future_local(async move {
+        // Asked only for the rows that a board can lack. The report is
+        // reachable only from a reading the board already has, so nothing else
+        // here is in question by the time this window exists — and an ask that
+        // fails leaves those rows out, which is the same as a board without
+        // them.
+        let caps = feed.capabilities().await.unwrap_or_default();
+        let wants = Wants {
+            condition: caps.has(Capability::BatteryCondition),
+        };
+        // Both rows read the pack over I2C, so one capability answers for the
+        // pair.
+        report.temperature_row.set_visible(wants.condition);
+        report.spread_row.set_visible(wants.condition);
+        // Subscribed before the window is filled, so that filling it is the
+        // feed's own read rather than a second assembly of one here — two
+        // spellings of what a reading consists of would drift the first time
+        // it grows a part. The subscription hangs on the page rather than the
+        // window: it is the widget that unmaps with the report, and every row
+        // fed from here is inside it.
+        show_while_mapped(&feed, &page, wants, move |reading| report.show(reading));
+        // The one read here that announces a failure. From now on the feed
+        // reads on its own schedule, silently, as every repeating read in this
+        // app does.
+        if let Err(e) = feed.read().await {
+            let message = format!("Reading the battery failed: {}", cause(&e));
+            toasts.add_toast(adw::Toast::new(&message));
+        }
+    });
+
+    window
+}
+
+/// Every row of the report, added to `page` in the order they are read in.
+fn build_rows(page: &adw::PreferencesPage) -> Rc<Report> {
     let status_group = adw::PreferencesGroup::builder().title("Status").build();
     let (charge_row, charge) = value_row(&status_group, "Charge");
     let current = value(&status_group, "Current");
@@ -257,30 +314,14 @@ fn build(app: &adw::Application, feed: &Rc<Feed>) -> adw::Window {
     let manufacture_date = value(&pack_group, "Manufactured");
     page.add(&pack_group);
 
-    let view = adw::ToolbarView::new();
-    view.add_top_bar(&adw::HeaderBar::new());
-    view.set_content(Some(&page));
-    let toasts = adw::ToastOverlay::new();
-    toasts.set_child(Some(&view));
-
-    let window = adw::Window::builder()
-        .application(app)
-        .title("Battery")
-        .default_width(420)
-        // Tall enough for every group at the default font scale; re-measure
-        // when the rows change.
-        .default_height(680)
-        .content(&toasts)
-        .build();
-    window.set_widget_name(WINDOW_NAME);
-
-    let report = Rc::new(Report {
+    Rc::new(Report {
         charge_row,
         charge,
         current,
         voltage,
         power,
         charger,
+        temperature_row,
         temperature,
         critical_row,
         alarm_row,
@@ -297,38 +338,5 @@ fn build(app: &adw::Application, feed: &Rc<Feed>) -> adw::Window {
         model,
         serial,
         manufacture_date,
-    });
-
-    let feed = feed.clone();
-    glib::spawn_future_local(async move {
-        // Asked only for the rows that a board can lack. The report is
-        // reachable only from a reading the board already has, so nothing else
-        // here is in question by the time this window exists — and an ask that
-        // fails leaves those rows out, which is the same as a board without
-        // them.
-        let caps = feed.capabilities().await.unwrap_or_default();
-        let wants = Wants {
-            condition: caps.has(Capability::BatteryCondition),
-        };
-        // Both rows read the pack over I2C, so one capability answers for the
-        // pair — and neither is a field of `Report`, since nothing after this
-        // moves them.
-        temperature_row.set_visible(wants.condition);
-        report.spread_row.set_visible(wants.condition);
-        // Subscribed before the window is filled, so that filling it is the
-        // feed's own read rather than a second assembly of one here — two
-        // spellings of what a reading consists of would drift the first time
-        // it grows a part. The subscription hangs on the page rather than the
-        // window: it is the widget that unmaps with the report, and every row
-        // fed from here is inside it.
-        show_while_mapped(&feed, &page, wants, move |reading| report.show(reading));
-        // The one read here that announces a failure. From now on the feed
-        // reads on its own schedule, silently, as every repeating read in this
-        // app does.
-        if let Err(e) = feed.read().await {
-            toasts.add_toast(adw::Toast::new(&format!("Reading the battery failed: {e}")));
-        }
-    });
-
-    window
+    })
 }

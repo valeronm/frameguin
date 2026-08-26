@@ -13,7 +13,7 @@ use std::time::Duration;
 use adw::prelude::*;
 use frameguin_wire::{
     BatteryState, Capability, ClickForce, FrameguinProxy, HAPTIC_INTENSITY_LEVELS,
-    NO_CHARGE_CURRENT_LIMIT, PowerLedLevel,
+    NO_CHARGE_CURRENT_LIMIT, PowerLedLevel, cause,
 };
 use gtk4 as gtk;
 use gtk4::gdk;
@@ -187,6 +187,15 @@ pub(crate) struct Ui {
 impl Ui {
     fn toast(&self, message: &str) {
         self.toasts.add_toast(adw::Toast::new(message));
+    }
+
+    /// A call that failed, named by what was being attempted — "Setting the
+    /// charge limit", "Reading the battery". The sentence is built here rather
+    /// than at each site so that every failure loses the D-Bus error name and
+    /// none has to remember to; what each site still spells is its own half,
+    /// which is the half no other site could supply.
+    fn toast_error(&self, attempt: &str, error: &zbus::Error) {
+        self.toast(&format!("{attempt} failed: {}", cause(error)));
     }
 
     /// Moves widgets to match the hardware without their handlers writing the
@@ -457,7 +466,7 @@ fn connect_touchpad_setters(ui: &Rc<Ui>, proxy: &FrameguinProxy<'static>) {
         let proxy = haptic_proxy.clone();
         glib::spawn_future_local(async move {
             if let Err(e) = proxy.set_haptic_intensity(percent).await {
-                ui.toast(&format!("Setting haptic intensity failed: {e}"));
+                ui.toast_error("Setting haptic intensity", &e);
             }
         });
     });
@@ -473,7 +482,7 @@ fn connect_touchpad_setters(ui: &Rc<Ui>, proxy: &FrameguinProxy<'static>) {
         let proxy = force_proxy.clone();
         glib::spawn_future_local(async move {
             if let Err(e) = proxy.set_touchpad_click_force(force).await {
-                ui.toast(&format!("Setting click force failed: {e}"));
+                ui.toast_error("Setting click force", &e);
             }
         });
     });
@@ -493,6 +502,12 @@ impl Sink<'_> {
     fn toast(&self, message: &str) {
         if let Sink::Window(ui) = self {
             ui.toast(message);
+        }
+    }
+
+    fn toast_error(&self, attempt: &str, error: &zbus::Error) {
+        if let Sink::Window(ui) = self {
+            ui.toast_error(attempt, error);
         }
     }
 
@@ -582,7 +597,7 @@ pub(crate) async fn apply_charge_limit(
             }
             sink.show_charge_limit(percent, custom);
         }
-        Err(e) => sink.toast(&format!("Setting charge limit failed: {e}")),
+        Err(e) => sink.toast_error("Setting charge limit", &e),
     }
 }
 
@@ -598,7 +613,7 @@ pub(crate) async fn apply_charge_speed(
     let written = match proxy.set_charge_current_limit(milliamps).await {
         Ok(written) => written,
         Err(e) => {
-            sink.toast(&format!("Setting charge speed failed: {e}"));
+            sink.toast_error("Setting charge speed", &e);
             return;
         }
     };
@@ -621,7 +636,7 @@ pub(crate) async fn apply_power_led_level(
     level: PowerLedLevel,
 ) {
     if let Err(e) = proxy.set_power_led_level(level).await {
-        sink.toast(&format!("Setting power button LED level failed: {e}"));
+        sink.toast_error("Setting power button LED level", &e);
         return;
     }
     sink.show_power_led_level(level);
@@ -651,7 +666,7 @@ pub(crate) async fn apply_touchscreen(
     match proxy.set_touchscreen_enabled(enabled).await {
         Ok(()) => sink.show_touchscreen(enabled),
         Err(e) => {
-            sink.toast(&format!("Switching the touchscreen failed: {e}"));
+            sink.toast_error("Switching the touchscreen", &e);
             sink.restore_touchscreen(!enabled);
         }
     }
@@ -662,7 +677,7 @@ pub(crate) async fn apply_touchscreen(
 /// than leaving each caller to remember it.
 async fn apply_power_led_brightness(ui: &Ui, proxy: &FrameguinProxy<'static>, percent: u8) {
     if let Err(e) = proxy.set_power_led_brightness(percent).await {
-        ui.toast(&format!("Setting power button LED brightness failed: {e}"));
+        ui.toast_error("Setting power button LED brightness", &e);
         return;
     }
     ui.sync_tray(TrayValues::power_led_level(PowerLedLevel::Custom));
@@ -766,7 +781,7 @@ fn connect_kbd_setter(ui: &Rc<Ui>, proxy: &FrameguinProxy<'static>) {
         debounce(&kbd_write_slot, SLIDER_DEBOUNCE, move || {
             glib::spawn_future_local(async move {
                 if let Err(e) = proxy.set_keyboard_backlight(value).await {
-                    ui.toast(&format!("Setting keyboard backlight failed: {e}"));
+                    ui.toast_error("Setting keyboard backlight", &e);
                 }
             });
         });
@@ -1499,7 +1514,7 @@ async fn load_battery_values(ui: &Rc<Ui>, proxy: &FrameguinProxy<'static>) -> Tr
                 values.battery = Some(info.state);
                 design_capacity = Some(info.design_capacity);
             }
-            Err(e) => ui.toast(&format!("Reading the battery failed: {e}")),
+            Err(e) => ui.toast_error("Reading the battery", &e),
         }
     }
     if caps.has(Capability::ChargeLimit) {
@@ -1512,7 +1527,7 @@ async fn load_battery_values(ui: &Rc<Ui>, proxy: &FrameguinProxy<'static>) -> Tr
                 });
                 values.charge_limit = Some(limit);
             }
-            Err(e) => ui.toast(&format!("Reading charge limit failed: {e}")),
+            Err(e) => ui.toast_error("Reading charge limit", &e),
         }
     }
     if caps.has(Capability::ChargeCurrentLimit) {
@@ -1552,7 +1567,7 @@ async fn load_battery_values(ui: &Rc<Ui>, proxy: &FrameguinProxy<'static>) -> Tr
                 });
                 values.charge_current_limit = Some(milliamps);
             }
-            Err(e) => ui.toast(&format!("Reading charge speed failed: {e}")),
+            Err(e) => ui.toast_error("Reading charge speed", &e),
         }
     }
     // Read above if the capability is there at all, and only once per run.
@@ -1575,7 +1590,7 @@ async fn load_values(ui: &Rc<Ui>, proxy: &FrameguinProxy<'static>) {
                 ui.kbd_scale.set_value(f64::from(percent));
                 ui.kbd_scale.set_sensitive(true);
             }),
-            Err(e) => ui.toast(&format!("Reading keyboard backlight failed: {e}")),
+            Err(e) => ui.toast_error("Reading keyboard backlight", &e),
         }
     }
     if caps.has(Capability::PowerLedBrightness) {
@@ -1589,7 +1604,7 @@ async fn load_values(ui: &Rc<Ui>, proxy: &FrameguinProxy<'static>) {
                 });
                 values.power_led_level = Some(level);
             }
-            Err(e) => ui.toast(&format!("Reading power button LED brightness failed: {e}")),
+            Err(e) => ui.toast_error("Reading power button LED brightness", &e),
         }
     }
     if caps.has(Capability::HapticTouchpad) {
@@ -1601,7 +1616,7 @@ async fn load_values(ui: &Rc<Ui>, proxy: &FrameguinProxy<'static>) {
                     ui.haptic_combo.set_sensitive(true);
                 });
             }
-            Err(e) => ui.toast(&format!("Reading haptic intensity failed: {e}")),
+            Err(e) => ui.toast_error("Reading haptic intensity", &e),
         }
         match proxy.get_touchpad_click_force().await {
             Ok(force) => {
@@ -1611,7 +1626,7 @@ async fn load_values(ui: &Rc<Ui>, proxy: &FrameguinProxy<'static>) {
                     ui.force_combo.set_sensitive(true);
                 });
             }
-            Err(e) => ui.toast(&format!("Reading click force failed: {e}")),
+            Err(e) => ui.toast_error("Reading click force", &e),
         }
     }
     if caps.has(Capability::Touchscreen) {
@@ -1624,7 +1639,7 @@ async fn load_values(ui: &Rc<Ui>, proxy: &FrameguinProxy<'static>) {
                 ui.touchscreen_switch.set_sensitive(true);
                 values.touchscreen = Some(enabled);
             }
-            Err(e) => ui.toast(&format!("Reading the touchscreen failed: {e}")),
+            Err(e) => ui.toast_error("Reading the touchscreen", &e),
         }
     }
     ui.sync_tray(values);

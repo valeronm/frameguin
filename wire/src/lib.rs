@@ -297,6 +297,23 @@ impl ClickForce {
     pub const ALL: [Self; 3] = [Self::Low, Self::Medium, Self::High];
 }
 
+/// What a failed call says, without the D-Bus error name in front of it.
+///
+/// The two ends meet in this as much as in the vocabularies above, and again
+/// neither can see the other's half: the daemon puts a sentence a reader can
+/// act on in the error's detail — "not authorized", "no battery present" —
+/// and zbus renders the pair as "{name}: {detail}", the name being machine
+/// vocabulary in front of it. Taking the detail alone is what makes writing
+/// that half worth the daemon's trouble. Anything but a method error renders
+/// whole, having no better half to show.
+#[must_use]
+pub fn cause(error: &zbus::Error) -> String {
+    match error {
+        zbus::Error::MethodError(_, Some(detail), _) => detail.clone(),
+        other => other.to_string(),
+    }
+}
+
 // No default_service or default_path: they would restate BUS_NAME and
 // OBJECT_PATH as literals the attribute can't read a const into, leaving two
 // spellings of each with nothing checking they agree. Callers name them once,
@@ -327,4 +344,40 @@ pub trait Frameguin {
     /// asked — including a value some other writer, or a boot, put there.
     async fn get_touchscreen_enabled(&self) -> zbus::Result<bool>;
     async fn set_touchscreen_enabled(&self, enabled: bool) -> zbus::Result<()>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{OBJECT_PATH, cause};
+
+    fn method_error(detail: Option<&str>) -> zbus::Error {
+        let reply = zbus::Message::method_call(OBJECT_PATH, "SetChargeLimit")
+            .unwrap()
+            .build(&())
+            .unwrap();
+        zbus::Error::MethodError(
+            "org.freedesktop.DBus.Error.AccessDenied"
+                .try_into()
+                .unwrap(),
+            detail.map(ToString::to_string),
+            reply,
+        )
+    }
+
+    /// Declining the polkit prompt is the failure every user meets, and the
+    /// daemon's own half of it is already the sentence they need.
+    #[test]
+    fn a_method_error_reads_as_its_detail_alone() {
+        assert_eq!(
+            cause(&method_error(Some("not authorized"))),
+            "not authorized"
+        );
+    }
+
+    /// The name is all there is where a reply carries no detail, so it stays
+    /// rather than leaving the sentence trailing nothing.
+    #[test]
+    fn an_error_without_detail_keeps_what_it_has() {
+        assert!(cause(&method_error(None)).contains("AccessDenied"));
+    }
 }
