@@ -161,7 +161,7 @@ fn main() -> glib::ExitCode {
         b'V'.into(),
         glib::OptionFlags::NONE,
         glib::OptionArg::None,
-        "Show the version",
+        "Print the version",
         None,
     );
     // The About window's report, for the no-display and window-won't-open
@@ -192,7 +192,7 @@ fn main() -> glib::ExitCode {
 
     app.add_action_entries([
         // An action rather than a handler on either caller: the window's
-        // charge row and the tray's reading both open the report, and only an
+        // status row and the tray's reading both open the report, and only an
         // action reaches it from the tray, which builds no widgets and holds
         // no window. The entry is the report's own, so nothing here can reach
         // past it to the window it opens.

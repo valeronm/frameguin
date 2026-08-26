@@ -17,7 +17,8 @@ Computer Inc. Licensed under the [MIT License](LICENSE).
 
 - **Battery** — the current flowing in or out, a ceiling on how full it
   charges, and a cap on the charging rate.
-- **Fingerprint reader** — LED brightness as a level or a percentage, and off.
+- **Power button LED** — brightness as a level or a percentage. The fingerprint
+  reader shares the button; nothing here touches the reader.
 - **Touchpad** — haptic click intensity and click force.
 - **Display** — switching the touchscreen off.
 

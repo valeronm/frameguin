@@ -21,8 +21,10 @@ of them rather than failing.
 Run without options,
 .B frameguin
 opens its window. Closing the window hides it to the tray where one exists;
+.B Quit Frameguin
+in the tray, or
 .B Quit
-in the tray or the main menu exits.
+in the main menu, exits.
 .SH OPTIONS
 .TP
 .BR \-V ", " \-\-version

@@ -1,13 +1,13 @@
 //! The pack's reading, taken once however many windows are showing it.
 //!
-//! The window's charge row and the battery report render the same walk of the
+//! The window's status row and the battery report render the same walk of the
 //! EC's battery block. Polled per window that is one pack read twice on two
 //! schedules — an EC paying twice for one answer, and two windows that can sit
 //! a tick apart on a figure neither of them owns. So a view says what it wants
 //! shown and the feed does the reading: one timer, one call, every view fed
 //! from the same answer.
 //!
-//! The reading is always the whole block, never the summary the charge row
+//! The reading is always the whole block, never the summary the status row
 //! alone would need. The daemon walks the same memmap for either, and the two
 //! figures it reaches past the memmap for are asked of the pack once per
 //! daemon run and remembered — so the wide call costs a few strings of
@@ -36,7 +36,7 @@ use crate::daemon_proxy;
 use crate::mapped::{Timer, while_mapped};
 
 /// How often the block is read while anything is showing it. One rate for
-/// every view now that they share the read: the charge row's, which is the
+/// every view now that they share the read: the status row's, which is the
 /// pace a charge current settling after a limit engages is worth watching at.
 const READING_SECONDS: u32 = 2;
 
@@ -235,7 +235,7 @@ impl Feed {
     /// Takes one reading, shows it on every view, and hands it back.
     ///
     /// Returned as well as broadcast for the caller that needs the block in
-    /// hand rather than on screen — the window fills its charge row from the
+    /// hand rather than on screen — the window fills its status row from the
     /// same read it pushes to the tray, so neither is a second reading taken a
     /// moment apart from the other.
     ///

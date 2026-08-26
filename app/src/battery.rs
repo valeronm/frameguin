@@ -5,7 +5,7 @@
 //! no debounce, no tray push — and keeping it apart is what stops that
 //! machinery being reached for out of habit when a row is added.
 //!
-//! Both front-ends open it, the window's charge row and the tray's reading,
+//! Both front-ends open it, the window's status row and the tray's reading,
 //! and neither builds it: they activate `app.battery-details`, which lands
 //! here. That is what lets the tray open the report with no window built, and
 //! what keeps a second click from putting a second report on screen — the one
@@ -24,8 +24,8 @@ use gtk4::gio;
 use gtk4::glib;
 
 use crate::format::{
-    alarms_label, capacity, cell_spread, cell_voltages, charge_direction, charger_label,
-    health_label, milliamps, percent_label, power_label, temperature, text_or_unknown, volts,
+    alarms_label, capacity, cell_spread, cell_voltages, charge_direction, charger_label, milliamps,
+    percent_label, power_label, retention_label, temperature, text_or_unknown, volts,
 };
 use crate::reading::{Feed, Reading, Wants, show_while_mapped};
 
@@ -75,7 +75,7 @@ struct Report {
     remaining: gtk::Label,
     last_full: gtk::Label,
     design_capacity: gtk::Label,
-    health: gtk::Label,
+    retention: gtk::Label,
     cycles: gtk::Label,
     chemistry: gtk::Label,
     design_voltage: gtk::Label,
@@ -122,8 +122,10 @@ impl Report {
             .set_label(&capacity(info.last_full_capacity, info.design_millivolts));
         self.design_capacity
             .set_label(&capacity(info.design_capacity, info.design_millivolts));
-        self.health
-            .set_label(&health_label(info.last_full_capacity, info.design_capacity));
+        self.retention.set_label(&retention_label(
+            info.last_full_capacity,
+            info.design_capacity,
+        ));
         self.cycles.set_label(&info.cycle_count.to_string());
 
         self.chemistry.set_label(text_or_unknown(&info.chemistry));
@@ -198,18 +200,18 @@ fn present(app: &adw::Application, feed: &Rc<Feed>) {
 fn build(app: &adw::Application, feed: &Rc<Feed>) -> adw::Window {
     let page = adw::PreferencesPage::new();
 
-    let charge_group = adw::PreferencesGroup::builder().title("Charge").build();
-    let (charge_row, charge) = value_row(&charge_group, "Charge");
-    let current = value(&charge_group, "Current");
-    let voltage = value(&charge_group, "Voltage");
+    let status_group = adw::PreferencesGroup::builder().title("Status").build();
+    let (charge_row, charge) = value_row(&status_group, "Charge");
+    let current = value(&status_group, "Current");
+    let voltage = value(&status_group, "Voltage");
     // Under the two it is the product of, so the arithmetic is visible.
-    let power = value(&charge_group, "Power");
-    let charger = value(&charge_group, "Charger");
-    let (temperature_row, temperature) = value_row(&charge_group, "Temperature");
+    let power = value(&status_group, "Power");
+    let charger = value(&status_group, "Charger");
+    let (temperature_row, temperature) = value_row(&status_group, "Temperature");
     // Hidden until the daemon's probe says there is a sensor; a row that
     // appeared empty would read as one that failed to fill.
     temperature_row.set_visible(false);
-    let (spread_row, spread) = value_row(&charge_group, "Cell balance");
+    let (spread_row, spread) = value_row(&status_group, "Cell balance");
     // Hidden until the pack answers over I2C, and its subtitle filled with the
     // cells behind the figure once it does.
     spread_row.set_visible(false);
@@ -219,25 +221,25 @@ fn build(app: &adw::Application, feed: &Rc<Feed>) -> adw::Window {
         .visible(false)
         .build();
     critical_row.add_css_class("error");
-    charge_group.add(&critical_row);
+    status_group.add(&critical_row);
     // The pack's own alarms rather than the EC's flag above, so the two sit
     // together and a reader need not know which device raised what.
     let alarm_row = adw::ActionRow::builder()
-        .title("The battery is reporting a problem")
+        .title("Battery problem reported")
         .visible(false)
         .build();
     alarm_row.add_css_class("error");
-    charge_group.add(&alarm_row);
-    page.add(&charge_group);
+    status_group.add(&alarm_row);
+    page.add(&status_group);
 
     let capacity_group = adw::PreferencesGroup::builder().title("Capacity").build();
-    let remaining = value(&capacity_group, "Charge now");
+    let remaining = value(&capacity_group, "Remaining");
     let last_full = value(&capacity_group, "Last full charge");
     let design_capacity = value(&capacity_group, "Design capacity");
-    let health = described_value(
+    let retention = described_value(
         &capacity_group,
-        "Health",
-        "Last full charge against design capacity",
+        "Retention",
+        "Last full charge against design capacity, not the marketed typical",
     );
     let cycles = value(&capacity_group, "Charge cycles");
     page.add(&capacity_group);
@@ -287,7 +289,7 @@ fn build(app: &adw::Application, feed: &Rc<Feed>) -> adw::Window {
         remaining,
         last_full,
         design_capacity,
-        health,
+        retention,
         cycles,
         chemistry,
         design_voltage,

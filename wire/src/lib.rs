@@ -244,8 +244,10 @@ pub enum FpLevel {
 }
 
 impl FpLevel {
-    /// The automatic mode, then brightest to dimmest with dark past the
-    /// dimmest, then the get-only one.
+    /// Every level, in no order worth reading. Auto, Off and Custom sit on no
+    /// scale of brightness, so any run through them is a display choice: what
+    /// a level means is this crate's business, where its row sits is the
+    /// front-end's.
     pub const ALL: [Self; 7] = [
         Self::Auto,
         Self::High,
@@ -258,7 +260,7 @@ impl FpLevel {
 
     /// Whether a setter takes this level. A predicate rather than a second
     /// list, so that a caller offering only what it can apply cannot be made
-    /// wrong by the order the variants happen to be listed in.
+    /// wrong by where a level sits in [`Self::ALL`].
     #[must_use]
     pub const fn is_settable(self) -> bool {
         !matches!(self, Self::Custom)
@@ -288,6 +290,9 @@ pub enum ClickForce {
 }
 
 impl ClickForce {
+    /// Lightest press to firmest, which is a fact about the forces rather
+    /// than a layout — so unlike [`FpLevel::ALL`] a front-end can draw them
+    /// in this order, and reordering here would move its rows.
     pub const ALL: [Self; 3] = [Self::Low, Self::Medium, Self::High];
 }
 

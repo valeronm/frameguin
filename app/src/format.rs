@@ -3,13 +3,27 @@
 //! reaches GTK or the bus, which is what lets the window and the tray share
 //! it and so keeps them from disagreeing about what "Half" sends or what a
 //! ceiling of 100% is called.
+//!
+//! Row order is settled here, except where the vocabulary already carries an
+//! order that is a fact about the values rather than a layout — the click
+//! forces and the haptic steps — and `wire` keeps it. A control that caps
+//! something starts at the setting that caps nothing and tightens down the
+//! list; every other reads as a scale climbing from off. An automatic mode is
+//! on no scale and leads; the row that reveals a slider trails the presets it
+//! extends.
 
 use frameguin_wire::{
     BatteryAlarm, BatteryState, ChargeFlow, ClickForce, FpLevel, HAPTIC_INTENSITY_LEVELS,
     NO_CHARGE_CURRENT_LIMIT,
 };
 
-const CHARGE_PRESETS: [u8; 3] = [60, 80, 100];
+const CHARGE_PRESETS: [u8; 3] = [100, 80, 60];
+
+/// The ceiling that is no ceiling. A presentation fact rather than a wire
+/// one: the daemon takes 100 and writes it to the EC like any other
+/// percentage, and it is only here that the value stops being a limit and
+/// starts being the absence of one.
+pub(crate) const NO_CHARGE_LIMIT: u8 = 100;
 
 /// The window's combo carries one row past the presets, for a ceiling the
 /// user dials in; the tray offers the presets alone.
@@ -167,28 +181,28 @@ pub(crate) fn percent_label(percent: u8) -> String {
     format!("{percent}%")
 }
 
-/// The pack's health, or the word for a pack with nothing to measure it
-/// against. Above 100% on a new pack that outperforms its rating, which is
-/// left as it reads: unlike a charge, it has no ceiling that makes more than
-/// full meaningless.
-pub(crate) fn health_label(last_full_capacity: u32, design_capacity: u32) -> String {
-    match health_percent(last_full_capacity, design_capacity) {
+/// How much of its rating the pack still holds, or the word for one with
+/// nothing to measure it against. A new pack that outperforms its rating
+/// reads above 100%, left as it stands: unlike a charge, this has no ceiling
+/// that makes more than full meaningless.
+pub(crate) fn retention_label(last_full_capacity: u32, design_capacity: u32) -> String {
+    match retention_percent(last_full_capacity, design_capacity) {
         Some(percent) => format!("{percent}%"),
         None => UNKNOWN.to_string(),
     }
 }
 
 /// What the pack can still hold against what it was built to hold. `None`
-/// where the design capacity reads zero — nothing to compare against, and a
-/// health of 0% would name a dead pack rather than an unanswered question.
-fn health_percent(last_full_capacity: u32, design_capacity: u32) -> Option<u32> {
+/// where the design capacity reads zero — nothing to compare against, and 0%
+/// would name a dead pack rather than an unanswered question.
+fn retention_percent(last_full_capacity: u32, design_capacity: u32) -> Option<u32> {
     if design_capacity == 0 {
         return None;
     }
     // Widened for the multiply: the product of two plausible mAh figures
     // leaves u32 long before either of them does.
-    let health = u64::from(last_full_capacity) * 100 / u64::from(design_capacity);
-    u32::try_from(health).ok()
+    let retained = u64::from(last_full_capacity) * 100 / u64::from(design_capacity);
+    u32::try_from(retained).ok()
 }
 
 /// The pack's temperature, to the tenth of a degree its sensor resolves.
@@ -318,10 +332,11 @@ pub(crate) fn charge_limit_position(percent: u8) -> Option<usize> {
 pub(crate) fn charge_limit_labels() -> Vec<String> {
     CHARGE_PRESETS
         .iter()
-        // A 100% ceiling is no limit at all — say so.
+        // Named as a state rather than as the absence of one, so a title
+        // quoting the selected row still reads.
         .map(|percent| {
-            if *percent == 100 {
-                "No limit".to_string()
+            if *percent == NO_CHARGE_LIMIT {
+                "Off".to_string()
             } else {
                 format!("{percent}%")
             }
@@ -337,14 +352,29 @@ pub(crate) fn with_custom_row(mut labels: Vec<String>) -> Vec<String> {
     labels
 }
 
+/// Where a level's row sits. A match rather than a second list of the levels,
+/// so a level added to the vocabulary fails to build here rather than landing
+/// wherever it happened to be declared.
+pub(crate) fn fp_row_rank(level: FpLevel) -> u8 {
+    match level {
+        FpLevel::Auto => 0,
+        FpLevel::Off => 1,
+        FpLevel::UltraLow => 2,
+        FpLevel::Low => 3,
+        FpLevel::Medium => 4,
+        FpLevel::High => 5,
+        FpLevel::Custom => 6,
+    }
+}
+
 fn fp_level_label(level: FpLevel) -> &'static str {
     match level {
         FpLevel::Auto => "Auto",
-        FpLevel::High => "High",
-        FpLevel::Medium => "Medium",
-        FpLevel::Low => "Low",
-        FpLevel::UltraLow => "Ultra-low",
         FpLevel::Off => "Off",
+        FpLevel::UltraLow => "Ultra-low",
+        FpLevel::Low => "Low",
+        FpLevel::Medium => "Medium",
+        FpLevel::High => "High",
         FpLevel::Custom => "Custom",
     }
 }
@@ -357,9 +387,8 @@ pub(crate) fn fp_level_labels(levels: &[FpLevel]) -> Vec<String> {
 }
 
 /// The haptic combo's rows, derived from the steps they select rather than
-/// kept in step with them by hand. The steps live in `wire` now, so the two
-/// lists can no longer be edited together, and a firmware generation that
-/// adds one would leave it unlabelled and unreachable.
+/// kept in step with them by hand, which a step added upstream would break
+/// silently.
 pub(crate) fn haptic_labels() -> Vec<String> {
     HAPTIC_INTENSITY_LEVELS
         .iter()
@@ -373,14 +402,14 @@ pub(crate) fn haptic_labels() -> Vec<String> {
         .collect()
 }
 
-/// The touchscreen's two states as the tray names them, on first, each beside
-/// the state its row means.
+/// The touchscreen's two states as the tray names them, each beside the state
+/// its row means.
 ///
 /// One array rather than a list of labels and an index constant beside it: a
 /// menu row is picked by position, so the pairing is what a click depends on,
 /// and spelling it in two places is what lets a reordering mark one row while
 /// writing the other.
-const TOUCHSCREEN_STATES: [(&str, bool); 2] = [("On", true), ("Off", false)];
+const TOUCHSCREEN_STATES: [(&str, bool); 2] = [("Off", false), ("On", true)];
 
 pub(crate) fn touchscreen_labels() -> Vec<String> {
     TOUCHSCREEN_STATES
@@ -413,12 +442,47 @@ pub(crate) fn click_force_label(force: ClickForce) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::{
-        BatteryState, CHARGE_SPEEDS, ChargeFlow, MIN_CUSTOM_CHARGE_MA, NO_CHARGE_CURRENT_LIMIT,
-        battery_summary, capacity, charge_direction, charge_flow_label, charge_speed_labels,
-        charge_speed_milliamps, charge_speed_position, health_label, power_label, scale_milliamps,
-        touchscreen_labels, touchscreen_position, touchscreen_state, volts, watt_hours,
-        with_custom_row,
+        BatteryState, CHARGE_SPEEDS, ChargeFlow, FpLevel, HAPTIC_INTENSITY_LEVELS,
+        MIN_CUSTOM_CHARGE_MA, NO_CHARGE_CURRENT_LIMIT, NO_CHARGE_LIMIT, battery_summary, capacity,
+        charge_direction, charge_flow_label, charge_limit_labels, charge_limit_percent,
+        charge_limit_position, charge_speed_labels, charge_speed_milliamps, charge_speed_position,
+        fp_row_rank, power_label, retention_label, scale_milliamps, touchscreen_labels,
+        touchscreen_position, touchscreen_state, volts, watt_hours, with_custom_row,
     };
+
+    /// One row is the off row, and it is the one that sends the ceiling that
+    /// isn't one. The label and the toast branch on the same constant, so
+    /// what this catches is a preset list where that constant sits on no row
+    /// at all — the two would then agree with each other and with nothing on
+    /// screen.
+    #[test]
+    fn the_off_row_is_the_one_that_sends_no_limit() {
+        let row = charge_limit_position(NO_CHARGE_LIMIT).expect("the off row is a preset");
+        assert_eq!(charge_limit_percent(row), NO_CHARGE_LIMIT);
+        assert_eq!(charge_limit_labels()[row], "Off");
+    }
+
+    /// The match is exhaustive, so being ranked at all is the compiler's
+    /// business; being ranked apart is this. Two levels sharing a rank would
+    /// fall back to whichever the vocabulary lists first, which is the
+    /// inheritance the rank exists to stop.
+    #[test]
+    fn no_two_fingerprint_levels_share_a_row() {
+        let mut ranks: Vec<u8> = FpLevel::ALL.iter().map(|l| fp_row_rank(*l)).collect();
+        ranks.sort_unstable();
+        ranks.dedup();
+        assert_eq!(ranks.len(), FpLevel::ALL.len());
+    }
+
+    /// The steps are the touchpad's list, not this module's, and the rows are
+    /// those steps in order — so a scale that stopped climbing would be drawn
+    /// as one anyway. What this catches is `wire`'s copy being updated to a
+    /// reordered upstream list; that the copy matches upstream at all is the
+    /// daemon's test, one boundary over.
+    #[test]
+    fn the_haptic_steps_climb() {
+        assert!(HAPTIC_INTENSITY_LEVELS.is_sorted_by(|low, high| low < high));
+    }
 
     /// The row a state marks is the row that sends it back. A menu picks by
     /// position, so this is the only thing standing between the mark and the
@@ -434,26 +498,26 @@ mod tests {
     }
 
     /// A pack that has lost some of what it was built to hold, which is what
-    /// the report's health row exists to say.
+    /// the report's retention row exists to say.
     #[test]
-    fn health_is_the_last_full_charge_against_the_design_capacity() {
-        assert_eq!(health_label(4176, CAPACITY), "90%");
-        assert_eq!(health_label(CAPACITY, CAPACITY), "100%");
+    fn retention_is_the_last_full_charge_against_the_design_capacity() {
+        assert_eq!(retention_label(4176, CAPACITY), "90%");
+        assert_eq!(retention_label(CAPACITY, CAPACITY), "100%");
     }
 
     /// A new pack can hold more than it was rated for, and the row says so
-    /// rather than clamping — nothing about a health above 100% is nonsense
+    /// rather than clamping — nothing about retention above 100% is nonsense
     /// the way a charge above full would be.
     #[test]
-    fn health_above_the_design_capacity_is_left_as_it_reads() {
-        assert_eq!(health_label(4736, CAPACITY), "102%");
+    fn retention_above_the_design_capacity_is_left_as_it_reads() {
+        assert_eq!(retention_label(4736, CAPACITY), "102%");
     }
 
     /// A pack reporting no design capacity leaves nothing to divide by, and
     /// 0% would name a dead pack rather than a missing answer.
     #[test]
-    fn health_against_no_design_capacity_is_not_a_number() {
-        assert_eq!(health_label(4176, 0), "Unknown");
+    fn retention_against_no_design_capacity_is_not_a_number() {
+        assert_eq!(retention_label(4176, 0), "Unknown");
     }
 
     #[test]

@@ -13,7 +13,7 @@ use crate::caps::{Capabilities, fp_presets};
 use crate::format::{
     CHARGE_SPEED_LABELS, amps, battery_summary, charge_limit_labels, charge_limit_percent,
     charge_limit_position, charge_speed_milliamps, charge_speed_position, fp_level_labels,
-    touchscreen_labels, touchscreen_position, touchscreen_state,
+    percent_label, touchscreen_labels, touchscreen_position, touchscreen_state,
 };
 use crate::reading::Feed;
 
@@ -222,16 +222,14 @@ impl TrayIcon {
             return None;
         }
         let labels = charge_limit_labels();
-        // Spelled here rather than read off the labels, the way the other
-        // titles name their selected option: the row for 100% reads "No
-        // limit", which as a title would come out "Charge limit (No limit)".
-        // Each word is the better one where it sits, so the two differ.
-        let title = match self.charge_limit {
-            Some(100) => "Charge limit (Off)".into(),
-            Some(limit) => format!("Charge limit ({limit}%)"),
-            None => "Charge limit".into(),
-        };
         let selected = self.charge_limit.and_then(charge_limit_position);
+        // A ceiling dialled in from the window sits on no row; the raw value
+        // is named rather than dropped, as for the speed below.
+        let title = match (selected, self.charge_limit) {
+            (Some(row), _) => format!("Charge limit ({})", labels[row]),
+            (None, Some(limit)) => format!("Charge limit ({})", percent_label(limit)),
+            (None, None) => "Charge limit".into(),
+        };
         Some(radio_submenu(title, selected, labels, |tray, index| {
             tray.send(TrayEvent::SetChargeLimit(charge_limit_percent(index)));
         }))
@@ -247,7 +245,7 @@ impl TrayIcon {
         // Bare preset names, not the window's `charge_speed_labels`: those
         // carry the rate in brackets, which would nest inside the submenu
         // title's own brackets.
-        let labels = CHARGE_SPEED_LABELS
+        let labels: Vec<String> = CHARGE_SPEED_LABELS
             .iter()
             .map(|l| (*l).to_string())
             .collect();
@@ -258,7 +256,7 @@ impl TrayIcon {
         // where there isn't — a menu that can only show presets would say
         // nothing at all about a limit dialled in from the window.
         let title = match (selected, self.charge_current_limit) {
-            (Some(index), _) => format!("Charge speed ({})", CHARGE_SPEED_LABELS[index]),
+            (Some(index), _) => format!("Charge speed ({})", labels[index]),
             (None, Some(milliamps)) => format!("Charge speed ({})", amps(milliamps)),
             (None, None) => "Charge speed".into(),
         };
@@ -286,8 +284,8 @@ impl TrayIcon {
             .and_then(|level| levels.iter().position(|l| *l == level));
         let options = fp_level_labels(&levels);
         let title = match selected {
-            Some(index) => format!("Fingerprint LED ({})", options[index]),
-            None => "Fingerprint LED".into(),
+            Some(index) => format!("Power button LED ({})", options[index]),
+            None => "Power button LED".into(),
         };
         Some(radio_submenu(
             title,

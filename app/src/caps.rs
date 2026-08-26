@@ -2,6 +2,8 @@
 
 use frameguin_wire::{Capability, FpLevel};
 
+use crate::format::fp_row_rank;
+
 /// What this app offers on the connected board: what the daemon's probe
 /// answered with, less what [`offered`] declines to show. Kept as one bit per
 /// [`Capability`] rather than unpacked into a flag apiece, so a new control is
@@ -42,12 +44,16 @@ fn offered(capability: Capability) -> bool {
     capability != Capability::KeyboardBacklight
 }
 
-/// The window's rows: every level this board has, Custom included.
+/// The window's rows: every level this board has, Custom included, in the
+/// order [`fp_row_rank`] gives them. Both front-ends come through here, which
+/// is what keeps them from drawing the rows two ways.
 pub(crate) fn fp_rows(caps: Capabilities) -> Vec<FpLevel> {
-    FpLevel::ALL
+    let mut rows: Vec<FpLevel> = FpLevel::ALL
         .into_iter()
         .filter(|level| caps.has(level.requires()))
-        .collect()
+        .collect();
+    rows.sort_unstable_by_key(|&level| fp_row_rank(level));
+    rows
 }
 
 /// The tray's rows: the window's, less the one no click can apply.

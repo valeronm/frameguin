@@ -23,10 +23,10 @@ use gtk4::glib;
 use crate::caps::{Capabilities, fp_rows};
 use crate::format::{
     CHARGE_LIMIT_CUSTOM, CHARGE_SPEED_CUSTOM, CHARGE_SPEED_LABELS, CUSTOM_CHARGE_STEP_MA,
-    MIN_CHARGE_LIMIT, MIN_CUSTOM_CHARGE_MA, amps, charge_flow_label, charge_limit_labels,
-    charge_limit_percent, charge_limit_position, charge_speed_labels, charge_speed_milliamps,
-    charge_speed_position, click_force_label, fp_level_labels, haptic_labels, percent_label,
-    scale_milliamps, scale_percent, with_custom_row,
+    MIN_CHARGE_LIMIT, MIN_CUSTOM_CHARGE_MA, NO_CHARGE_LIMIT, amps, charge_flow_label,
+    charge_limit_labels, charge_limit_percent, charge_limit_position, charge_speed_labels,
+    charge_speed_milliamps, charge_speed_position, click_force_label, fp_level_labels,
+    haptic_labels, percent_label, scale_milliamps, scale_percent, with_custom_row,
 };
 use crate::mapped::poll_while_mapped;
 use crate::reading::{Feed, Wants, show_while_mapped};
@@ -178,7 +178,7 @@ pub(crate) struct Ui {
     force_combo: adw::ComboRow,
     touchscreen_switch: adw::SwitchRow,
     tray: Option<ksni::blocking::Handle<TrayIcon>>,
-    /// Where the charge row's reading comes from, shared with the battery
+    /// Where the status row's reading comes from, shared with the battery
     /// report so the two windows cost the EC one walk between them rather than
     /// one apiece.
     feed: Rc<Feed>,
@@ -557,9 +557,9 @@ impl Sink<'_> {
 /// [`apply_charge_speed`] is the same shape for the other Battery control.
 /// They are deliberately two functions rather than one generic: the values
 /// differ (`u8` against `u32`), the speed resolves its presets against the
-/// battery's capacity where the ceiling's are constants, and only the speed
-/// has a "full speed means no limit" case. A change to one is usually a
-/// change to both — read the sibling before editing either.
+/// battery's capacity where the ceiling's are constants, and each carries its
+/// own sentinel for no limit at all. A change to one is usually a change to
+/// both — read the sibling before editing either.
 pub(crate) async fn apply_charge_limit(
     sink: Sink<'_>,
     proxy: &FrameguinProxy<'static>,
@@ -571,7 +571,11 @@ pub(crate) async fn apply_charge_limit(
         // a write that didn't happen is a confirmation of nothing.
         Ok(written) => {
             if written {
-                sink.toast(&format!("Charge limit set to {percent}%"));
+                if percent == NO_CHARGE_LIMIT {
+                    sink.toast("Charge limit switched off");
+                } else {
+                    sink.toast(&format!("Charge limit set to {percent}%"));
+                }
             }
             sink.show_charge_limit(percent, custom);
         }
@@ -597,7 +601,7 @@ pub(crate) async fn apply_charge_speed(
     };
     if written {
         if milliamps == NO_CHARGE_CURRENT_LIMIT {
-            sink.toast("Charging at full speed");
+            sink.toast("Charge speed uncapped");
         } else {
             sink.toast(&format!("Charge speed capped at {}", amps(milliamps)));
         }
@@ -614,7 +618,7 @@ pub(crate) async fn apply_fp_level(
     level: FpLevel,
 ) {
     if let Err(e) = proxy.set_fingerprint_level(level).await {
-        sink.toast(&format!("Setting fingerprint level failed: {e}"));
+        sink.toast(&format!("Setting power button LED level failed: {e}"));
         return;
     }
     sink.show_fp_level(level);
@@ -655,7 +659,7 @@ pub(crate) async fn apply_touchscreen(
 /// than leaving each caller to remember it.
 async fn apply_fp_brightness(ui: &Ui, proxy: &FrameguinProxy<'static>, percent: u8) {
     if let Err(e) = proxy.set_fingerprint_brightness(percent).await {
-        ui.toast(&format!("Setting fingerprint brightness failed: {e}"));
+        ui.toast(&format!("Setting power button LED brightness failed: {e}"));
         return;
     }
     ui.sync_tray(TrayValues::fp_level(FpLevel::Custom));
@@ -759,7 +763,7 @@ fn connect_kbd_setter(ui: &Rc<Ui>, proxy: &FrameguinProxy<'static>) {
         debounce(&kbd_write_slot, SLIDER_DEBOUNCE, move || {
             glib::spawn_future_local(async move {
                 if let Err(e) = proxy.set_keyboard_backlight(value).await {
-                    ui.toast(&format!("Setting backlight failed: {e}"));
+                    ui.toast(&format!("Setting keyboard backlight failed: {e}"));
                 }
             });
         });
@@ -801,7 +805,7 @@ pub(crate) fn build_window(
     // tray's reading reach the report the same way and neither has to hold a
     // bus connection to offer it.
     let state_row = adw::ActionRow::builder()
-        .title("Charge")
+        .title("Status")
         .activatable(true)
         .action_name(format!("app.{}", battery::ACTION))
         .build();
@@ -812,7 +816,7 @@ pub(crate) fn build_window(
     let limit_labels = with_custom_row(charge_limit_labels());
     let limit_combo = adw::ComboRow::builder()
         .title("Charge limit")
-        .subtitle("Maximum charge percentage")
+        .subtitle("Stops charging before the battery is full")
         .model(&string_list(&limit_labels))
         .sensitive(false)
         .build();
@@ -831,7 +835,7 @@ pub(crate) fn build_window(
         .sensitive(false)
         .build();
     battery.add(&speed_combo);
-    let speed_custom_row = adw::ActionRow::builder().title("Charge current").build();
+    let speed_custom_row = adw::ActionRow::builder().title("Maximum current").build();
     // The upper bound is the battery's 1C current, filled in once it is read;
     // asking for more than the pack requests would be a limit that never
     // binds. Explicit adjustment for the same reason as the backlight's.
@@ -865,18 +869,20 @@ pub(crate) fn build_window(
     keyboard.add(&kbd_row);
     page.add(&keyboard);
 
+    // "Power button LED" is the name Framework's own firmware setup uses; the
+    // reader shares the button, but nothing here controls the reader.
     let fingerprint = adw::PreferencesGroup::builder()
-        .title("Fingerprint")
+        .title("Power button LED")
         .build();
     // No model: which levels a board has is the daemon's answer, and the row
     // it would show meanwhile is one the board may not have.
     let fp_combo = adw::ComboRow::builder()
-        .title("LED level")
+        .title("Level")
         .sensitive(false)
         .build();
     fingerprint.add(&fp_combo);
-    let fp_row = adw::ActionRow::builder().title("LED brightness").build();
-    // The EC accepts 1-100 for the fingerprint LED; 0 is not a valid level.
+    let fp_row = adw::ActionRow::builder().title("Brightness").build();
+    // The EC accepts 1-100 for this LED; 0 is not a valid level.
     let fp_adjustment = gtk::Adjustment::new(1.0, 1.0, 100.0, 10.0, 10.0, 0.0);
     let fp_scale = build_scale(&fp_adjustment, |value| format!("{value:.0}%"));
     fp_row.add_suffix(&fp_scale);
@@ -887,7 +893,7 @@ pub(crate) fn build_window(
     let touchpad = adw::PreferencesGroup::builder().title("Touchpad").build();
     let haptic_combo = adw::ComboRow::builder()
         .title("Haptic intensity")
-        .subtitle("Strength of the click feedback")
+        .subtitle("How strong the click feels")
         .model(&string_list(&haptic_labels()))
         .sensitive(false)
         .build();
@@ -988,7 +994,10 @@ pub(crate) fn build_window(
     let autostart_ui = ui.clone();
     autostart_row.connect_active_notify(move |row| {
         if let Err(e) = autostart::set(row.is_active()) {
-            autostart_ui.toast(&format!("Updating autostart failed: {e}"));
+            // Quoted off the row rather than spelled again: a message naming
+            // a row by a title the row no longer has is worse than a vaguer
+            // one.
+            autostart_ui.toast(&format!("Setting “{}” failed: {e}", row.title()));
         }
     });
 
@@ -1155,6 +1164,9 @@ fn build_empty_page(controls: &adw::PreferencesPage) -> EmptyPage {
     // Neither action asks the reader to do the app's work: it retries on its
     // own, and the report carries what it knows without anyone running a
     // command for it.
+
+    // Title case against the app's sentence case: libadwaita spells this
+    // action "Report an Issue" in the About window, one menu away.
     let report = gtk::Button::builder().label("Report an Issue").build();
     report.add_css_class("pill");
     report.add_css_class("suggested-action");
@@ -1248,7 +1260,7 @@ impl EmptyPage {
                 icon: "dialog-information-symbolic",
                 title: "No controls for this board",
                 description: Some(
-                    "The service reached the hardware and found none of the operations \
+                    "The daemon reached the hardware and found none of the operations \
                      this app offers."
                         .to_string(),
                 ),
@@ -1485,7 +1497,7 @@ async fn load_battery_values(ui: &Rc<Ui>, proxy: &FrameguinProxy<'static>) -> Tr
                 values.battery = Some(info.state);
                 design_capacity = Some(info.design_capacity);
             }
-            Err(e) => ui.toast(&format!("Reading battery state failed: {e}")),
+            Err(e) => ui.toast(&format!("Reading the battery failed: {e}")),
         }
     }
     if caps.has(Capability::ChargeLimit) {
@@ -1575,7 +1587,7 @@ async fn load_values(ui: &Rc<Ui>, proxy: &FrameguinProxy<'static>) {
                 });
                 values.fp_level = Some(level);
             }
-            Err(e) => ui.toast(&format!("Reading fingerprint brightness failed: {e}")),
+            Err(e) => ui.toast(&format!("Reading power button LED brightness failed: {e}")),
         }
     }
     if caps.has(Capability::HapticTouchpad) {

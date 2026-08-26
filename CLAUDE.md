@@ -38,7 +38,9 @@ it and the non-obvious constraints.
   unpacking it into a flag per capability.
 - Inside `app/`, a module boundary is drawn where it makes a class of mistake
   impossible, not where a file got long. `format.rs` holds the presets, the
-  values behind them and every label; `caps.rs` holds the probe's answer.
+  values behind them and the words those values carry — the chrome around
+  them, group and row titles and the sentences a toast makes, stays with the
+  widget that is its only site; `caps.rs` holds the probe's answer.
   Neither links GTK or the bus, so the window and the tray cannot disagree
   about what a preset sends or what it is called, and `Capabilities`' private
   field means the app can only offer what the daemon answered with — the
@@ -51,7 +53,7 @@ it and the non-obvious constraints.
   reads — no sync guard, no debounce, no tray push — and every field it holds
   is a descendant of the page its subscription hangs on, so nothing in it can
   reach back up the widget tree and outlive the window. `reading.rs` is the
-  pack's reading, taken once for however many views show it: the charge row
+  pack's reading, taken once for however many views show it: the status row
   and the report render the same walk of the same block, and each polling for
   itself made the EC answer twice and let the two windows sit a tick apart, so
   a view subscribes and the feed does the reading; it also holds the two facts
