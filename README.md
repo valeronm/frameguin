@@ -267,35 +267,9 @@ Both run `packaging/check-version.sh` first. The `.deb` build then lints its
 result: lintian over the package, appstreamcli over the metainfo,
 desktop-file-validate over the desktop entry.
 
-### Releasing
-
-The version is spelled in several places that nothing derives from each
-other. Bump them all, then tag:
-
-- `version` in the workspace `Cargo.toml` (both crates inherit it)
-- `packaging/changelog` — a new entry, with a distribution rather than
-  `UNRELEASED`, and the Debian revision suffix (`0.2.0-1`) the check strips
-  before comparing
-- `<release version=… date=…/>` in `data/*.metainfo.xml`, at the top of the
-  block — the check reads the first entry, so one appended below passes while
-  the newest release stays wrong
-- `Cargo.lock`, which any `cargo` command refreshes — the builds pass
-  `--locked`, so a lock that disagrees with the manifest stops them
-- the `v`-prefixed git tag
-
-```sh
-./packaging/build-deb.sh --expect 0.2.0       # the whole gate, before tagging
-./packaging/build-tarball.sh --expect 0.2.0
-```
-
-`check-version.sh` cross-checks the copies against `Cargo.toml`; `--expect`
-adds the tag. A release that would fail in CI fails here first. Pushing the
-tag builds both artifacts and attaches them, with the tarball's checksum, to
-a GitHub release whose body is the newest changelog stanza, rendered by
-`packaging/release-notes.sh` — so the bullets written for `apt changelog`
-are what the release page says too.
-The same workflow runs on every push to `main` and every pull request without
-the release step.
+Every push to `main` and every pull request runs the same workflow a release
+does, without the release step. Cutting a release is
+[`docs/release.md`](docs/release.md).
 
 ## Contributing
 

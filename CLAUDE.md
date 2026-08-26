@@ -252,6 +252,12 @@ asserted and its reason a file away.
   in `rustfmt.toml` rather than inferred from each crate's own edition — so
   an edition bump cannot reformat the tree as a side effect. Run `cargo fmt`
   before pushing; nothing local enforces it.
+- A change that moves the window or the tray menu re-shoots `screenshot.png`
+  or `screenshot-tray.png` in the same commit: the metainfo serves both from
+  `main`, so between the two commits `main` is wrong.
+- `packaging/changelog` is written at release time, not accumulated per
+  commit, so a change that will deserve a bullet owes nothing when it lands.
+- Cutting a release is `docs/release.md`.
 - Smoke test: run `target/debug/frameguin`. The app is single-instance, so a
   second launch only activates the resident one — kill it first to exercise
   a fresh build.
