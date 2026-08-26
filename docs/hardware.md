@@ -13,7 +13,11 @@ Past the transport chapter the subject chapters divide by whether the machine
 is being read or told: the battery is read, and every chapter between it and
 the sources is a control. Each control chapter ends with a persistence section
 — what survives a suspend, a reboot and an EC restart — because which of the
-three a control survives does not follow from what the control does.
+three a control survives does not follow from what the control does. The last
+is never something the running system sees: `power_chipset_init` starts the
+EC's power sequencing at G3 on every EC boot, so an EC restart takes the
+machine down with it. What it asks is whether a value outlives the EC that
+holds it.
 
 Framework is a trademark of Framework Computer Inc.; this is an independent
 project and names the hardware only descriptively.
@@ -510,10 +514,11 @@ what undoes it is platform firmware configuring its pads at POST: the one
 writer the published documents do not cover, and the only candidate left with
 the lid ruled out.
 
-**An EC restart is not a case this control has.** The enable is a processor
-pad the EC cannot reach, so nothing about it turns on the EC being up. The
-panel's own rail is a separate path the EC does drive, and what a restart does
-to that has not been watched.
+**An EC restart is not a case this control has.** The enable is a processor pad
+the EC cannot reach, so nothing about it turns on the EC being up. The panel's
+own rail is a path the EC does drive — `gpio_ec_ts_pwr_en`, low until
+`POWER_S3S0` — but a restart reaches it only through the boot that follows,
+which is the case above.
 
 ## Sources
 
