@@ -5,7 +5,7 @@
 
 use frameguin_wire::{
     BatteryAlarm, BatteryCondition, BatteryInfo, BatteryState, Capability, ChargeFlow, ClickForce,
-    FpLevel,
+    PowerLedLevel,
 };
 use zbus::zvariant::serialized::Context;
 use zbus::zvariant::{LE, Type, to_bytes};
@@ -18,20 +18,20 @@ fn wire_string<T: serde::Serialize + Type>(value: T) -> String {
 #[test]
 fn every_enum_crosses_the_bus_as_a_plain_string() {
     assert_eq!(Capability::SIGNATURE, "s");
-    assert_eq!(FpLevel::SIGNATURE, "s");
+    assert_eq!(PowerLedLevel::SIGNATURE, "s");
     assert_eq!(ClickForce::SIGNATURE, "s");
     assert_eq!(ChargeFlow::SIGNATURE, "s");
     assert_eq!(BatteryAlarm::SIGNATURE, "s");
 }
 
 /// The shapes the interface actually carries, as they appear in
-/// introspection: `GetCapabilities` answers `as`, `GetFingerprintBrightness`
+/// introspection: `GetCapabilities` answers `as`, `GetPowerLedBrightness`
 /// answers `(ys)`, `GetBatteryInfo` the battery block as a struct carrying a
 /// struct.
 #[test]
 fn the_composite_signatures_are_the_ones_the_methods_declare() {
     assert_eq!(Vec::<Capability>::SIGNATURE, "as");
-    assert_eq!(<(u8, FpLevel)>::SIGNATURE, "(ys)");
+    assert_eq!(<(u8, PowerLedLevel)>::SIGNATURE, "(ys)");
     // Field order is the protocol here, the members being positional and
     // unnamed: reordering the struct silently re-maps every field a client
     // reads.
@@ -71,24 +71,27 @@ fn capability_names_are_kebab_case() {
         wire_string(Capability::KeyboardBacklight),
         "keyboard-backlight"
     );
-    assert_eq!(wire_string(Capability::FpBrightness), "fp-brightness");
     assert_eq!(
-        wire_string(Capability::FpBrightnessCustom),
-        "fp-brightness-custom"
+        wire_string(Capability::PowerLedBrightness),
+        "power-led-brightness"
     );
-    assert_eq!(wire_string(Capability::FpOff), "fp-off");
+    assert_eq!(
+        wire_string(Capability::PowerLedBrightnessCustom),
+        "power-led-brightness-custom"
+    );
+    assert_eq!(wire_string(Capability::PowerLedOff), "power-led-off");
     assert_eq!(wire_string(Capability::HapticTouchpad), "haptic-touchpad");
 }
 
 #[test]
-fn fingerprint_level_names_are_kebab_case() {
-    assert_eq!(wire_string(FpLevel::Auto), "auto");
-    assert_eq!(wire_string(FpLevel::High), "high");
-    assert_eq!(wire_string(FpLevel::Medium), "medium");
-    assert_eq!(wire_string(FpLevel::Low), "low");
-    assert_eq!(wire_string(FpLevel::UltraLow), "ultra-low");
-    assert_eq!(wire_string(FpLevel::Off), "off");
-    assert_eq!(wire_string(FpLevel::Custom), "custom");
+fn power_led_level_names_are_kebab_case() {
+    assert_eq!(wire_string(PowerLedLevel::Auto), "auto");
+    assert_eq!(wire_string(PowerLedLevel::High), "high");
+    assert_eq!(wire_string(PowerLedLevel::Medium), "medium");
+    assert_eq!(wire_string(PowerLedLevel::Low), "low");
+    assert_eq!(wire_string(PowerLedLevel::UltraLow), "ultra-low");
+    assert_eq!(wire_string(PowerLedLevel::Off), "off");
+    assert_eq!(wire_string(PowerLedLevel::Custom), "custom");
 }
 
 #[test]
@@ -108,7 +111,11 @@ fn charge_flow_names_are_kebab_case() {
 /// Custom is the one level the EC reports but will not take.
 #[test]
 fn every_level_but_custom_is_settable() {
-    for level in FpLevel::ALL {
-        assert_eq!(level != FpLevel::Custom, level.is_settable(), "{level:?}");
+    for level in PowerLedLevel::ALL {
+        assert_eq!(
+            level != PowerLedLevel::Custom,
+            level.is_settable(),
+            "{level:?}"
+        );
     }
 }

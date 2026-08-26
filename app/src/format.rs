@@ -13,8 +13,8 @@
 //! extends.
 
 use frameguin_wire::{
-    BatteryAlarm, BatteryState, ChargeFlow, ClickForce, FpLevel, HAPTIC_INTENSITY_LEVELS,
-    NO_CHARGE_CURRENT_LIMIT,
+    BatteryAlarm, BatteryState, ChargeFlow, ClickForce, HAPTIC_INTENSITY_LEVELS,
+    NO_CHARGE_CURRENT_LIMIT, PowerLedLevel,
 };
 
 const CHARGE_PRESETS: [u8; 3] = [100, 80, 60];
@@ -355,34 +355,34 @@ pub(crate) fn with_custom_row(mut labels: Vec<String>) -> Vec<String> {
 /// Where a level's row sits. A match rather than a second list of the levels,
 /// so a level added to the vocabulary fails to build here rather than landing
 /// wherever it happened to be declared.
-pub(crate) fn fp_row_rank(level: FpLevel) -> u8 {
+pub(crate) fn power_led_row_rank(level: PowerLedLevel) -> u8 {
     match level {
-        FpLevel::Auto => 0,
-        FpLevel::Off => 1,
-        FpLevel::UltraLow => 2,
-        FpLevel::Low => 3,
-        FpLevel::Medium => 4,
-        FpLevel::High => 5,
-        FpLevel::Custom => 6,
+        PowerLedLevel::Auto => 0,
+        PowerLedLevel::Off => 1,
+        PowerLedLevel::UltraLow => 2,
+        PowerLedLevel::Low => 3,
+        PowerLedLevel::Medium => 4,
+        PowerLedLevel::High => 5,
+        PowerLedLevel::Custom => 6,
     }
 }
 
-fn fp_level_label(level: FpLevel) -> &'static str {
+fn power_led_level_label(level: PowerLedLevel) -> &'static str {
     match level {
-        FpLevel::Auto => "Auto",
-        FpLevel::Off => "Off",
-        FpLevel::UltraLow => "Ultra-low",
-        FpLevel::Low => "Low",
-        FpLevel::Medium => "Medium",
-        FpLevel::High => "High",
-        FpLevel::Custom => "Custom",
+        PowerLedLevel::Auto => "Auto",
+        PowerLedLevel::Off => "Off",
+        PowerLedLevel::UltraLow => "Ultra-low",
+        PowerLedLevel::Low => "Low",
+        PowerLedLevel::Medium => "Medium",
+        PowerLedLevel::High => "High",
+        PowerLedLevel::Custom => "Custom",
     }
 }
 
-pub(crate) fn fp_level_labels(levels: &[FpLevel]) -> Vec<String> {
+pub(crate) fn power_led_level_labels(levels: &[PowerLedLevel]) -> Vec<String> {
     levels
         .iter()
-        .map(|level| fp_level_label(*level).into())
+        .map(|level| power_led_level_label(*level).into())
         .collect()
 }
 
@@ -442,11 +442,11 @@ pub(crate) fn click_force_label(force: ClickForce) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::{
-        BatteryState, CHARGE_SPEEDS, ChargeFlow, FpLevel, HAPTIC_INTENSITY_LEVELS,
-        MIN_CUSTOM_CHARGE_MA, NO_CHARGE_CURRENT_LIMIT, NO_CHARGE_LIMIT, battery_summary, capacity,
+        BatteryState, CHARGE_SPEEDS, ChargeFlow, HAPTIC_INTENSITY_LEVELS, MIN_CUSTOM_CHARGE_MA,
+        NO_CHARGE_CURRENT_LIMIT, NO_CHARGE_LIMIT, PowerLedLevel, battery_summary, capacity,
         charge_direction, charge_flow_label, charge_limit_labels, charge_limit_percent,
         charge_limit_position, charge_speed_labels, charge_speed_milliamps, charge_speed_position,
-        fp_row_rank, power_label, retention_label, scale_milliamps, touchscreen_labels,
+        power_label, power_led_row_rank, retention_label, scale_milliamps, touchscreen_labels,
         touchscreen_position, touchscreen_state, volts, watt_hours, with_custom_row,
     };
 
@@ -467,11 +467,11 @@ mod tests {
     /// fall back to whichever the vocabulary lists first, which is the
     /// inheritance the rank exists to stop.
     #[test]
-    fn no_two_fingerprint_levels_share_a_row() {
-        let mut ranks: Vec<u8> = FpLevel::ALL.iter().map(|l| fp_row_rank(*l)).collect();
+    fn no_two_power_led_levels_share_a_row() {
+        let mut ranks = PowerLedLevel::ALL.map(power_led_row_rank).to_vec();
         ranks.sort_unstable();
         ranks.dedup();
-        assert_eq!(ranks.len(), FpLevel::ALL.len());
+        assert_eq!(ranks.len(), PowerLedLevel::ALL.len());
     }
 
     /// The steps are the touchpad's list, not this module's, and the rows are

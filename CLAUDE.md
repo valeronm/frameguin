@@ -95,8 +95,8 @@ it and the non-obvious constraints.
 - Inside `daemon/`, the modules are drawn by how a control reaches the
   hardware, so the filename answers which way: `ec.rs` the EC, `led.rs` the
   kernel's LED class, `touchpad.rs` the pad's own HID transport, `gpio.rs` a
-  pad on the processor through the GPIO character device, with `fp.rs`
-  for the arbitration the first two make necessary — the fingerprint LED has
+  pad on the processor through the GPIO character device, with `power_led.rs`
+  for the arbitration the first two make necessary — the power button LED has
   two possible drivers and one at a time. The rest divide by job: `board.rs`
   the DMI reads — the vendor deciding whether there is an EC to open, the
   product name deciding which board's pads are which — `state.rs` the
@@ -190,14 +190,14 @@ pack asks for, and a capability should mean the control works rather than
 merely that the write exists.
 
 A probe decides what to *offer*, never what to *accept*. Some are proxies:
-`fp-brightness-custom` asks for command v1, exactly right for the percentage
-write but only a stand-in for the ultra-low and auto levels, which the v0
-handler takes on any firmware that has them. Narrowing an offer on a proxy
-costs at worst a row nobody could have used; refusing a write on one denies
-a call the EC would have honoured — and capabilities are probed once per
-daemon lifetime, so one transient read would deny it for the whole run. So
-setters validate against the thing itself: `set_fingerprint_level` looks up
-the LED node rather than consulting `fp-off`.
+`power-led-brightness-custom` asks for command v1, exactly right for the
+percentage write but only a stand-in for the ultra-low and auto levels, which
+the v0 handler takes on any firmware that has them. Narrowing an offer on a
+proxy costs at worst a row nobody could have used; refusing a write on one
+denies a call the EC would have honoured — and capabilities are probed once
+per daemon lifetime, so one transient read would deny it for the whole run. So
+setters validate against the thing itself: `set_power_led_level` looks up
+the LED node rather than consulting `power-led-off`.
 
 ## What the hardware forces on the code
 
@@ -218,7 +218,7 @@ asserted and its reason a file away.
   written — the keyboard backlight's slider polls while mapped for that
   reason. A value with no readback at all is mirrored instead: in `state.rs`
   for the touchpad, by dating the write against the EC's uptime for the
-  fingerprint LED's darkness, and by both for the charge current limit, whose
+  power LED's darkness, and by both for the charge current limit, whose
   mirror expires with the EC that took it. The touchscreen needs neither: its
   pad carries the level, so the getter asks the hardware. Its second writer is
   the platform firmware rather than this daemon — a lid opening drives the pad

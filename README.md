@@ -17,13 +17,15 @@ Computer Inc. Licensed under the [MIT License](LICENSE).
 
 - **Battery** — the current flowing in or out, a ceiling on how full it
   charges, and a cap on the charging rate.
-- **Power button LED** — brightness as a level or a percentage. The fingerprint
-  reader shares the button; nothing here touches the reader.
+- **Power button LED** — brightness as a level or a percentage.
 - **Touchpad** — haptic click intensity and click force.
 - **Display** — switching the touchscreen off.
 
 A charge limit set here lasts until reboot: UEFI setup re-sends its own
 stored value at every POST, so the standing limit lives in BIOS setup.
+
+The power button LED and the fingerprint reader share one button. What the
+app reaches is the LED's brightness; nothing here touches the reader.
 
 A touchscreen switched off comes back when the lid is opened, after a suspend,
 and at the next restart — the panel's enable is a line the firmware re-asserts

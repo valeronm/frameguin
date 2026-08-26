@@ -7,7 +7,7 @@
 //! commands under one lock issues both against the guard it already holds, as
 //! [`Ec::set_charge_current_limit`] does.
 //!
-//! Two devices are deliberately absent: the fingerprint LED's off, which the
+//! Two devices are deliberately absent: the power LED's off, which the
 //! kernel arbitrates ([`crate::led`]), and the haptic touchpad, which
 //! `framework_lib` drives over HID ([`crate::touchpad`]).
 
@@ -287,16 +287,16 @@ impl Ec {
 
     /// The brightness percentage and the level the EC reports it as. `Custom`
     /// is what it answers after any raw percentage write.
-    pub(crate) fn fp_level(&self) -> EcResult<(u8, wire::FpLevel)> {
+    pub(crate) fn power_led_level(&self) -> EcResult<(u8, wire::PowerLedLevel)> {
         let (percent, level) = self.ec().get_fp_led_level()?;
-        Ok((percent, wire_fp_level(level.as_ref())))
+        Ok((percent, wire_power_led_level(level.as_ref())))
     }
 
-    pub(crate) fn set_fp_level(&self, level: FpLedBrightnessLevel) -> EcResult<()> {
+    pub(crate) fn set_power_led_level(&self, level: FpLedBrightnessLevel) -> EcResult<()> {
         self.ec().set_fp_led_level(level)
     }
 
-    pub(crate) fn set_fp_percentage(&self, percent: u8) -> EcResult<()> {
+    pub(crate) fn set_power_led_percentage(&self, percent: u8) -> EcResult<()> {
         self.ec().set_fp_led_percentage(percent)
     }
 
@@ -373,27 +373,27 @@ fn uptime_secs(ec: &CrosEc) -> EcResult<u64> {
 
 /// None for the levels the EC has no setting for: `Custom`, which it only
 /// ever reports, and `Off`, which is not the EC's to give.
-pub(crate) fn ec_fp_level(level: wire::FpLevel) -> Option<FpLedBrightnessLevel> {
+pub(crate) fn ec_power_led_level(level: wire::PowerLedLevel) -> Option<FpLedBrightnessLevel> {
     Some(match level {
-        wire::FpLevel::High => FpLedBrightnessLevel::High,
-        wire::FpLevel::Medium => FpLedBrightnessLevel::Medium,
-        wire::FpLevel::Low => FpLedBrightnessLevel::Low,
-        wire::FpLevel::UltraLow => FpLedBrightnessLevel::UltraLow,
-        wire::FpLevel::Auto => FpLedBrightnessLevel::Auto,
-        wire::FpLevel::Custom | wire::FpLevel::Off => return None,
+        wire::PowerLedLevel::High => FpLedBrightnessLevel::High,
+        wire::PowerLedLevel::Medium => FpLedBrightnessLevel::Medium,
+        wire::PowerLedLevel::Low => FpLedBrightnessLevel::Low,
+        wire::PowerLedLevel::UltraLow => FpLedBrightnessLevel::UltraLow,
+        wire::PowerLedLevel::Auto => FpLedBrightnessLevel::Auto,
+        wire::PowerLedLevel::Custom | wire::PowerLedLevel::Off => return None,
     })
 }
 
 /// A level the EC does not name is custom: that is what it reports after a
 /// raw percentage write.
-fn wire_fp_level(level: Option<&FpLedBrightnessLevel>) -> wire::FpLevel {
+fn wire_power_led_level(level: Option<&FpLedBrightnessLevel>) -> wire::PowerLedLevel {
     match level {
-        Some(FpLedBrightnessLevel::High) => wire::FpLevel::High,
-        Some(FpLedBrightnessLevel::Medium) => wire::FpLevel::Medium,
-        Some(FpLedBrightnessLevel::Low) => wire::FpLevel::Low,
-        Some(FpLedBrightnessLevel::UltraLow) => wire::FpLevel::UltraLow,
-        Some(FpLedBrightnessLevel::Auto) => wire::FpLevel::Auto,
-        Some(FpLedBrightnessLevel::Custom) | None => wire::FpLevel::Custom,
+        Some(FpLedBrightnessLevel::High) => wire::PowerLedLevel::High,
+        Some(FpLedBrightnessLevel::Medium) => wire::PowerLedLevel::Medium,
+        Some(FpLedBrightnessLevel::Low) => wire::PowerLedLevel::Low,
+        Some(FpLedBrightnessLevel::UltraLow) => wire::PowerLedLevel::UltraLow,
+        Some(FpLedBrightnessLevel::Auto) => wire::PowerLedLevel::Auto,
+        Some(FpLedBrightnessLevel::Custom) | None => wire::PowerLedLevel::Custom,
     }
 }
 
@@ -505,7 +505,7 @@ fn charge_flow(
 mod tests {
     use super::{
         ChargeSignals, EcStamp, SB_TERMINATE_CHARGE, SB_TERMINATE_DISCHARGE, alarms, charge_flow,
-        decicelsius, ec_fp_level, manufactured_iso, wire, wire_fp_level,
+        decicelsius, ec_power_led_level, manufactured_iso, wire, wire_power_led_level,
     };
 
     /// The reading `framework_tool` prints as 34.2 C for the same word.
@@ -604,9 +604,9 @@ mod tests {
     /// alone would compile, and would report back a level nobody set.
     #[test]
     fn every_level_the_ec_has_a_setting_for_comes_back_as_itself() {
-        for level in wire::FpLevel::ALL {
-            if let Some(ec_level) = ec_fp_level(level) {
-                assert_eq!(wire_fp_level(Some(&ec_level)), level);
+        for level in wire::PowerLedLevel::ALL {
+            if let Some(ec_level) = ec_power_led_level(level) {
+                assert_eq!(wire_power_led_level(Some(&ec_level)), level);
             }
         }
     }

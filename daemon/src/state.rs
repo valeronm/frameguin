@@ -21,8 +21,8 @@ const KEY_CLICK_FORCE: &str = "click_force";
 const KEY_CURRENT_LIMIT: &str = "charge_current_limit";
 const KEY_CURRENT_LIMIT_UPTIME: &str = "charge_current_limit_ec_uptime";
 const KEY_CURRENT_LIMIT_WRITTEN_AT: &str = "charge_current_limit_written_at";
-const KEY_FP_OFF_UPTIME: &str = "fp_off_ec_uptime";
-const KEY_FP_OFF_WRITTEN_AT: &str = "fp_off_written_at";
+const KEY_POWER_LED_OFF_UPTIME: &str = "power_led_off_ec_uptime";
+const KEY_POWER_LED_OFF_WRITTEN_AT: &str = "power_led_off_written_at";
 
 /// A charge current limit together with the stamp that dates it.
 #[derive(Clone, Copy)]
@@ -35,7 +35,7 @@ pub(crate) struct State {
     pub(crate) haptic_intensity: u8,
     pub(crate) click_force: u8,
     pub(crate) charge_current_limit: ChargeCurrentLimit,
-    pub(crate) fp_off: Option<EcStamp>,
+    pub(crate) power_led_off: Option<EcStamp>,
 }
 
 /// Loads the mirrored control state, falling back to the factory defaults.
@@ -52,7 +52,7 @@ pub(crate) fn load() -> State {
             milliamps: NO_CHARGE_CURRENT_LIMIT,
             stamp: EcStamp::default(),
         },
-        fp_off: None,
+        power_led_off: None,
     };
     if let Ok(content) = std::fs::read_to_string(STATE_FILE) {
         for line in content.lines() {
@@ -90,11 +90,13 @@ pub(crate) fn load() -> State {
                 KEY_CURRENT_LIMIT_WRITTEN_AT => {
                     state.charge_current_limit.stamp.written_at = value.parse().unwrap_or(0);
                 }
-                KEY_FP_OFF_UPTIME => {
-                    state.fp_off.get_or_insert_default().ec_uptime = value.parse().unwrap_or(0);
+                KEY_POWER_LED_OFF_UPTIME => {
+                    state.power_led_off.get_or_insert_default().ec_uptime =
+                        value.parse().unwrap_or(0);
                 }
-                KEY_FP_OFF_WRITTEN_AT => {
-                    state.fp_off.get_or_insert_default().written_at = value.parse().unwrap_or(0);
+                KEY_POWER_LED_OFF_WRITTEN_AT => {
+                    state.power_led_off.get_or_insert_default().written_at =
+                        value.parse().unwrap_or(0);
                 }
                 _ => {}
             }
@@ -107,16 +109,16 @@ pub(crate) fn load() -> State {
 pub(crate) fn save(state: &State) {
     // Absent rather than zeroed while the LED is lit: the stamp only ever
     // withdraws a claim, and a zeroed one would withdraw every time.
-    let fp_off = match state.fp_off {
+    let power_led_off = match state.power_led_off {
         Some(stamp) => format!(
-            "{KEY_FP_OFF_UPTIME}={}\n{KEY_FP_OFF_WRITTEN_AT}={}\n",
+            "{KEY_POWER_LED_OFF_UPTIME}={}\n{KEY_POWER_LED_OFF_WRITTEN_AT}={}\n",
             stamp.ec_uptime, stamp.written_at
         ),
         None => String::new(),
     };
     let content = format!(
         "{KEY_HAPTIC_INTENSITY}={}\n{KEY_CLICK_FORCE}={}\n{KEY_CURRENT_LIMIT}={}\n\
-         {KEY_CURRENT_LIMIT_UPTIME}={}\n{KEY_CURRENT_LIMIT_WRITTEN_AT}={}\n{fp_off}",
+         {KEY_CURRENT_LIMIT_UPTIME}={}\n{KEY_CURRENT_LIMIT_WRITTEN_AT}={}\n{power_led_off}",
         state.haptic_intensity,
         state.click_force,
         state.charge_current_limit.milliamps,

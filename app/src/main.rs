@@ -26,8 +26,8 @@ use gtk4::glib;
 use crate::reading::Feed;
 use crate::tray::{TrayEvent, TrayIcon, refresh_tray};
 use crate::ui::{
-    Custom, Sink, Ui, apply_charge_limit, apply_charge_speed, apply_fp_level, apply_touchscreen,
-    build_window,
+    Custom, Sink, Ui, apply_charge_limit, apply_charge_speed, apply_power_led_level,
+    apply_touchscreen, build_window,
 };
 
 const APP_ID: &str = "io.github.valeronm.Frameguin";
@@ -132,9 +132,9 @@ fn setup_tray(app: &adw::Application, state: Rc<AppState>) {
                         apply_charge_speed(sink, proxy, milliamps, Custom::Rederive).await;
                     }
                 }
-                TrayEvent::SetFingerprintLevel(level) => {
+                TrayEvent::SetPowerLedLevel(level) => {
                     if let Some(proxy) = &proxy {
-                        apply_fp_level(sink, proxy, level).await;
+                        apply_power_led_level(sink, proxy, level).await;
                     }
                 }
                 TrayEvent::SetTouchscreen(enabled) => {

@@ -6,14 +6,14 @@
 
 use std::rc::Rc;
 
-use frameguin_wire::{BatteryState, Capability, FpLevel};
+use frameguin_wire::{BatteryState, Capability, PowerLedLevel};
 
 use crate::APP_ID;
-use crate::caps::{Capabilities, fp_presets};
+use crate::caps::{Capabilities, power_led_presets};
 use crate::format::{
     CHARGE_SPEED_LABELS, amps, battery_summary, charge_limit_labels, charge_limit_percent,
-    charge_limit_position, charge_speed_milliamps, charge_speed_position, fp_level_labels,
-    percent_label, touchscreen_labels, touchscreen_position, touchscreen_state,
+    charge_limit_position, charge_speed_milliamps, charge_speed_position, percent_label,
+    power_led_level_labels, touchscreen_labels, touchscreen_position, touchscreen_state,
 };
 use crate::reading::Feed;
 
@@ -28,7 +28,7 @@ pub(crate) enum TrayEvent {
     /// Already resolved to milliamps against the capacity the menu was drawn
     /// from, so applying it needs nothing the window has to supply.
     SetChargeSpeed(u32),
-    SetFingerprintLevel(FpLevel),
+    SetPowerLedLevel(PowerLedLevel),
     /// The state to move to, which is what the row that was clicked names.
     /// The menu's mark can be a moment stale — the pad is where the truth is
     /// and a suspend moves it — so "off" has to still mean off when it
@@ -53,9 +53,9 @@ pub(crate) struct TrayIcon {
     /// stays out: a fraction then has no rate to show or to send.
     charge_current_limit: Option<u32>,
     design_capacity: Option<u32>,
-    /// Current fingerprint LED level, pushed in from the app; Custom marks no
+    /// Current power button LED level, pushed in from the app; Custom marks no
     /// radio option.
-    fp_level: Option<FpLevel>,
+    power_led_level: Option<PowerLedLevel>,
     /// Whether the touch panel is on, pushed in from the app; None until the
     /// first daemon read, which leaves the group unmarked.
     touchscreen: Option<bool>,
@@ -74,7 +74,7 @@ impl TrayIcon {
             charge_limit: None,
             charge_current_limit: None,
             design_capacity: None,
-            fp_level: None,
+            power_led_level: None,
             touchscreen: None,
             caps: None,
         }
@@ -144,7 +144,7 @@ impl ksni::Tray for TrayIcon {
             .into_iter()
             .flatten()
             .collect(),
-            self.fp_level_item().into_iter().collect(),
+            self.power_led_level_item().into_iter().collect(),
             self.touchscreen_item().into_iter().collect(),
             vec![
                 StandardItem {
@@ -273,16 +273,16 @@ impl TrayIcon {
         ))
     }
 
-    fn fp_level_item(&self) -> Option<ksni::MenuItem<Self>> {
+    fn power_led_level_item(&self) -> Option<ksni::MenuItem<Self>> {
         let caps = self.caps?;
-        if !caps.has(Capability::FpBrightness) {
+        if !caps.has(Capability::PowerLedBrightness) {
             return None;
         }
-        let levels = fp_presets(caps);
+        let levels = power_led_presets(caps);
         let selected = self
-            .fp_level
+            .power_led_level
             .and_then(|level| levels.iter().position(|l| *l == level));
-        let options = fp_level_labels(&levels);
+        let options = power_led_level_labels(&levels);
         let title = match selected {
             Some(index) => format!("Power button LED ({})", options[index]),
             None => "Power button LED".into(),
@@ -292,7 +292,7 @@ impl TrayIcon {
             selected,
             options,
             move |tray, index| {
-                tray.send(TrayEvent::SetFingerprintLevel(levels[index]));
+                tray.send(TrayEvent::SetPowerLedLevel(levels[index]));
             },
         ))
     }
@@ -334,7 +334,7 @@ pub(crate) struct TrayValues {
     pub(crate) charge_limit: Option<u8>,
     pub(crate) design_capacity: Option<u32>,
     pub(crate) charge_current_limit: Option<u32>,
-    pub(crate) fp_level: Option<FpLevel>,
+    pub(crate) power_led_level: Option<PowerLedLevel>,
     pub(crate) touchscreen: Option<bool>,
 }
 
@@ -353,9 +353,9 @@ impl TrayValues {
         }
     }
 
-    pub(crate) fn fp_level(level: FpLevel) -> Self {
+    pub(crate) fn power_led_level(level: PowerLedLevel) -> Self {
         Self {
-            fp_level: Some(level),
+            power_led_level: Some(level),
             ..Self::default()
         }
     }
@@ -379,7 +379,7 @@ pub(crate) fn tray_push(handle: &ksni::blocking::Handle<TrayIcon>, values: TrayV
         tray.charge_limit = values.charge_limit.or(tray.charge_limit);
         tray.design_capacity = values.design_capacity.or(tray.design_capacity);
         tray.charge_current_limit = values.charge_current_limit.or(tray.charge_current_limit);
-        tray.fp_level = values.fp_level.or(tray.fp_level);
+        tray.power_led_level = values.power_led_level.or(tray.power_led_level);
         tray.touchscreen = values.touchscreen.or(tray.touchscreen);
     });
 }
@@ -424,9 +424,9 @@ pub(crate) async fn refresh_tray(handle: &ksni::blocking::Handle<TrayIcon>, feed
     } else {
         None
     };
-    let level = if caps.has(Capability::FpBrightness) {
+    let level = if caps.has(Capability::PowerLedBrightness) {
         proxy
-            .get_fingerprint_brightness()
+            .get_power_led_brightness()
             .await
             .ok()
             .map(|(_, level)| level)
@@ -446,7 +446,7 @@ pub(crate) async fn refresh_tray(handle: &ksni::blocking::Handle<TrayIcon>, feed
             charge_limit: limit,
             design_capacity: capacity,
             charge_current_limit: speed,
-            fp_level: level,
+            power_led_level: level,
             touchscreen,
         },
     );

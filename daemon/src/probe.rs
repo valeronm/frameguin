@@ -69,8 +69,8 @@ pub(crate) fn capabilities(ec: Option<&Ec>) -> Vec<wire::Capability> {
         if ec.keyboard_backlight().is_ok() {
             caps.push(wire::Capability::KeyboardBacklight);
         }
-        if ec.fp_level().is_ok() {
-            caps.push(wire::Capability::FpBrightness);
+        if ec.power_led_level().is_ok() {
+            caps.push(wire::Capability::PowerLedBrightness);
             // Older EC firmware implements only command v0 of
             // FpLedLevelControl: presets high/medium/low. V1 added the
             // raw-percentage write, and the same firmware generation added
@@ -82,16 +82,16 @@ pub(crate) fn capabilities(ec: Option<&Ec>) -> Vec<wire::Capability> {
                 .command_supported(EcCommands::FpLedLevelControl, 1)
                 .unwrap_or(false)
             {
-                caps.push(wire::Capability::FpBrightnessCustom);
+                caps.push(wire::Capability::PowerLedBrightnessCustom);
             }
-            // Nested under the EC's own fingerprint control, which this one
+            // Nested under the EC's own power-LED control, which this one
             // needs even though it never commands the LED through it: the
             // setter dates its write against the EC, and off is offered as
             // one level among that control's rest rather than as a control of
             // its own. The probe is the same lookup the setter makes, so the
             // two cannot come to different answers about what is reachable.
             if led::controllable_power().is_some() {
-                caps.push(wire::Capability::FpOff);
+                caps.push(wire::Capability::PowerLedOff);
             }
         }
     }

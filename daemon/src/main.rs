@@ -7,9 +7,9 @@
 
 mod board;
 mod ec;
-mod fp;
 mod gpio;
 mod led;
+mod power_led;
 mod probe;
 mod state;
 mod touchpad;
@@ -25,7 +25,7 @@ use zbus::{Connection, fdo, interface};
 use zbus_polkit::policykit1::{AuthorityProxy, CheckAuthorizationFlags, Subject};
 
 use crate::ec::{Ec, EcStamp};
-use crate::fp::FpWrite;
+use crate::power_led::PowerLedWrite;
 use crate::state::{ChargeCurrentLimit, State};
 
 const POLKIT_ACTION: &str = "io.github.valeronm.frameguin.manage";
@@ -45,11 +45,10 @@ struct Daemon {
     /// Mirrored like the touchpad's, but this one expires: the EC keeps the
     /// limit in RAM, which outlives host reboots but not an EC restart.
     charge_current_limit: Mutex<ChargeCurrentLimit>,
-    /// When this daemon last darkened the fingerprint LED, and None when it
-    /// has not. The kernel holds the LED state itself, so what is mirrored
-    /// here is only the date of the write — see [`fp`] for what that dating
-    /// settles.
-    fp_off: Mutex<Option<EcStamp>>,
+    /// When this daemon last darkened the power LED, and None when it has not.
+    /// The kernel holds the LED state itself, so what is mirrored here is only
+    /// the date of the write — see [`power_led`] for what that dating settles.
+    power_led_off: Mutex<Option<EcStamp>>,
 }
 
 /// The touch panel's enable line, or the same permanent refusal
@@ -84,7 +83,7 @@ impl Daemon {
             haptic_intensity: self.haptic_intensity.load(Ordering::Relaxed),
             click_force: self.click_force.load(Ordering::Relaxed),
             charge_current_limit: *self.charge_current_limit.lock().unwrap(),
-            fp_off: *self.fp_off.lock().unwrap(),
+            power_led_off: *self.power_led_off.lock().unwrap(),
         };
         state::save(&state);
     }
@@ -281,40 +280,41 @@ impl Daemon {
     /// and which no setter accepts, or `Off`, which the EC cannot report at
     /// all — it is the host holding the LED, and the percentage alongside it
     /// is the one the EC will light it at when the host lets go.
-    fn get_fingerprint_brightness(&self) -> fdo::Result<(u8, wire::FpLevel)> {
+    fn get_power_led_brightness(&self) -> fdo::Result<(u8, wire::PowerLedLevel)> {
         self.touch();
         let ec = self.ec()?;
-        let (percent, level) = ec.fp_level().map_err(ec_err)?;
-        if self.fp_off_led(ec).is_some() {
-            return Ok((percent, wire::FpLevel::Off));
+        let (percent, level) = ec.power_led_level().map_err(ec_err)?;
+        if self.power_led_off_node(ec).is_some() {
+            return Ok((percent, wire::PowerLedLevel::Off));
         }
         Ok((percent, level))
     }
 
-    async fn set_fingerprint_level(
+    async fn set_power_led_level(
         &self,
-        level: wire::FpLevel,
+        level: wire::PowerLedLevel,
         #[zbus(header)] header: Header<'_>,
     ) -> fdo::Result<()> {
         self.touch();
-        let write = FpWrite::for_level(level)?;
+        let write = PowerLedWrite::for_level(level)?;
         self.authorize(&header).await?;
-        self.write_fingerprint(write).await
+        self.write_power_led(write).await
     }
 
-    async fn set_fingerprint_brightness(
+    async fn set_power_led_brightness(
         &self,
         percent: u8,
         #[zbus(header)] header: Header<'_>,
     ) -> fdo::Result<()> {
         self.touch();
-        // The EC accepts 1-100; 0 is rejected (the LED doubles as the power
-        // indicator) and 0xFF is the protocol's read sentinel.
+        // The EC accepts 1-100; 0 is rejected (it will not let the host
+        // extinguish the indicator) and 0xFF is the protocol's read sentinel.
         if !(1..=100).contains(&percent) {
             return Err(fdo::Error::InvalidArgs("brightness must be 1-100".into()));
         }
+        let write = PowerLedWrite::Percentage(percent);
         self.authorize(&header).await?;
-        self.write_fingerprint(FpWrite::Percentage(percent)).await
+        self.write_power_led(write).await
     }
 
     fn get_haptic_intensity(&self) -> u8 {
@@ -444,7 +444,7 @@ fn main() -> zbus::Result<()> {
             haptic_intensity: AtomicU8::new(state.haptic_intensity),
             click_force: AtomicU8::new(state.click_force),
             charge_current_limit: Mutex::new(state.charge_current_limit),
-            fp_off: Mutex::new(state.fp_off),
+            power_led_off: Mutex::new(state.power_led_off),
         };
         conn.object_server().at(wire::OBJECT_PATH, daemon).await?;
         // Claim the name only once the object is served, so an activating

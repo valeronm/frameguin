@@ -51,16 +51,17 @@ pub enum Capability {
     ChargeLimit,
     ChargeCurrentLimit,
     KeyboardBacklight,
-    FpBrightness,
-    /// V1 of the EC's fingerprint command: the raw percentage write, and with
-    /// it the ultra-low and auto levels (framework-system issue #211).
-    FpBrightnessCustom,
+    PowerLedBrightness,
+    /// V1 of the EC's `FP_LED` brightness command: the raw percentage write,
+    /// and with it the ultra-low and auto levels (framework-system issue
+    /// #211).
+    PowerLedBrightnessCustom,
     /// Darkening the LED, which the EC's command cannot express: it takes
-    /// 1-100 and reserves 0, the LED being the power indicator too. Off is
+    /// 1-100 and reserves 0, refusing to extinguish the indicator. Off is
     /// reached by taking the LED off the EC's own policy through the kernel's
     /// LED class, so this capability answers for that interface rather than
     /// for a command version.
-    FpOff,
+    PowerLedOff,
     /// What the pack says about itself past the EC's summary of it — its
     /// temperature, its cell voltages, and the alarms it is raising. One name
     /// for all three: they are the same device over the same transport,
@@ -224,11 +225,11 @@ pub struct BatteryInfo {
     pub manufactured: String,
 }
 
-/// Fingerprint LED levels.
+/// Power button LED levels.
 #[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug)]
 #[zvariant(crate = "zbus::zvariant", signature = "s")]
 #[serde(rename_all = "kebab-case")]
-pub enum FpLevel {
+pub enum PowerLedLevel {
     Auto,
     High,
     Medium,
@@ -243,7 +244,7 @@ pub enum FpLevel {
     Custom,
 }
 
-impl FpLevel {
+impl PowerLedLevel {
     /// Every level, in no order worth reading. Auto, Off and Custom sit on no
     /// scale of brightness, so any run through them is a display choice: what
     /// a level means is this crate's business, where its row sits is the
@@ -272,9 +273,9 @@ impl FpLevel {
     #[must_use]
     pub const fn requires(self) -> Capability {
         match self {
-            Self::High | Self::Medium | Self::Low => Capability::FpBrightness,
-            Self::Auto | Self::UltraLow | Self::Custom => Capability::FpBrightnessCustom,
-            Self::Off => Capability::FpOff,
+            Self::High | Self::Medium | Self::Low => Capability::PowerLedBrightness,
+            Self::Auto | Self::UltraLow | Self::Custom => Capability::PowerLedBrightnessCustom,
+            Self::Off => Capability::PowerLedOff,
         }
     }
 }
@@ -291,8 +292,8 @@ pub enum ClickForce {
 
 impl ClickForce {
     /// Lightest press to firmest, which is a fact about the forces rather
-    /// than a layout — so unlike [`FpLevel::ALL`] a front-end can draw them
-    /// in this order, and reordering here would move its rows.
+    /// than a layout — so unlike [`PowerLedLevel::ALL`] a front-end can draw
+    /// them in this order, and reordering here would move its rows.
     pub const ALL: [Self; 3] = [Self::Low, Self::Medium, Self::High];
 }
 
@@ -314,9 +315,9 @@ pub trait Frameguin {
     async fn get_capabilities(&self) -> zbus::Result<Vec<Capability>>;
     async fn get_ec_version(&self) -> zbus::Result<String>;
     async fn get_build(&self) -> zbus::Result<(String, String)>;
-    async fn get_fingerprint_brightness(&self) -> zbus::Result<(u8, FpLevel)>;
-    async fn set_fingerprint_brightness(&self, percent: u8) -> zbus::Result<()>;
-    async fn set_fingerprint_level(&self, level: FpLevel) -> zbus::Result<()>;
+    async fn get_power_led_brightness(&self) -> zbus::Result<(u8, PowerLedLevel)>;
+    async fn set_power_led_brightness(&self, percent: u8) -> zbus::Result<()>;
+    async fn set_power_led_level(&self, level: PowerLedLevel) -> zbus::Result<()>;
     async fn get_haptic_intensity(&self) -> zbus::Result<u8>;
     async fn set_haptic_intensity(&self, percent: u8) -> zbus::Result<()>;
     async fn get_touchpad_click_force(&self) -> zbus::Result<ClickForce>;

@@ -41,8 +41,8 @@ Every heading in the file appears here.
   - [Charge limit](#charge-limit)
   - [Charge current limit](#charge-current-limit)
   - [Charging persistence](#charging-persistence)
-- [Fingerprint LED](#fingerprint-led)
-  - [Fingerprint LED persistence](#fingerprint-led-persistence)
+- [Power button LED](#power-button-led)
+  - [Power button LED persistence](#power-button-led-persistence)
 - [Keyboard backlight](#keyboard-backlight)
   - [Keyboard backlight persistence](#keyboard-backlight-persistence)
 - [Haptic touchpad](#haptic-touchpad)
@@ -270,10 +270,13 @@ gone as soon as the EC does.
 
 A suspend costs neither of them anything, the EC staying up across one.
 
-## Fingerprint LED
+## Power button LED
 
-Levels are 1–100. **Zero is rejected**, because the LED doubles as the power
-indicator.
+The EC's host commands for it are spelled `FP_LED`, the fingerprint reader
+sharing the button; the EC's own id for it is `EC_LED_ID_POWER_LED`.
+
+Levels are 1–100. **Zero is rejected**: the EC will not let the host
+extinguish the machine's power indicator.
 
 The **percentage write** needs command **v1**, which older EC firmware lacks
 ([framework-system #211](https://github.com/FrameworkComputer/framework-system/issues/211)).
@@ -308,7 +311,7 @@ the kernel noticing, and the record silently becomes wrong. Anything relying on
 it has to date its own write against the EC's uptime — which can only ever
 withdraw the kernel's account, never supply one.
 
-### Fingerprint LED persistence
+### Power button LED persistence
 
 Nothing set from the OS survives a reboot, and each mechanism below sees to
 that on its own, so fixing any one of them would change nothing.

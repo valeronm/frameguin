@@ -1,9 +1,9 @@
 //! The power LED through the kernel's LED class — the one control that does
 //! not reach the hardware through the EC.
 //!
-//! Nothing here talks to `framework_lib`: the EC has no off for the
-//! fingerprint LED (its level command rejects 0, and its BBRAM slot reads a 0
-//! back as full brightness), so off is the kernel holding the LED instead.
+//! Nothing here talks to `framework_lib`: the EC has no off for the power
+//! LED (its level command rejects 0, and its BBRAM slot reads a 0 back as
+//! full brightness), so off is the kernel holding the LED instead.
 
 use std::path::{Path, PathBuf};
 
@@ -36,7 +36,7 @@ fn active_in(listed: &str) -> Option<&str> {
 /// vouched for it — every question asked of that file is answered from the
 /// one read.
 ///
-/// This is the LED the fingerprint commands dim, and it counts only when it
+/// This is the LED the EC's `FP_LED` commands dim, and it counts only when it
 /// is one this daemon can both darken and hand back. Its name carries the
 /// LED's colour, and which colours a power LED has is a board's business, so
 /// find it by the function it ends with rather than by one board's spelling
