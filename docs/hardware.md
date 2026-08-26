@@ -9,8 +9,43 @@ Where a claim comes from firmware or a datasheet it is cited by name — the
 ChromiumOS EC tree Framework forks, TI's documents for the battery gauge —
 rather than by line number, which rots.
 
+Past the transport chapter the subject chapters divide by whether the machine
+is being read or told: the battery is read, and every chapter between it and
+the sources is a control. Each control chapter ends with a persistence section
+— what survives a suspend, a reboot and an EC restart — because which of the
+three a control survives does not follow from what the control does.
+
 Framework is a trademark of Framework Computer Inc.; this is an independent
 project and names the hardware only descriptively.
+
+## Contents
+
+Every heading in the file appears here.
+
+<!-- GitHub's slugger drops the ² from "I²C"; that anchor is right as written. -->
+
+- [Reaching the EC](#reaching-the-ec)
+- [Battery](#battery)
+  - [The EC's battery block](#the-ecs-battery-block)
+  - [What the flag byte means, and does not](#what-the-flag-byte-means-and-does-not)
+  - [The pack itself, over I²C](#the-pack-itself-over-ic)
+  - [Cycle count goes stale in the EC](#cycle-count-goes-stale-in-the-ec)
+  - [Battery temperature](#battery-temperature)
+  - [Which status bits actually mean a fault](#which-status-bits-actually-mean-a-fault)
+  - [Reading a health verdict with care](#reading-a-health-verdict-with-care)
+- [Charging](#charging)
+  - [Charge limit](#charge-limit)
+  - [Charge current limit](#charge-current-limit)
+  - [Charging persistence](#charging-persistence)
+- [Fingerprint LED](#fingerprint-led)
+  - [Fingerprint LED persistence](#fingerprint-led-persistence)
+- [Keyboard backlight](#keyboard-backlight)
+  - [Keyboard backlight persistence](#keyboard-backlight-persistence)
+- [Haptic touchpad](#haptic-touchpad)
+  - [Haptic touchpad persistence](#haptic-touchpad-persistence)
+- [Touchscreen](#touchscreen)
+  - [Touchscreen persistence](#touchscreen-persistence)
+- [Sources](#sources)
 
 ## Reaching the EC
 
@@ -35,7 +70,10 @@ either of the above: an EC round trip *plus* a real bus transaction.
 must be constructed behind a check that the machine is the right one, not
 called speculatively.
 
-## Battery and charging
+## Battery
+
+What the pack and the EC report about it, and how to read it. What can be set
+lives under [Charging](#charging).
 
 ### The EC's battery block
 
@@ -70,29 +108,6 @@ convention asks that the host stop claiming a direction. The charge current
 then decays for as long as a minute, so there is a window with a substantial
 rate and no direction at all. A pack whose charge is not moving is what
 distinguishes that from a pack running the machine.
-
-### Charge limit
-
-The EC persists it in BBRAM. But UEFI setup re-sends its own stored value at
-every POST, so a limit set from the OS lasts until the next reboot and the
-standing value lives in BIOS setup.
-
-### Charge current limit
-
-Write-only: no readback exists in any command version
-([framework-system #180](https://github.com/FrameworkComputer/framework-system/issues/180)).
-Anything wanting to report it has to remember what it wrote.
-
-The command has a variant that applies the limit above a state-of-charge
-threshold. It **latches inside the EC**: once applied it is never re-evaluated,
-so a later threshold cannot lift it
-([framework-system #342](https://github.com/FrameworkComputer/framework-system/issues/342)).
-The unconditional form is the one to send unless you want that behaviour.
-
-A charge rate expressed in C is converted against **design capacity** — the
-design capacity in mAh is numerically the 1C current in mA.
-`framework_lib::set_charge_rate_limit` does exactly this and prints the result
-as "Design Current".
 
 ### The pack itself, over I²C
 
@@ -206,6 +221,51 @@ resistance or cell balance, so a pack can show excellent retention while a cell
 drifts. Cell spread is the independent signal, and the EC publishes only the
 pack total, so it has to come from the gauge.
 
+## Charging
+
+The names invite confusion, so take them apart first.
+
+### Charge limit
+
+A ceiling on state of charge: a percentage the EC's battery sustainer holds the
+pack at. Sitting at that ceiling is what produces the direction the EC's flags
+cannot express — see
+[what the flag byte means, and does not](#what-the-flag-byte-means-and-does-not).
+
+### Charge current limit
+
+A ceiling on the current drawn while charging, which says nothing about where
+charging stops.
+
+Write-only: no readback exists in any command version
+([framework-system #180](https://github.com/FrameworkComputer/framework-system/issues/180)).
+Anything wanting to report it has to remember what it wrote.
+
+The command has a variant that applies the limit above a state-of-charge
+threshold. It **latches inside the EC**: once applied it is never re-evaluated,
+so a later threshold cannot lift it
+([framework-system #342](https://github.com/FrameworkComputer/framework-system/issues/342)).
+The unconditional form is the one to send unless you want that behaviour.
+
+A charge rate expressed in C is converted against **design capacity** — the
+design capacity in mAh is numerically the 1C current in mA.
+`framework_lib::set_charge_rate_limit` does exactly this and prints the result
+as "Design Current".
+
+### Charging persistence
+
+**The charge limit** is kept in BBRAM, so it outlives an EC restart. But UEFI
+setup re-sends its own stored value at every POST, so a limit set from the OS
+lasts until the next reboot and the standing value lives in BIOS setup.
+
+**The charge current limit** is not stored anywhere: `user_current_limit` and
+its pending value live in the charger task, set by the host command and
+consulted on each pass. Nothing saves it and nothing re-sends it, so it
+survives a reboot only because the EC does not restart across one, and it is
+gone as soon as the EC does.
+
+A suspend costs neither of them anything, the EC staying up across one.
+
 ## Fingerprint LED
 
 Levels are 1–100. **Zero is rejected**, because the LED doubles as the power
@@ -244,6 +304,38 @@ the kernel noticing, and the record silently becomes wrong. Anything relying on
 it has to date its own write against the EC's uptime — which can only ever
 withdraw the kernel's account, never supply one.
 
+### Fingerprint LED persistence
+
+Nothing set from the OS survives a reboot, and each mechanism below sees to
+that on its own, so fixing any one of them would change nothing.
+
+**BIOS setup re-sends its level at every POST**, exactly as it does
+[the charge limit](#charging-persistence). The option is under Advanced,
+"Power Button Brightness Level", and its
+value replaces whatever the OS last set. Observed with the option left on
+Auto: a level set from the OS read back as auto after a reboot, with the EC's
+uptime counting straight through and its reset flags unchanged, so no EC
+restart could account for it — leaving the host command the option sends as
+the only thing that can have turned auto back on.
+
+**The EC also resets the stored percentage on the way down**, independently:
+reaching S5 writes the BBRAM slot back to the high level, 55%, whether auto is
+on or not. A suspend does not: the reset hangs off the chipset being off, not
+merely asleep.
+
+So a discrete level chosen in BIOS setup is what holds, setup asserting it
+again each boot — observed for Auto, with the fixed levels being the same
+option sending the same command. A custom percentage has nowhere in setup to
+be chosen from, so it cannot survive at all.
+
+An **EC restart** leaves the stored percentage where it is, the slot being
+battery-backed, but takes the LED back from anything holding it: the level
+outlives the restart and darkness does not.
+
+Darkness does not survive a reboot either, and for a reason of its own again:
+the reboot re-probes the kernel's LED driver and re-attaches the EC's trigger,
+so the kernel's record reads as lit and nothing re-sends the write.
+
 ## Keyboard backlight
 
 Read it with `EcRequestPwmGetKeyboardBacklight`, which returns the stored
@@ -255,6 +347,18 @@ The EC is a **second writer**. Fn+Space changes it, and newer boards have a
 firmware auto mode. Anything showing the value has to re-read rather than
 trusting what it last wrote.
 
+### Keyboard backlight persistence
+
+The EC saves this one rather than resetting it. On the way to shutdown it
+writes the current brightness into BBRAM — or a marker standing for auto,
+where the firmware auto mode is on — and restores it when it next initializes,
+so a level set from the OS is still there after a reboot and after an EC
+restart alike. A suspend never reaches the save at all, the EC staying up. The
+Fn-lock state shares that same byte.
+
+Nothing re-sends it from BIOS setup either, so the standing value is the EC's
+own.
+
 ## Haptic touchpad
 
 Reached over its own HID transport, not the EC.
@@ -263,11 +367,16 @@ Reached over its own HID transport, not the EC.
 the current setting, so there is no readback. Anything reporting what is set
 has to remember it.
 
-Settings persist in the touchpad's own flash across suspend and reboot, so
-nothing needs re-applying after a resume — the hardware keeps its own state.
-
 The firmware implements **five intensity steps** rather than the 0–100 its HID
 descriptor advertises.
+
+### Haptic touchpad persistence
+
+Settings live in the touchpad's own flash, so they survive a suspend, a reboot
+and an EC restart alike — the EC is not on the path and has nothing to reset.
+Nothing needs re-applying after a resume. That independence is no help to
+anything that forgot what it set, though: the write-only interface above means
+the device will not say.
 
 ## Touchscreen
 
@@ -369,23 +478,42 @@ did **not** fire in the same test: blanking and waking the display through
 GNOME's screensaver left the pad low throughout. So that call exists in the
 tables without being reached by an ordinary blank — which is worth knowing
 mostly as a warning that the tables list more callers than a session will
-exercise. The lid is the one that costs a user their setting.
-
-**Off does not survive a suspend** — observed, and explicable from two
-directions at once: the pad returns to its firmware default on resume, and
-the EC brings the panel's own
-rail up independently — `gpio_ec_ts_pwr_en` is driven in `POWER_S3S0` and
-`POWER_S0S3`, grouped with the SSD and speaker-amp rails. That is power
-sequencing rather than a control, and there is no touchscreen host command
-anywhere in the EC's custom set. Moving the control into the EC would need
-both a command and a flag its power sequence honours, or the first resume
-would undo it.
+exercise.
 
 **The state reads back**, which nothing else off the EC manages: Intel's
 pinctrl answers a get from the output latch whenever the output driver is
 enabled, so the pad reports the level being driven. The caveat is narrow — a
 pad restored in another mode would answer from the input instead, which on
 this pad is disabled and therefore meaningless.
+
+### Touchscreen persistence
+
+The pad holds whatever was last driven into it, as above, so nothing here is
+the pad forgetting — it is something else overwriting it.
+
+**Off does not survive a suspend** — observed, and explicable from two
+directions at once: the pad returns to its firmware default on resume, and the
+EC brings the panel's own rail up independently — `gpio_ec_ts_pwr_en` is
+driven in `POWER_S3S0` and `POWER_S0S3`, grouped with the SSD and speaker-amp
+rails. That is power sequencing rather than a control, and there is no
+touchscreen host command anywhere in the EC's custom set. Moving the control
+into the EC would need both a command and a flag its power sequence honours,
+or the first resume would undo it.
+
+**Nor does it survive the lid opening**, which is the same loss with no
+suspend to explain it — the lid query above drives the pad back high.
+
+**Nor a reboot** — with the pad driven low and touch confirmed dead, a reboot
+with the lid left open throughout brought the pad back high and touch with it.
+Since the pad's own `PADCFG` would have carried that low across a warm reset,
+what undoes it is platform firmware configuring its pads at POST: the one
+writer the published documents do not cover, and the only candidate left with
+the lid ruled out.
+
+**An EC restart is not a case this control has.** The enable is a processor
+pad the EC cannot reach, so nothing about it turns on the EC being up. The
+panel's own rail is a separate path the EC does drive, and what a restart does
+to that has not been watched.
 
 ## Sources
 
