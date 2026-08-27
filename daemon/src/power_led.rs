@@ -96,10 +96,14 @@ impl Daemon {
 
     fn darken_power_led(&self, dir: &Path, ec: &Ec) -> fdo::Result<()> {
         // Dated before the write rather than after it, so a restart between
-        // the two is read as having dropped it.
-        let stamp = ec.stamp().map_err(ec_err)?;
+        // the two is read as having dropped it — and taken as best effort,
+        // because the darkening itself is the kernel's and wants nothing from
+        // the EC. An undatable write costs only the later detection that an
+        // EC restart took the LED back; refusing it would cost the control
+        // itself, on the strength of a read the write does not depend on.
+        let stamp = ec.stamp().ok();
         led::darken(dir).map_err(internal_err)?;
-        *self.power_led_off.lock().unwrap() = Some(stamp);
+        *self.power_led_off.lock().unwrap() = stamp;
         self.save_state();
         Ok(())
     }

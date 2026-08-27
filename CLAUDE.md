@@ -165,6 +165,16 @@ it and the non-obvious constraints.
   whether a client can be stale, not whether the value is
   readable: the keyboard backlight is both readable and written by the EC, and
   skips nothing, because the window polls it while mapped and so is not.
+- **A date is best effort, never a gate.** Where a write is dated — the power
+  LED's darkness against the EC, the touch panel's against the boot — a date
+  that cannot be taken costs the record and not the write. What a stamp buys
+  is knowing later whether the value still stands, and that is never worth
+  refusing a write the hardware would have taken: it trades a control the user
+  asked for against a label that is approximate anyway. The writes this
+  applies to are state assertions rather than gestures, so re-asserting one
+  already in force costs nothing either. Where the dating read is not even on
+  the path the write takes — the power LED darkens through the kernel and its
+  stamp comes from the EC — refusing is plainly the wrong trade.
 - D-Bus types name the value, not either end's convenience: a percentage is
   `y` (`u8`), never GTK's f64. The daemon validates every argument because
   any client can call it — an app-side clamp is UI convenience, not the check.
