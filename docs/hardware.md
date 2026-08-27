@@ -277,21 +277,33 @@ charger task, written only by the host command and by the threshold applier,
 and `charger_init` — the hook every EC boot runs — leaves them alone. So an EC
 restart drops it, by nothing more than those statics being initialized again.
 
-**Whether a host reboot drops it too is untested.** The EC runs straight
-through one, so nothing on its side clears the value; what is unknown is
-whether UEFI setup re-sends its own, as it does for the charge limit above and
-for [the power button LED's level](#power-button-led-persistence). Both of
-those were settled by reading the value back afterwards, which this control
-does not allow, having no readback in any command version.
+**A host reboot does not drop it**, and it is the one control here that
+firmware leaves alone. The EC runs straight through a reboot, so nothing on
+its side clears the value, and UEFI setup does not re-send its own the way it
+does for the charge limit above and for
+[the power button LED's level](#power-button-led-persistence). That is what
+separates it from those two: setup has an option for each of them and none for
+a charge current, so there is nothing stored for POST to re-assert.
 
-**The EC's console is where the answer shows**, and it is better evidence than
-the charge rate. `framework_tool --console recent` prints the ring buffer, in
-which a write of the limit appears as `HC 0x00a1` — the command's own number —
-and the charger target it produces as `charge_request(<mV>, <mA>)` whenever
-that target changes. So a reboot the EC survives shows either a fresh
-`HC 0x00a1` from platform firmware or none at all. The buffer holds only
-minutes at the rate a charging pack fills it, so it wants reading before the
-boot's own logging pushes POST off the top.
+The evidence is a contrast rather than a reading, since this control has no
+readback in any command version. Across one reboot the EC survived, with a
+limit standing from before it: the charge limit came back at the value held in
+setup and the LED level came back at setup's, while the current limit was
+still the one written from the OS and the pack still charged at it. The same
+POST overwrote the two controls firmware owns and left this one untouched.
+
+**Watching for the command itself does not work on this machine.** It would be
+better evidence, and `framework_tool --console recent` prints the EC's console
+ring in which a write appears as `HC 0x00a1`, the command's own number, with
+the charger target it produces as `charge_request(<mV>, <mA>)`. But the ring is
+about 4 KB, and through POST the EC fills it with paired `event set` and
+`PORT80:` lines at roughly fifty a second — so it holds some two seconds of
+boot, against a POST that ended ten seconds before the earliest moment a
+userspace unit can read it. Boot destroys its own record. Reaching it wants an
+EC UART or a firmware build with a larger buffer; the console is still good
+for watching a write land while the machine is up, and its timestamps are EC
+uptime, so a dump spanning two host boots is itself proof the EC did not
+restart.
 
 A suspend costs neither of them anything, the EC staying up across one.
 
@@ -462,8 +474,13 @@ so a level set from the OS is still there after a reboot and after an EC
 restart alike. A suspend never reaches the save at all, the EC staying up. The
 Fn-lock state shares that same byte.
 
-Nothing re-sends it from BIOS setup either, so the standing value is the EC's
-own.
+**Whether BIOS setup re-sends it is untested**, where the charge limit and the
+power button LED level demonstrably are. The one keyboard-backlight write seen
+at boot lands after the kernel's own EC probe, so it is the host restoring a
+saved level rather than firmware, and POST itself cannot be watched here — see
+[the charge current limit](#charging-persistence) for why. This control has a
+getter, so the test is the one that settled those two: set a distinctive
+level, reboot, and read it back.
 
 ## Haptic touchpad
 

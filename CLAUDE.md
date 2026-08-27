@@ -245,10 +245,10 @@ asserted and its reason a file away.
   and for the charge current limit, whose mirror expires with the EC that took
   it; the host's boot id for the touch panel, whose controller is expected to
   come up reporting. Which holder a mirror belongs to is settled by evidence
-  and not by which stamp is nearer — and for the charge current limit it is
-  only half settled: nothing in the EC restores it, but whether UEFI re-sends
-  its own at POST is untested, and if it does that mirror wants a boot stamp
-  beside its EC one. `docs/hardware.md` carries the experiment.
+  and not by which stamp is nearer: the charge current limit is the EC's to
+  hold, firmware having been shown to leave it where the charge limit and the
+  LED level are both re-asserted at POST, so its EC stamp wants no boot stamp
+  beside it.
   The touchscreen is both, and which it is depends on the
   route: the pad carries the level, so where a pad is the control the getter
   asks the hardware, and where the panel's own command is, there is nothing
