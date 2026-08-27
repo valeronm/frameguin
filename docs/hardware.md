@@ -19,6 +19,13 @@ EC's power sequencing at G3 on every EC boot, so an EC restart takes the
 machine down with it. What it asks is whether a value outlives the EC that
 holds it.
 
+Draining the pack to empty causes one. With no adapter attached the EC runs
+off the battery, so a pack taken to zero takes the EC down and everything it
+was holding in RAM with it. This is worth knowing before reading an EC-dated
+value as evidence about a *reboot*: the EC's uptime shows that it restarted
+but not what restarted it, so a boot that followed a flat battery answers
+nothing about the reboot itself.
+
 Framework is a trademark of Framework Computer Inc.; this is an independent
 project and names the hardware only descriptively.
 
@@ -43,6 +50,8 @@ Every heading in the file appears here.
   - [Charging persistence](#charging-persistence)
 - [Power button LED](#power-button-led)
   - [Power button LED persistence](#power-button-led-persistence)
+- [Charging LED](#charging-led)
+  - [Charging LED persistence](#charging-led-persistence)
 - [Keyboard backlight](#keyboard-backlight)
   - [Keyboard backlight persistence](#keyboard-backlight-persistence)
 - [Haptic touchpad](#haptic-touchpad)
@@ -273,9 +282,16 @@ through one, so nothing on its side clears the value; what is unknown is
 whether UEFI setup re-sends its own, as it does for the charge limit above and
 for [the power button LED's level](#power-button-led-persistence). Both of
 those were settled by reading the value back afterwards, which this control
-does not allow, having no readback in any command version. Settling it needs
-the machine: set a low limit, reboot, and watch with a pack below full whether
-the charge rate is still capped.
+does not allow, having no readback in any command version.
+
+**The EC's console is where the answer shows**, and it is better evidence than
+the charge rate. `framework_tool --console recent` prints the ring buffer, in
+which a write of the limit appears as `HC 0x00a1` — the command's own number —
+and the charger target it produces as `charge_request(<mV>, <mA>)` whenever
+that target changes. So a reboot the EC survives shows either a fresh
+`HC 0x00a1` from platform firmware or none at all. The buffer holds only
+minutes at the rate a charging pack fills it, so it wants reading before the
+boot's own logging pushes POST off the top.
 
 A suspend costs neither of them anything, the EC staying up across one.
 
@@ -295,6 +311,18 @@ asking whether v1 exists is a serviceable stand-in for asking whether they do.
 It is a proxy, not a requirement: worth knowing if you are deciding what to
 *refuse* rather than what to offer.
 
+**Auto is the ambient light sensor**, not a policy the EC runs on its own.
+Setting it raises a bit in the BIOS-function BBRAM slot, and the LED's duty
+then follows the sensor on each tick, on boards built with a dedicated ALS. It
+is a writer of the brightness rather than a level among the others.
+
+**The level a read reports is deduced, not remembered.** Only the percentage is
+stored, and the getter maps it back to whichever named level shares its value,
+answering custom for anything unmapped. A custom percentage that happens to
+equal a named level's therefore reads back as that level, with nothing to tell
+the two apart. Auto is the exception, being a flag of its own, and it replaces
+the deduced answer rather than being read out of the percentage.
+
 **A level is acknowledged at once and applied 100 ms later.** The EC's
 `fp_led_level_control` stores the level in BBRAM and defers
 `change_pwm_led_maximum_duty`, which is what actually moves the PWM duty the
@@ -312,6 +340,12 @@ keeps no readable record of who owns the LED. The kernel's LED class
 behind the driver's back leaves that record describing a policy the EC has
 already stopped following. Going through the kernel instead keeps the only
 account there is truthful.
+
+**A brightness write is the handover**, not a step taken before one: the host
+command's handler sets the colour and clears the LED's auto flag in the same
+call, so there is no order a caller can choose and no way to write a colour
+without also taking the LED. That flag is what the EC's own policy consults
+before touching the LED on its tick.
 
 That account is readable, but there is no *hardware* read behind it: the driver
 implements no `brightness_get`, and the EC's LED command answers only with
@@ -351,6 +385,62 @@ outlives the restart and darkness does not.
 Darkness does not survive a reboot either, and for a reason of its own again:
 the reboot re-probes the kernel's LED driver and re-attaches the EC's trigger,
 so the kernel's record reads as lit and nothing re-sends the write.
+
+## Charging LED
+
+`EC_LED_ID_BATTERY_LED`, reached by `EC_CMD_LED_CONTROL` — the command that
+darkens the power LED, here doing its ordinary job. The kernel exposes it the
+same way, at `/sys/class/leds/chromeos:multicolor:charging`, and the same
+`chromeos-auto` trigger is the handover.
+
+These boards answer for this LED and the power LED and no others. Which ids are
+supported is computed from the devicetree's pin nodes rather than declared, so
+the ids the protocol also defines — adapter, left, right, recovery, sysrq — are
+unsupported by having no pins rather than by being turned off. What
+`/sys/class/leds` lists under `chromeos:` is therefore the whole set of LEDs
+the EC offers, not a subset the kernel happened to bind.
+
+**Six colours, and not a mixer.** The board's devicetree gives the LED a pin
+node per colour — red, green, blue, yellow, white, amber — and the query
+reports exactly those. The pins beneath them are RGB, and the board retunes
+what white means between chipset startup and shutdown, but that mixer is the
+EC's alone: `led_set_brightness` walks the nodes and lights the colour of the
+last one whose slot is nonzero, so two colours asked for at once do not blend.
+One wins.
+
+**The brightness value carries no brightness.** Nonzero means the colour is on
+at its devicetree duty, zero in every slot means off, and nothing between is
+expressible. The range the query advertises is a flat 100 for every colour
+present — `led_get_brightness_range` writes that constant without consulting
+the hardware — so `max_brightness` promises a scale the firmware does not
+implement. It holds for the power LED too, where a single white channel makes
+it easy to miss.
+
+**Two LEDs answer to the one id.** There is a charge indicator on each side of
+the chassis, each behind its own enable. Under auto the EC lights the side of
+the active charge port — a port at the back indicates on the right, the
+firmware's stated reason being Lot 6 — and darkens both while discharging. A
+host that takes the LED gets both: the EC's tick raises both enables whenever
+auto is off, and which side is lit is not something a host command can steer.
+
+**It is not only a charge indicator.** The EC pre-empts the charge pattern to
+raise faults on this LED, each a blink pattern with no other channel to reach
+anyone by: diagnostics running, the battery cut off, no battery present
+outside standalone mode, the C cover open. Boards with a GPU bay add its cover
+being open, a module fault, and an input deck not fully populated. A host
+holding the LED silences all of them.
+
+### Charging LED persistence
+
+Ownership is a RAM flag and nothing else: `led_auto_control_flags` starts with
+every LED on auto and is never written down, so an EC restart hands the LED
+back. A suspend does not, the EC staying up through one, so a colour set from
+the OS holds across it.
+
+A reboot ends it by the host's route rather than the EC's. The EC keeps
+holding the colour across the reset, and it is the kernel re-probing its LED
+driver and re-attaching the auto trigger that gives the LED up. Nothing
+re-sends the colour afterwards.
 
 ## Keyboard backlight
 
@@ -552,9 +642,13 @@ to clear it. That is an expectation and not a finding.
 - [FrameworkComputer/EmbeddedController](https://github.com/FrameworkComputer/EmbeddedController)
   — the ChromiumOS EC fork these boards run. `common/battery_v2.c`,
   `common/charge_state.c` and `include/battery_smart.h` cover the battery
-  block, the static/dynamic split and the status bits; the per-board
-  devicetree under `zephyr/program/framework/` names each pack and the
-  battery temperature sensor node.
+  block, the static/dynamic split and the status bits; `common/led_common.c`
+  is the LED host command, with the policy, the pin walk and the fault
+  patterns in `led.c`, `led_pwm.c` and `laptop_led.c` under
+  `zephyr/program/framework/src/`. The per-board devicetree under
+  `zephyr/program/framework/` names each pack, the battery temperature sensor
+  node and each LED's colours — often by including a sibling board's file
+  rather than carrying its own.
 - [FrameworkComputer/Framework-Laptop-13](https://github.com/FrameworkComputer/Framework-Laptop-13)
   — the mainboard connector pinouts and a partial schematic per generation,
   which is where the display connector's touch group and the circuits around
