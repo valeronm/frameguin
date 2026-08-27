@@ -8,11 +8,14 @@
 mod board;
 mod ec;
 mod gpio;
+mod host;
 mod led;
+mod panel;
 mod power_led;
 mod probe;
 mod state;
 mod touchpad;
+mod touchscreen;
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU8, Ordering};
@@ -25,6 +28,7 @@ use zbus::{Connection, fdo, interface};
 use zbus_polkit::policykit1::{AuthorityProxy, CheckAuthorizationFlags, Subject};
 
 use crate::ec::{Ec, EcStamp};
+use crate::host::BootStamp;
 use crate::power_led::PowerLedWrite;
 use crate::state::{ChargeCurrentLimit, State};
 
@@ -49,18 +53,11 @@ struct Daemon {
     /// The kernel holds the LED state itself, so what is mirrored here is only
     /// the date of the write — see [`power_led`] for what that dating settles.
     power_led_off: Mutex<Option<EcStamp>>,
-}
-
-/// The touch panel's enable line, or the same permanent refusal
-/// [`Daemon::ec`] gives for a missing EC — `NotSupported` rather than
-/// `Failed`, so a caller can tell wrong hardware from a read that went wrong.
-/// A free function where that one is a method, because the daemon holds no
-/// state this needs: it is resolved per call, so both methods validate
-/// against the pad rather than against what was true at startup.
-fn touchscreen_pad() -> fdo::Result<gpio::Pad> {
-    gpio::touchscreen().ok_or_else(|| {
-        fdo::Error::NotSupported("no touchscreen enable line on this hardware".into())
-    })
+    /// The boot this daemon switched the touch panel off in, and None while
+    /// it is reporting. Mirrored on the one route into the panel that keeps
+    /// no record of what it was told, and unread on the other; dated because
+    /// the panel is expected to come up reporting — see [`touchscreen`].
+    touchscreen_off: Mutex<Option<BootStamp>>,
 }
 
 fn ec_err(e: impl std::fmt::Debug) -> fdo::Error {
@@ -84,6 +81,7 @@ impl Daemon {
             click_force: self.click_force.load(Ordering::Relaxed),
             charge_current_limit: *self.charge_current_limit.lock().unwrap(),
             power_led_off: *self.power_led_off.lock().unwrap(),
+            touchscreen_off: self.touchscreen_off.lock().unwrap().clone(),
         };
         state::save(&state);
     }
@@ -362,23 +360,23 @@ impl Daemon {
         Ok(())
     }
 
-    /// Whether the touch panel is on, read from the pad the setter drives.
-    /// Alone among the controls that reach the hardware without the EC, this
-    /// one needs no mirror: the pad holds the level, so a value set before
-    /// this daemon started — or by the firmware at power-on — reads the same
-    /// as one it wrote itself.
+    /// Whether the touch panel is on, from whichever account this machine's
+    /// route keeps — see [`touchscreen`] for why one of them reads the
+    /// hardware and the other this daemon's own record.
     fn get_touchscreen_enabled(&self) -> fdo::Result<bool> {
         self.touch();
-        touchscreen_pad()?.level().map_err(internal_err)
+        Ok(touchscreen::route()?
+            .reading()?
+            .unwrap_or_else(|| self.touchscreen_off.lock().unwrap().is_none()))
     }
 
-    /// Switches the touch panel on or off by driving its controller's enable
-    /// line. The controller is cut off rather than asked to stop reporting,
-    /// so nothing in the panel keeps a preference and off does not outlive a
-    /// suspend: the pad returns to its firmware default on resume, and the
-    /// EC brings the panel's own rail back up on the way into S0 besides.
-    /// Nothing re-applies it, because the state is readable — a caller that
-    /// wants it back off can see that it isn't and say so.
+    /// Switches the touch panel on or off, by cutting the controller off or
+    /// by telling it to stop reporting — whichever this machine's panel is
+    /// reached by. Nothing re-applies it afterwards: the panel is put back on
+    /// behind whoever asked for it off, by a resume or a lid opening on one
+    /// route and by whatever the controller does not keep on the other, and a
+    /// daemon that re-asserted a switch on those events would be enforcing a
+    /// policy nobody asked it to hold.
     ///
     /// Returns nothing where the charge setters return whether they wrote:
     /// they report a skip so a caller can word its announcement differently,
@@ -390,21 +388,21 @@ impl Daemon {
         #[zbus(header)] header: Header<'_>,
     ) -> fdo::Result<()> {
         self.touch();
-        // Located before the prompt for the reason arguments are checked
-        // before it: a board with no such line can only end in an error, and
-        // nobody should answer for a write that cannot happen.
-        let pad = touchscreen_pad()?;
+        // Resolved before the prompt for the reason arguments are checked
+        // before it: hardware with neither route can only end in an error,
+        // and nobody should answer for a write that cannot happen.
+        let route = touchscreen::route()?;
         // Already there: nothing to write, and nothing worth a prompt, as in
-        // the charge setters — except that here the truth is the pad itself
-        // rather than an EC round trip or a mirror. Which makes the skip
-        // matter more, not less: a suspend puts the panel back on behind
-        // whoever asked for it off, so a client acting on what it last saw is
-        // the ordinary case rather than the careless one.
-        if pad.level().map_err(internal_err)? == enabled {
+        // the charge setters. Which matters more here than there rather than
+        // less: the panel comes back on behind whoever asked for it off, so a
+        // client acting on what it last saw is the ordinary case rather than
+        // the careless one. Only a reading can say so, so the route with none
+        // never skips — see [`touchscreen::Route::reading`].
+        if route.reading()? == Some(enabled) {
             return Ok(());
         }
         self.authorize(&header).await?;
-        pad.drive(enabled).map_err(internal_err)
+        self.write_touchscreen(&route, enabled)
     }
 
     fn get_keyboard_backlight(&self) -> fdo::Result<u8> {
@@ -445,6 +443,7 @@ fn main() -> zbus::Result<()> {
             click_force: AtomicU8::new(state.click_force),
             charge_current_limit: Mutex::new(state.charge_current_limit),
             power_led_off: Mutex::new(state.power_led_off),
+            touchscreen_off: Mutex::new(state.touchscreen_off),
         };
         conn.object_server().at(wire::OBJECT_PATH, daemon).await?;
         // Claim the name only once the object is served, so an activating

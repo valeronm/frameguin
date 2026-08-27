@@ -72,11 +72,12 @@ pub enum Capability {
     /// feature set, so nothing can support one and not the other.
     HapticTouchpad,
     /// Switching the touch panel off. Named for the panel rather than for the
-    /// way it is reached, which differs by board and is the daemon's business
-    /// alone: this end asks whether touch can be switched, never how. Offered
-    /// where a panel is fitted and this daemon knows how to switch that
-    /// board's — two facts about separately sold parts, so neither answers
-    /// for the other.
+    /// way it is reached, which differs by machine and is the daemon's
+    /// business alone: this end asks whether touch can be switched, never how.
+    /// Offered wherever one of those ways is within reach — which on some
+    /// machines takes two facts about separately sold parts, a panel being
+    /// fitted and this daemon knowing that board's way of gating one, and on
+    /// others takes only the panel, its own firmware being what switches it.
     Touchscreen,
 }
 

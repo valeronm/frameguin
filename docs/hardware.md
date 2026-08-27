@@ -262,11 +262,20 @@ as "Design Current".
 setup re-sends its own stored value at every POST, so a limit set from the OS
 lasts until the next reboot and the standing value lives in BIOS setup.
 
-**The charge current limit** is not stored anywhere: `user_current_limit` and
-its pending value live in the charger task, set by the host command and
-consulted on each pass. Nothing saves it and nothing re-sends it, so it
-survives a reboot only because the EC does not restart across one, and it is
-gone as soon as the EC does.
+**The charge current limit** is not stored anywhere the EC could restore it
+from: `user_current_limit` and its pending value are plain statics in the
+charger task, written only by the host command and by the threshold applier,
+and `charger_init` — the hook every EC boot runs — leaves them alone. So an EC
+restart drops it, by nothing more than those statics being initialized again.
+
+**Whether a host reboot drops it too is untested.** The EC runs straight
+through one, so nothing on its side clears the value; what is unknown is
+whether UEFI setup re-sends its own, as it does for the charge limit above and
+for [the power button LED's level](#power-button-led-persistence). Both of
+those were settled by reading the value back afterwards, which this control
+does not allow, having no readback in any command version. Settling it needs
+the machine: set a low limit, reboot, and watch with a pack below full whether
+the charge rate is still capped.
 
 A suspend costs neither of them anything, the EC staying up across one.
 
@@ -407,6 +416,12 @@ it unconditionally. A control for one panel is not a control for the other,
 and a probe that found the Ilitek would be vouching for a command this pad
 knows nothing about.
 
+**That command answers nothing.** It is sent with no read length and the
+controller volunteers no report of its own, so the panel's state is knowable
+only to whoever wrote it last. This is the one way the two routes differ for
+anyone using them: the pad holds the level it is driving and reads back, and
+the panel holds the setting and will not say so.
+
 **The enable is a pin on the display connector.** Framework's published
 mainboard pinout gives that connector a touch group beside the video pairs: a
 `3V_TS` supply on 29 and 30, a USB 2.0 pair on 31 and 32, then `TS_EN`,
@@ -522,6 +537,15 @@ the EC cannot reach, so nothing about it turns on the EC being up. The panel's
 own rail is a path the EC does drive — `gpio_ec_ts_pwr_en`, low until
 `POWER_S3S0` — but a restart reaches it only through the boot that follows,
 which is the case above.
+
+**None of the above is known to hold for the Laptop 12**, and none of it can
+be carried over: every finding here is about a pad that route does not touch.
+Whether the Ilitek keeps its setting across a suspend, a lid opening or a boot
+is unestablished, and settling it needs the machine. The one thing that can be
+said from the documents is where to expect the answer to come from — a
+controller that loses its supply cannot be keeping anything, and the supply is
+switched on boards designed for touch, so a boot is the likeliest of the three
+to clear it. That is an expectation and not a finding.
 
 ## Sources
 

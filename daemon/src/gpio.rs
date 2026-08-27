@@ -37,6 +37,13 @@ use crate::board;
 /// guessed: `docs/hardware.md` gives the evidence for this pairing and the
 /// method for establishing another.
 ///
+/// Naming a board here also decides how its touch control behaves, which is
+/// not obvious from this end: a pad found here wins over the panel's own
+/// command, so a board added with a panel that implements one would move from
+/// a control that reads its state back to a control that cannot. Check
+/// [`crate::touchscreen::find`] before adding a board whose panel is not a
+/// Himax.
+///
 /// Both halves stay on the path a write takes, unlike the rest of what
 /// [`crate::probe`] weighs. They are not a proxy standing in for the
 /// operation: refusing here is refusing to drive an unknown line on hardware

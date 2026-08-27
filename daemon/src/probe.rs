@@ -16,10 +16,11 @@
 
 use frameguin_wire as wire;
 use framework_lib::chromium_ec::command::EcCommands;
-use framework_lib::touchscreen;
+use framework_lib::touchscreen::{HX_PID, HX_VID};
 
 use crate::ec::Ec;
-use crate::{gpio, led, touchpad};
+use crate::touchscreen::{self, Route};
+use crate::{led, touchpad};
 
 /// `ec` is None on hardware with no Framework EC, which leaves everything but
 /// the touchpad unsupported.
@@ -104,23 +105,34 @@ pub(crate) fn capabilities(ec: Option<&Ec>) -> Vec<wire::Capability> {
     if hid.as_ref().is_some_and(touchpad::haptic_present) {
         caps.push(wire::Capability::HapticTouchpad);
     }
-    // Outside the EC's block: the enable line is the processor's, so a board
-    // whose EC would not open can still have one. Two questions of different
-    // hardware, and the capability is both — the board says which pad carries
-    // the enable, the controller on the bus says anything is behind it.
-    // Panels and mainboards are sold apart and the chassis takes any pairing,
-    // so a board of the right generation behind a panel with no touch would
-    // otherwise offer a switch with nothing on the end of it.
+    // Outside the EC's block: neither route runs through it, so a board whose
+    // EC would not open can still have one of them.
     //
-    // The pad half runs the setter's own line request through `level`, which
-    // is side-effect-free and fails on everything the write would fail on: a
-    // chip that will not open, a locked pad, a line another driver holds. It
-    // goes first because it opens with a single DMI read that every board but
-    // one fails, which spares the rest both this pad's directory walks and
-    // the sift through the enumeration below.
-    if gpio::touchscreen().is_some_and(|pad| pad.level().is_ok())
-        && hid.as_ref().is_some_and(panel_present)
-    {
+    // Which route this machine has is [`touchscreen::find`]'s answer rather
+    // than one worked out again here, so the route qualified below is the one
+    // an operation will take. What is left here is the surplus an offer needs
+    // over a write, which differs by route and is why this is a match rather
+    // than a condition.
+    let touchscreen = match touchscreen::find(hid.as_ref()) {
+        // The pad gates a panel rather than being one, so the board naming
+        // the pad is only half of it: the controller on the bus is what says
+        // anything is behind the line. Panels and mainboards are sold apart
+        // and the chassis takes any pairing, so a board of the right
+        // generation behind a panel with no touch would otherwise be offered
+        // a switch with nothing on the end of it.
+        //
+        // `level` is the setter's own line request, side-effect-free and
+        // failing on everything the write would fail on: a chip that will not
+        // open, a locked pad, a line another driver holds.
+        Some(Route::Pad(pad)) => {
+            pad.level().is_ok() && hid.as_ref().is_some_and(gated_panel_present)
+        }
+        // Nothing to add: the command is the controller's own, so finding the
+        // controller was the whole question and no board answers for it.
+        Some(Route::Panel) => true,
+        None => false,
+    };
+    if touchscreen {
         caps.push(wire::Capability::Touchscreen);
     }
     caps
@@ -133,20 +145,19 @@ pub(crate) fn capabilities(ec: Option<&Ec>) -> Vec<wire::Capability> {
 /// haptic touchpad is: the enable is a board signal reaching the display
 /// connector, so it gates whichever touch panel is plugged into it.
 ///
-/// A controller belongs here once this daemon can switch it off. The Laptop
-/// 12's Ilitek is absent for that reason and no deeper one: it is switched
-/// off by a vendor HID command rather than by the board's pad, which is a
-/// second way into the same control rather than a second control — the
-/// capability and its setter name the panel, not the route to it. Adding it
-/// means teaching [`gpio`]'s side a sibling, not giving the app a new name
-/// to learn.
+/// A controller belongs here when the pad is how this daemon switches it, and
+/// so not the Ilitek, which answers a command of its own — [`crate::panel`]
+/// curates that route's controller by the same rule and for the same reason,
+/// beside the code that sends it the command. What the two share is the
+/// capability: they are ways into the one control, and the capability and its
+/// setter name the panel rather than the route to it.
 ///
 /// Curated, so it decides the offer and nothing else. A controller missing
 /// from this list is a control not shown, never a write refused — the setter
 /// never consults it.
-const TOUCH_CONTROLLERS: [(u16, u16); 1] = [(touchscreen::HX_VID, touchscreen::HX_PID)];
+const TOUCH_CONTROLLERS: [(u16, u16); 1] = [(HX_VID, HX_PID)];
 
-fn panel_present(hid: &hidapi::HidApi) -> bool {
+fn gated_panel_present(hid: &hidapi::HidApi) -> bool {
     hid.device_list()
         .any(|dev| TOUCH_CONTROLLERS.contains(&(dev.vendor_id(), dev.product_id())))
 }

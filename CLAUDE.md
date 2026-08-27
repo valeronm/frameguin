@@ -94,14 +94,21 @@ it and the non-obvious constraints.
   to drift.
 - Inside `daemon/`, the modules are drawn by how a control reaches the
   hardware, so the filename answers which way: `ec.rs` the EC, `led.rs` the
-  kernel's LED class, `touchpad.rs` the pad's own HID transport, `gpio.rs` a
-  pad on the processor through the GPIO character device, with `power_led.rs`
-  for the arbitration the first two make necessary — the power button LED has
-  two possible drivers and one at a time. The rest divide by job: `board.rs`
+  kernel's LED class, `touchpad.rs` the pad's own HID transport, `panel.rs`
+  the touch panel's, `gpio.rs` a pad on the processor through the GPIO
+  character device. Two of those pairs need an arbitration, and the two
+  arbitrations are not alike: `power_led.rs` because the power button LED has
+  two possible drivers and one at a time, so what it settles is a handover and
+  the order to make it in; `touchscreen.rs` because the panel has two possible
+  routes and a machine has only one, so what it settles is a precedence — and
+  then the thing that precedence decides, which is whether the control can be
+  read at all. The rest divide by job: `board.rs`
   the DMI reads — the vendor deciding whether there is an EC to open, the
-  product name deciding which board's pads are which — `state.rs` the
-  mirror for what cannot be read back, `probe.rs` the probe rule beside the
-  code it governs. Each module's own doc carries why; what is worth saying
+  product name deciding which board's pads are which — `host.rs` what is true
+  of this *run* where `board.rs` answers for the machine, which is the
+  difference between a fact a reboot changes and one it does not, `state.rs`
+  the mirror for what cannot be read back, `probe.rs` the probe rule beside
+  the code it governs. Each module's own doc carries why; what is worth saying
   here is what none of them can. `ec.rs` is every EC call: `Ec` is the only
   holder of the `CrosEc`, one method per operation, each taking the lock and
   releasing it before returning and none reaching the handle through another —
@@ -149,7 +156,13 @@ it and the non-obvious constraints.
   won't happen. The skip belongs in the daemon rather than in a caller, asked
   of the closest thing to the truth each one has: `set_charge_limit` asks the
   EC, `set_charge_current_limit` its own mirror, `set_touchscreen_enabled` the
-  pad. What decides is whether a client can be stale, not whether the value is
+  pad — and on the route with no pad, nothing: it skips no write at all. A
+  mirror is worth skipping on only where the event that invalidates it is the
+  one its stamp catches, which holds for the charge current limit and not
+  here: the panel's mirror is dated against the boot, and what moves the panel
+  inside a boot is dated by nothing, so within one it is no fresher than the
+  client's own idea. What decides is
+  whether a client can be stale, not whether the value is
   readable: the keyboard backlight is both readable and written by the EC, and
   skips nothing, because the window polls it while mapped and so is not.
 - D-Bus types name the value, not either end's convenience: a percentage is
@@ -216,14 +229,26 @@ asserted and its reason a file away.
   its probe sits outside that branch.
 - A value the EC is a second writer for cannot be shown from what was last
   written — the keyboard backlight's slider polls while mapped for that
-  reason. A value with no readback at all is mirrored instead: in `state.rs`
-  for the touchpad, by dating the write against the EC's uptime for the
-  power LED's darkness, and by both for the charge current limit, whose
-  mirror expires with the EC that took it. The touchscreen needs neither: its
-  pad carries the level, so the getter asks the hardware. Its second writer is
-  the platform firmware rather than this daemon — a lid opening drives the pad
-  back, as a resume does — and neither is something the app is told about, so
-  both front ends can show a value the firmware has already moved. The window
+  reason. A value with no readback at all is mirrored instead, and what dates
+  the mirror is whatever holds the state it claims: nothing for the touchpad,
+  which keeps its own in flash; the EC's uptime for the power LED's darkness
+  and for the charge current limit, whose mirror expires with the EC that took
+  it; the host's boot id for the touch panel, whose controller is expected to
+  come up reporting. Which holder a mirror belongs to is settled by evidence
+  and not by which stamp is nearer — and for the charge current limit it is
+  only half settled: nothing in the EC restores it, but whether UEFI re-sends
+  its own at POST is untested, and if it does that mirror wants a boot stamp
+  beside its EC one. `docs/hardware.md` carries the experiment.
+  The touchscreen is both, and which it is depends on the
+  route: the pad carries the level, so where a pad is the control the getter
+  asks the hardware, and where the panel's own command is, there is nothing
+  left to ask and `state.rs` answers from the dated mirror. That
+  asymmetry is the reason `touchscreen.rs` exists — a call site that reached
+  for one account would have to know which machine it was on. Its second
+  writer is the platform firmware rather than this daemon — a lid opening
+  drives the pad back, as a resume does — and neither is something the app is
+  told about, so both front ends can show a value the firmware has already
+  moved. The window
   re-reads on being mapped; the tray asks when its menu opens, which is a
   request it cannot wait for, so the first menu after such a change still
   draws the old value and the one after it is right.
