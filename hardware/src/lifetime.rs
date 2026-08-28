@@ -5,7 +5,7 @@ use std::sync::OnceLock;
 
 /// A write dated against the EC's life, as seconds of EC uptime paired with
 /// the wall time of that same moment.
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy)]
 pub struct EcStamp {
     ec_uptime: u64,
     written_at: u64,

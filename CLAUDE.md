@@ -186,8 +186,10 @@ it and the non-obvious constraints.
   than the client's own idea. What decides is whether a client can be stale,
   not whether the value is readable.
 - **A date is best effort, never a gate.** Where a write is dated — the power
-  LED's darkness against the EC, the touch panel's against the host — a date
-  that cannot be taken costs the record and not the write. What a stamp buys
+  LED's darkness and the charge current limit against the EC, the touch
+  panel's against the host — a date that cannot be taken costs the record and
+  not the write, and the device takes it before the write so that a restart
+  between the two reads as having dropped it. What a stamp buys
   is knowing later whether the value still stands, and that is never worth
   refusing a write the hardware would have taken: it trades a control the user
   asked for against a label that is approximate anyway. The writes this

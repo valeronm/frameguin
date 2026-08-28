@@ -122,13 +122,11 @@ pub trait Pack: Send + Sync {
 }
 
 /// What the battery's device needs of the charger: the ceiling, and the
-/// current cap with the stamp that dates it.
+/// current cap.
 pub trait Charger: Send + Sync {
     fn charge_limit(&self) -> DeviceResult<u8>;
     fn set_charge_limit(&self, percent: u8) -> DeviceResult<()>;
-    /// Dated in the same lock as the write: the stamp is only worth anything
-    /// taken against the same EC the write reached.
-    fn set_charge_current_limit(&self, milliamps: u32) -> DeviceResult<EcStamp>;
+    fn set_charge_current_limit(&self, milliamps: u32) -> DeviceResult<()>;
     /// Whether the firmware implements the current cap at all, there being
     /// no readback to probe it by.
     fn charge_current_limit_supported(&self) -> bool;
@@ -395,11 +393,10 @@ impl Charger for Ec {
     /// Always the unconditional form. The command's state-of-charge variant
     /// latches inside the EC: once applied it is never re-evaluated, so a
     /// later threshold cannot lift it (framework-system issue #342).
-    fn set_charge_current_limit(&self, milliamps: u32) -> DeviceResult<EcStamp> {
-        let ec = self.ec();
-        ec.set_charge_current_limit(milliamps, None)
-            .map_err(device_error)?;
-        stamp(&ec).map_err(device_error)
+    fn set_charge_current_limit(&self, milliamps: u32) -> DeviceResult<()> {
+        self.ec()
+            .set_charge_current_limit(milliamps, None)
+            .map_err(device_error)
     }
 
     /// No same-path probe exists: the charge current limit is write-only,
