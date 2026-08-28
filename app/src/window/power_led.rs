@@ -13,7 +13,8 @@ use gtk4::glib;
 use crate::bus::Bus;
 use crate::tray::TrayValues;
 use crate::window::{
-    SLIDER_DEBOUNCE, Sink, Ui, build_scale, combo_selection, debounce, scale_percent, string_list,
+    SLIDER_DEBOUNCE, Sink, Ui, build_scale, combo_position, combo_selection, debounce,
+    scale_percent, string_list,
 };
 
 pub(crate) type PowerLed = power_led::PowerLed<Bus>;
@@ -66,10 +67,20 @@ impl Group {
         }
     }
 
+    pub(crate) async fn load(&self, ui: &Ui, control: &PowerLed, values: &mut TrayValues) {
+        match control.read().await {
+            Ok(snapshot) => {
+                self.show(ui, control, snapshot);
+                values.power_led_level = Some(snapshot.level);
+            }
+            Err(e) => ui.toast_error("Reading power button LED brightness", e),
+        }
+    }
+
     /// Moves the widgets onto the snapshot without their handlers writing it
     /// back, and makes them usable — a row is only ever filled from a read
     /// that succeeded.
-    pub(crate) fn show(&self, ui: &Ui, control: &PowerLed, snapshot: Snapshot) {
+    fn show(&self, ui: &Ui, control: &PowerLed, snapshot: Snapshot) {
         ui.sync(|| {
             self.scale.set_value(f64::from(snapshot.percent));
             self.scale.set_sensitive(true);
@@ -115,7 +126,9 @@ impl Group {
             if combo_ui.syncing.get() {
                 return;
             }
-            let Some(level) = combo_control.at(row.selected() as usize) else {
+            let Some(level) =
+                combo_position(row.selected()).and_then(|index| combo_control.at(index))
+            else {
                 return;
             };
             let ui = combo_ui.clone();

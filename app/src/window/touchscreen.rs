@@ -36,9 +36,19 @@ impl Group {
         self.widget.set_visible(control.is_some());
     }
 
+    pub(crate) async fn load(&self, ui: &Ui, control: &Touchscreen, values: &mut TrayValues) {
+        match control.read().await {
+            Ok(enabled) => {
+                self.show(ui, enabled);
+                values.touchscreen = Some(enabled);
+            }
+            Err(e) => ui.toast_error("Reading the touchscreen", e),
+        }
+    }
+
     /// Moves the switch without its handler writing it back, and makes it
     /// usable — a row is only ever filled from a read that succeeded.
-    pub(crate) fn show(&self, ui: &Ui, enabled: bool) {
+    fn show(&self, ui: &Ui, enabled: bool) {
         ui.sync(|| {
             self.switch.set_active(enabled);
             self.switch.set_sensitive(true);

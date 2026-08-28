@@ -112,6 +112,12 @@ fn combo_selection(position: Option<usize>) -> u32 {
     position.map_or(gtk::INVALID_LIST_POSITION, combo_index)
 }
 
+/// The inverse of [`combo_selection`]: the row a combo reports, and None for
+/// the sentinel GTK uses where it sits on none.
+fn combo_position(selected: u32) -> Option<usize> {
+    (selected != gtk::INVALID_LIST_POSITION).then_some(selected as usize)
+}
+
 pub(crate) struct Ui {
     toasts: adw::ToastOverlay,
     /// Set while widgets are being moved to mirror the hardware, so their
@@ -742,28 +748,13 @@ async fn load_values(ui: &Rc<Ui>, controls: &Controls<Bus>) {
         ui.battery.load(ui, battery, &mut values).await;
     }
     if let Some(power_led) = &controls.power_led {
-        match power_led.read().await {
-            Ok(snapshot) => {
-                ui.power_led.show(ui, power_led, snapshot);
-                values.power_led_level = Some(snapshot.level);
-            }
-            Err(e) => ui.toast_error("Reading power button LED brightness", e),
-        }
+        ui.power_led.load(ui, power_led, &mut values).await;
     }
     if let Some(touchpad) = &controls.touchpad {
-        match touchpad.read().await {
-            Ok(snapshot) => ui.touchpad.show(ui, snapshot),
-            Err(e) => ui.toast_error("Reading the touchpad", e),
-        }
+        ui.touchpad.load(ui, touchpad).await;
     }
     if let Some(touchscreen) = &controls.touchscreen {
-        match touchscreen.read().await {
-            Ok(enabled) => {
-                ui.touchscreen.show(ui, enabled);
-                values.touchscreen = Some(enabled);
-            }
-            Err(e) => ui.toast_error("Reading the touchscreen", e),
-        }
+        ui.touchscreen.load(ui, touchscreen, &mut values).await;
     }
     ui.sync_tray(values);
 }

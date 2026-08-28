@@ -352,6 +352,16 @@ impl TrayValues {
         }
     }
 
+    /// `design_capacity` is None from a caller with none to teach, which
+    /// leaves the menu on the one it was drawn from.
+    pub(crate) fn charge_speed(milliamps: u32, design_capacity: Option<u32>) -> Self {
+        Self {
+            charge_current_limit: Some(milliamps),
+            design_capacity,
+            ..Self::default()
+        }
+    }
+
     pub(crate) fn power_led_level(level: PowerLedLevel) -> Self {
         Self {
             power_led_level: Some(level),

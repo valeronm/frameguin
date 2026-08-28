@@ -10,7 +10,7 @@ use frameguin_model::control::touchpad::{
 use gtk4::glib;
 
 use crate::bus::Bus;
-use crate::window::{Ui, combo_selection, string_list};
+use crate::window::{Ui, combo_position, combo_selection, string_list};
 
 pub(crate) type Touchpad = touchpad::Touchpad<Bus>;
 
@@ -49,10 +49,17 @@ impl Group {
         self.widget.set_visible(control.is_some());
     }
 
+    pub(crate) async fn load(&self, ui: &Ui, control: &Touchpad) {
+        match control.read().await {
+            Ok(snapshot) => self.show(ui, snapshot),
+            Err(e) => ui.toast_error("Reading the touchpad", e),
+        }
+    }
+
     /// Moves both combos onto the snapshot without their handlers writing it
     /// back, and makes them usable — a row is only ever filled from a read
     /// that succeeded.
-    pub(crate) fn show(&self, ui: &Ui, snapshot: Snapshot) {
+    fn show(&self, ui: &Ui, snapshot: Snapshot) {
         ui.sync(|| {
             self.haptic_combo
                 .set_selected(combo_selection(haptic_row(snapshot.haptic_intensity)));
@@ -74,7 +81,7 @@ impl Group {
             if haptic_ui.syncing.get() {
                 return;
             }
-            let Some(percent) = haptic_at(row.selected() as usize) else {
+            let Some(percent) = combo_position(row.selected()).and_then(haptic_at) else {
                 return;
             };
             let ui = haptic_ui.clone();
@@ -92,7 +99,7 @@ impl Group {
             if force_ui.syncing.get() {
                 return;
             }
-            let Some(force) = click_force_at(row.selected() as usize) else {
+            let Some(force) = combo_position(row.selected()).and_then(click_force_at) else {
                 return;
             };
             let ui = force_ui.clone();

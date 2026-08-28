@@ -20,7 +20,9 @@ use gtk4::glib;
 use crate::bus::Bus;
 use crate::reading::{Wants, show_while_mapped};
 use crate::tray::TrayValues;
-use crate::window::{Sink, Ui, build_scale, combo_index, debounce, scale_percent, string_list};
+use crate::window::{
+    Sink, Ui, build_scale, combo_index, combo_position, debounce, scale_percent, string_list,
+};
 
 pub(crate) type Battery = battery::Battery<Bus>;
 
@@ -214,7 +216,7 @@ impl Group {
             if limit_ui.syncing.get() {
                 return;
             }
-            let Ok(index) = usize::try_from(row.selected()) else {
+            let Some(index) = combo_position(row.selected()) else {
                 return;
             };
             // Choosing Custom writes nothing: the row only reveals the slider
@@ -250,10 +252,7 @@ impl Group {
             if speed_ui.syncing.get() {
                 return;
             }
-            // An unselected row reports INVALID_LIST_POSITION, which is not
-            // an index — reading it as one would land on "full speed" and
-            // lift a limit nobody asked to lift.
-            let Ok(index) = usize::try_from(row.selected()) else {
+            let Some(index) = combo_position(row.selected()) else {
                 return;
             };
             // Choosing Custom writes nothing: the limit in effect is already
@@ -320,7 +319,7 @@ impl Group {
     /// ceiling and the speed with their combos and sliders. What the tray
     /// should be told goes into `values`, for the one push the window makes
     /// at the end.
-    pub(crate) async fn load(&self, ui: &Rc<Ui>, control: &Rc<Battery>, values: &mut TrayValues) {
+    pub(crate) async fn load(&self, ui: &Ui, control: &Battery, values: &mut TrayValues) {
         // Read here as well as fed: the feed's first tick is a couple of
         // seconds after the window appears, and an empty row until then reads
         // as a control that failed rather than one still filling. Through the
@@ -386,7 +385,7 @@ fn custom_or(
     let Some(preset) = preset else {
         return custom_index;
     };
-    if custom == Custom::Keep && combo.selected() == combo_index(custom_index) {
+    if custom == Custom::Keep && combo_position(combo.selected()) == Some(custom_index) {
         custom_index
     } else {
         preset
@@ -474,17 +473,14 @@ fn show_limit(sink: Sink<'_>, percent: u8, custom: Custom) {
 }
 
 fn show_speed(sink: Sink<'_>, milliamps: u32, custom: Custom) {
-    sink.push_tray(TrayValues {
-        // Only a window holds a capacity to send. The capacity the tray
-        // already has is the one its menu was drawn from, so a tray write
-        // has nothing to teach it here.
-        design_capacity: match sink {
-            Sink::Window(ui) => ui.battery.design_capacity.get(),
-            Sink::Tray(_) => None,
-        },
-        charge_current_limit: Some(milliamps),
-        ..TrayValues::default()
-    });
+    // Only a window holds a capacity to send. The capacity the tray already
+    // has is the one its menu was drawn from, so a tray write has nothing to
+    // teach it here.
+    let design_capacity = match sink {
+        Sink::Window(ui) => ui.battery.design_capacity.get(),
+        Sink::Tray(_) => None,
+    };
+    sink.push_tray(TrayValues::charge_speed(milliamps, design_capacity));
     if let Sink::Window(ui) = sink {
         ui.battery.show_charge_speed(ui, milliamps, custom);
     }
@@ -506,21 +502,23 @@ pub(crate) async fn apply_charge_limit(
     percent: u8,
     custom: Custom,
 ) {
-    match control.set_charge_limit(percent).await {
-        // Silent when the daemon found the ceiling already there: announcing
-        // a write that didn't happen is a confirmation of nothing.
-        Ok(written) => {
-            if written {
-                if percent == NO_CHARGE_LIMIT {
-                    sink.toast("Charge limit switched off");
-                } else {
-                    sink.toast(&format!("Charge limit set to {percent}%"));
-                }
-            }
-            show_limit(sink, percent, custom);
+    let written = match control.set_charge_limit(percent).await {
+        Ok(written) => written,
+        Err(e) => {
+            sink.toast_error("Setting charge limit", e);
+            return;
         }
-        Err(e) => sink.toast_error("Setting charge limit", e),
+    };
+    // Silent when the daemon found the ceiling already there: announcing a
+    // write that didn't happen is a confirmation of nothing.
+    if written {
+        if percent == NO_CHARGE_LIMIT {
+            sink.toast("Charge limit switched off");
+        } else {
+            sink.toast(&format!("Charge limit set to {percent}%"));
+        }
     }
+    show_limit(sink, percent, custom);
 }
 
 /// The one write for the charge speed, in mA or `NO_CHARGE_CURRENT_LIMIT`.
