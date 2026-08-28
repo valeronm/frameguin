@@ -185,19 +185,21 @@ pub(crate) async fn debug_info() -> String {
         }
     }
 
-    out.push_str(&format!(
-        "board: {}\nBIOS: {}\n",
-        dmi("product_name"),
-        dmi("bios_version")
-    ));
-
     // Only where the daemon answered: these go to the same service, so
     // asking again buys nothing but another activation timeout apiece — up
     // to 25 seconds each with a unit installed that never takes the name.
     if let Ok(p) = &proxy
         && build.is_ok()
     {
-        out.push_str(&line("EC", p.get_ec_version().await));
+        // In the order the daemon answered, which is the journal's too.
+        match p.get_devices().await {
+            Ok(parts) => {
+                for part in &parts {
+                    out.push_str(&format!("part: {part}\n"));
+                }
+            }
+            Err(e) => out.push_str(&line("parts", Err(e))),
+        }
         out.push_str(&line(
             "capabilities",
             p.get_capabilities()
@@ -206,6 +208,14 @@ pub(crate) async fn debug_info() -> String {
                 // one serde attribute, and a second copy to format from here
                 // is the drift these types exist to remove.
                 .map(|caps| format!("{caps:?}")),
+        ));
+    } else {
+        // What the inventory would have said of the board, from the sysfs
+        // copy the app can read without it.
+        out.push_str(&format!(
+            "board: {}\nBIOS: {}\n",
+            dmi("product_name"),
+            dmi("bios_version")
         ));
     }
     out

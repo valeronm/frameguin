@@ -12,6 +12,8 @@
 //! Every enum here serializes as `s`, so the wire format is the plain string
 //! the variant is named after.
 
+use std::fmt;
+
 use serde::{Deserialize, Serialize};
 use zbus::zvariant::Type;
 
@@ -321,6 +323,28 @@ pub struct Identity {
     pub firmware: Vec<Firmware>,
 }
 
+/// One line per part, as the daemon's journal and the app's debug report
+/// both print it — `Mainboard dmi-board:… "vendor" "model" firmware BIOS …`
+/// — so a bug report and the log it is read against spell a part the same.
+impl fmt::Display for Identity {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let firmware = if self.firmware.is_empty() {
+            "unknown".to_owned()
+        } else {
+            self.firmware
+                .iter()
+                .map(|f| format!("{} {}", f.name, f.version))
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        write!(
+            f,
+            "{:?} {} \"{}\" \"{}\" firmware {firmware}",
+            self.kind, self.id, self.vendor, self.model
+        )
+    }
+}
+
 /// How hard the haptic touchpad has to be pressed to register a click.
 #[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug)]
 #[zvariant(crate = "zbus::zvariant", signature = "s")]
@@ -378,8 +402,8 @@ pub enum DeviceError {
     Failed(String),
 }
 
-impl std::fmt::Display for DeviceError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for DeviceError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::InvalidArgs(m)
             | Self::NotSupported(m)
@@ -481,7 +505,6 @@ pub trait Frameguin {
     /// Every part detection found, mainboard first; fixed for the daemon's
     /// run.
     async fn get_devices(&self) -> zbus::Result<Vec<Identity>>;
-    async fn get_ec_version(&self) -> zbus::Result<String>;
     async fn get_build(&self) -> zbus::Result<(String, String)>;
     async fn get_power_led_brightness(&self) -> zbus::Result<(u8, PowerLedLevel)>;
     async fn set_power_led_brightness(&self, percent: u8) -> zbus::Result<()>;

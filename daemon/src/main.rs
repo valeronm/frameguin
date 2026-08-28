@@ -227,11 +227,6 @@ impl Daemon {
         Ok(true)
     }
 
-    fn get_ec_version(&self) -> fdo::Result<String> {
-        self.service.touch();
-        self.ec()?.version().map_err(ec_err)
-    }
-
     /// The daemon's version and the path it was started from. The path is the
     /// diagnostic: two install trees can hold the same version, and which
     /// daemon runs is decided by the D-Bus activation file rather than by
@@ -307,29 +302,6 @@ impl Daemon {
     }
 }
 
-/// One journal line per part found, which is what a bug report about a
-/// device that is there and not served has to start from.
-fn announce(identity: &Identity) {
-    let firmware = identity
-        .firmware
-        .iter()
-        .map(|f| format!("{} {}", f.name, f.version))
-        .collect::<Vec<_>>()
-        .join(", ");
-    eprintln!(
-        "detected {:?} {} \"{}\" \"{}\" firmware {}",
-        identity.kind,
-        identity.id,
-        identity.vendor,
-        identity.model,
-        if firmware.is_empty() {
-            "unknown"
-        } else {
-            &firmware
-        }
-    );
-}
-
 fn main() -> zbus::Result<()> {
     let last_used = Arc::new(Mutex::new(Instant::now()));
     let clock = last_used.clone();
@@ -357,8 +329,10 @@ fn main() -> zbus::Result<()> {
     .chain(memory.iter().map(Part::identity))
     .cloned()
     .collect();
+    // One journal line per part found, which is what a bug report about a
+    // device that is there and not served has to start from.
     for identity in &parts {
-        announce(identity);
+        eprintln!("detected {identity}");
     }
     let _conn = zbus::block_on(async move {
         let conn = Connection::system().await?;
