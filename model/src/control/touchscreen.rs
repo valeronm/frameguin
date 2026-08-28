@@ -2,7 +2,9 @@
 
 use std::rc::Rc;
 
-use frameguin_wire::{DeviceError, DeviceResult as Result, TouchscreenControl};
+use frameguin_wire::{DeviceResult as Result, TouchscreenControl};
+
+use super::{names, present};
 
 pub struct Touchscreen<C> {
     control: Rc<C>,
@@ -13,17 +15,8 @@ impl<C: TouchscreenControl> Touchscreen<C> {
         Self { control }
     }
 
-    /// Whether this machine has a panel that can be switched, decided by the
-    /// device's own path: a read the control answers is the panel, one it
-    /// answers `Absent` is no panel, and anything else is the device being
-    /// unreachable, which says nothing about the panel and is passed up as
-    /// the error it is.
     pub async fn detect(control: &Rc<C>) -> Result<Option<Self>> {
-        match control.enabled().await {
-            Ok(_) => Ok(Some(Self::new(control.clone()))),
-            Err(DeviceError::Absent(_)) => Ok(None),
-            Err(e) => Err(e),
-        }
+        Ok(present(control.enabled().await)?.map(|_| Self::new(control.clone())))
     }
 
     pub async fn read(&self) -> Result<bool> {
@@ -45,10 +38,7 @@ const STATES: [(&str, bool); 2] = [("Off", false), ("On", true)];
 
 #[must_use]
 pub fn state_labels() -> Vec<String> {
-    STATES
-        .iter()
-        .map(|(label, _)| (*label).to_string())
-        .collect()
+    names(&STATES)
 }
 
 /// Which row a state sits on, for marking the group.

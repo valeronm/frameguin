@@ -8,8 +8,25 @@ pub mod touchscreen;
 use std::rc::Rc;
 
 use frameguin_wire::{
-    BatteryControl, DeviceResult, PowerLedControl, TouchpadControl, TouchscreenControl,
+    BatteryControl, DeviceError, DeviceResult, PowerLedControl, TouchpadControl, TouchscreenControl,
 };
+
+/// Whether a device is there, decided by the device's own path: a read the
+/// control answers is the device, one it answers `Absent` is no device, and
+/// anything else is the device being unreachable, which says nothing about
+/// presence and is passed up as the error it is.
+fn present<T>(probe: DeviceResult<T>) -> DeviceResult<Option<T>> {
+    match probe {
+        Ok(answer) => Ok(Some(answer)),
+        Err(DeviceError::Absent(_)) => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
+/// The names off a table of rows kept as (name, value) pairs, in row order.
+fn names<T>(rows: &[(&str, T)]) -> Vec<String> {
+    rows.iter().map(|(name, _)| (*name).to_string()).collect()
+}
 
 /// The controls this board has, each behind the one implementation of the
 /// control traits. `None` is a control whose device answered for itself as

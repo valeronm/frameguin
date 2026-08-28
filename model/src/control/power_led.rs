@@ -3,7 +3,9 @@
 
 use std::rc::Rc;
 
-use frameguin_wire::{DeviceError, DeviceResult as Result, PowerLedControl, PowerLedLevel};
+use frameguin_wire::{DeviceResult as Result, PowerLedControl, PowerLedLevel};
+
+use super::present;
 
 /// What the LED is set to: the level in force, and the percentage the EC
 /// lights it at — the one a preset resolved to, or the one dialled in.
@@ -26,20 +28,13 @@ impl<C: PowerLedControl> PowerLed<C> {
         Self { control, rows }
     }
 
-    /// Whether this board has the LED, decided by the device's own path: a
-    /// read the control answers is the LED, one it answers `Absent` is no
-    /// LED, and anything else is the device being unreachable, which says
-    /// nothing about the LED and is passed up as the error it is. The levels
-    /// are asked for once here, being fixed for the device's run.
+    /// The levels are asked for once here, being fixed for the device's run.
     pub async fn detect(control: &Rc<C>) -> Result<Option<Self>> {
-        match control.brightness().await {
-            Ok(_) => {
-                let offered = control.levels().await?;
-                Ok(Some(Self::new(control.clone(), offered)))
-            }
-            Err(DeviceError::Absent(_)) => Ok(None),
-            Err(e) => Err(e),
+        if present(control.brightness().await)?.is_none() {
+            return Ok(None);
         }
+        let offered = control.levels().await?;
+        Ok(Some(Self::new(control.clone(), offered)))
     }
 
     pub async fn read(&self) -> Result<Snapshot> {

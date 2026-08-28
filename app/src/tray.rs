@@ -8,8 +8,8 @@ use std::rc::Rc;
 
 use frameguin_model::control::Controls;
 use frameguin_model::control::battery::{
-    CHARGE_SPEED_LABELS, amps, battery_summary, charge_limit_labels, charge_limit_percent,
-    charge_limit_position, charge_speed_milliamps, charge_speed_position, percent_label,
+    amps, battery_summary, charge_limit_at, charge_limit_labels, charge_limit_row, charge_speed_at,
+    charge_speed_names, charge_speed_row, percent_label,
 };
 use frameguin_model::control::power_led;
 use frameguin_model::control::touchscreen::{state_at, state_labels, state_row};
@@ -230,7 +230,7 @@ impl TrayIcon {
             return None;
         }
         let labels = charge_limit_labels();
-        let selected = self.charge_limit.and_then(charge_limit_position);
+        let selected = self.charge_limit.and_then(charge_limit_row);
         // A ceiling dialled in from the window sits on no row; the raw value
         // is named rather than dropped, as for the speed below.
         let title = match (selected, self.charge_limit) {
@@ -238,8 +238,10 @@ impl TrayIcon {
             (None, Some(limit)) => format!("Charge limit ({})", percent_label(limit)),
             (None, None) => "Charge limit".into(),
         };
-        Some(radio_submenu(title, selected, labels, |tray, index| {
-            tray.send(TrayEvent::SetChargeLimit(charge_limit_percent(index)));
+        Some(radio_submenu(title, selected, labels, |tray, row| {
+            if let Some(percent) = charge_limit_at(row) {
+                tray.send(TrayEvent::SetChargeLimit(percent));
+            }
         }))
     }
 
@@ -253,32 +255,23 @@ impl TrayIcon {
         // Bare preset names, not the window's `charge_speed_labels`: those
         // carry the rate in brackets, which would nest inside the submenu
         // title's own brackets.
-        let labels: Vec<String> = CHARGE_SPEED_LABELS
-            .iter()
-            .map(|l| (*l).to_string())
-            .collect();
+        let labels = charge_speed_names();
         let selected = self
             .charge_current_limit
-            .and_then(|milliamps| charge_speed_position(design_capacity, milliamps));
+            .and_then(|milliamps| charge_speed_row(design_capacity, milliamps));
         // Named by its preset where there is one, and by the current itself
         // where there isn't — a menu that can only show presets would say
         // nothing at all about a limit dialled in from the window.
         let title = match (selected, self.charge_current_limit) {
-            (Some(index), _) => format!("Charge speed ({})", labels[index]),
+            (Some(row), _) => format!("Charge speed ({})", labels[row]),
             (None, Some(milliamps)) => format!("Charge speed ({})", amps(milliamps)),
             (None, None) => "Charge speed".into(),
         };
-        Some(radio_submenu(
-            title,
-            selected,
-            labels,
-            move |tray, index| {
-                tray.send(TrayEvent::SetChargeSpeed(charge_speed_milliamps(
-                    design_capacity,
-                    index,
-                )));
-            },
-        ))
+        Some(radio_submenu(title, selected, labels, move |tray, row| {
+            if let Some(milliamps) = charge_speed_at(design_capacity, row) {
+                tray.send(TrayEvent::SetChargeSpeed(milliamps));
+            }
+        }))
     }
 
     /// Gated on the presets having arrived: the LED's device answers for

@@ -10,8 +10,10 @@ use std::rc::Rc;
 
 use frameguin_wire::{
     BatteryAlarm, BatteryCondition, BatteryControl, BatteryFeature, BatteryInfo, BatteryState,
-    ChargeFlow, DeviceError, DeviceResult as Result, NO_CHARGE_CURRENT_LIMIT,
+    ChargeFlow, DeviceResult as Result, NO_CHARGE_CURRENT_LIMIT,
 };
+
+use super::{names, present};
 
 pub struct Battery<C> {
     control: Rc<C>,
@@ -23,18 +25,11 @@ impl<C: BatteryControl> Battery<C> {
         Self { control, features }
     }
 
-    /// Whether this board has a pack, decided by the device's own path: an
-    /// answer is the pack, `Absent` is no pack, and anything else is the
-    /// device being unreachable, which says nothing about the pack and is
-    /// passed up as the error it is. The features are what is asked, being
-    /// wanted anyway and fixed for the device's run — a read of the block
-    /// here would only be repeated by the first fill.
+    /// Probed by the features, which are wanted anyway and fixed for the
+    /// device's run — a read of the block here would only be repeated by the
+    /// first fill.
     pub async fn detect(control: &Rc<C>) -> Result<Option<Self>> {
-        match control.features().await {
-            Ok(features) => Ok(Some(Self::new(control.clone(), features))),
-            Err(DeviceError::Absent(_)) => Ok(None),
-            Err(e) => Err(e),
-        }
+        Ok(present(control.features().await)?.map(|features| Self::new(control.clone(), features)))
     }
 
     #[must_use]
@@ -87,11 +82,14 @@ pub const NO_CHARGE_LIMIT: u8 = 100;
 /// user dials in; the tray offers the presets alone.
 pub const CHARGE_LIMIT_CUSTOM: usize = CHARGE_PRESETS.len();
 
-/// The charge speeds the combo offers, as the divisor applied to the
-/// battery's 1C design current. `None` is full speed, which the daemon takes
-/// as no limit at all.
-const CHARGE_SPEEDS: [Option<u32>; 3] = [None, Some(2), Some(4)];
-pub const CHARGE_SPEED_LABELS: [&str; 3] = ["Full speed", "Half", "Quarter"];
+/// The charge speeds the combo offers, each beside the divisor it applies to
+/// the battery's 1C design current; `None` is full speed, which the daemon
+/// takes as no limit at all.
+const CHARGE_SPEEDS: [(&str, Option<u32>); 3] = [
+    ("Full speed", None),
+    ("Half", Some(2)),
+    ("Quarter", Some(4)),
+];
 
 /// The window's combo carries one row past the presets, for a rate the user
 /// dials in. The tray offers only the presets: a slider has no menu form, and
@@ -329,23 +327,27 @@ pub fn battery_summary(state: BatteryState) -> String {
     )
 }
 
-/// The milliamps a charge speed asks the daemon for. Shared by the window and
-/// the tray so the two can't disagree about what "Half" sends.
+/// The milliamps a charge speed row asks the daemon for; None for a row
+/// nothing is listed at. Shared by the window and the tray so the two can't
+/// disagree about what "Half" sends.
 #[must_use]
-pub fn charge_speed_milliamps(design_capacity: u32, index: usize) -> u32 {
-    match CHARGE_SPEEDS.get(index).copied().flatten() {
-        Some(divisor) => design_capacity / divisor,
-        None => NO_CHARGE_CURRENT_LIMIT,
-    }
+pub fn charge_speed_at(design_capacity: u32, row: usize) -> Option<u32> {
+    let (_, divisor) = CHARGE_SPEEDS.get(row)?;
+    Some(divisor.map_or(NO_CHARGE_CURRENT_LIMIT, |divisor| design_capacity / divisor))
 }
 
-/// Which speed a limit corresponds to, and `None` when it matches no preset —
+/// Which row a limit sits on, and `None` when it matches no preset —
 /// `framework_tool` can set any value, and guessing the nearest would
 /// misreport it.
 #[must_use]
-pub fn charge_speed_position(design_capacity: u32, milliamps: u32) -> Option<usize> {
-    (0..CHARGE_SPEEDS.len())
-        .find(|&index| charge_speed_milliamps(design_capacity, index) == milliamps)
+pub fn charge_speed_row(design_capacity: u32, milliamps: u32) -> Option<usize> {
+    (0..CHARGE_SPEEDS.len()).find(|&row| charge_speed_at(design_capacity, row) == Some(milliamps))
+}
+
+/// The bare preset names, for a menu whose title already brackets a rate.
+#[must_use]
+pub fn charge_speed_names() -> Vec<String> {
+    names(&CHARGE_SPEEDS)
 }
 
 /// Combo labels carrying the rate each fraction works out to — "Half" alone
@@ -354,27 +356,25 @@ pub fn charge_speed_position(design_capacity: u32, milliamps: u32) -> Option<usi
 pub fn charge_speed_labels(design_capacity: u32) -> Vec<String> {
     CHARGE_SPEEDS
         .iter()
-        .zip(CHARGE_SPEED_LABELS)
-        .map(|(divisor, label)| match divisor {
-            Some(divisor) => format!("{label} ({})", amps(design_capacity / divisor)),
-            None => label.to_string(),
+        .map(|(name, divisor)| match divisor {
+            Some(divisor) => format!("{name} ({})", amps(design_capacity / divisor)),
+            None => (*name).to_string(),
         })
         .collect()
 }
 
-/// The ceiling a preset row asks the daemon for. Rows are addressed by
-/// position in the labels built below, so an index from anywhere else can be
-/// out of range.
+/// The ceiling a preset row asks the daemon for; None for a row nothing is
+/// listed at.
 #[must_use]
-pub fn charge_limit_percent(row: usize) -> u8 {
-    CHARGE_PRESETS[row]
+pub fn charge_limit_at(row: usize) -> Option<u8> {
+    CHARGE_PRESETS.get(row).copied()
 }
 
-/// Which preset a ceiling sits on, and `None` when it matches none — the EC's
+/// Which row a ceiling sits on, and `None` when it matches none — the EC's
 /// own battery extender lowers the limit unasked, and guessing the nearest
 /// preset would misreport it.
 #[must_use]
-pub fn charge_limit_position(percent: u8) -> Option<usize> {
+pub fn charge_limit_row(percent: u8) -> Option<usize> {
     CHARGE_PRESETS.iter().position(|preset| *preset == percent)
 }
 
@@ -418,9 +418,9 @@ mod tests {
 
     use super::{
         Battery, CHARGE_SPEEDS, NO_CHARGE_LIMIT, battery_summary, capacity, charge_direction,
-        charge_flow_label, charge_limit_labels, charge_limit_percent, charge_limit_position,
-        charge_speed_labels, charge_speed_milliamps, charge_speed_position, power_label,
-        retention_label, volts, watt_hours, with_custom_row,
+        charge_flow_label, charge_limit_at, charge_limit_labels, charge_limit_row, charge_speed_at,
+        charge_speed_labels, charge_speed_row, power_label, retention_label, volts, watt_hours,
+        with_custom_row,
     };
     use crate::testing::ready;
 
@@ -589,8 +589,8 @@ mod tests {
     /// screen.
     #[test]
     fn the_off_row_is_the_one_that_sends_no_limit() {
-        let row = charge_limit_position(NO_CHARGE_LIMIT).expect("the off row is a preset");
-        assert_eq!(charge_limit_percent(row), NO_CHARGE_LIMIT);
+        let row = charge_limit_row(NO_CHARGE_LIMIT).expect("the off row is a preset");
+        assert_eq!(charge_limit_at(row), Some(NO_CHARGE_LIMIT));
         assert_eq!(charge_limit_labels()[row], "Off");
     }
 
@@ -748,26 +748,27 @@ mod tests {
     fn full_speed_lifts_the_limit_rather_than_naming_the_pack_rate() {
         // Sending the capacity would install a real cap at 1C; the EC only
         // stops clamping when the limit is the maximum.
-        assert_eq!(charge_speed_milliamps(CAPACITY, 0), NO_CHARGE_CURRENT_LIMIT);
+        assert_eq!(charge_speed_at(CAPACITY, 0), Some(NO_CHARGE_CURRENT_LIMIT));
     }
 
     #[test]
     fn presets_are_fractions_of_the_pack_rate() {
-        assert_eq!(charge_speed_milliamps(CAPACITY, 1), 2320);
-        assert_eq!(charge_speed_milliamps(CAPACITY, 2), 1160);
+        assert_eq!(charge_speed_at(CAPACITY, 1), Some(2320));
+        assert_eq!(charge_speed_at(CAPACITY, 2), Some(1160));
     }
 
     #[test]
     fn a_preset_round_trips_to_its_own_row() {
-        for index in 0..CHARGE_SPEEDS.len() {
-            let milliamps = charge_speed_milliamps(CAPACITY, index);
-            assert_eq!(charge_speed_position(CAPACITY, milliamps), Some(index));
+        for row in 0..CHARGE_SPEEDS.len() {
+            let milliamps = charge_speed_at(CAPACITY, row).expect("every preset has a row");
+            assert_eq!(charge_speed_row(CAPACITY, milliamps), Some(row));
         }
+        assert_eq!(charge_speed_at(CAPACITY, CHARGE_SPEEDS.len()), None);
     }
 
     #[test]
     fn a_dialled_in_value_matches_no_preset() {
-        assert_eq!(charge_speed_position(CAPACITY, 1500), None);
+        assert_eq!(charge_speed_row(CAPACITY, 1500), None);
     }
 
     #[test]

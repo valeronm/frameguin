@@ -3,8 +3,10 @@
 use std::rc::Rc;
 
 use frameguin_wire::{
-    ClickForce, DeviceError, DeviceResult as Result, HAPTIC_INTENSITY_LEVELS, TouchpadControl,
+    ClickForce, DeviceResult as Result, HAPTIC_INTENSITY_LEVELS, TouchpadControl,
 };
+
+use super::present;
 
 /// What the pad is set to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -22,16 +24,8 @@ impl<C: TouchpadControl> Touchpad<C> {
         Self { control }
     }
 
-    /// Whether this board has the pad, decided by the device's own path: a
-    /// read the control answers is the pad, one it answers `Absent` is no
-    /// pad, and anything else is the device being unreachable, which says
-    /// nothing about the pad and is passed up as the error it is.
     pub async fn detect(control: &Rc<C>) -> Result<Option<Self>> {
-        match control.haptic_intensity().await {
-            Ok(_) => Ok(Some(Self::new(control.clone()))),
-            Err(DeviceError::Absent(_)) => Ok(None),
-            Err(e) => Err(e),
-        }
+        Ok(present(control.haptic_intensity().await)?.map(|_| Self::new(control.clone())))
     }
 
     /// Both settings, or neither: a front-end fills its rows from one answer.

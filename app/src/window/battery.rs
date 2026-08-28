@@ -8,10 +8,10 @@ use std::time::Duration;
 
 use adw::prelude::*;
 use frameguin_model::control::battery::{
-    self, CHARGE_LIMIT_CUSTOM, CHARGE_SPEED_CUSTOM, CHARGE_SPEED_LABELS, CUSTOM_CHARGE_STEP_MA,
-    MIN_CUSTOM_CHARGE_MA, NO_CHARGE_LIMIT, amps, charge_flow_label, charge_limit_labels,
-    charge_limit_percent, charge_limit_position, charge_speed_labels, charge_speed_milliamps,
-    charge_speed_position, percent_label, with_custom_row,
+    self, CHARGE_LIMIT_CUSTOM, CHARGE_SPEED_CUSTOM, CUSTOM_CHARGE_STEP_MA, MIN_CUSTOM_CHARGE_MA,
+    NO_CHARGE_LIMIT, amps, charge_flow_label, charge_limit_at, charge_limit_labels,
+    charge_limit_row, charge_speed_at, charge_speed_labels, charge_speed_names, charge_speed_row,
+    percent_label, with_custom_row,
 };
 use frameguin_wire::{BatteryFeature, BatteryState, MIN_CHARGE_LIMIT, NO_CHARGE_CURRENT_LIMIT};
 use gtk4 as gtk;
@@ -98,7 +98,7 @@ impl Group {
         let speed_combo = adw::ComboRow::builder()
             .title("Charge speed")
             .subtitle("Maximum charging rate")
-            .model(&gtk::StringList::new(&CHARGE_SPEED_LABELS))
+            .model(&string_list(&charge_speed_names()))
             .sensitive(false)
             .build();
         widget.add(&speed_combo);
@@ -157,7 +157,7 @@ impl Group {
     /// the counterpart of [`Group::show_charge_speed`] — change one and read
     /// the other.
     fn show_charge_limit(&self, ui: &Ui, percent: u8, custom: Custom) {
-        let preset = charge_limit_position(percent);
+        let preset = charge_limit_row(percent);
         let index = custom_or(&self.limit_combo, CHARGE_LIMIT_CUSTOM, preset, custom);
         ui.sync(|| {
             self.limit_combo.set_selected(combo_index(index));
@@ -175,7 +175,7 @@ impl Group {
             ui.sync(|| self.speed_combo.set_selected(gtk::INVALID_LIST_POSITION));
             return;
         };
-        let preset = charge_speed_position(capacity, milliamps);
+        let preset = charge_speed_row(capacity, milliamps);
         let index = custom_or(&self.speed_combo, CHARGE_SPEED_CUSTOM, preset, custom);
         ui.sync(|| {
             self.speed_combo.set_selected(combo_index(index));
@@ -217,16 +217,15 @@ impl Group {
             let Ok(index) = usize::try_from(row.selected()) else {
                 return;
             };
-            if index > CHARGE_LIMIT_CUSTOM {
-                return;
-            }
             // Choosing Custom writes nothing: the row only reveals the slider
             // that can change the ceiling.
             if index == CHARGE_LIMIT_CUSTOM {
                 limit_ui.battery.limit_custom_row.set_visible(true);
                 return;
             }
-            let percent = charge_limit_percent(index);
+            let Some(percent) = charge_limit_at(index) else {
+                return;
+            };
             let ui = limit_ui.clone();
             let control = limit_control.clone();
             glib::spawn_future_local(async move {
@@ -257,9 +256,6 @@ impl Group {
             let Ok(index) = usize::try_from(row.selected()) else {
                 return;
             };
-            if index > CHARGE_SPEED_CUSTOM {
-                return;
-            }
             // Choosing Custom writes nothing: the limit in effect is already
             // whatever it is, and the row only reveals the slider that can
             // change it. Unlike the power LED's custom level, there is no EC
@@ -274,7 +270,9 @@ impl Group {
             let Some(design_capacity) = speed_ui.battery.design_capacity.get() else {
                 return;
             };
-            let milliamps = charge_speed_milliamps(design_capacity, index);
+            let Some(milliamps) = charge_speed_at(design_capacity, index) else {
+                return;
+            };
             let ui = speed_ui.clone();
             let control = speed_control.clone();
             glib::spawn_future_local(async move {
