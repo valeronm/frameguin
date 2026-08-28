@@ -132,8 +132,8 @@ Installed from the `.deb`:
 sudo apt purge frameguin
 ```
 
-`apt remove` keeps the remembered touchpad settings in `/var/lib/frameguin`;
-only `apt purge` drops them.
+`apt remove` keeps `/var/lib/frameguin`, the daemon's record of the settings
+the hardware cannot report back; only `apt purge` drops it.
 
 Installed from the tarball or from source:
 
