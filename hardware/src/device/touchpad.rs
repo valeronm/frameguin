@@ -1,15 +1,13 @@
 //! The haptic touchpad: two write-only settings and the mirror that answers
 //! for them.
 
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU8, Ordering};
-
 use frameguin_wire::{
     self as wire, DeviceError, DeviceResult, HAPTIC_INTENSITY_LEVELS, TouchpadControl,
 };
 
+use crate::lifetime::Lifetime;
+use crate::mirror::{Mirror, Mirrors, Stored};
 use crate::part::{self, Identity, Part, PartKind};
-use crate::state::Store;
 use crate::touchpad::{self, HapticPad};
 
 const DEFAULT_HAPTIC_INTENSITY: u8 = 75;
@@ -17,46 +15,59 @@ const DEFAULT_HAPTIC_INTENSITY: u8 = 75;
 const KEY_HAPTIC_INTENSITY: &str = "haptic_intensity";
 const KEY_CLICK_FORCE: &str = "click_force";
 
+/// An intensity on one of the pad's steps, which is all the store may name.
+#[derive(Clone, Copy)]
+struct Intensity(u8);
+
+impl Stored for Intensity {
+    fn from_stored(value: &str) -> Option<Self> {
+        let percent = value.parse().ok()?;
+        Touchpad::check_haptic_intensity(percent)
+            .ok()
+            .map(|()| Self(percent))
+    }
+
+    fn stored(&self) -> String {
+        self.0.to_string()
+    }
+}
+
+/// Kept in the store as the pad's own code, which is what a reload has to
+/// be able to name again.
+impl Stored for wire::ClickForce {
+    fn from_stored(value: &str) -> Option<Self> {
+        touchpad::wire_click_force(value.parse().ok()?)
+    }
+
+    fn stored(&self) -> String {
+        (touchpad::click_force(*self) as u8).to_string()
+    }
+}
+
 pub struct Touchpad {
     pad: Box<dyn HapticPad>,
-    store: Arc<dyn Store>,
     identity: Identity,
-    haptic_intensity: AtomicU8,
-    /// The pad's own code for the force, which is what the store carries
-    /// and what a reload has to be able to name again.
-    click_force: AtomicU8,
+    haptic_intensity: Mirror<Intensity>,
+    click_force: Mirror<wire::ClickForce>,
 }
 
 impl Touchpad {
     /// The pad on this machine's HID bus, if it is a haptic one, keeping
     /// what the bus said it was.
-    pub fn detect(hid: &hidapi::HidApi, store: Arc<dyn Store>) -> Option<Self> {
+    pub fn detect(hid: &hidapi::HidApi, mirrors: &Mirrors) -> Option<Self> {
         let pad = touchpad::haptic_pad(hid)?;
         // No firmware version: the haptic pad's registers are in no table
         // this can trust.
         let identity = part::of_hid(PartKind::Touchpad, pad);
-        Some(Self::new(Box::new(touchpad::Hid), store, identity))
+        Some(Self::new(Box::new(touchpad::Hid), mirrors, identity))
     }
 
-    /// Answers from the mirror before anything is written, and from the
-    /// factory defaults where the store holds nothing it can name.
-    pub fn new(pad: Box<dyn HapticPad>, store: Arc<dyn Store>, identity: Identity) -> Self {
-        let haptic_intensity = store
-            .get(KEY_HAPTIC_INTENSITY)
-            .and_then(|v| v.parse().ok())
-            .filter(|&v| Self::check_haptic_intensity(v).is_ok())
-            .unwrap_or(DEFAULT_HAPTIC_INTENSITY);
-        let click_force = store
-            .get(KEY_CLICK_FORCE)
-            .and_then(|v| v.parse().ok())
-            .filter(|&v| touchpad::wire_click_force(v).is_some())
-            .unwrap_or(touchpad::click_force(touchpad::DEFAULT_CLICK_FORCE) as u8);
+    pub fn new(pad: Box<dyn HapticPad>, mirrors: &Mirrors, identity: Identity) -> Self {
         Self {
             pad,
-            store,
             identity,
-            haptic_intensity: AtomicU8::new(haptic_intensity),
-            click_force: AtomicU8::new(click_force),
+            haptic_intensity: mirrors.value(KEY_HAPTIC_INTENSITY, Lifetime::Permanent),
+            click_force: mirrors.value(KEY_CLICK_FORCE, Lifetime::Permanent),
         }
     }
 }
@@ -83,33 +94,29 @@ impl Touchpad {
 
 impl TouchpadControl for Touchpad {
     async fn haptic_intensity(&self) -> DeviceResult<u8> {
-        Ok(self.haptic_intensity.load(Ordering::Relaxed))
+        Ok(self
+            .haptic_intensity
+            .current()
+            .map_or(DEFAULT_HAPTIC_INTENSITY, |intensity| intensity.0))
     }
 
     async fn set_haptic_intensity(&self, percent: u8) -> DeviceResult<()> {
         Self::check_haptic_intensity(percent)?;
-        self.pad.set_haptic_intensity(percent)?;
-        self.haptic_intensity.store(percent, Ordering::Relaxed);
-        self.store
-            .set(KEY_HAPTIC_INTENSITY, Some(percent.to_string()));
-        Ok(())
+        self.haptic_intensity.record(Intensity(percent), || {
+            self.pad.set_haptic_intensity(percent)
+        })
     }
 
     async fn click_force(&self) -> DeviceResult<wire::ClickForce> {
-        // A code no force maps to reads as the factory default, the same
-        // answer this gives before anything has been written.
-        Ok(
-            touchpad::wire_click_force(self.click_force.load(Ordering::Relaxed))
-                .unwrap_or(touchpad::DEFAULT_CLICK_FORCE),
-        )
+        Ok(self
+            .click_force
+            .current()
+            .unwrap_or(touchpad::DEFAULT_CLICK_FORCE))
     }
 
     async fn set_click_force(&self, force: wire::ClickForce) -> DeviceResult<()> {
-        self.pad.set_click_force(force)?;
-        let code = touchpad::click_force(force) as u8;
-        self.click_force.store(code, Ordering::Relaxed);
-        self.store.set(KEY_CLICK_FORCE, Some(code.to_string()));
-        Ok(())
+        self.click_force
+            .record(force, || self.pad.set_click_force(force))
     }
 }
 
@@ -123,7 +130,7 @@ mod tests {
     use crate::part::{self, Part, PartKind};
     use crate::state::Store;
     use crate::state::tests::Memory;
-    use crate::testing::ready;
+    use crate::testing::{mirrors, ready};
     use crate::touchpad::HapticPad;
 
     /// A pad that takes every write, or refuses every one.
@@ -160,7 +167,7 @@ mod tests {
             "Haptic touchpad",
             "",
         );
-        Touchpad::new(Box::new(pad), store.clone(), identity)
+        Touchpad::new(Box::new(pad), &mirrors(store, None, None), identity)
     }
 
     const TAKING: Pad = Pad { refusing: false };

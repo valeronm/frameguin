@@ -19,6 +19,8 @@ use frameguin_hardware::device::power_led::PowerLed;
 use frameguin_hardware::device::touchpad::Touchpad;
 use frameguin_hardware::device::touchscreen::Touchscreen;
 use frameguin_hardware::ec::Ec;
+use frameguin_hardware::lifetime::{self, Holders};
+use frameguin_hardware::mirror::Mirrors;
 use frameguin_hardware::part::{Identity, Part};
 use frameguin_hardware::state::{StateFile, Store};
 use frameguin_wire as wire;
@@ -67,20 +69,21 @@ fn main() -> zbus::Result<()> {
     let last_used = Arc::new(Mutex::new(Instant::now()));
     let clock = last_used.clone();
     let store: Arc<dyn Store> = Arc::new(StateFile::load());
+    let ec = Ec::open().map(Arc::new);
+    let holders = Holders::new(
+        ec.as_ref().and_then(|ec| ec.boot().ok()),
+        lifetime::host_boot(),
+    );
+    let mirrors = Mirrors::new(store, holders);
     // One walk of the HID bus for every device asked about: building an
     // `HidApi` enumerates the lot.
     let hid = hidapi::HidApi::new().ok();
-    let touchpad = hid
-        .as_ref()
-        .and_then(|hid| Touchpad::detect(hid, store.clone()));
+    let touchpad = hid.as_ref().and_then(|hid| Touchpad::detect(hid, &mirrors));
     let touchscreen = hid
         .as_ref()
-        .and_then(|hid| Touchscreen::detect(hid, store.clone()));
-    let ec = Ec::open().map(Arc::new);
+        .and_then(|hid| Touchscreen::detect(hid, &mirrors));
     let power_led = ec.as_ref().and_then(PowerLed::detect);
-    let battery = ec
-        .as_ref()
-        .and_then(|ec| Battery::detect(ec, store.clone()));
+    let battery = ec.as_ref().and_then(|ec| Battery::detect(ec, &mirrors));
     let mainboard = Mainboard::detect(ec.as_deref());
     let memory = Module::detect();
     let parts: Vec<Identity> = [

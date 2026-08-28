@@ -22,7 +22,7 @@ use framework_lib::chromium_ec::{CrosEc, EcResult};
 use framework_lib::power;
 
 use crate::dmi;
-use crate::lifetime::EcStamp;
+use crate::lifetime::EcBoot;
 use crate::part::{self, Identity};
 
 /// Reaching the pack directly, past the EC's own copy of what it says. The
@@ -92,20 +92,6 @@ pub trait PowerLedEc: Send + Sync {
     fn custom_power_led_levels(&self) -> bool;
 }
 
-/// The EC's own clock: dating a write against its life, and weighing the
-/// date later.
-pub trait EcClock: Send + Sync {
-    /// Fallible where the weighing below is not: a stamp is taken around a
-    /// write, and whether one that cannot be taken costs the write is the
-    /// caller's to decide.
-    fn stamp(&self) -> DeviceResult<EcStamp>;
-    /// Whether the EC has been running without interruption since `stamp`
-    /// was taken — which is to say whether what it was holding then is still
-    /// there — by [`EcStamp::still_current`], an EC that will not say
-    /// reading as having restarted.
-    fn same_boot_as(&self, stamp: EcStamp) -> bool;
-}
-
 /// What the battery's device needs of the pack: whether one answers in the
 /// EC's block and what it is, the block itself, and what the pack says past
 /// it.
@@ -164,9 +150,6 @@ struct Memo {
     /// When the pack was built, which the EC publishes nowhere and which
     /// cannot change at all.
     manufacture_date: OnceLock<Option<String>>,
-    /// Both clocks read at one moment, for weighing stamps against. A failed
-    /// read is not kept.
-    ec_clocks: OnceLock<(u64, u64)>,
 }
 
 /// Remembers what a read answered, absence included, and asks only once.
@@ -261,13 +244,10 @@ impl Ec {
         self.ec().cmd_version_supported(command as u32, version)
     }
 
-    /// Never a date for a write, which [`stamp`] reads afresh for.
-    fn ec_clocks(&self) -> EcResult<(u64, u64)> {
-        if let Some(clocks) = self.memo.ec_clocks.get() {
-            return Ok(*clocks);
-        }
-        let clocks = (uptime_secs(&self.ec())?, unix_now());
-        Ok(*self.memo.ec_clocks.get_or_init(|| clocks))
+    /// When the EC booted, from its uptime and the wall clock read together.
+    pub fn boot(&self) -> DeviceResult<EcBoot> {
+        let uptime = uptime_secs(&self.ec()).map_err(device_error)?;
+        Ok(EcBoot::from_clocks(uptime, unix_now()))
     }
 }
 
@@ -311,16 +291,6 @@ impl Ec {
     /// it.
     fn offers(&self, command: EcCommands, version: u8) -> bool {
         self.command_supported(command, version).unwrap_or(false)
-    }
-}
-
-impl EcClock for Ec {
-    fn stamp(&self) -> DeviceResult<EcStamp> {
-        stamp(&self.ec()).map_err(device_error)
-    }
-
-    fn same_boot_as(&self, stamp: EcStamp) -> bool {
-        stamp.still_current(self.ec_clocks().ok())
     }
 }
 
@@ -405,12 +375,6 @@ impl Charger for Ec {
     fn charge_current_limit_supported(&self) -> bool {
         self.offers(EcCommands::ChargeCurrentLimit, 0)
     }
-}
-
-/// Both clocks at one moment, which is what makes a later reading of the EC's
-/// comparable to the host's.
-fn stamp(ec: &CrosEc) -> EcResult<EcStamp> {
-    Ok(EcStamp::taken(uptime_secs(ec)?, unix_now()))
 }
 
 fn unix_now() -> u64 {

@@ -126,8 +126,9 @@ it and the non-obvious constraints.
   holds a mirrored value and whether it still holds it, where `dmi.rs`
   answers for the machine, which is the difference between a fact a reboot or
   a sleep changes and one that outlives both, `state.rs`
-  the keyed store for what cannot be read back, each device holding its
-  own mirror over it under its own keys. A module's own doc says what it is
+  the keyed store for what cannot be read back, `mirror.rs` the mirror a
+  device reads and writes such a value through, declared under its own key
+  and the `Lifetime` of whatever holds it. A module's own doc says what it is
   for; the reasoning is here. `ec.rs` is every EC call: `Ec` is the only
   holder of the `CrosEc`, one method per operation, each taking the lock and
   releasing it before returning and none reaching the handle through another —
@@ -180,20 +181,20 @@ it and the non-obvious constraints.
   device's mirror, the touchscreen's `set_enabled` the pad — and on the
   route with no pad, nothing: it skips no write at all. A
   mirror is worth skipping on only where the event that invalidates it is the
-  one its stamp catches, which holds for the charge current limit and not
+  one its lifetime ends on, which holds for the charge current limit and not
   here: the panel's mirror catches the boot and the sleep, and a lid opening
   moves the panel with neither, so within one waking run it is no fresher
   than the client's own idea. What decides is whether a client can be stale,
   not whether the value is readable.
-- **A date is best effort, never a gate.** Where a write is dated — the
-  charge current limit against the EC, the touch panel's against the host —
-  a date that cannot be taken costs the record and not the write, and the
-  device takes it before the write so that a restart between the two reads
-  as having dropped it. What a stamp buys is knowing later whether the value
-  still stands, and that is never worth refusing a write the hardware would
-  have taken: it trades a control the user asked for against a label that is
-  approximate anyway. The writes this applies to are state assertions rather
-  than gestures, so re-asserting one already in force costs nothing either.
+- **Evidence is best effort, never a gate.** Where a mirror takes evidence
+  for its lifetime — the EC's boot for the charge current limit, the host's
+  for the touch panel — evidence that cannot be taken costs the record and
+  not the write: `Mirror::record` makes the write and then holds nothing.
+  What evidence buys is knowing later whether the value still stands, and
+  that is never worth refusing a write the hardware would have taken: it
+  trades a control the user asked for against a label that is approximate
+  anyway. The writes this applies to are state assertions rather than
+  gestures, so re-asserting one already in force costs nothing either.
 - D-Bus types name the value, not either end's convenience: a percentage is
   `y` (`u8`), never GTK's f64. The daemon validates every argument because
   any client can call it — an app-side clamp is UI convenience, not the check.
@@ -260,37 +261,34 @@ asserted and its reason a file away.
   devices reached over HID — the haptic touchpad, the touch panel — detect
   themselves outside it.
 - A value the EC is a second writer for cannot be shown from what was last
-  written. A value with no readback at all is mirrored instead. A setter
-  moves the mirror only once the hardware has taken the write, so a refused
-  one leaves the last accepted value standing. The power LED's off needs no
-  mirror: the kernel's record of holding it dark is the readback, and the one
-  thing short of a command sent behind the driver's back that leaves it stale
-  — an EC restart — takes the host down with it, so the reboot re-probes the
-  driver before anything can read it. What dates the
-  mirror is whatever holds the state it claims: nothing for the touchpad,
-  which keeps its own in flash; the EC's uptime for the charge current
-  limit, whose mirror expires with the EC that took it; the host's own life
-  for the touch panel — its boot together with the
-  time it has spent asleep, since the controller is expected to come up
-  reporting from a reboot and from a resume alike. Which holder a mirror
-  belongs to is settled by evidence and not by which stamp is nearer: the
-  charge current limit is the EC's to
-  hold, firmware having been shown to leave it where the charge limit and the
-  LED level are both re-asserted at POST, so its EC stamp wants no host stamp
-  beside it. Weighing an EC stamp costs one host command for the whole daemon
-  run rather than one per read, and the hardware is what settles that: an EC
-  restart takes the machine down with it, so no run spans one and a single
-  reading of its clock answers for every stamp that run weighs. The host's
-  boot is memoized for the same reason; its sleep is not, being the one thing
-  here that moves under a running daemon.
+  written. A value with no readback at all is mirrored instead, through a
+  `Mirror` that moves only once the hardware has taken the write, so a
+  refused one leaves the last accepted value standing. The power LED's off
+  needs no mirror: the kernel's record of holding it dark is the readback,
+  and the one thing short of a command sent behind the driver's back that
+  leaves it stale — an EC restart — takes the host down with it, so the
+  reboot re-probes the driver before anything can read it. A mirror is
+  declared with the `Lifetime` of whatever holds the state it claims, and
+  which holder that is gets settled by evidence rather than by which life
+  is shorter: `Permanent` for the touchpad, which keeps its own in flash;
+  `Ec` for the charge current limit, firmware having been shown to leave it
+  where the charge limit and the LED level are both re-asserted at POST, so
+  it expires with the EC that took it and not with the host; `HostAwake` for
+  the touch panel — the host's boot together with the time it has spent
+  asleep, since the controller is expected to come up reporting from a
+  reboot and from a resume alike. The evidence for `Ec` is the EC's boot
+  instant, read once when the daemon starts and never again, and the
+  hardware is what settles that: an EC restart takes the machine down with
+  it, so no run spans one. The host's boot is read once for the same reason;
+  its sleep is not, being the one thing here that moves under a running
+  daemon, which is why weighing `HostAwake` reads the host afresh each time.
   The touchscreen is both, and which it is depends on the
   route: the pad carries the level, so where a pad is the control the getter
   asks the hardware, and where the panel's own command is, there is nothing
-  left to ask and the device answers from its dated mirror — weighed on
-  every read, since the sleep that withdraws it happens under a running
-  daemon. That asymmetry is the reason the `TouchSwitch` role answers
-  `Option<bool>` — a device that reached for one account would have to know
-  which machine it was on. Its second
+  left to ask and the device answers from its mirror. That asymmetry is the
+  reason the `TouchSwitch` role answers `Option<bool>` — a device that
+  reached for one account would have to know which machine it was on. Its
+  second
   writer is the platform firmware rather than this daemon — a lid opening
   drives the pad back, as a resume does — and neither is something the app is
   told about, so both front ends can show a value the firmware has already
@@ -298,14 +296,16 @@ asserted and its reason a file away.
   re-reads on being mapped; the tray asks when its menu opens, which is a
   request it cannot wait for, so the first menu after such a change still
   draws the old value and the one after it is right.
-- `lifetime.rs` keeps a stamp per holder rather than one stamp with a holder
-  field, so weighing a write dated against the EC by the host's life is a
-  build error and not a review catch. A stamp that cannot be weighed is never
-  believed, and both stamps say so themselves — `still_current` is false
-  where the holder will not answer: an EC that will not say is read as
-  having restarted, and what a mirror holds after a restart is a state both
-  know — the current cap lifted, the panel reporting — so no device keeps a
-  rule of its own for it.
+- A device never sees evidence, only its value or its absence. What
+  evidence is and how it is weighed is `lifetime.rs`, keyed on the one
+  `Lifetime` the device declared; *when* — witnessed before the write, kept
+  beside the value, weighed on every read — is `mirror.rs`, which names no
+  holder. So a device cannot weigh a write against the wrong holder, and a
+  new holder is one variant in one file. Evidence that cannot be
+  weighed is never believed — a holder that will not answer withdraws every
+  record of its lifetime — and what a mirror holds after its holder's life
+  ended is a state both know, the current cap lifted, the panel reporting,
+  so no device keeps a rule of its own for it.
 - What the pack is asked directly falls into two groups, and the split is why
   one is a feature the battery offers and the other is not. The temperature,
   cell voltages and alarms have no fallback, so they are one operation behind

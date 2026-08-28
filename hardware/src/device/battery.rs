@@ -2,52 +2,36 @@
 //! what goes into it, and the mirror for the one limit that cannot be read
 //! back.
 
-use std::sync::{Arc, Mutex};
+use std::num::NonZeroU32;
+use std::sync::Arc;
 
 use frameguin_wire::{
     BatteryCondition, BatteryControl, BatteryFeature, BatteryInfo, DeviceError, DeviceResult,
     MIN_CHARGE_LIMIT, NO_CHARGE_CURRENT_LIMIT,
 };
 
-use crate::ec::{Charger, Ec, EcClock, Pack};
-use crate::lifetime::EcStamp;
+use crate::ec::{Charger, Ec, Pack};
+use crate::lifetime::Lifetime;
+use crate::mirror::{Mirror, Mirrors};
 use crate::part::{Identity, Part};
-use crate::state::Store;
 
 const KEY_CURRENT_LIMIT: &str = "charge_current_limit";
-const KEY_CURRENT_LIMIT_STAMP: &str = "charge_current_limit_stamp";
-
-/// A charge current limit together with the stamp that dates it.
-#[derive(Clone, Copy)]
-struct CurrentLimit {
-    milliamps: u32,
-    stamp: EcStamp,
-}
 
 pub struct Battery {
     pack: Arc<dyn Pack>,
     charger: Arc<dyn Charger>,
-    clock: Arc<dyn EcClock>,
-    store: Arc<dyn Store>,
     identity: Identity,
     features: Vec<BatteryFeature>,
-    /// The cap last written, and None while there is none. Mirrored rather
-    /// than read back, and dated against the EC: it keeps the limit in RAM,
-    /// which outlives host reboots but not an EC restart.
-    current_limit: Mutex<Option<CurrentLimit>>,
+    /// The cap last written, and nothing while there is none; the EC keeps
+    /// it in RAM.
+    current_limit: Mirror<NonZeroU32>,
 }
 
 impl Battery {
     /// The pack in the EC's block, if one answers there.
-    pub fn detect(ec: &Arc<Ec>, store: Arc<dyn Store>) -> Option<Self> {
+    pub fn detect(ec: &Arc<Ec>, mirrors: &Mirrors) -> Option<Self> {
         let identity = ec.identity()?;
-        Some(Self::new(
-            ec.clone(),
-            ec.clone(),
-            ec.clone(),
-            store,
-            identity,
-        ))
+        Some(Self::new(ec.clone(), ec.clone(), mirrors, identity))
     }
 
     /// What this battery offers is settled here, once. The condition is
@@ -60,8 +44,7 @@ impl Battery {
     pub fn new(
         pack: Arc<dyn Pack>,
         charger: Arc<dyn Charger>,
-        clock: Arc<dyn EcClock>,
-        store: Arc<dyn Store>,
+        mirrors: &Mirrors,
         identity: Identity,
     ) -> Self {
         let mut features = Vec::new();
@@ -74,27 +57,12 @@ impl Battery {
         if charger.charge_current_limit_supported() {
             features.push(BatteryFeature::ChargeCurrentLimit);
         }
-        // A zero here would mirror a limit the setter refuses to write, so
-        // it reads as the absence of one — as does a cap with no stamp, which
-        // nothing could weigh.
-        let current_limit = store
-            .get(KEY_CURRENT_LIMIT)
-            .and_then(|v| v.parse().ok())
-            .filter(|&v| v != 0)
-            .zip(
-                store
-                    .get(KEY_CURRENT_LIMIT_STAMP)
-                    .and_then(|v| EcStamp::parse(&v)),
-            )
-            .map(|(milliamps, stamp)| CurrentLimit { milliamps, stamp });
         Self {
             pack,
             charger,
-            clock,
-            store,
             identity,
             features,
-            current_limit: Mutex::new(current_limit),
+            current_limit: mirrors.value(KEY_CURRENT_LIMIT, Lifetime::Ec),
         }
     }
 
@@ -121,18 +89,6 @@ impl Battery {
         } else {
             Ok(())
         }
-    }
-
-    fn remember(&self, limit: Option<CurrentLimit>) {
-        self.store.set(
-            KEY_CURRENT_LIMIT,
-            limit.map(|limit| limit.milliamps.to_string()),
-        );
-        self.store.set(
-            KEY_CURRENT_LIMIT_STAMP,
-            limit.map(|limit| limit.stamp.stored()),
-        );
-        *self.current_limit.lock().unwrap() = limit;
     }
 }
 
@@ -172,24 +128,20 @@ impl BatteryControl for Battery {
         Ok(true)
     }
 
-    /// The mirror, weighed against the EC's life: a restart drops the cap.
     async fn charge_current_limit(&self) -> DeviceResult<u32> {
-        let limit = *self.current_limit.lock().unwrap();
-        Ok(limit
-            .filter(|limit| self.clock.same_boot_as(limit.stamp))
-            .map_or(NO_CHARGE_CURRENT_LIMIT, |limit| limit.milliamps))
+        Ok(self
+            .current_limit
+            .current()
+            .map_or(NO_CHARGE_CURRENT_LIMIT, NonZeroU32::get))
     }
 
     async fn set_charge_current_limit(&self, milliamps: u32) -> DeviceResult<bool> {
         Self::check_charge_current_limit(milliamps)?;
-        // Dated before the write, so that a restart between the two reads as
-        // having dropped it.
-        let limit = (milliamps != NO_CHARGE_CURRENT_LIMIT)
-            .then(|| self.clock.stamp().ok())
-            .flatten()
-            .map(|stamp| CurrentLimit { milliamps, stamp });
-        self.charger.set_charge_current_limit(milliamps)?;
-        self.remember(limit);
+        let write = || self.charger.set_charge_current_limit(milliamps);
+        match NonZeroU32::new(milliamps).filter(|cap| cap.get() != NO_CHARGE_CURRENT_LIMIT) {
+            Some(cap) => self.current_limit.record(cap, write)?,
+            None => self.current_limit.clear(write)?,
+        }
         Ok(true)
     }
 }
@@ -203,11 +155,13 @@ mod tests {
         DeviceError, DeviceResult, Identity, NO_CHARGE_CURRENT_LIMIT, PartKind,
     };
 
-    use super::{Battery, KEY_CURRENT_LIMIT, KEY_CURRENT_LIMIT_STAMP};
+    use super::{Battery, KEY_CURRENT_LIMIT};
     use crate::ec::{Charger, Pack};
+    use crate::lifetime::EcBoot;
+    use crate::mirror::evidence_key;
     use crate::state::Store;
     use crate::state::tests::Memory;
-    use crate::testing::{Clock, ready};
+    use crate::testing::{mirrors, ready};
 
     fn block() -> BatteryInfo {
         BatteryInfo {
@@ -298,20 +252,24 @@ mod tests {
         condition: bool,
         caps: bool,
         refusing: bool,
-        same_boot: Option<bool>,
+        ec_boot: Option<EcBoot>,
     }
 
     const FULL: Machine = Machine {
         condition: true,
         caps: true,
         refusing: false,
-        same_boot: Some(true),
+        ec_boot: Some(EcBoot::from_clocks(500_000, 1_000_000)),
+    };
+
+    const RESTARTED: Machine = Machine {
+        ec_boot: Some(EcBoot::from_clocks(60, 1_003_600)),
+        ..FULL
     };
 
     struct Bench {
         battery: Battery,
         ec: Arc<Ec>,
-        clock: Arc<Clock>,
     }
 
     fn over(machine: &Machine, store: &Arc<Memory>) -> Bench {
@@ -324,12 +282,11 @@ mod tests {
             refusing: machine.refusing,
             written: Mutex::new(Vec::new()),
         });
-        let clock = Clock::new(machine.same_boot);
         let identity = pack.identity().unwrap();
+        let mirrors = mirrors(store, machine.ec_boot, None);
         Bench {
-            battery: Battery::new(pack, ec.clone(), clock.clone(), store.clone(), identity),
+            battery: Battery::new(pack, ec.clone(), &mirrors, identity),
             ec,
-            clock,
         }
     }
 
@@ -371,7 +328,7 @@ mod tests {
     #[test]
     fn a_ceiling_is_written_and_read_from_the_charger() {
         let store = Arc::new(Memory::default());
-        let Bench { battery, ec, .. } = over(&FULL, &store);
+        let Bench { battery, ec } = over(&FULL, &store);
         assert_eq!(ready(battery.set_charge_limit(80)), Ok(true));
         assert_eq!(*ec.limit.lock().unwrap(), 80);
         assert_eq!(ready(battery.charge_limit()), Ok(80));
@@ -380,7 +337,7 @@ mod tests {
     #[test]
     fn a_ceiling_off_the_range_is_refused_before_the_charger_is_asked() {
         let store = Arc::new(Memory::default());
-        let Bench { battery, ec, .. } = over(&FULL, &store);
+        let Bench { battery, ec } = over(&FULL, &store);
         for percent in [19, 101] {
             assert!(matches!(
                 ready(battery.set_charge_limit(percent)),
@@ -403,12 +360,12 @@ mod tests {
     #[test]
     fn a_cap_the_ec_takes_is_mirrored_stored_and_reloaded() {
         let store = Arc::new(Memory::default());
-        let Bench { battery, ec, .. } = over(&FULL, &store);
+        let Bench { battery, ec } = over(&FULL, &store);
         assert_eq!(ready(battery.set_charge_current_limit(1_500)), Ok(true));
         assert_eq!(*ec.written.lock().unwrap(), [1_500]);
         assert_eq!(ready(battery.charge_current_limit()), Ok(1_500));
         assert_eq!(store.get(KEY_CURRENT_LIMIT).as_deref(), Some("1500"));
-        assert!(store.get(KEY_CURRENT_LIMIT_STAMP).is_some());
+        assert!(store.get(&evidence_key(KEY_CURRENT_LIMIT)).is_some());
         let reloaded = over(&FULL, &store);
         assert_eq!(ready(reloaded.battery.charge_current_limit()), Ok(1_500));
     }
@@ -434,7 +391,7 @@ mod tests {
     #[test]
     fn a_zero_cap_is_refused_before_the_ec_is_asked() {
         let store = Arc::new(Memory::default());
-        let Bench { battery, ec, .. } = over(&FULL, &store);
+        let Bench { battery, ec } = over(&FULL, &store);
         assert!(matches!(
             ready(battery.set_charge_current_limit(0)),
             Err(DeviceError::InvalidArgs(_))
@@ -444,25 +401,24 @@ mod tests {
 
     /// An EC that restarted has dropped the cap, whatever the mirror says.
     #[test]
-    fn a_stamp_from_another_ec_boot_reads_as_no_limit() {
+    fn a_cap_from_another_ec_boot_reads_as_no_limit() {
         let store = Arc::new(Memory::default());
-        let Bench { battery, clock, .. } = over(&FULL, &store);
-        ready(battery.set_charge_current_limit(1_500)).unwrap();
-        *clock.same_boot.lock().unwrap() = Some(false);
+        ready(over(&FULL, &store).battery.set_charge_current_limit(1_500)).unwrap();
+        let Bench { battery, .. } = over(&RESTARTED, &store);
         assert_eq!(
             ready(battery.charge_current_limit()),
             Ok(NO_CHARGE_CURRENT_LIMIT)
         );
     }
 
-    /// A cap the EC could not date is still written, and forgotten: with no
-    /// stamp to weigh it by, nothing could say later whether it still stands.
+    /// A cap the EC will not witness is still written, and forgotten: with
+    /// no evidence, nothing could say later whether it still stands.
     #[test]
-    fn an_undatable_cap_is_written_and_not_remembered() {
+    fn a_cap_with_no_evidence_is_written_and_not_remembered() {
         let store = Arc::new(Memory::default());
-        let Bench { battery, ec, .. } = over(
+        let Bench { battery, ec } = over(
             &Machine {
-                same_boot: None,
+                ec_boot: None,
                 ..FULL
             },
             &store,
@@ -486,7 +442,7 @@ mod tests {
             Ok(true)
         );
         assert_eq!(store.get(KEY_CURRENT_LIMIT), None);
-        assert_eq!(store.get(KEY_CURRENT_LIMIT_STAMP), None);
+        assert_eq!(store.get(&evidence_key(KEY_CURRENT_LIMIT)), None);
         assert_eq!(
             ready(battery.charge_current_limit()),
             Ok(NO_CHARGE_CURRENT_LIMIT)
@@ -497,6 +453,7 @@ mod tests {
     fn a_stored_zero_reads_as_no_limit() {
         let store = Arc::new(Memory::default());
         store.set(KEY_CURRENT_LIMIT, Some("0".into()));
+        store.set(&evidence_key(KEY_CURRENT_LIMIT), Some("500000".into()));
         let Bench { battery, .. } = over(&FULL, &store);
         assert_eq!(
             ready(battery.charge_current_limit()),

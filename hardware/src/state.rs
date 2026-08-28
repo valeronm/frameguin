@@ -3,10 +3,11 @@
 //! The haptic touchpad ACKs `GET_FEATURE` with zeros, the charge current
 //! limit has no readback in any command version, and the touch panel's own
 //! enable command asks for no reply, so what was written is only knowable
-//! from a mirror. One file, keyed: each device names its own keys and reads
-//! and writes them through [`Store`], so a key another version wrote is
-//! carried across a save rather than dropped, and a mirror this version does
-//! not know costs nothing but the line.
+//! from a mirror. One file, keyed: a mirror is two lines, `<key>` for the
+//! value and `<key>_evidence` for what proves the holder still has it, read
+//! and written through [`Store`], so a key another version wrote is carried
+//! across a save rather than dropped, and a mirror this version does not
+//! know costs nothing but the line.
 
 use std::collections::BTreeMap;
 use std::sync::Mutex;
@@ -48,12 +49,21 @@ fn parse(content: &str) -> BTreeMap<String, String> {
         .collect()
 }
 
-/// What a `set` means to the map, spelled once for every store over one.
-fn apply(entries: &mut BTreeMap<String, String>, key: &str, value: Option<String>) {
-    match value {
-        Some(value) => entries.insert(key.to_owned(), value),
-        None => entries.remove(key),
-    };
+/// What a `set` means to the map, spelled once for every store over one;
+/// answers whether the map moved.
+fn apply(entries: &mut BTreeMap<String, String>, key: &str, value: Option<String>) -> bool {
+    match (entries.get_mut(key), value) {
+        (Some(held), Some(value)) if *held == value => false,
+        (Some(held), Some(value)) => {
+            *held = value;
+            true
+        }
+        (None, Some(value)) => {
+            entries.insert(key.to_owned(), value);
+            true
+        }
+        (held, None) => held.is_some() && entries.remove(key).is_some(),
+    }
 }
 
 fn render(entries: &BTreeMap<String, String>) -> String {
@@ -73,7 +83,9 @@ impl Store for StateFile {
     fn set(&self, key: &str, value: Option<String>) {
         let content = {
             let mut entries = self.entries.lock().unwrap();
-            apply(&mut entries, key, value);
+            if !apply(&mut entries, key, value) {
+                return;
+            }
             render(&entries)
         };
         if let Err(e) = std::fs::write(STATE_FILE, content) {

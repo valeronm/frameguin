@@ -19,8 +19,7 @@ use framework_lib::touchpad::{self, ClickForce};
 const HAPTIC_PIDS: [u16; 1] = [0x1343];
 
 /// What the pad ships with, and so what a read before any write answers
-/// with. Spelled in the wire's terms because both users want it there: the
-/// getter returns it, and the mirror stores the code this maps to.
+/// with, in the wire's terms since the getter is what answers it.
 pub const DEFAULT_CLICK_FORCE: wire::ClickForce = wire::ClickForce::Medium;
 
 /// The writes the haptic touchpad takes, in the wire's vocabulary so that a
@@ -87,8 +86,8 @@ mod tests {
         );
     }
 
-    /// The mirror stores the device's own code, so the default it falls back
-    /// to and the one the getter answers with have to be the same force.
+    /// The store carries the device's own code, so the default has to map
+    /// to one and back.
     #[test]
     fn the_stored_default_is_the_force_the_getter_names() {
         assert_eq!(

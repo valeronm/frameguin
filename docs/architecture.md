@@ -10,8 +10,8 @@ One meaning per word, and each word names one place in the tree.
 
 - **Transport** — how the machine is reached: the EC, HID, a GPIO pad, the
   kernel's LED class, the firmware's SMBIOS table. `hardware/src/<name>.rs`.
-- **Role** — what a device needs of a transport, as a trait a stub can stand
-  in for: `HapticPad`, `TouchSwitch`, `Store`. Declared beside the transport
+- **Role** — what a device, or the mirror beneath it, needs of a transport,
+  as a trait a stub can stand in for: `HapticPad`, `TouchSwitch`, `Store`. Declared beside the transport
   that fulfils it — or, where two transports can, beside the arbitration
   that picks one.
 - **Device** — a thing detection finds on the machine: the haptic touchpad,
@@ -87,13 +87,13 @@ another column; what a layer must not link lives in another row.
 | Client controls | `model` | `wire` | A snapshot per control, its read, its commands, its presets and words | GTK, the bus, another control's trait | A stub of the control trait |
 | Control traits | `wire` | zbus, serde | One trait per device, one async fn per operation; `DeviceError` | How an operation is reached | — |
 | Bus | `wire`, `app`, `daemon` | zbus, polkit | One proxy per interface and the vocabularies (`wire`); `Bus` implementing the traits over them (`app`); `Served<Device>` with the validate → skip → authorize → write order (`daemon`) | Anything that touches hardware (`wire`, `app`); which EC command a role sends (`daemon`) | Round-trip tests |
-| Devices | `hardware` | `wire` | `detect()`, the control impl with its argument checks, the `Part` impl, mirrors and stamps, arbitrations | The bus, polkit | Stub roles and a stub store |
-| Roles | `hardware` | — | One trait per hardware need: `Charger`, `Pack`, `EcClock`, `PowerLedEc`, `LedClass`, `HapticPad`, `TouchSwitch`, `Store` | Who calls them | — |
+| Devices | `hardware` | `wire` | `detect()`, the control impl with its argument checks, the `Part` impl, mirrors under a declared lifetime, arbitrations | The bus, polkit | Stub roles and a stub store |
+| Roles | `hardware` | — | One trait per hardware need: `Charger`, `Pack`, `PowerLedEc`, `LedClass`, `HapticPad`, `TouchSwitch`, `Store` | Who calls them | — |
 | Transports | `hardware` | `framework_lib`, hidapi, libc | `Ec` and its lock, the sysfs LED node, the GPIO pad, the panel and touchpad HID, the SMBIOS table, the state file | Devices, policy, the bus | The machine |
 
 The two trait rows are the seams. A stub replaces the real thing at either,
-which is what makes the logic on both sides testable: the skip rule, the
-stamp weighing and the power LED's release order on the device side, the
+which is what makes the logic on both sides testable: the skip rule, a mirror's
+lifetime and the power LED's release order on the device side, the
 snapshot's movement under a refused write on the app's.
 
 ### One device, top to bottom
@@ -101,11 +101,12 @@ snapshot's movement under a refused write on the app's.
 - **`hardware/src/device/<name>.rs`** — `detect()` answering whether the
   device is there and which of its operations work (the probe rule, beside
   the operations it vouches for), keeping the identity detection saw; the
-  mirror for what cannot be read back, keyed into the store under the
-  device's own keys; `impl <Name>Control` with the argument checks inside
-  it; `impl Part`. The device holds only `dyn` roles — its transport, and a
-  `Store` where it has a mirror — so it is constructible without hardware,
-  and nothing of the
+  mirror for what cannot be read back, cut from `Mirrors` under the
+  device's own key and the lifetime of whatever holds the value;
+  `impl <Name>Control` with the argument checks inside it; `impl Part`. The
+  device holds its transport as a `dyn` role, and `Mirror`s whose store is a
+  `dyn` role beneath them — so it is constructible without hardware — and
+  nothing of the
   bus, so it is constructible without a connection.
 - **`daemon/src/interface/<name>.rs`** — the
   `#[interface(name = "io.github.valeronm.Frameguin1.<Name>")]` impl on
@@ -142,7 +143,8 @@ setter never refuses a write on the strength of one.
 
 The logic that protects hardware stays on the root side, in the device:
 validating arguments, ordering a level write before the LED is handed back,
-dating a mirror against whatever holds the state it claims. Any client gets
+believing a mirror only for the lifetime of whatever holds the state it
+claims. Any client gets
 that, which is why it cannot live in the app. Skipping a write already in
 place is the daemon's, because what it protects is the polkit prompt.
 

@@ -16,8 +16,9 @@
 //! panel's, [`gpio`] a pad on the processor through the GPIO character
 //! device, [`dmi`] the firmware's SMBIOS table. [`touchscreen`] settles
 //! which of two routes a machine has, and is the role over either.
-//! [`lifetime`] is what holds a mirrored
-//! value, [`state`] the store for what cannot be read back, [`part`] what a
+//! [`state`] is the store for what cannot be read back, [`lifetime`] what
+//! holds a mirrored value and how to tell it still does, [`mirror`] the
+//! mirror a device reads and writes such a value through, [`part`] what a
 //! device is as a part of the machine, and [`device`] the devices
 //! themselves.
 
@@ -34,6 +35,7 @@ pub mod ec;
 pub mod gpio;
 pub mod led;
 pub mod lifetime;
+pub mod mirror;
 pub mod panel;
 pub mod part;
 pub mod state;
@@ -42,42 +44,17 @@ pub mod touchscreen;
 
 #[cfg(test)]
 pub(crate) mod testing {
-    use std::sync::{Arc, Mutex};
+    use std::sync::Arc;
     use std::task::{Context, Poll, Waker};
 
-    use frameguin_wire::{DeviceError, DeviceResult};
+    use crate::lifetime::{EcBoot, Holders};
+    use crate::mirror::Mirrors;
+    use crate::state::tests::Memory;
 
-    use crate::ec::EcClock;
-    use crate::lifetime::EcStamp;
-
-    /// An EC clock answering one way about every stamp, or not at all.
-    pub(crate) struct Clock {
-        pub(crate) same_boot: Mutex<Option<bool>>,
-    }
-
-    impl Clock {
-        pub(crate) fn new(same_boot: Option<bool>) -> Arc<Self> {
-            Arc::new(Self {
-                same_boot: Mutex::new(same_boot),
-            })
-        }
-
-        fn answer(&self) -> DeviceResult<bool> {
-            self.same_boot
-                .lock()
-                .unwrap()
-                .ok_or_else(|| DeviceError::Failed("no EC".into()))
-        }
-    }
-
-    impl EcClock for Clock {
-        fn stamp(&self) -> DeviceResult<EcStamp> {
-            self.answer().map(|_| EcStamp::taken(500, 1_000_000))
-        }
-
-        fn same_boot_as(&self, _stamp: EcStamp) -> bool {
-            *self.same_boot.lock().unwrap() == Some(true)
-        }
+    /// Mirrors over a store in memory, on a machine whose holders answer as
+    /// named.
+    pub(crate) fn mirrors(store: &Arc<Memory>, ec: Option<EcBoot>, host: Option<&str>) -> Mirrors {
+        Mirrors::new(store.clone(), Holders::new(ec, host.map(str::to_owned)))
     }
 
     /// Polls once: the direct implementation never pends.
