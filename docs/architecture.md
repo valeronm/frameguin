@@ -173,12 +173,15 @@ loops over controls without knowing which one it holds.
 A **part** is asked what it is through one common trait,
 `hardware::part::Part`, answering an `Identity` — kind, vendor, model,
 serial, the identifier it announces itself by, prefixed with its space
-(`usb:093a:1343`, `dmi-slot:LPCAMM2_0`), and its firmware version where it
-has one to read — because its caller iterates the machine's bill of
-materials without caring what any entry does. That consumer is not
-built yet; what is built is the door: detection sees the identity anyway, so
-a device keeps it rather than reducing it to a bool, and a device that is a
-part and nothing else — a memory module — is a device all the same.
+(`hid:093a:1343`, `dmi-slot:LPCAMM2_0`, `dmi-board:FRANMJCP07`), and every
+firmware it would report — because its caller iterates the machine's bill
+of materials without caring what any entry does. `Identity` lives in `wire`,
+being what that caller receives: the daemon collects one per part at
+startup, `GetDevices` answers with the list, and the app's parts window
+draws it with the words `model::part` gives. Detection sees the identity
+anyway, so a device keeps it rather than reducing it to a bool, and a device
+that is a part and nothing else — the mainboard, a memory module — is a
+device all the same.
 
 The two facets are not one list. A memory module or an expansion card is a
 part with no control; the power button LED is a control that is no part; the
@@ -188,10 +191,11 @@ list, a control's device is on it only where it happens to be a part, and
 the bus carries it as one method on the root interface —
 `GetDevices -> Vec<Identity>`, the thing `GetCapabilities` was always going
 to become — beside the per-device control interfaces. Where a part maps to
-something purchasable — the pad's descriptor names PixArt, the part a
-person buys is Framework's — that is a curated table keyed on
-`Identity::id`, words about values, and belongs in `model` as the labels
-do; the device keeps what detection saw, not the word.
+something purchasable — the pad's descriptor names nothing, the part a
+person buys is Framework's — that is `model::part::catalogue`, a curated
+table keyed on `Identity::id`, or on the part number for memory, whose
+identifier is the board's slot: words about values, beside the labels; the
+device keeps what detection saw, not the word.
 
 ## Adding a control
 
@@ -199,7 +203,8 @@ One edit per row: a variant or method in `wire`; the device module in
 `hardware`, or a method in one that exists; its interface in the daemon;
 the client control in `model`; the group; the tray item. None is in a file
 another device shares. Adding a part with no control is one device module
-implementing `Part`.
+implementing `Part`, and its line where the daemon collects the inventory
+at startup.
 
 ## Migration
 
@@ -211,7 +216,7 @@ Order: touchpad, touchscreen, power LED, battery. Smallest column first, the
 one with the most shared state last.
 
 Moved so far: **touchpad, touchscreen**. Parts with no control so far:
-**memory**.
+**mainboard, memory**.
 
 Until the rest have moved, `Daemon` in `daemon/src/main.rs` still holds
 their methods and mirrors — reaching the hardware crate's transports

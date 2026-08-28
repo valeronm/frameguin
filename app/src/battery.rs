@@ -28,6 +28,7 @@ use crate::format::{
     percent_label, power_label, retention_label, temperature, text_or_unknown, volts,
 };
 use crate::reading::{Feed, Reading, Wants, show_while_mapped};
+use crate::report::{self, Shell, value_row};
 
 /// Names the report in the application's window list, which is how a second
 /// open finds the one already on screen. Spelled once, because a lookup and a
@@ -143,20 +144,9 @@ impl Report {
     }
 }
 
-/// A row naming one value, and the label that carries it. Every row here has
-/// the same shape, so building them one way is what keeps a window this long
-/// from drifting into a different row per value. The row itself is worth
-/// keeping only where something moves it later, hence [`value`] beside this.
-fn value_row(group: &adw::PreferencesGroup, title: &str) -> (adw::ActionRow, gtk::Label) {
-    let row = adw::ActionRow::builder().title(title).build();
-    let value = gtk::Label::new(None);
-    value.add_css_class("dim-label");
-    row.add_suffix(&value);
-    group.add(&row);
-    (row, value)
-}
-
-/// A row whose value is all anyone needs back — most of them.
+/// A row whose value is all anyone needs back — most of them. The row itself
+/// is worth keeping only where something moves it later, hence
+/// [`value_row`] beside this.
 fn value(group: &adw::PreferencesGroup, title: &str) -> gtk::Label {
     value_row(group, title).1
 }
@@ -179,47 +169,18 @@ pub(crate) fn action(feed: Rc<Feed>) -> gio::ActionEntry<adw::Application> {
         .build()
 }
 
-/// Brings the report to the screen: the one already open where there is one,
-/// a new one otherwise.
 fn present(app: &adw::Application, feed: &Rc<Feed>) {
-    if let Some(open) = app
-        .windows()
-        .into_iter()
-        .find(|window| window.widget_name() == WINDOW_NAME)
-    {
-        open.present();
-        return;
-    }
-    build(app, feed).present();
+    report::present(app, WINDOW_NAME, || build(app, feed));
 }
 
 /// The report, built and left to fill itself.
-///
-/// Closing it destroys it, unlike the main window, which hides to the tray: a
-/// hidden window stays registered with the application and would hold a
-/// tray-less app alive with nothing on screen. Nothing is lost by rebuilding —
-/// the connection it reads over belongs to the feed, which outlives any one
-/// window.
 fn build(app: &adw::Application, feed: &Rc<Feed>) -> adw::Window {
-    let page = adw::PreferencesPage::new();
+    let Shell {
+        window,
+        page,
+        toasts,
+    } = report::shell(app, WINDOW_NAME, "Battery", 680);
     let report = build_rows(&page);
-
-    let view = adw::ToolbarView::new();
-    view.add_top_bar(&adw::HeaderBar::new());
-    view.set_content(Some(&page));
-    let toasts = adw::ToastOverlay::new();
-    toasts.set_child(Some(&view));
-
-    let window = adw::Window::builder()
-        .application(app)
-        .title("Battery")
-        .default_width(420)
-        // Tall enough for every group at the default font scale; re-measure
-        // when the rows change.
-        .default_height(680)
-        .content(&toasts)
-        .build();
-    window.set_widget_name(WINDOW_NAME);
 
     let feed = feed.clone();
     glib::spawn_future_local(async move {
@@ -296,7 +257,7 @@ fn build_rows(page: &adw::PreferencesPage) -> Rc<Report> {
     let retention = described_value(
         &capacity_group,
         "Retention",
-        "Last full charge against design capacity, not the marketed typical",
+        "Last full charge against design capacity",
     );
     let cycles = value(&capacity_group, "Charge cycles");
     page.add(&capacity_group);

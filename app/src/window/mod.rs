@@ -40,7 +40,7 @@ use crate::format::{
 use crate::mapped::poll_while_mapped;
 use crate::reading::{Feed, Probe, Wants, show_while_mapped};
 use crate::tray::{TrayIcon, TrayValues, tray_push};
-use crate::{APP_ID, about, autostart, battery, board};
+use crate::{APP_ID, about, autostart, battery, board, parts};
 
 const SLIDER_DEBOUNCE: Duration = Duration::from_millis(200);
 /// Keys and the wheel on a slider that otherwise writes only when a drag
@@ -850,6 +850,7 @@ pub(crate) fn build_window(
     header.set_title_widget(Some(&adw::WindowTitle::new("Frameguin", &detected)));
 
     let menu = gio::Menu::new();
+    menu.append(Some("_Parts"), Some(&format!("app.{}", parts::ACTION)));
     menu.append(Some("_About Frameguin"), Some("app.about"));
     menu.append(Some("_Quit"), Some("app.quit"));
     let menu_button = gtk::MenuButton::builder()

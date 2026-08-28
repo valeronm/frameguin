@@ -8,7 +8,7 @@ use frameguin_wire::{
     self as wire, DeviceError, DeviceResult, HAPTIC_INTENSITY_LEVELS, TouchpadControl,
 };
 
-use crate::part::{Identity, Kind, Part};
+use crate::part::{self, Identity, Part, PartKind};
 use crate::state::Store;
 use crate::touchpad::{self, HapticPad};
 
@@ -34,7 +34,7 @@ impl Touchpad {
         let pad = touchpad::haptic_pad(hid)?;
         // No firmware version: the haptic pad's registers are in no table
         // this can trust.
-        let identity = Identity::of_hid(Kind::Touchpad, pad);
+        let identity = part::of_hid(PartKind::Touchpad, pad);
         Some(Self::new(Box::new(touchpad::Hid), store, identity))
     }
 
@@ -123,7 +123,7 @@ mod tests {
     use frameguin_wire::{ClickForce, DeviceError, TouchpadControl};
 
     use super::{KEY_CLICK_FORCE, KEY_HAPTIC_INTENSITY, Touchpad};
-    use crate::part::{Identity, Kind, Part};
+    use crate::part::{self, Part, PartKind};
     use crate::state::Store;
     use crate::state::tests::Memory;
     use crate::testing::ready;
@@ -155,8 +155,8 @@ mod tests {
     }
 
     fn over(pad: Pad, store: &Arc<Memory>) -> Touchpad {
-        let identity = Identity::usb(
-            Kind::Touchpad,
+        let identity = part::hid(
+            PartKind::Touchpad,
             0x093a,
             0x1343,
             "PixArt",
@@ -173,8 +173,8 @@ mod tests {
     fn a_descriptor_without_a_serial_is_a_part_without_one() {
         let store = Arc::new(Memory::default());
         let identity = over(TAKING, &store).identity().clone();
-        assert_eq!(identity.serial, None);
-        assert_eq!(identity.id, "usb:093a:1343");
+        assert_eq!(identity.serial, "");
+        assert_eq!(identity.id, "hid:093a:1343");
     }
 
     #[test]

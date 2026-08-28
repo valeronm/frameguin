@@ -14,6 +14,8 @@ mod state;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
+use frameguin_hardware::device::mainboard::Mainboard;
+use frameguin_hardware::device::memory::Module;
 use frameguin_hardware::device::touchpad::Touchpad;
 use frameguin_hardware::device::touchscreen::Touchscreen;
 use frameguin_hardware::ec::Ec;
@@ -41,6 +43,8 @@ struct Daemon {
     /// Probed once per daemon lifetime; the EC feature set can't change
     /// while running.
     capabilities: OnceLock<Vec<wire::Capability>>,
+    /// Every part detection found at startup, which is the one time it looks.
+    parts: Vec<Identity>,
     /// Mirrored rather than read back — see [`state`]. This one expires: the
     /// EC keeps the limit in RAM, which outlives host reboots but not an EC
     /// restart.
@@ -108,6 +112,13 @@ impl Daemon {
         self.capabilities
             .get_or_init(|| probe::capabilities(self.ec.as_ref()))
             .clone()
+    }
+
+    /// The inventory: every device that is a part, whether or not it is
+    /// also a control.
+    fn get_devices(&self) -> Vec<Identity> {
+        self.service.touch();
+        self.parts.clone()
     }
 
     fn get_charge_limit(&self) -> fdo::Result<u8> {
@@ -299,13 +310,23 @@ impl Daemon {
 /// One journal line per part found, which is what a bug report about a
 /// device that is there and not served has to start from.
 fn announce(identity: &Identity) {
+    let firmware = identity
+        .firmware
+        .iter()
+        .map(|f| format!("{} {}", f.name, f.version))
+        .collect::<Vec<_>>()
+        .join(", ");
     eprintln!(
         "detected {:?} {} \"{}\" \"{}\" firmware {}",
         identity.kind,
         identity.id,
         identity.vendor,
         identity.model,
-        identity.firmware.as_deref().unwrap_or("unknown")
+        if firmware.is_empty() {
+            "unknown"
+        } else {
+            &firmware
+        }
     );
 }
 
@@ -323,13 +344,20 @@ fn main() -> zbus::Result<()> {
     let touchscreen = hid
         .as_ref()
         .and_then(|hid| Touchscreen::detect(hid, store.clone()));
-    for identity in [
+    let ec = Ec::open();
+    let mainboard = Mainboard::detect(ec.as_ref());
+    let memory = Module::detect();
+    let parts: Vec<Identity> = [
+        mainboard.as_ref().map(Part::identity),
         touchpad.as_ref().map(Part::identity),
         touchscreen.as_ref().map(Part::identity),
     ]
     .into_iter()
     .flatten()
-    {
+    .chain(memory.iter().map(Part::identity))
+    .cloned()
+    .collect();
+    for identity in &parts {
         announce(identity);
     }
     let _conn = zbus::block_on(async move {
@@ -339,10 +367,11 @@ fn main() -> zbus::Result<()> {
             .map_err(|e| zbus::Error::Failure(e.to_string()))?;
         let service = Arc::new(Service::new(authority, last_used));
         let daemon = Daemon {
-            ec: Ec::open(),
+            ec,
             service: service.clone(),
             store,
             capabilities: OnceLock::new(),
+            parts,
             charge_current_limit: Mutex::new(state.charge_current_limit),
             power_led_off: Mutex::new(state.power_led_off),
         };

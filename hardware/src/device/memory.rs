@@ -3,7 +3,7 @@
 //! alone.
 
 use crate::dmi::{self, Structure};
-use crate::part::{Identity, Kind, Part};
+use crate::part::{Identity, Part, PartKind};
 
 /// SMBIOS type 17, "Memory Device".
 const MEMORY_DEVICE: u8 = 17;
@@ -46,12 +46,12 @@ impl Module {
         fitted(entry)?;
         Some(Self {
             identity: Identity {
-                kind: Kind::Memory,
+                kind: PartKind::Memory,
                 vendor: entry.string(MANUFACTURER).unwrap_or_default().to_owned(),
                 model: entry.string(PART_NUMBER).unwrap_or_default().to_owned(),
-                serial: entry.string(SERIAL).map(str::to_owned),
+                serial: entry.string(SERIAL).unwrap_or_default().to_owned(),
                 id: format!("dmi-slot:{}", entry.string(LOCATOR).unwrap_or_default()),
-                firmware: None,
+                firmware: Vec::new(),
             },
         })
     }
@@ -72,7 +72,7 @@ fn fitted(entry: &Structure) -> Option<()> {
 mod tests {
     use super::Module;
     use crate::dmi::Structure;
-    use crate::part::{Kind, Part};
+    use crate::part::{Part, PartKind};
 
     const FORMATTED_LENGTH: u8 = 0x64;
 
@@ -109,10 +109,10 @@ mod tests {
     fn a_fitted_module_is_read_off_the_table() {
         let entry = Structure::parse(&entry(0x7fff, 32 * 1024, &STRINGS)).unwrap();
         let identity = Module::parse(&entry).unwrap().identity().clone();
-        assert_eq!(identity.kind, Kind::Memory);
+        assert_eq!(identity.kind, PartKind::Memory);
         assert_eq!(identity.vendor, "Micron Technology");
         assert_eq!(identity.model, "MTD16C20325N4FN023F1 YF");
-        assert_eq!(identity.serial.as_deref(), Some("01234567"));
+        assert_eq!(identity.serial, "01234567");
         assert_eq!(identity.id, "dmi-slot:LPCAMM2_0");
     }
 

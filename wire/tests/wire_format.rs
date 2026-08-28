@@ -5,7 +5,7 @@
 
 use frameguin_wire::{
     BatteryAlarm, BatteryCondition, BatteryInfo, BatteryState, Capability, ChargeFlow, ClickForce,
-    PowerLedLevel,
+    Identity, PartKind, PowerLedLevel,
 };
 use zbus::zvariant::serialized::Context;
 use zbus::zvariant::{LE, Type, to_bytes};
@@ -43,6 +43,17 @@ fn the_composite_signatures_are_the_ones_the_methods_declare() {
     // The pack's own report: cell voltages, alarms by name, and a temperature
     // in tenths of a degree.
     assert_eq!(BatteryCondition::SIGNATURE, "(auasn)");
+    // A part: kind, vendor, model, serial, id, then its firmwares as
+    // name/version pairs.
+    assert_eq!(Identity::SIGNATURE, "(sssssa(ss))");
+}
+
+#[test]
+fn part_kind_names_are_kebab_case() {
+    assert_eq!(wire_string(PartKind::Mainboard), "mainboard");
+    assert_eq!(wire_string(PartKind::Memory), "memory");
+    assert_eq!(wire_string(PartKind::Touchpad), "touchpad");
+    assert_eq!(wire_string(PartKind::Touchscreen), "touchscreen");
 }
 
 #[test]

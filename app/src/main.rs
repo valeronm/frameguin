@@ -11,7 +11,9 @@ mod bus;
 mod caps;
 mod format;
 mod mapped;
+mod parts;
 mod reading;
+mod report;
 mod tray;
 mod window;
 
@@ -191,6 +193,7 @@ fn main() -> glib::ExitCode {
         // no window. The entry is the report's own, so nothing here can reach
         // past it to the window it opens.
         battery::action(state.feed.clone()),
+        parts::action(state.feed.clone()),
         gio::ActionEntry::builder("about")
             .activate(|app: &adw::Application, _, _| about::show(app.active_window().as_ref()))
             .build(),

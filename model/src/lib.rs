@@ -13,6 +13,7 @@
 )]
 
 pub mod control;
+pub mod part;
 
 #[cfg(test)]
 pub(crate) mod testing {

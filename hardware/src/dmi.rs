@@ -9,8 +9,9 @@ const ID: &str = "/sys/class/dmi/id";
 const ENTRIES: &str = "/sys/firmware/dmi/entries";
 
 /// One published field, trimmed of the newline sysfs ends every one of them
-/// with.
-fn field(name: &str) -> Option<String> {
+/// with. None where the kernel keeps it from this process — the serials
+/// are root-only — as well as where the firmware left it out.
+pub fn field(name: &str) -> Option<String> {
     std::fs::read_to_string(format!("{ID}/{name}"))
         .ok()
         .map(|value| value.trim().to_owned())

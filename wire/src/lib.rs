@@ -270,6 +270,57 @@ impl PowerLedLevel {
     }
 }
 
+/// What kind of part a device is, named for the thing a person would buy.
+#[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug)]
+#[zvariant(crate = "zbus::zvariant", signature = "s")]
+#[serde(rename_all = "kebab-case")]
+pub enum PartKind {
+    Mainboard,
+    Memory,
+    Touchpad,
+    Touchscreen,
+}
+
+/// One firmware a part runs, named for what carries it as the part's user
+/// would: `BIOS` and `EC` on the mainboard, `Controller` on a touch panel.
+#[derive(Serialize, Deserialize, Type, Clone, PartialEq, Eq, Debug)]
+#[zvariant(crate = "zbus::zvariant")]
+pub struct Firmware {
+    pub name: String,
+    /// As the vendor spells it.
+    pub version: String,
+}
+
+impl Firmware {
+    #[must_use]
+    pub fn new(name: &str, version: &str) -> Self {
+        Self {
+            name: name.to_owned(),
+            version: version.to_owned(),
+        }
+    }
+}
+
+/// What detection saw of a part, kept as it was announced: the words are the
+/// hardware's own, and the name a person buys it under is `model`'s
+/// catalogue to say.
+#[derive(Serialize, Deserialize, Type, Clone, PartialEq, Eq, Debug)]
+#[zvariant(crate = "zbus::zvariant")]
+pub struct Identity {
+    pub kind: PartKind,
+    pub vendor: String,
+    pub model: String,
+    /// Empty where the part announces none, as some descriptors do.
+    pub serial: String,
+    /// The identifier the part announces itself by, prefixed with the space
+    /// it is drawn from — `hid:093a:1343`, `dmi-slot:LPCAMM2_0`,
+    /// `dmi-board:FRANMJCP07`.
+    pub id: String,
+    /// Every firmware the part would report — a version is never worth a
+    /// failed detection, so one it would not say is left out.
+    pub firmware: Vec<Firmware>,
+}
+
 /// How hard the haptic touchpad has to be pressed to register a click.
 #[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug)]
 #[zvariant(crate = "zbus::zvariant", signature = "s")]
@@ -427,6 +478,9 @@ pub trait Frameguin {
     async fn get_keyboard_backlight(&self) -> zbus::Result<u8>;
     async fn set_keyboard_backlight(&self, percent: u8) -> zbus::Result<()>;
     async fn get_capabilities(&self) -> zbus::Result<Vec<Capability>>;
+    /// Every part detection found, mainboard first; fixed for the daemon's
+    /// run.
+    async fn get_devices(&self) -> zbus::Result<Vec<Identity>>;
     async fn get_ec_version(&self) -> zbus::Result<String>;
     async fn get_build(&self) -> zbus::Result<(String, String)>;
     async fn get_power_led_brightness(&self) -> zbus::Result<(u8, PowerLedLevel)>;

@@ -66,7 +66,12 @@ it and the non-obvious constraints.
   buys. `battery.rs` is the battery report, the app's one window that only
   reads — no sync guard, no debounce, no tray push — and every field it holds
   is a descendant of the page its subscription hangs on, so nothing in it can
-  reach back up the widget tree and outlive the window. `reading.rs` is the
+  reach back up the widget tree and outlive the window. `parts.rs` is the
+  other read-only window, the inventory `GetDevices` answers, drawn once per
+  open since the list is fixed for the daemon's run; `report.rs` is the
+  shell the two share — found by name or built, destroyed on close — so the
+  single-instance rule is one function rather than one copy per window.
+  `reading.rs` is the
   pack's reading, taken once for however many views show it: the status row
   and the report render the same walk of the same block, and each polling for
   itself made the EC answer twice and let the two windows sit a tick apart, so

@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 use frameguin_wire::{DeviceResult, TouchscreenControl};
 
 use crate::lifetime::HostStamp;
-use crate::part::{Identity, Kind, Part};
+use crate::part::{self, Firmware, Identity, Part, PartKind};
 use crate::state::Store;
 use crate::touchscreen::{self, TouchSwitch};
 
@@ -29,8 +29,12 @@ impl Touchscreen {
     pub fn detect(hid: &hidapi::HidApi, store: Arc<dyn Store>) -> Option<Self> {
         let (route, controller) = touchscreen::find(hid)?;
         let identity = Identity {
-            firmware: route.firmware(hid, controller),
-            ..Identity::of_hid(Kind::Touchscreen, controller)
+            firmware: route
+                .firmware(hid, controller)
+                .map(|version| Firmware::new("Controller", &version))
+                .into_iter()
+                .collect(),
+            ..part::of_hid(PartKind::Touchscreen, controller)
         };
         Some(Self::new(Box::new(route), store, identity))
     }
@@ -96,7 +100,7 @@ mod tests {
     use frameguin_wire::{DeviceError, DeviceResult, TouchscreenControl};
 
     use super::{KEY_OFF_HOST, Touchscreen};
-    use crate::part::{Identity, Kind};
+    use crate::part::{self, PartKind};
     use crate::state::Store;
     use crate::state::tests::Memory;
     use crate::testing::ready;
@@ -130,7 +134,7 @@ mod tests {
             level: Mutex::new(level),
             refusing,
         };
-        let identity = Identity::usb(Kind::Touchscreen, 0x2c68, 0x0100, "", "", "");
+        let identity = part::hid(PartKind::Touchscreen, 0x2c68, 0x0100, "", "", "");
         Touchscreen::new(Box::new(route), store.clone(), identity)
     }
 
