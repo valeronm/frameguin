@@ -109,8 +109,8 @@ it and the non-obvious constraints.
   answers for the machine, which is the difference between a fact a reboot or
   a sleep changes and one that outlives both, `state.rs`
   the mirror for what cannot be read back, `probe.rs` the probe rule beside
-  the code it governs. Each module's own doc carries why; what is worth saying
-  here is what none of them can. `ec.rs` is every EC call: `Ec` is the only
+  the code it governs. A module's own doc says what it is for; the reasoning
+  is here. `ec.rs` is every EC call: `Ec` is the only
   holder of the `CrosEc`, one method per operation, each taking the lock and
   releasing it before returning and none reaching the handle through another —
   `Mutex` does not re-enter, so a method wanting two commands under one lock
@@ -329,6 +329,18 @@ asserted and its reason a file away.
 
 - Comments explain why, not what, and carry no references to sessions,
   dates, or private context — the repo is public and must read standalone.
+  They open on the constraint rather than on a restatement of the code
+  beside them, name things the way the code names them, and stop where the
+  fact stops: one sentence, unless a second independent constraint earns
+  another. A docstring on a cross-module interface may run longer, for the
+  behavioural contract and the caller-side caveats only. Tests carry no
+  commentary — a fixture that needs explaining wants named values instead.
+- **A why that needs a paragraph is architecture, and belongs in this file**
+  or in `docs/`, not in a module doc. The module doc says what the module is
+  for; the reasoning behind a mechanism — why a boundary sits where it does,
+  what a rule is protecting against — goes here, where one statement covers
+  every module that obeys it, and a fact about the machine goes to
+  `docs/hardware.md`.
 - Clippy suppressions live at the site with a `reason`, never in a manifest:
   a manifest allow is invisible where the code is read and blankets the whole
   workspace. `#[expect]` when the suppression is situational, so a stale one
