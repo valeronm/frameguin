@@ -185,18 +185,15 @@ it and the non-obvious constraints.
   moves the panel with neither, so within one waking run it is no fresher
   than the client's own idea. What decides is whether a client can be stale,
   not whether the value is readable.
-- **A date is best effort, never a gate.** Where a write is dated — the power
-  LED's darkness and the charge current limit against the EC, the touch
-  panel's against the host — a date that cannot be taken costs the record and
-  not the write, and the device takes it before the write so that a restart
-  between the two reads as having dropped it. What a stamp buys
-  is knowing later whether the value still stands, and that is never worth
-  refusing a write the hardware would have taken: it trades a control the user
-  asked for against a label that is approximate anyway. The writes this
-  applies to are state assertions rather than gestures, so re-asserting one
-  already in force costs nothing either. Where the dating read is not even on
-  the path the write takes — the power LED darkens through the kernel and its
-  stamp comes from the EC — refusing is plainly the wrong trade.
+- **A date is best effort, never a gate.** Where a write is dated — the
+  charge current limit against the EC, the touch panel's against the host —
+  a date that cannot be taken costs the record and not the write, and the
+  device takes it before the write so that a restart between the two reads
+  as having dropped it. What a stamp buys is knowing later whether the value
+  still stands, and that is never worth refusing a write the hardware would
+  have taken: it trades a control the user asked for against a label that is
+  approximate anyway. The writes this applies to are state assertions rather
+  than gestures, so re-asserting one already in force costs nothing either.
 - D-Bus types name the value, not either end's convenience: a percentage is
   `y` (`u8`), never GTK's f64. The daemon validates every argument because
   any client can call it — an app-side clamp is UI convenience, not the check.
@@ -265,12 +262,15 @@ asserted and its reason a file away.
 - A value the EC is a second writer for cannot be shown from what was last
   written. A value with no readback at all is mirrored instead. A setter
   moves the mirror only once the hardware has taken the write, so a refused
-  one leaves the last accepted value standing; the power LED's release is
-  the one move made whether or not the kernel answered. What dates the
+  one leaves the last accepted value standing. The power LED's off needs no
+  mirror: the kernel's record of holding it dark is the readback, and the one
+  thing short of a command sent behind the driver's back that leaves it stale
+  — an EC restart — takes the host down with it, so the reboot re-probes the
+  driver before anything can read it. What dates the
   mirror is whatever holds the state it claims: nothing for the touchpad,
-  which keeps its own in flash; the EC's uptime for the power LED's darkness
-  and for the charge current limit, whose mirror expires with the EC that took
-  it; the host's own life for the touch panel — its boot together with the
+  which keeps its own in flash; the EC's uptime for the charge current
+  limit, whose mirror expires with the EC that took it; the host's own life
+  for the touch panel — its boot together with the
   time it has spent asleep, since the controller is expected to come up
   reporting from a reboot and from a resume alike. Which holder a mirror
   belongs to is settled by evidence and not by which stamp is nearer: the
@@ -303,9 +303,9 @@ asserted and its reason a file away.
   build error and not a review catch. A stamp that cannot be weighed is never
   believed, and both stamps say so themselves — `still_current` is false
   where the holder will not answer: an EC that will not say is read as
-  having restarted, and what each mirror holds after a restart is a state
-  both know, the LED lit whatever the kernel's account says, the current cap
-  lifted — so no device keeps a rule of its own for it.
+  having restarted, and what a mirror holds after a restart is a state both
+  know — the current cap lifted, the panel reporting — so no device keeps a
+  rule of its own for it.
 - What the pack is asked directly falls into two groups, and the split is why
   one is a feature the battery offers and the other is not. The temperature,
   cell voltages and alarms have no fallback, so they are one operation behind

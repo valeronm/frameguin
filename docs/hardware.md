@@ -406,9 +406,9 @@ before touching the LED on its tick.
 That account is readable, but there is no *hardware* read behind it: the driver
 implements no `brightness_get`, and the EC's LED command answers only with
 which colours exist. So an EC restart hands every LED back to the EC without
-the kernel noticing, and the record silently becomes wrong. Anything relying on
-it has to date its own write against the EC's uptime — which can only ever
-withdraw the kernel's account, never supply one.
+the kernel noticing, and the record silently becomes wrong — though never
+under a running host, the restart taking the machine down and the reboot
+re-probing the driver (both below), so nothing running can read it stale.
 
 ### Power button LED persistence
 

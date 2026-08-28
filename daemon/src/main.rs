@@ -77,9 +77,7 @@ fn main() -> zbus::Result<()> {
         .as_ref()
         .and_then(|hid| Touchscreen::detect(hid, store.clone()));
     let ec = Ec::open().map(Arc::new);
-    let power_led = ec
-        .as_ref()
-        .and_then(|ec| PowerLed::detect(ec, store.clone()));
+    let power_led = ec.as_ref().and_then(PowerLed::detect);
     let battery = ec
         .as_ref()
         .and_then(|ec| Battery::detect(ec, store.clone()));

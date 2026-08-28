@@ -3,23 +3,18 @@
 //!
 //! It has two possible drivers — the EC's own policy and the kernel holding
 //! it dark — and only one at a time. [`crate::led`] is the kernel half's
-//! mechanism; this is the arbitration: which one holds it now, dating the
-//! handover against the EC's life, and taking the LED back before any write
-//! the EC has to be the one to make.
+//! mechanism; this is the arbitration: which one holds it now, and taking
+//! the LED back before any write the EC has to be the one to make.
 
-use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 
 use async_io::Timer;
 use frameguin_wire::{DeviceError, DeviceResult, PowerLedControl, PowerLedLevel};
 
-use crate::ec::{Ec, EcClock, PowerLedEc};
+use crate::ec::{Ec, PowerLedEc};
 use crate::led::{self, LedClass};
-use crate::lifetime::EcStamp;
-use crate::state::Store;
-
-const KEY_OFF_STAMP: &str = "power_led_off_stamp";
 
 /// How long the EC's own deferred hook takes to move the LED's PWM duty to a
 /// level just written, plus margin — the hook is scheduled at 100 ms, not
@@ -36,37 +31,21 @@ enum Write {
 
 pub struct PowerLed {
     ec: Arc<dyn PowerLedEc>,
-    clock: Arc<dyn EcClock>,
     leds: Box<dyn LedClass>,
-    store: Arc<dyn Store>,
     levels: Vec<PowerLedLevel>,
-    /// When this device last darkened the LED, and None when it has not.
-    /// The kernel holds the LED state itself, so what is mirrored is only
-    /// the date of the write, which [`Self::off_node`] weighs.
-    off: Mutex<Option<EcStamp>>,
 }
 
 impl PowerLed {
     /// The LED the EC answers for, by the getter's own read.
-    pub fn detect(ec: &Arc<Ec>, store: Arc<dyn Store>) -> Option<Self> {
+    pub fn detect(ec: &Arc<Ec>) -> Option<Self> {
         ec.power_led_level().ok()?;
-        Some(Self::new(
-            ec.clone(),
-            ec.clone(),
-            Box::new(led::Sysfs),
-            store,
-        ))
+        Some(Self::new(ec.clone(), Box::new(led::Sysfs)))
     }
 
     /// Which levels the board has is settled here, once: the fixed levels on
     /// every firmware, the rest where the firmware takes a percentage, and
     /// off where the kernel has a node this could take and give back.
-    pub fn new(
-        ec: Arc<dyn PowerLedEc>,
-        clock: Arc<dyn EcClock>,
-        leds: Box<dyn LedClass>,
-        store: Arc<dyn Store>,
-    ) -> Self {
+    pub fn new(ec: Arc<dyn PowerLedEc>, leds: Box<dyn LedClass>) -> Self {
         let custom = ec.custom_power_led_levels();
         let off_node = leds.controllable().is_some();
         let levels = PowerLedLevel::ALL
@@ -77,15 +56,7 @@ impl PowerLed {
                 PowerLedLevel::Off => off_node,
             })
             .collect();
-        let off = store.get(KEY_OFF_STAMP).and_then(|v| EcStamp::parse(&v));
-        Self {
-            ec,
-            clock,
-            leds,
-            store,
-            levels,
-            off: Mutex::new(off),
-        }
+        Self { ec, leds, levels }
     }
 
     /// Separate from the setter so a server can refuse a level before it
@@ -118,62 +89,27 @@ impl PowerLed {
         }
     }
 
-    /// The LED's node while the LED is off — the kernel holding it dark, on
-    /// an EC that has not restarted since it was darkened — and None whenever
-    /// it is lit. Answering with the node rather than a bool is what lets the
-    /// caller that acts on it skip looking the LED up again.
-    fn off_node(&self) -> Option<PathBuf> {
-        let dir = self.leds.held_dark()?;
-        // The stamp can only ever withdraw the kernel's account, never supply
-        // one: a LED this device did not darken has no stamp to date, and the
-        // kernel's record is then the only account of it there is.
-        (*self.off.lock().unwrap())
-            .is_none_or(|stamp| self.clock.same_boot_as(stamp))
-            .then_some(dir)
-    }
-
-    fn darken(&self, dir: &Path) -> DeviceResult<()> {
-        // Dated before the write rather than after it, so a restart between
-        // the two is read as having dropped it — and taken as best effort,
-        // because the darkening itself is the kernel's and wants nothing from
-        // the EC. An undatable write costs only the later detection that an
-        // EC restart took the LED back; refusing it would cost the control
-        // itself, on the strength of a read the write does not depend on.
-        let stamp = self.clock.stamp().ok();
-        self.leds.darken(dir)?;
-        self.remember(stamp);
-        Ok(())
-    }
-
-    /// Returns the LED to the EC if this device is holding it dark, so that a
+    /// Returns the LED to the EC if the kernel is holding it dark, so that a
     /// write of a level or a percentage is visible rather than swallowed by
-    /// an LED the EC no longer drives. Only what the device itself arranged
-    /// is undone.
+    /// an LED the EC no longer drives.
     ///
     /// Waits [`LEVEL_SETTLE`] out first: the EC applies a level late, and
     /// lighting the LED before it lands shows the previous level — a flash of
     /// the old brightness on the way out of Off.
     async fn release(&self) {
-        let Some(dir) = self.off_node() else {
+        let Some(dir) = self.leds.held_dark() else {
             return;
         };
         Timer::after(LEVEL_SETTLE).await;
+        // A release the kernel refused shows as the LED still reading Off.
         let _ = self.leds.release(&dir);
-        self.remember(None);
-    }
-
-    fn remember(&self, stamp: Option<EcStamp>) {
-        // Absent rather than zeroed while the LED is lit: the stamp only ever
-        // withdraws a claim, and a zeroed one would withdraw every time.
-        self.store.set(KEY_OFF_STAMP, stamp.map(EcStamp::stored));
-        *self.off.lock().unwrap() = stamp;
     }
 }
 
 impl PowerLedControl for PowerLed {
     async fn brightness(&self) -> DeviceResult<(u8, PowerLedLevel)> {
         let (percent, level) = self.ec.power_led_level()?;
-        if self.off_node().is_some() {
+        if self.leds.held_dark().is_some() {
             return Ok((percent, PowerLedLevel::Off));
         }
         Ok((percent, level))
@@ -189,7 +125,7 @@ impl PowerLedControl for PowerLed {
     /// write that skipped it would never be seen.
     async fn set_level(&self, level: PowerLedLevel) -> DeviceResult<()> {
         match self.write_for(level)? {
-            Write::Dark(dir) => self.darken(&dir),
+            Write::Dark(dir) => self.leds.darken(&dir),
             Write::Level(level) => {
                 self.ec.set_power_led_level(level)?;
                 self.release().await;
@@ -213,12 +149,10 @@ mod tests {
 
     use frameguin_wire::{DeviceError, DeviceResult, PowerLedControl, PowerLedLevel};
 
-    use super::{KEY_OFF_STAMP, PowerLed};
+    use super::PowerLed;
     use crate::ec::PowerLedEc;
     use crate::led::LedClass;
-    use crate::state::Store;
-    use crate::state::tests::Memory;
-    use crate::testing::{Clock, ready};
+    use crate::testing::ready;
 
     /// Every write the EC and the kernel took, in the order they took them.
     type Log = Arc<Mutex<Vec<String>>>;
@@ -298,23 +232,20 @@ mod tests {
         custom: bool,
         node: bool,
         refusing: bool,
-        same_boot: Option<bool>,
     }
 
     const FULL: Machine = Machine {
         custom: true,
         node: true,
         refusing: false,
-        same_boot: Some(true),
     };
 
     struct Bench {
         led: PowerLed,
         log: Log,
-        clock: Arc<Clock>,
     }
 
-    fn over(machine: &Machine, store: &Arc<Memory>) -> Bench {
+    fn over(machine: &Machine) -> Bench {
         let log: Log = Arc::default();
         let ec = Arc::new(Fp {
             level: Mutex::new((55, PowerLedLevel::High)),
@@ -322,16 +253,14 @@ mod tests {
             refusing: machine.refusing,
             log: log.clone(),
         });
-        let clock = Clock::new(machine.same_boot);
         let leds = Box::new(Leds {
             node: machine.node.then(|| PathBuf::from("/sys/class/leds/power")),
             dark: Mutex::new(false),
             log: log.clone(),
         });
         Bench {
-            led: PowerLed::new(ec, clock.clone(), leds, store.clone()),
+            led: PowerLed::new(ec, leds),
             log,
-            clock,
         }
     }
 
@@ -341,15 +270,11 @@ mod tests {
 
     #[test]
     fn the_fixed_levels_are_every_firmwares_and_the_rest_are_earned() {
-        let store = Arc::new(Memory::default());
-        let bare = over(
-            &Machine {
-                custom: false,
-                node: false,
-                ..FULL
-            },
-            &store,
-        );
+        let bare = over(&Machine {
+            custom: false,
+            node: false,
+            ..FULL
+        });
         assert_eq!(
             ready(bare.led.levels()),
             Ok(vec![
@@ -358,37 +283,32 @@ mod tests {
                 PowerLedLevel::Low
             ])
         );
-        let full = over(&FULL, &store);
+        let full = over(&FULL);
         assert_eq!(ready(full.led.levels()), Ok(PowerLedLevel::ALL.to_vec()));
     }
 
     #[test]
-    fn off_darkens_through_the_kernel_and_dates_the_write() {
-        let store = Arc::new(Memory::default());
-        let Bench { led, log, .. } = over(&FULL, &store);
+    fn off_darkens_through_the_kernel() {
+        let Bench { led, log } = over(&FULL);
         ready(led.set_level(PowerLedLevel::Off)).unwrap();
         assert_eq!(writes(&log), ["darken"]);
         assert_eq!(ready(led.brightness()), Ok((55, PowerLedLevel::Off)));
-        assert!(store.get(KEY_OFF_STAMP).is_some());
     }
 
     /// The level lands before the LED is handed back, so the EC lights it at
     /// the new level rather than flashing the old one.
     #[test]
     fn a_level_out_of_off_is_written_before_the_led_is_released() {
-        let store = Arc::new(Memory::default());
-        let Bench { led, log, .. } = over(&FULL, &store);
+        let Bench { led, log } = over(&FULL);
         ready(led.set_level(PowerLedLevel::Off)).unwrap();
         async_io::block_on(led.set_level(PowerLedLevel::Low)).unwrap();
         assert_eq!(writes(&log), ["darken", "level Low", "release"]);
         assert_eq!(ready(led.brightness()), Ok((55, PowerLedLevel::Low)));
-        assert_eq!(store.get(KEY_OFF_STAMP), None);
     }
 
     #[test]
     fn a_percentage_out_of_off_releases_the_led_too() {
-        let store = Arc::new(Memory::default());
-        let Bench { led, log, .. } = over(&FULL, &store);
+        let Bench { led, log } = over(&FULL);
         ready(led.set_level(PowerLedLevel::Off)).unwrap();
         async_io::block_on(led.set_brightness(20)).unwrap();
         assert_eq!(writes(&log), ["darken", "percent 20", "release"]);
@@ -399,68 +319,29 @@ mod tests {
     /// level and nothing else happens.
     #[test]
     fn a_level_on_a_lit_led_touches_only_the_ec() {
-        let store = Arc::new(Memory::default());
-        let Bench { led, log, .. } = over(&FULL, &store);
+        let Bench { led, log } = over(&FULL);
         ready(led.set_level(PowerLedLevel::Medium)).unwrap();
         assert_eq!(writes(&log), ["level Medium"]);
     }
 
     #[test]
     fn a_write_the_ec_refuses_leaves_the_led_held() {
-        let store = Arc::new(Memory::default());
-        let Bench { led, log, .. } = over(
-            &Machine {
-                refusing: true,
-                ..FULL
-            },
-            &store,
-        );
+        let Bench { led, log } = over(&Machine {
+            refusing: true,
+            ..FULL
+        });
         ready(led.set_level(PowerLedLevel::Off)).unwrap();
         assert!(ready(led.set_level(PowerLedLevel::High)).is_err());
         assert_eq!(writes(&log), ["darken"]);
         assert_eq!(ready(led.brightness()), Ok((55, PowerLedLevel::Off)));
     }
 
-    /// An EC that restarted has taken the LED back, whatever the kernel's
-    /// account still says.
-    #[test]
-    fn a_stamp_from_another_ec_boot_withdraws_the_kernels_account() {
-        let store = Arc::new(Memory::default());
-        let Bench { led, clock, .. } = over(&FULL, &store);
-        ready(led.set_level(PowerLedLevel::Off)).unwrap();
-        *clock.same_boot.lock().unwrap() = Some(false);
-        assert_eq!(ready(led.brightness()), Ok((55, PowerLedLevel::High)));
-    }
-
-    /// A darkening the EC could not date is still made, and still reads as
-    /// off: the kernel's account stands on its own where no stamp withdraws
-    /// it.
-    #[test]
-    fn an_undatable_darkening_is_made_and_believed() {
-        let store = Arc::new(Memory::default());
-        let Bench { led, log, .. } = over(
-            &Machine {
-                same_boot: None,
-                ..FULL
-            },
-            &store,
-        );
-        ready(led.set_level(PowerLedLevel::Off)).unwrap();
-        assert_eq!(writes(&log), ["darken"]);
-        assert_eq!(store.get(KEY_OFF_STAMP), None);
-        assert_eq!(ready(led.brightness()), Ok((55, PowerLedLevel::Off)));
-    }
-
     #[test]
     fn the_levels_the_ec_cannot_take_are_refused_before_anything_is_written() {
-        let store = Arc::new(Memory::default());
-        let Bench { led, log, .. } = over(
-            &Machine {
-                node: false,
-                ..FULL
-            },
-            &store,
-        );
+        let Bench { led, log } = over(&Machine {
+            node: false,
+            ..FULL
+        });
         assert!(matches!(
             ready(led.set_level(PowerLedLevel::Off)),
             Err(DeviceError::NotSupported(_))

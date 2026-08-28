@@ -103,8 +103,9 @@ snapshot's movement under a refused write on the app's.
   the operations it vouches for), keeping the identity detection saw; the
   mirror for what cannot be read back, keyed into the store under the
   device's own keys; `impl <Name>Control` with the argument checks inside
-  it; `impl Part`. The device holds only `dyn` roles — its transport and a
-  `Store` — so it is constructible without hardware, and nothing of the
+  it; `impl Part`. The device holds only `dyn` roles — its transport, and a
+  `Store` where it has a mirror — so it is constructible without hardware,
+  and nothing of the
   bus, so it is constructible without a connection.
 - **`daemon/src/interface/<name>.rs`** — the
   `#[interface(name = "io.github.valeronm.Frameguin1.<Name>")]` impl on
