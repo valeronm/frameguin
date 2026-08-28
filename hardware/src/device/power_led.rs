@@ -128,7 +128,7 @@ impl PowerLed {
         // one: a LED this device did not darken has no stamp to date, and the
         // kernel's record is then the only account of it there is.
         (*self.off.lock().unwrap())
-            .is_none_or(|stamp| self.clock.same_boot_as(stamp).unwrap_or(false))
+            .is_none_or(|stamp| self.clock.same_boot_as(stamp))
             .then_some(dir)
     }
 

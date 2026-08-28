@@ -27,6 +27,13 @@ impl EcStamp {
         expected.saturating_sub(ec_uptime) <= (expected / 20).max(60)
     }
 
+    /// Whether what was written still stands, weighed against the EC's
+    /// uptime and the wall time read together. False where the EC would not
+    /// answer, an unweighable stamp being one there is no reason to believe.
+    pub fn still_current(self, clocks: Option<(u64, u64)>) -> bool {
+        clocks.is_some_and(|(ec_uptime, now)| self.same_boot(ec_uptime, now))
+    }
+
     pub fn stored(self) -> String {
         format!("{}:{}", self.ec_uptime, self.written_at)
     }
@@ -153,6 +160,13 @@ mod tests {
         let elapsed = 10 * DAY;
         let one_percent_short = elapsed - elapsed / 100;
         assert!(stamp.same_boot(one_percent_short, 1_000_000 + elapsed));
+    }
+
+    #[test]
+    fn an_ec_that_will_not_answer_withdraws_every_stamp() {
+        let stamp = EcStamp::taken(500_000, 1_000_000);
+        assert!(stamp.still_current(Some((500_002, 1_000_002))));
+        assert!(!stamp.still_current(None));
     }
 
     #[test]

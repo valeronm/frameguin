@@ -95,12 +95,15 @@ pub trait PowerLedEc: Send + Sync {
 /// The EC's own clock: dating a write against its life, and weighing the
 /// date later.
 pub trait EcClock: Send + Sync {
+    /// Fallible where the weighing below is not: a stamp is taken around a
+    /// write, and whether one that cannot be taken costs the write is the
+    /// caller's to decide.
     fn stamp(&self) -> DeviceResult<EcStamp>;
     /// Whether the EC has been running without interruption since `stamp`
     /// was taken — which is to say whether what it was holding then is still
-    /// there. `Err` where the EC would not say, which is not the same
-    /// answer; what to make of a silent EC is the caller's to decide.
-    fn same_boot_as(&self, stamp: EcStamp) -> DeviceResult<bool>;
+    /// there — by [`EcStamp::still_current`], an EC that will not say
+    /// reading as having restarted.
+    fn same_boot_as(&self, stamp: EcStamp) -> bool;
 }
 
 /// What the battery's device needs of the pack: whether one answers in the
@@ -318,9 +321,8 @@ impl EcClock for Ec {
         stamp(&self.ec()).map_err(device_error)
     }
 
-    fn same_boot_as(&self, stamp: EcStamp) -> DeviceResult<bool> {
-        let (ec_uptime, now) = self.ec_clocks().map_err(device_error)?;
-        Ok(stamp.same_boot(ec_uptime, now))
+    fn same_boot_as(&self, stamp: EcStamp) -> bool {
+        stamp.still_current(self.ec_clocks().ok())
     }
 }
 

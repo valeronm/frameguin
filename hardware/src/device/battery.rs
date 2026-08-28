@@ -159,9 +159,7 @@ impl BatteryControl for Battery {
         Ok(true)
     }
 
-    /// Answers with the error where the EC will not date the mirror: the
-    /// reading it could not take is the one the answer needed, and "no
-    /// limit set" is a state a caller would draw as real.
+    /// The mirror, weighed against the EC's life: a restart drops the cap.
     async fn charge_current_limit(&self) -> DeviceResult<u32> {
         let limit = *self.current_limit.lock().unwrap();
         // Nothing mirrored is already the answer, so don't spend an EC round
@@ -169,7 +167,7 @@ impl BatteryControl for Battery {
         if limit.milliamps == NO_CHARGE_CURRENT_LIMIT {
             return Ok(NO_CHARGE_CURRENT_LIMIT);
         }
-        Ok(if self.clock.same_boot_as(limit.stamp)? {
+        Ok(if self.clock.same_boot_as(limit.stamp) {
             limit.milliamps
         } else {
             NO_CHARGE_CURRENT_LIMIT
@@ -448,16 +446,6 @@ mod tests {
             ready(battery.charge_current_limit()),
             Ok(NO_CHARGE_CURRENT_LIMIT)
         );
-    }
-
-    /// An EC that will not say is the error, not "no limit".
-    #[test]
-    fn an_unweighable_stamp_is_the_error() {
-        let store = Arc::new(Memory::default());
-        let Bench { battery, clock, .. } = over(&FULL, &store);
-        ready(battery.set_charge_current_limit(1_500)).unwrap();
-        *clock.same_boot.lock().unwrap() = None;
-        assert!(ready(battery.charge_current_limit()).is_err());
     }
 
     #[test]

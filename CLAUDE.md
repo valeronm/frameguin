@@ -296,10 +296,11 @@ asserted and its reason a file away.
 - `lifetime.rs` keeps a stamp per holder rather than one stamp with a holder
   field, so weighing a write dated against the EC by the host's life is a
   build error and not a review catch. A stamp that cannot be weighed is never
-  believed, and the two ways of acting on that are both right where they are
-  used: the power LED withdraws the claim, since the kernel's account is
-  there either way, while the charge current limit answers with the error,
-  the reading it could not take being the one its answer needed.
+  believed, and both stamps say so themselves — `still_current` is false
+  where the holder will not answer: an EC that will not say is read as
+  having restarted, and what each mirror holds after a restart is a state
+  both know, the LED lit whatever the kernel's account says, the current cap
+  lifted — so no device keeps a rule of its own for it.
 - What the pack is asked directly falls into two groups, and the split is why
   one is a feature the battery offers and the other is not. The temperature,
   cell voltages and alarms have no fallback, so they are one operation behind

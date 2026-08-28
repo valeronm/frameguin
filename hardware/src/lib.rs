@@ -75,8 +75,8 @@ pub(crate) mod testing {
             self.answer().map(|_| EcStamp::taken(500, 1_000_000))
         }
 
-        fn same_boot_as(&self, _stamp: EcStamp) -> DeviceResult<bool> {
-            self.answer()
+        fn same_boot_as(&self, _stamp: EcStamp) -> bool {
+            *self.same_boot.lock().unwrap() == Some(true)
         }
     }
 

@@ -510,7 +510,7 @@ pub trait BatteryControl {
     /// The cap in mA, or [`NO_CHARGE_CURRENT_LIMIT`] when nothing caps it.
     /// The EC cannot be asked what it holds, so this is what was last
     /// written, and reports no limit once the EC has restarted and dropped
-    /// the value.
+    /// the value — or will not say whether it has.
     async fn charge_current_limit(&self) -> DeviceResult<u32>;
     /// Caps how fast the battery charges; [`NO_CHARGE_CURRENT_LIMIT`] lifts
     /// the cap. Zero is refused: the EC clamps its requested current against
