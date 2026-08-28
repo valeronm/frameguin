@@ -180,8 +180,6 @@ impl BatteryControl for Battery {
             .map_or(NO_CHARGE_CURRENT_LIMIT, |limit| limit.milliamps))
     }
 
-    /// Mirrored only once the EC has taken it: a refused write leaves the
-    /// last accepted value standing.
     async fn set_charge_current_limit(&self, milliamps: u32) -> DeviceResult<bool> {
         Self::check_charge_current_limit(milliamps)?;
         // Dated before the write, so that a restart between the two reads as

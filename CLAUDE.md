@@ -263,8 +263,11 @@ asserted and its reason a file away.
   devices reached over HID — the haptic touchpad, the touch panel — detect
   themselves outside it.
 - A value the EC is a second writer for cannot be shown from what was last
-  written. A value with no readback at all is mirrored instead, and what dates
-  the mirror is whatever holds the state it claims: nothing for the touchpad,
+  written. A value with no readback at all is mirrored instead. A setter
+  moves the mirror only once the hardware has taken the write, so a refused
+  one leaves the last accepted value standing; the power LED's release is
+  the one move made whether or not the kernel answered. What dates the
+  mirror is whatever holds the state it claims: nothing for the touchpad,
   which keeps its own in flash; the EC's uptime for the power LED's darkness
   and for the charge current limit, whose mirror expires with the EC that took
   it; the host's own life for the touch panel — its boot together with the

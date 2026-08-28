@@ -54,6 +54,12 @@ impl Touchscreen {
     pub fn reading(&self) -> DeviceResult<Option<bool>> {
         self.route.reading()
     }
+
+    fn remember(&self, stamp: Option<HostStamp>) {
+        self.store
+            .set(KEY_OFF_HOST, stamp.as_ref().map(HostStamp::stored));
+        *self.off.lock().unwrap() = stamp;
+    }
 }
 
 impl Part for Touchscreen {
@@ -86,9 +92,7 @@ impl TouchscreenControl for Touchscreen {
         // as having dropped it.
         let stamp = if enabled { None } else { HostStamp::now() };
         self.route.set_enabled(enabled)?;
-        self.store
-            .set(KEY_OFF_HOST, stamp.as_ref().map(HostStamp::stored));
-        *self.off.lock().unwrap() = stamp;
+        self.remember(stamp);
         Ok(())
     }
 }
@@ -129,10 +133,25 @@ mod tests {
         }
     }
 
-    fn over(level: Option<bool>, refusing: bool, store: &Arc<Memory>) -> Touchscreen {
+    struct Machine {
+        level: Option<bool>,
+        refusing: bool,
+    }
+
+    const PAD: Machine = Machine {
+        level: Some(true),
+        refusing: false,
+    };
+
+    const PANEL: Machine = Machine {
+        level: None,
+        refusing: false,
+    };
+
+    fn over(machine: &Machine, store: &Arc<Memory>) -> Touchscreen {
         let route = Route {
-            level: Mutex::new(level),
-            refusing,
+            level: Mutex::new(machine.level),
+            refusing: machine.refusing,
         };
         let identity = part::hid(PartKind::Touchscreen, 0x2c68, 0x0100, "", "", "");
         Touchscreen::new(Box::new(route), store.clone(), identity)
@@ -141,7 +160,7 @@ mod tests {
     #[test]
     fn a_route_with_a_reading_answers_from_the_hardware_and_keeps_no_record() {
         let store = Arc::new(Memory::default());
-        let touchscreen = over(Some(true), false, &store);
+        let touchscreen = over(&PAD, &store);
         assert_eq!(ready(touchscreen.enabled()), Ok(true));
         ready(touchscreen.set_enabled(false)).unwrap();
         assert_eq!(touchscreen.reading(), Ok(Some(false)));
@@ -152,13 +171,13 @@ mod tests {
     #[test]
     fn a_route_with_no_reading_answers_from_the_mirror() {
         let store = Arc::new(Memory::default());
-        let touchscreen = over(None, false, &store);
+        let touchscreen = over(&PANEL, &store);
         assert_eq!(touchscreen.reading(), Ok(None));
         assert_eq!(ready(touchscreen.enabled()), Ok(true));
         ready(touchscreen.set_enabled(false)).unwrap();
         assert_eq!(ready(touchscreen.enabled()), Ok(false));
         assert!(store.get(KEY_OFF_HOST).is_some());
-        let reloaded = over(None, false, &store);
+        let reloaded = over(&PANEL, &store);
         assert_eq!(ready(reloaded.enabled()), Ok(false));
         ready(touchscreen.set_enabled(true)).unwrap();
         assert_eq!(ready(touchscreen.enabled()), Ok(true));
@@ -168,7 +187,13 @@ mod tests {
     #[test]
     fn a_write_the_route_refuses_leaves_the_mirror_standing() {
         let store = Arc::new(Memory::default());
-        let touchscreen = over(None, true, &store);
+        let touchscreen = over(
+            &Machine {
+                refusing: true,
+                ..PANEL
+            },
+            &store,
+        );
         assert!(ready(touchscreen.set_enabled(false)).is_err());
         assert_eq!(ready(touchscreen.enabled()), Ok(true));
         assert_eq!(store.get(KEY_OFF_HOST), None);
@@ -183,15 +208,15 @@ mod tests {
             KEY_OFF_HOST,
             Some("00000000-0000-4000-8000-000000000001:0".into()),
         );
-        let touchscreen = over(None, false, &store);
+        let touchscreen = over(&PANEL, &store);
         assert_eq!(ready(touchscreen.enabled()), Ok(true));
     }
 
     #[test]
     fn the_hardware_outranks_the_mirror_where_it_answers() {
         let store = Arc::new(Memory::default());
-        ready(over(None, false, &store).set_enabled(false)).unwrap();
-        let touchscreen = over(Some(true), false, &store);
+        ready(over(&PANEL, &store).set_enabled(false)).unwrap();
+        let touchscreen = over(&PAD, &store);
         assert_eq!(ready(touchscreen.enabled()), Ok(true));
     }
 }

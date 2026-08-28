@@ -8,8 +8,9 @@
 //! What the device needs of it is [`LedClass`]; [`Sysfs`] is the class
 //! itself.
 
-use std::io;
 use std::path::{Path, PathBuf};
+
+use frameguin_wire::DeviceResult;
 
 /// The kernel's account of the power LED and the two writes that move it,
 /// each addressed by the node the account named.
@@ -21,9 +22,9 @@ pub trait LedClass: Send + Sync {
     /// the exact arrangement [`LedClass::darken`] leaves.
     fn held_dark(&self) -> Option<PathBuf>;
     /// Takes the LED off the EC's policy and darkens it.
-    fn darken(&self, dir: &Path) -> io::Result<()>;
+    fn darken(&self, dir: &Path) -> DeviceResult<()>;
     /// Gives the LED back to the EC.
-    fn release(&self, dir: &Path) -> io::Result<()>;
+    fn release(&self, dir: &Path) -> DeviceResult<()>;
 }
 
 /// The LED class under `/sys/class/leds`.
@@ -59,9 +60,10 @@ impl LedClass for Sysfs {
     /// same argument a level down — the trigger has no deactivate handler and
     /// never re-asserts, so a write underneath one leaves the file naming a
     /// policy no longer in force.
-    fn darken(&self, dir: &Path) -> io::Result<()> {
+    fn darken(&self, dir: &Path) -> DeviceResult<()> {
         std::fs::write(dir.join("trigger"), NO_TRIGGER)?;
-        std::fs::write(dir.join("brightness"), "0")
+        std::fs::write(dir.join("brightness"), "0")?;
+        Ok(())
     }
 
     /// The brightness goes first and only has to be nonzero: the EC reads it
@@ -70,9 +72,10 @@ impl LedClass for Sysfs {
     /// nothing is holding the LED dark. Writing it after the trigger instead
     /// would be a host command against a LED the EC had just taken back,
     /// undoing the handover.
-    fn release(&self, dir: &Path) -> io::Result<()> {
+    fn release(&self, dir: &Path) -> DeviceResult<()> {
         std::fs::write(dir.join("brightness"), "1")?;
-        std::fs::write(dir.join("trigger"), AUTO_TRIGGER)
+        std::fs::write(dir.join("trigger"), AUTO_TRIGGER)?;
+        Ok(())
     }
 }
 

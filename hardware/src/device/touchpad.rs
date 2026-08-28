@@ -86,8 +86,6 @@ impl TouchpadControl for Touchpad {
         Ok(self.haptic_intensity.load(Ordering::Relaxed))
     }
 
-    /// Mirrored only once the pad has taken it: a write the pad refused
-    /// leaves the last accepted value standing.
     async fn set_haptic_intensity(&self, percent: u8) -> DeviceResult<()> {
         Self::check_haptic_intensity(percent)?;
         self.pad.set_haptic_intensity(percent)?;
@@ -117,10 +115,9 @@ impl TouchpadControl for Touchpad {
 
 #[cfg(test)]
 mod tests {
-    use std::io;
     use std::sync::Arc;
 
-    use frameguin_wire::{ClickForce, DeviceError, TouchpadControl};
+    use frameguin_wire::{ClickForce, DeviceError, DeviceResult, TouchpadControl};
 
     use super::{KEY_CLICK_FORCE, KEY_HAPTIC_INTENSITY, Touchpad};
     use crate::part::{self, Part, PartKind};
@@ -135,9 +132,9 @@ mod tests {
     }
 
     impl Pad {
-        fn answer(&self) -> io::Result<()> {
+        fn answer(&self) -> DeviceResult<()> {
             if self.refusing {
-                Err(io::Error::other("no pad"))
+                Err(DeviceError::Failed("no pad".into()))
             } else {
                 Ok(())
             }
@@ -145,11 +142,11 @@ mod tests {
     }
 
     impl HapticPad for Pad {
-        fn set_haptic_intensity(&self, _percent: u8) -> io::Result<()> {
+        fn set_haptic_intensity(&self, _percent: u8) -> DeviceResult<()> {
             self.answer()
         }
 
-        fn set_click_force(&self, _force: ClickForce) -> io::Result<()> {
+        fn set_click_force(&self, _force: ClickForce) -> DeviceResult<()> {
             self.answer()
         }
     }

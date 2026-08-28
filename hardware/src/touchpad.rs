@@ -6,9 +6,7 @@
 //! so what was set is only knowable from the mirror [`crate::device::touchpad`]
 //! keeps.
 
-use std::io;
-
-use frameguin_wire as wire;
+use frameguin_wire::{self as wire, DeviceError, DeviceResult};
 use framework_lib::touchpad::{self, ClickForce};
 
 /// Known haptic touchpad models (`PixArt` PIDs). A curated device list, per
@@ -28,21 +26,25 @@ pub const DEFAULT_CLICK_FORCE: wire::ClickForce = wire::ClickForce::Medium;
 /// The writes the haptic touchpad takes, in the wire's vocabulary so that a
 /// device over it needs none of the transport's.
 pub trait HapticPad: Send + Sync {
-    fn set_haptic_intensity(&self, percent: u8) -> io::Result<()>;
-    fn set_click_force(&self, force: wire::ClickForce) -> io::Result<()>;
+    fn set_haptic_intensity(&self, percent: u8) -> DeviceResult<()>;
+    fn set_click_force(&self, force: wire::ClickForce) -> DeviceResult<()>;
 }
 
 /// The pad on the HID bus.
 pub struct Hid;
 
 impl HapticPad for Hid {
-    fn set_haptic_intensity(&self, percent: u8) -> io::Result<()> {
-        touchpad::set_haptic_intensity(percent).map_err(io::Error::other)
+    fn set_haptic_intensity(&self, percent: u8) -> DeviceResult<()> {
+        touchpad::set_haptic_intensity(percent).map_err(device_error)
     }
 
-    fn set_click_force(&self, force: wire::ClickForce) -> io::Result<()> {
-        touchpad::set_click_force(click_force(force)).map_err(io::Error::other)
+    fn set_click_force(&self, force: wire::ClickForce) -> DeviceResult<()> {
+        touchpad::set_click_force(click_force(force)).map_err(device_error)
     }
+}
+
+fn device_error(error: impl std::fmt::Display) -> DeviceError {
+    DeviceError::Failed(error.to_string())
 }
 
 /// The haptic pad on the bus, if there is one, as the bus describes it.

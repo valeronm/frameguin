@@ -208,7 +208,6 @@ impl PowerLedControl for PowerLed {
 
 #[cfg(test)]
 mod tests {
-    use std::io;
     use std::path::{Path, PathBuf};
     use std::sync::{Arc, Mutex};
 
@@ -282,13 +281,13 @@ mod tests {
                 .flatten()
         }
 
-        fn darken(&self, _dir: &Path) -> io::Result<()> {
+        fn darken(&self, _dir: &Path) -> DeviceResult<()> {
             *self.dark.lock().unwrap() = true;
             self.log.lock().unwrap().push("darken".into());
             Ok(())
         }
 
-        fn release(&self, _dir: &Path) -> io::Result<()> {
+        fn release(&self, _dir: &Path) -> DeviceResult<()> {
             *self.dark.lock().unwrap() = false;
             self.log.lock().unwrap().push("release".into());
             Ok(())
