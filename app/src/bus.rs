@@ -5,7 +5,8 @@
 //! [`crate::reading::Feed`] for who holds it.
 
 use frameguin_wire::{
-    BUS_NAME, ClickForce, DeviceResult, FrameguinProxy, OBJECT_PATH, TouchpadControl, TouchpadProxy,
+    BUS_NAME, ClickForce, DeviceResult, FrameguinProxy, OBJECT_PATH, TouchpadControl,
+    TouchpadProxy, TouchscreenControl, TouchscreenProxy,
 };
 use zbus::proxy::ProxyImpl;
 
@@ -13,6 +14,7 @@ pub(crate) struct Bus {
     /// The daemon's own interface, for the operations no device owns yet.
     pub(crate) frameguin: FrameguinProxy<'static>,
     touchpad: TouchpadProxy<'static>,
+    touchscreen: TouchscreenProxy<'static>,
 }
 
 impl Bus {
@@ -23,6 +25,7 @@ impl Bus {
         Ok(Self {
             frameguin: proxy(&conn).await?,
             touchpad: proxy(&conn).await?,
+            touchscreen: proxy(&conn).await?,
         })
     }
 }
@@ -53,5 +56,15 @@ impl TouchpadControl for Bus {
 
     async fn set_click_force(&self, force: ClickForce) -> DeviceResult<()> {
         Ok(self.touchpad.set_click_force(force).await?)
+    }
+}
+
+impl TouchscreenControl for Bus {
+    async fn enabled(&self) -> DeviceResult<bool> {
+        Ok(self.touchscreen.get_enabled().await?)
+    }
+
+    async fn set_enabled(&self, enabled: bool) -> DeviceResult<()> {
+        Ok(self.touchscreen.set_enabled(enabled).await?)
     }
 }

@@ -9,3 +9,4 @@
 
 pub mod memory;
 pub mod touchpad;
+pub mod touchscreen;

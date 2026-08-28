@@ -1,5 +1,5 @@
-//! Which way into the touch panel this machine has, and the reading that way
-//! affords.
+//! Which way into the touch panel this machine has, and the role a device
+//! holds it through.
 //!
 //! One control, reached two unrelated ways: a pad on the processor
 //! ([`crate::gpio`]) where the panel takes no command, the panel's own
@@ -11,57 +11,106 @@
 //!
 //! What the routes do not share is readback: the pad holds the level it is
 //! driving and the panel holds nothing, so only one of them can be asked
-//! what it is. That difference is stated once, in [`Route::reading`], and
-//! everything that follows from it — which account answers a getter, whether
-//! a write can be skipped as already in place — is read off that one answer
-//! rather than decided again per call site.
+//! what it is. That difference is stated once, in [`TouchSwitch::reading`],
+//! and everything that follows from it — which account answers a getter,
+//! whether a write can be skipped as already in place — is read off that one
+//! answer rather than decided again per call site.
 
 use frameguin_wire::DeviceResult;
+use framework_lib::touchscreen::{HX_PID, HX_VID};
 
 use crate::{gpio, panel};
 
-/// The way in, held for the length of one operation.
+/// What a device needs of the way in: the reading the route affords, and
+/// the switch itself.
+pub trait TouchSwitch: Send + Sync {
+    /// What the hardware itself holds, and None on a route that holds
+    /// nothing.
+    fn reading(&self) -> DeviceResult<Option<bool>>;
+    fn set_enabled(&self, enabled: bool) -> DeviceResult<()>;
+}
+
+/// The way in, as [`find`] settled it.
 pub enum Route {
     Pad(gpio::Pad),
     Panel,
 }
 
-/// The route this machine has, if it has one.
+/// Touch controllers a board's enable pad is what gates, by the identity they
+/// announce on the bus.
 ///
-/// Precedence and nothing else. What makes a route worth *offering* is more
-/// than what makes it usable, and that surplus is [`crate::probe`]'s — which
-/// asks this first, so the route it qualifies is the route an operation will
-/// then take. Written out separately at both ends, the two could qualify one
-/// route and use the other on a pairing neither of them named.
+/// Keyed on the controller rather than on which panel it shipped in, as the
+/// haptic touchpad is: the enable is a board signal reaching the display
+/// connector, so it gates whichever touch panel is plugged into it.
 ///
-/// The pad is asked first because asking is nearly free: a single DMI read
-/// that every board but one fails, which spares the rest the panel's
-/// question entirely.
+/// A controller belongs here when the pad is how this daemon switches it, and
+/// so not the Ilitek, which answers a command of its own — [`crate::panel`]
+/// curates that route's controller by the same rule and for the same reason,
+/// beside the code that sends it the command.
+const GATED_CONTROLLERS: [(u16, u16); 1] = [(HX_VID, HX_PID)];
+
+/// The route this machine has, if it has one worth offering, and the
+/// controller behind it — the part a person bought.
 ///
-/// The pad is looked up afresh every call, because what it answers can change
-/// between two: one some driver has claimed since is meant to fail at its own
-/// line request rather than be written on the strength of what was true at
-/// startup, per [`crate::gpio::touchscreen`]. The panel is not, because which
-/// one is fitted cannot change while this process lives — [`panel::present`]
-/// answers from the first enumeration that ran.
+/// The pad is asked first because it is the precedence: a board that has
+/// the pad has no panel command behind it, so nothing about the panel can
+/// change the answer once the pad is found.
 ///
-/// `hid` is an enumeration already in hand, for a caller that has one.
-pub fn find(hid: Option<&hidapi::HidApi>) -> Option<Route> {
+/// A pad found is the route whether or not it qualifies, since the pairings
+/// that exist put no panel command behind a board that has the pad. What
+/// qualifies it is more than finding it: the board naming the pad is only
+/// half, and the controller on the bus is what says anything is behind the
+/// line — panels and mainboards are sold apart and the chassis takes any
+/// pairing, so a board of the right generation behind a panel with no touch
+/// would otherwise be offered a switch with nothing on the end of it. The
+/// reading is the setter's own line request, side-effect-free and failing on
+/// everything the write would fail on: a chip that will not open, a locked
+/// pad, a line another driver holds.
+///
+/// The panel needs nothing added: the command is the controller's own, so
+/// finding the controller is the whole question.
+pub fn find(hid: &hidapi::HidApi) -> Option<(Route, &hidapi::DeviceInfo)> {
     if let Some(pad) = gpio::touchscreen() {
-        return Some(Route::Pad(pad));
+        let controller = gated_controller(hid)?;
+        return pad.level().is_ok().then_some((Route::Pad(pad), controller));
     }
-    panel::present(hid).then_some(Route::Panel)
+    panel::controller(hid).map(|controller| (Route::Panel, controller))
+}
+
+fn gated_controller(hid: &hidapi::HidApi) -> Option<&hidapi::DeviceInfo> {
+    hid.device_list()
+        .find(|dev| GATED_CONTROLLERS.contains(&(dev.vendor_id(), dev.product_id())))
 }
 
 impl Route {
-    /// What the hardware itself says, and None on the panel route, which
-    /// answers nothing. A getter falls back to the mirror where there is no
-    /// reading, and a setter skips a write only where a reading equals what
-    /// was asked, so the panel skips none.
-    pub fn reading(&self) -> DeviceResult<Option<bool>> {
+    /// The controller's firmware version, read the way its vendor answers
+    /// it — which the route already settles, the pad gating a Himax and
+    /// the command being the Ilitek's. None where it would not answer.
+    pub fn firmware(
+        &self,
+        hid: &hidapi::HidApi,
+        controller: &hidapi::DeviceInfo,
+    ) -> Option<String> {
+        let device = controller.open_device(hid).ok()?;
+        match self {
+            Self::Pad(_) => panel::himax_firmware(&device),
+            Self::Panel => panel::ilitek_firmware(&device),
+        }
+    }
+}
+
+impl TouchSwitch for Route {
+    fn reading(&self) -> DeviceResult<Option<bool>> {
         match self {
             Self::Pad(pad) => Ok(Some(pad.level()?)),
             Self::Panel => Ok(None),
+        }
+    }
+
+    fn set_enabled(&self, enabled: bool) -> DeviceResult<()> {
+        match self {
+            Self::Pad(pad) => Ok(pad.drive(enabled)?),
+            Self::Panel => Ok(panel::set_enabled(enabled)?),
         }
     }
 }

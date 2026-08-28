@@ -106,30 +106,34 @@ it and the non-obvious constraints.
   front-ends reach the report. `about.rs` does not, and needs not: only the
   window's menu opens it, so `main.rs` holding that entry leaves nothing able
   to drift.
-- Inside `daemon/`, the modules are drawn by how a control reaches the
-  hardware, so the filename answers which way: `ec.rs` the EC, `led.rs` the
-  kernel's LED class, `touchpad.rs` the pad's own HID transport, `panel.rs`
-  the touch panel's, `gpio.rs` a pad on the processor through the GPIO
-  character device. Two of those pairs need an arbitration, and the two
-  arbitrations are not alike: `power_led.rs` because the power button LED has
-  two possible drivers and one at a time, so what it settles is a handover and
-  the order to make it in; `touchscreen.rs` because the panel has two possible
+- Inside `hardware/`, the transport modules are drawn by how a control
+  reaches the machine, so the filename answers which way: `ec.rs` the EC,
+  `led.rs` the kernel's LED class, `touchpad.rs` the pad's own HID transport,
+  `panel.rs` the touch panel's, `gpio.rs` a pad on the processor through the
+  GPIO character device. Two of those pairs need an arbitration, and the two
+  arbitrations are not alike: `power_led.rs` (still the daemon's, until its
+  device moves) because the power button LED has two possible drivers and
+  one at a time, so what it settles is a handover and the order to make it
+  in; `touchscreen.rs` because the panel has two possible
   routes and a machine has only one, so what it settles is a precedence — and
   then the thing that precedence decides, which is whether the control can be
-  read at all. The rest divide by job: `dmi.rs`
+  read at all, stated once in the `TouchSwitch` role it declares over both.
+  The rest divide by job: `dmi.rs`
   the SMBIOS reads — the vendor deciding whether there is an EC to open, the
   product name deciding which board's pads are which, the raw entries a
   part's identity comes from — `lifetime.rs` what
   holds a mirrored value and whether it still holds it, where `dmi.rs`
   answers for the machine, which is the difference between a fact a reboot or
   a sleep changes and one that outlives both, `state.rs`
-  the mirror for what cannot be read back, `probe.rs` the probe rule beside
+  the keyed store for what cannot be read back — a moved device holds its
+  own mirror over it, the daemon's `state.rs` the mirrors of the un-moved —
+  `probe.rs` the probe rule beside
   the code it governs. A module's own doc says what it is for; the reasoning
   is here. `ec.rs` is every EC call: `Ec` is the only
   holder of the `CrosEc`, one method per operation, each taking the lock and
   releasing it before returning and none reaching the handle through another —
   `Mutex` does not re-enter, so a method wanting two commands under one lock
-  issues both against the guard it holds. `main.rs` keeps the `Daemon` object,
+  issues both against the guard it holds. `daemon/src/main.rs` keeps the `Daemon` object,
   polkit, the idle exit and the `#[interface]` surface, and what stays inline
   there is the *order* — validate, skip a write already in place, authorize,
   write. That order is the policy, and splitting the write out would leave it
@@ -171,8 +175,9 @@ it and the non-obvious constraints.
   argument checks come first — nobody should answer a prompt for a write that
   won't happen. The skip belongs in the daemon rather than in a caller, asked
   of the closest thing to the truth each one has: `set_charge_limit` asks the
-  EC, `set_charge_current_limit` its own mirror, `set_touchscreen_enabled` the
-  pad — and on the route with no pad, nothing: it skips no write at all. A
+  EC, `set_charge_current_limit` its own mirror, the touchscreen's
+  `set_enabled` the pad — and on the route with no pad, nothing: it skips no
+  write at all. A
   mirror is worth skipping on only where the event that invalidates it is the
   one its stamp catches, which holds for the charge current limit and not
   here: the panel's mirror catches the boot and the sleep, and a lid opening
@@ -254,8 +259,8 @@ asserted and its reason a file away.
 - The daemon holds `Ec` as an `Option` behind the DMI vendor check, never
   constructing it speculatively: `CrosEc::new()` panics outright where
   `framework_lib` finds no driver. Nothing the EC answers for is offered
-  there — the haptic touchpad still is, being reached over HID, which is why
-  its probe sits outside that branch.
+  there; the devices reached over HID — the haptic touchpad, the touch panel
+  — detect themselves outside it.
 - A value the EC is a second writer for cannot be shown from what was last
   written — the keyboard backlight's slider polls while mapped for that
   reason. A value with no readback at all is mirrored instead, and what dates
@@ -278,9 +283,11 @@ asserted and its reason a file away.
   The touchscreen is both, and which it is depends on the
   route: the pad carries the level, so where a pad is the control the getter
   asks the hardware, and where the panel's own command is, there is nothing
-  left to ask and `state.rs` answers from the dated mirror. That
-  asymmetry is the reason `touchscreen.rs` exists — a call site that reached
-  for one account would have to know which machine it was on. Its second
+  left to ask and the device answers from its dated mirror — weighed on
+  every read, since the sleep that withdraws it happens under a running
+  daemon. That asymmetry is the reason the `TouchSwitch` role answers
+  `Option<bool>` — a device that reached for one account would have to know
+  which machine it was on. Its second
   writer is the platform firmware rather than this daemon — a lid opening
   drives the pad back, as a resume does — and neither is something the app is
   told about, so both front ends can show a value the firmware has already

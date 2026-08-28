@@ -15,7 +15,8 @@
 //! class, [`touchpad`] the pad's own HID transport, [`panel`] the touch
 //! panel's, [`gpio`] a pad on the processor through the GPIO character
 //! device, [`dmi`] the firmware's SMBIOS table. [`touchscreen`] settles
-//! which of two routes a machine has. [`lifetime`] is what holds a mirrored
+//! which of two routes a machine has, and is the role over either.
+//! [`lifetime`] is what holds a mirrored
 //! value, [`state`] the store for what cannot be read back, [`probe`] the
 //! probe rule beside the code it governs, [`part`] what a device is as a
 //! part of the machine, and [`device`] the devices themselves.

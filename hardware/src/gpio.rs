@@ -45,10 +45,10 @@ use crate::dmi;
 /// Himax.
 ///
 /// Both halves stay on the path a write takes, unlike the rest of what
-/// [`crate::probe`] weighs. They are not a proxy standing in for the
-/// operation: refusing here is refusing to drive an unknown line on hardware
-/// this daemon cannot identify, which is the one failure that damages
-/// something rather than returning an error.
+/// detection weighs. They are not a proxy standing in for the operation:
+/// refusing here is refusing to drive an unknown line on hardware this
+/// daemon cannot identify, which is the one failure that damages something
+/// rather than returning an error.
 const TOUCHSCREEN_PAD: &str = "GPP_B_18";
 const TOUCHSCREEN_BOARD: &str = "Laptop 13 Pro (Intel Core Ultra Series 3)";
 
@@ -229,9 +229,9 @@ impl Pad {
     /// back is the level being driven rather than one read off the line; see
     /// `docs/hardware.md` for the condition that holds under.
     ///
-    /// Doubles as the check that the pad is usable at all, which is why the
-    /// probe runs it rather than reading the line's info: it takes the same
-    /// request the setter takes, so a chip that will not open and a line
+    /// Doubles as the check that the pad is usable at all, which is why
+    /// detection runs it rather than reading the line's info: it takes the
+    /// same request the setter takes, so a chip that will not open and a line
     /// another driver holds both fail here exactly as they would there.
     /// Asking `GET_LINEINFO` instead would be a different call answering for
     /// the one that matters. Harmless only on a pad already in GPIO mode,
@@ -300,17 +300,14 @@ fn chip_of(controller: &str) -> Option<PathBuf> {
 /// failure of a guess would be an unrelated line driven rather than an error
 /// returned. A missing control is the recoverable half of that.
 ///
-/// Whether a panel is behind the line is not asked here. That is a question
-/// about what to offer, and [`crate::probe`] holds it: a controller this
-/// daemon does not recognize would otherwise refuse a write the hardware
-/// would have taken, which is what the probe rule reserves the offer side
-/// for. What stays is what a write cannot be attempted without.
+/// Whether a panel is behind the line is not asked here: that is
+/// [`crate::touchscreen::find`]'s question, asked once at detection, and
+/// what stays is what a write cannot be attempted without.
 ///
-/// Resolved afresh for every operation rather than kept: the probe rule asks
-/// a setter to validate against the thing itself, and here that costs two
-/// directory walks. It also means a pad some driver has claimed since the
-/// probe answered fails at its own request, instead of being written blindly
-/// on the strength of what was true at startup.
+/// Resolved once and held: what a setter has to validate against is the line
+/// itself, and [`Pad::request`] asks the kernel for it on every operation,
+/// so a pad some driver has claimed since detection fails there rather than
+/// being written on the strength of what was true at startup.
 pub fn touchscreen() -> Option<Pad> {
     if dmi::product().as_deref() != Some(TOUCHSCREEN_BOARD) {
         return None;

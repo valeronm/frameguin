@@ -68,14 +68,6 @@ pub enum Capability {
     /// reached by the same passthrough, so a board answering for one answers
     /// for the others.
     BatteryCondition,
-    /// Switching the touch panel off. Named for the panel rather than for the
-    /// way it is reached, which differs by machine and is the daemon's
-    /// business alone: this end asks whether touch can be switched, never how.
-    /// Offered wherever one of those ways is within reach — which on some
-    /// machines takes two facts about separately sold parts, a panel being
-    /// fitted and this daemon knowing that board's way of gating one, and on
-    /// others takes only the panel, its own firmware being what switches it.
-    Touchscreen,
 }
 
 /// Something wrong with the pack, as the pack itself judges it — named rather
@@ -404,6 +396,21 @@ pub trait TouchpadControl {
     async fn set_click_force(&self, force: ClickForce) -> DeviceResult<()>;
 }
 
+/// The touch panel, named for the panel rather than for the way it is
+/// reached, which differs by machine and is the device's business alone:
+/// this end asks whether touch is on, never how it is switched.
+#[allow(
+    async_fn_in_trait,
+    reason = "the app's implementor and its callers share one thread; the daemon's is checked as a concrete type"
+)]
+pub trait TouchscreenControl {
+    /// Whether the panel is reporting: the hardware's own account where the
+    /// route keeps one, the device's record of its last write where not — so
+    /// a value some other writer, or a boot, put there arrives the same way.
+    async fn enabled(&self) -> DeviceResult<bool>;
+    async fn set_enabled(&self, enabled: bool) -> DeviceResult<()>;
+}
+
 // No default_service or default_path: they would restate BUS_NAME and
 // OBJECT_PATH as literals the attribute can't read a const into, leaving two
 // spellings of each with nothing checking they agree. Callers name them once,
@@ -425,11 +432,6 @@ pub trait Frameguin {
     async fn get_power_led_brightness(&self) -> zbus::Result<(u8, PowerLedLevel)>;
     async fn set_power_led_brightness(&self, percent: u8) -> zbus::Result<()>;
     async fn set_power_led_level(&self, level: PowerLedLevel) -> zbus::Result<()>;
-    /// Whether the touch panel is on. Read from the pad the setter drives,
-    /// so it answers for the hardware rather than for what this app last
-    /// asked — including a value some other writer, or a boot, put there.
-    async fn get_touchscreen_enabled(&self) -> zbus::Result<bool>;
-    async fn set_touchscreen_enabled(&self, enabled: bool) -> zbus::Result<()>;
 }
 
 /// The haptic touchpad, on its own interface at the same path. Absent from
@@ -442,6 +444,14 @@ pub trait Touchpad {
     async fn set_haptic_intensity(&self, percent: u8) -> zbus::Result<()>;
     async fn get_click_force(&self) -> zbus::Result<ClickForce>;
     async fn set_click_force(&self, force: ClickForce) -> zbus::Result<()>;
+}
+
+/// The touch panel, on its own interface at the same path and absent from
+/// the bus where the daemon found no way to switch one.
+#[zbus::proxy(interface = "io.github.valeronm.Frameguin1.Touchscreen")]
+pub trait Touchscreen {
+    async fn get_enabled(&self) -> zbus::Result<bool>;
+    async fn set_enabled(&self, enabled: bool) -> zbus::Result<()>;
 }
 
 #[cfg(test)]

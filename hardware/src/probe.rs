@@ -4,7 +4,7 @@
 //! side-effect-free exercise of the same code path the operation uses — never
 //! a related-but-easier check (a subsystem answers a version read while the
 //! command that would act on it works only on other hardware, or is not a
-//! command it implements at all — see the touchscreen). Where no
+//! command it implements at all — see [`crate::panel::controller`]). Where no
 //! harmless same-path probe exists, hardcode the support condition here
 //! instead of probing something adjacent. The get-side probes below stand in
 //! for their setters only because those EC command pairs ship together in
@@ -16,18 +16,14 @@
 
 use frameguin_wire as wire;
 use framework_lib::chromium_ec::command::EcCommands;
-use framework_lib::touchscreen::{HX_PID, HX_VID};
 
 use crate::ec::Ec;
 use crate::led;
-use crate::touchscreen::{self, Route};
 
 /// The controls not yet served as devices of their own; a device answers for
 /// itself by being on the bus or not. `ec` is None on hardware with no
-/// Framework EC, which leaves everything but the touchscreen unsupported.
-/// `hid` is the one walk of the HID bus a daemon run makes, taken at startup
-/// for the devices detected there and handed on here for the rest.
-pub fn capabilities(ec: Option<&Ec>, hid: Option<&hidapi::HidApi>) -> Vec<wire::Capability> {
+/// Framework EC, which leaves every one of them unsupported.
+pub fn capabilities(ec: Option<&Ec>) -> Vec<wire::Capability> {
     let mut caps = Vec::new();
     if let Some(ec) = ec {
         // The report's own walk, run for the one thing that can stop it
@@ -99,57 +95,5 @@ pub fn capabilities(ec: Option<&Ec>, hid: Option<&hidapi::HidApi>) -> Vec<wire::
             }
         }
     }
-    // Outside the EC's block: neither route runs through it, so a board whose
-    // EC would not open can still have one of them.
-    //
-    // Which route this machine has is [`touchscreen::find`]'s answer rather
-    // than one worked out again here, so the route qualified below is the one
-    // an operation will take. What is left here is the surplus an offer needs
-    // over a write, which differs by route and is why this is a match rather
-    // than a condition.
-    let touchscreen = match touchscreen::find(hid) {
-        // The pad gates a panel rather than being one, so the board naming
-        // the pad is only half of it: the controller on the bus is what says
-        // anything is behind the line. Panels and mainboards are sold apart
-        // and the chassis takes any pairing, so a board of the right
-        // generation behind a panel with no touch would otherwise be offered
-        // a switch with nothing on the end of it.
-        //
-        // `level` is the setter's own line request, side-effect-free and
-        // failing on everything the write would fail on: a chip that will not
-        // open, a locked pad, a line another driver holds.
-        Some(Route::Pad(pad)) => pad.level().is_ok() && hid.is_some_and(gated_panel_present),
-        // Nothing to add: the command is the controller's own, so finding the
-        // controller was the whole question and no board answers for it.
-        Some(Route::Panel) => true,
-        None => false,
-    };
-    if touchscreen {
-        caps.push(wire::Capability::Touchscreen);
-    }
     caps
-}
-
-/// Touch controllers a board's enable pad is what gates, by the identity they
-/// announce on the bus.
-///
-/// Keyed on the controller rather than on which panel it shipped in, as the
-/// haptic touchpad is: the enable is a board signal reaching the display
-/// connector, so it gates whichever touch panel is plugged into it.
-///
-/// A controller belongs here when the pad is how this daemon switches it, and
-/// so not the Ilitek, which answers a command of its own — [`crate::panel`]
-/// curates that route's controller by the same rule and for the same reason,
-/// beside the code that sends it the command. What the two share is the
-/// capability: they are ways into the one control, and the capability and its
-/// setter name the panel rather than the route to it.
-///
-/// Curated, so it decides the offer and nothing else. A controller missing
-/// from this list is a control not shown, never a write refused — the setter
-/// never consults it.
-const TOUCH_CONTROLLERS: [(u16, u16); 1] = [(HX_VID, HX_PID)];
-
-fn gated_panel_present(hid: &hidapi::HidApi) -> bool {
-    hid.device_list()
-        .any(|dev| TOUCH_CONTROLLERS.contains(&(dev.vendor_id(), dev.product_id())))
 }

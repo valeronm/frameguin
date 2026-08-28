@@ -51,6 +51,7 @@ impl Module {
                 model: entry.string(PART_NUMBER).unwrap_or_default().to_owned(),
                 serial: entry.string(SERIAL).map(str::to_owned),
                 id: format!("dmi-slot:{}", entry.string(LOCATOR).unwrap_or_default()),
+                firmware: None,
             },
         })
     }

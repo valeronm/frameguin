@@ -32,13 +32,9 @@ impl Touchpad {
     /// what the bus said it was.
     pub fn detect(hid: &hidapi::HidApi, store: Arc<dyn Store>) -> Option<Self> {
         let pad = touchpad::haptic_pad(hid)?;
-        let identity = identity(
-            pad.vendor_id(),
-            pad.product_id(),
-            pad.manufacturer_string().unwrap_or_default(),
-            pad.product_string().unwrap_or_default(),
-            pad.serial_number().unwrap_or_default(),
-        );
+        // No firmware version: the haptic pad's registers are in no table
+        // this can trust.
+        let identity = Identity::of_hid(Kind::Touchpad, pad);
         Some(Self::new(Box::new(touchpad::Hid), store, identity))
     }
 
@@ -62,18 +58,6 @@ impl Touchpad {
             haptic_intensity: AtomicU8::new(haptic_intensity),
             click_force: AtomicU8::new(click_force),
         }
-    }
-}
-
-/// The pad as a part, from what its descriptor announces. An empty string
-/// is a descriptor that carries none, kept empty rather than guessed.
-pub fn identity(vid: u16, pid: u16, manufacturer: &str, product: &str, serial: &str) -> Identity {
-    Identity {
-        kind: Kind::Touchpad,
-        vendor: manufacturer.to_owned(),
-        model: product.to_owned(),
-        serial: (!serial.is_empty()).then(|| serial.to_owned()),
-        id: format!("usb:{vid:04x}:{pid:04x}"),
     }
 }
 
@@ -138,8 +122,8 @@ mod tests {
 
     use frameguin_wire::{ClickForce, DeviceError, TouchpadControl};
 
-    use super::{KEY_CLICK_FORCE, KEY_HAPTIC_INTENSITY, Touchpad, identity};
-    use crate::part::Part;
+    use super::{KEY_CLICK_FORCE, KEY_HAPTIC_INTENSITY, Touchpad};
+    use crate::part::{Identity, Kind, Part};
     use crate::state::Store;
     use crate::state::tests::Memory;
     use crate::testing::ready;
@@ -171,7 +155,14 @@ mod tests {
     }
 
     fn over(pad: Pad, store: &Arc<Memory>) -> Touchpad {
-        let identity = identity(0x093a, 0x1343, "PixArt", "Haptic touchpad", "");
+        let identity = Identity::usb(
+            Kind::Touchpad,
+            0x093a,
+            0x1343,
+            "PixArt",
+            "Haptic touchpad",
+            "",
+        );
         Touchpad::new(Box::new(pad), store.clone(), identity)
     }
 

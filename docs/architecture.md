@@ -11,8 +11,9 @@ One meaning per word, and each word names one place in the tree.
 - **Transport** — how the machine is reached: the EC, HID, a GPIO pad, the
   kernel's LED class, the firmware's SMBIOS table. `hardware/src/<name>.rs`.
 - **Role** — what a device needs of a transport, as a trait a stub can stand
-  in for: `HapticPad`, `Store`. Declared beside the transport that fulfils
-  it.
+  in for: `HapticPad`, `TouchSwitch`, `Store`. Declared beside the transport
+  that fulfils it — or, where two transports can, beside the arbitration
+  that picks one.
 - **Device** — a thing detection finds on the machine: the haptic touchpad,
   a memory module, the battery. `hardware/src/device/<name>.rs`, one struct
   each, holding its roles and the mirror for what it cannot read back. A
@@ -23,10 +24,10 @@ One meaning per word, and each word names one place in the tree.
   a `Vec<Identity>`. A device that is a part and no control detects into a
   list, memory being one per slot.
 - **Control** — the facet "something that can be read and set": one trait
-  per device in `wire` — `TouchpadControl` — with one async fn per
-  operation and three implementations, the device itself, the bus, and a
-  stub. `DeviceError` is the one error every control and every detection
-  raises.
+  per device in `wire` — `TouchpadControl`, `TouchscreenControl` — with one
+  async fn per operation and three implementations, the device itself, the
+  bus, and a stub. `DeviceError` is the one error every control and every
+  detection raises.
 - **Interface** — the D-Bus surface for one device's control, on
   `Served<Device>`. `daemon/src/interface/<name>.rs`.
 - **Bus** — the app's implementation of every control trait, each operation
@@ -171,9 +172,10 @@ loops over controls without knowing which one it holds.
 
 A **part** is asked what it is through one common trait,
 `hardware::part::Part`, answering an `Identity` — kind, vendor, model,
-serial, and the identifier it announces itself by, prefixed with its space
-(`usb:093a:1343`, `dmi-slot:LPCAMM2_0`) — because its caller iterates the machine's
-bill of materials without caring what any entry does. That consumer is not
+serial, the identifier it announces itself by, prefixed with its space
+(`usb:093a:1343`, `dmi-slot:LPCAMM2_0`), and its firmware version where it
+has one to read — because its caller iterates the machine's bill of
+materials without caring what any entry does. That consumer is not
 built yet; what is built is the door: detection sees the identity anyway, so
 a device keeps it rather than reducing it to a bool, and a device that is a
 part and nothing else — a memory module — is a device all the same.
@@ -208,7 +210,8 @@ every layer. The first carried the scaffolding the rest reuse: the keyed
 Order: touchpad, touchscreen, power LED, battery. Smallest column first, the
 one with the most shared state last.
 
-Moved so far: **touchpad**. Parts with no control so far: **memory**.
+Moved so far: **touchpad, touchscreen**. Parts with no control so far:
+**memory**.
 
 Until the rest have moved, `Daemon` in `daemon/src/main.rs` still holds
 their methods and mirrors — reaching the hardware crate's transports

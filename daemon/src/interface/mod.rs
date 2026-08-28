@@ -9,3 +9,4 @@
 //! directly gets the same refusals without this layer.
 
 pub(crate) mod touchpad;
+pub(crate) mod touchscreen;

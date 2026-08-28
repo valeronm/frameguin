@@ -10,14 +10,15 @@ mod power_led;
 mod served;
 mod service;
 mod state;
-mod touchscreen;
 
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use frameguin_hardware::device::touchpad::Touchpad;
+use frameguin_hardware::device::touchscreen::Touchscreen;
 use frameguin_hardware::ec::Ec;
-use frameguin_hardware::lifetime::{EcStamp, HostStamp};
+use frameguin_hardware::lifetime::EcStamp;
+use frameguin_hardware::part::{Identity, Part};
 use frameguin_hardware::probe;
 use frameguin_hardware::state::{StateFile, Store};
 use frameguin_wire::{self as wire, NO_CHARGE_CURRENT_LIMIT};
@@ -37,10 +38,6 @@ struct Daemon {
     ec: Option<Ec>,
     service: Arc<Service>,
     store: Arc<dyn Store>,
-    /// The one walk of the HID bus this run makes, kept for the probe: the
-    /// devices detected at startup came off it, and the ones the probe still
-    /// answers for are asked of the same enumeration.
-    hid: Option<hidapi::HidApi>,
     /// Probed once per daemon lifetime; the EC feature set can't change
     /// while running.
     capabilities: OnceLock<Vec<wire::Capability>>,
@@ -52,10 +49,6 @@ struct Daemon {
     /// The kernel holds the LED state itself, so what is mirrored here is only
     /// the date of the write — see [`power_led`] for what that dating settles.
     power_led_off: Mutex<Option<EcStamp>>,
-    /// When this daemon switched the touch panel off, and None while it is
-    /// reporting. Read only on the panel route, the pad route carrying the
-    /// level itself.
-    touchscreen_off: Mutex<Option<HostStamp>>,
 }
 
 fn ec_err(e: impl std::fmt::Debug) -> fdo::Error {
@@ -73,7 +66,6 @@ impl Daemon {
         let state = State {
             charge_current_limit: *self.charge_current_limit.lock().unwrap(),
             power_led_off: *self.power_led_off.lock().unwrap(),
-            touchscreen_off: self.touchscreen_off.lock().unwrap().clone(),
         };
         state::save(&*self.store, &state);
     }
@@ -114,7 +106,7 @@ impl Daemon {
     fn get_capabilities(&self) -> Vec<wire::Capability> {
         self.service.touch();
         self.capabilities
-            .get_or_init(|| probe::capabilities(self.ec.as_ref(), self.hid.as_ref()))
+            .get_or_init(|| probe::capabilities(self.ec.as_ref()))
             .clone()
     }
 
@@ -284,51 +276,6 @@ impl Daemon {
         self.write_power_led(write).await
     }
 
-    /// Whether the touch panel is on, from whichever account this machine's
-    /// route keeps — see [`touchscreen`] for why one of them reads the
-    /// hardware and the other this daemon's own record.
-    fn get_touchscreen_enabled(&self) -> fdo::Result<bool> {
-        self.service.touch();
-        Ok(touchscreen::route()?
-            .reading()?
-            .unwrap_or_else(|| self.touchscreen_off.lock().unwrap().is_none()))
-    }
-
-    /// Switches the touch panel on or off, by cutting the controller off or
-    /// by telling it to stop reporting — whichever this machine's panel is
-    /// reached by. Nothing re-applies it afterwards: the panel is put back on
-    /// behind whoever asked for it off, by a resume or a lid opening on one
-    /// route and by whatever the controller does not keep on the other, and a
-    /// daemon that re-asserted a switch on those events would be enforcing a
-    /// policy nobody asked it to hold.
-    ///
-    /// Returns nothing where the charge setters return whether they wrote:
-    /// they report a skip so a caller can word its announcement differently,
-    /// and this control makes no announcement — the switch's own position is
-    /// the answer, and it is already where the caller asked.
-    async fn set_touchscreen_enabled(
-        &self,
-        enabled: bool,
-        #[zbus(header)] header: Header<'_>,
-    ) -> fdo::Result<()> {
-        self.service.touch();
-        // Resolved before the prompt for the reason arguments are checked
-        // before it: hardware with neither route can only end in an error,
-        // and nobody should answer for a write that cannot happen.
-        let route = touchscreen::route()?;
-        // Already there: nothing to write, and nothing worth a prompt, as in
-        // the charge setters. Which matters more here than there rather than
-        // less: the panel comes back on behind whoever asked for it off, so a
-        // client acting on what it last saw is the ordinary case rather than
-        // the careless one. Only a reading can say so, so the route with none
-        // never skips — see [`touchscreen::Route::reading`].
-        if route.reading()? == Some(enabled) {
-            return Ok(());
-        }
-        self.service.authorize(&header).await?;
-        self.write_touchscreen(&route, enabled)
-    }
-
     fn get_keyboard_backlight(&self) -> fdo::Result<u8> {
         self.service.touch();
         self.ec()?.keyboard_backlight().map_err(ec_err)
@@ -349,17 +296,42 @@ impl Daemon {
     }
 }
 
+/// One journal line per part found, which is what a bug report about a
+/// device that is there and not served has to start from.
+fn announce(identity: &Identity) {
+    eprintln!(
+        "detected {:?} {} \"{}\" \"{}\" firmware {}",
+        identity.kind,
+        identity.id,
+        identity.vendor,
+        identity.model,
+        identity.firmware.as_deref().unwrap_or("unknown")
+    );
+}
+
 fn main() -> zbus::Result<()> {
     let last_used = Arc::new(Mutex::new(Instant::now()));
     let clock = last_used.clone();
     let store: Arc<dyn Store> = Arc::new(StateFile::load());
     let state = state::load(&*store);
-    // One walk of the HID bus for every device asked about, here and in the
-    // probe: building an `HidApi` enumerates the lot.
+    // One walk of the HID bus for every device asked about: building an
+    // `HidApi` enumerates the lot.
     let hid = hidapi::HidApi::new().ok();
     let touchpad = hid
         .as_ref()
         .and_then(|hid| Touchpad::detect(hid, store.clone()));
+    let touchscreen = hid
+        .as_ref()
+        .and_then(|hid| Touchscreen::detect(hid, store.clone()));
+    for identity in [
+        touchpad.as_ref().map(Part::identity),
+        touchscreen.as_ref().map(Part::identity),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        announce(identity);
+    }
     let _conn = zbus::block_on(async move {
         let conn = Connection::system().await?;
         let authority = AuthorityProxy::new(&conn)
@@ -370,11 +342,9 @@ fn main() -> zbus::Result<()> {
             ec: Ec::open(),
             service: service.clone(),
             store,
-            hid,
             capabilities: OnceLock::new(),
             charge_current_limit: Mutex::new(state.charge_current_limit),
             power_led_off: Mutex::new(state.power_led_off),
-            touchscreen_off: Mutex::new(state.touchscreen_off),
         };
         let server = conn.object_server();
         server.at(wire::OBJECT_PATH, daemon).await?;
@@ -382,7 +352,12 @@ fn main() -> zbus::Result<()> {
         // the path are the inventory.
         if let Some(touchpad) = touchpad {
             server
-                .at(wire::OBJECT_PATH, Served::new(touchpad, service))
+                .at(wire::OBJECT_PATH, Served::new(touchpad, service.clone()))
+                .await?;
+        }
+        if let Some(touchscreen) = touchscreen {
+            server
+                .at(wire::OBJECT_PATH, Served::new(touchscreen, service))
                 .await?;
         }
         // Claim the name only once the objects are served, so an activating

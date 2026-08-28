@@ -26,8 +26,8 @@ use gtk4::glib;
 use crate::reading::Feed;
 use crate::tray::{TrayEvent, TrayIcon, refresh_tray};
 use crate::window::{
-    Custom, Sink, Ui, apply_charge_limit, apply_charge_speed, apply_power_led_level,
-    apply_touchscreen, build_window,
+    Custom, Sink, Ui, apply_charge_limit, apply_charge_speed, apply_power_led_level, build_window,
+    touchscreen,
 };
 
 const APP_ID: &str = "io.github.valeronm.Frameguin";
@@ -93,6 +93,7 @@ fn setup_tray(app: &adw::Application, state: Rc<AppState>) {
             // every preset click for as long as the tray ran while the menu
             // beside it went on refreshing.
             let proxy = state.feed.proxy().await.ok();
+            let controls = state.feed.probe().await.ok();
             match event {
                 TrayEvent::Show => {
                     let window = state.window_for(&app).0;
@@ -128,8 +129,11 @@ fn setup_tray(app: &adw::Application, state: Rc<AppState>) {
                     }
                 }
                 TrayEvent::SetTouchscreen(enabled) => {
-                    if let Some(proxy) = &proxy {
-                        apply_touchscreen(sink, proxy, enabled).await;
+                    if let Some(control) = controls
+                        .as_ref()
+                        .and_then(|probe| probe.controls.touchscreen.as_ref())
+                    {
+                        touchscreen::apply(sink, control, enabled).await;
                     }
                 }
                 // Through the action, like the window's row: the report has

@@ -6,6 +6,7 @@
 
 use std::rc::Rc;
 
+use frameguin_model::control::touchscreen::{state_at, state_labels, state_row};
 use frameguin_wire::{BatteryState, Capability, PowerLedLevel};
 
 use crate::APP_ID;
@@ -13,7 +14,7 @@ use crate::caps::{Capabilities, power_led_presets};
 use crate::format::{
     CHARGE_SPEED_LABELS, amps, battery_summary, charge_limit_labels, charge_limit_percent,
     charge_limit_position, charge_speed_milliamps, charge_speed_position, percent_label,
-    power_led_level_labels, touchscreen_labels, touchscreen_position, touchscreen_state,
+    power_led_level_labels,
 };
 use crate::reading::Feed;
 
@@ -57,7 +58,7 @@ pub(crate) struct TrayIcon {
     /// radio option.
     power_led_level: Option<PowerLedLevel>,
     /// Whether the touch panel is on, pushed in from the app; None until the
-    /// first daemon read, which leaves the group unmarked.
+    /// first read, which a machine with no panel to switch never makes.
     touchscreen: Option<bool>,
     /// Pushed in once the app reads the daemon's probe, and fixed for the
     /// daemon's run thereafter. None until then, which leaves the menu at
@@ -300,22 +301,16 @@ impl TrayIcon {
     /// Two states named as presets, through the same submenu the rest use.
     /// A checkmark would say as much in less room, but it draws in a column
     /// the submenus around it do not have, so the row sits out of line with
-    /// every other control. Unknown leaves the group unmarked rather than
-    /// hiding the item, as it does for the presets: an option to pick is
-    /// worth offering before a reading has arrived, and picking one names
-    /// the state outright.
+    /// every other control. Gated on a reading rather than on a capability:
+    /// the panel's device answers for itself, and the app hears of it by
+    /// reading it.
     fn touchscreen_item(&self) -> Option<ksni::MenuItem<Self>> {
-        if !self.caps?.has(Capability::Touchscreen) {
-            return None;
-        }
-        let selected = self.touchscreen.and_then(touchscreen_position);
-        let options = touchscreen_labels();
-        let title = match selected {
-            Some(index) => format!("Touchscreen ({})", options[index]),
-            None => "Touchscreen".into(),
-        };
-        Some(radio_submenu(title, selected, options, |tray, row| {
-            if let Some(enabled) = touchscreen_state(row) {
+        let enabled = self.touchscreen?;
+        let options = state_labels();
+        let row = state_row(enabled)?;
+        let title = format!("Touchscreen ({})", options[row]);
+        Some(radio_submenu(title, Some(row), options, |tray, row| {
+            if let Some(enabled) = state_at(row) {
                 tray.send(TrayEvent::SetTouchscreen(enabled));
             }
         }))
@@ -398,9 +393,10 @@ pub(crate) async fn refresh_tray(handle: &ksni::blocking::Handle<TrayIcon>, feed
     // unconditionally: it is a cached value after the first ask, where reading
     // the menu's copy would cost a hop onto ksni's thread to save nothing. The
     // menu keeps a copy because it draws over there, not because it caches.
-    let Ok(caps) = feed.capabilities().await else {
+    let Ok(probe) = feed.probe().await else {
         return;
     };
+    let caps = probe.caps;
     // The one block read in the app that does not go through the feed: the
     // feed's may pull the pack's condition with it, which a menu opening
     // cannot wait on. A second walk of the memmap is the cheaper half of that
@@ -433,10 +429,9 @@ pub(crate) async fn refresh_tray(handle: &ksni::blocking::Handle<TrayIcon>, feed
     } else {
         None
     };
-    let touchscreen = if caps.has(Capability::Touchscreen) {
-        proxy.get_touchscreen_enabled().await.ok()
-    } else {
-        None
+    let touchscreen = match &probe.controls.touchscreen {
+        Some(touchscreen) => touchscreen.read().await.ok(),
+        None => None,
     };
     tray_push(
         handle,

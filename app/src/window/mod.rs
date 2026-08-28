@@ -12,6 +12,7 @@
 //! moved.
 
 mod touchpad;
+pub(crate) mod touchscreen;
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -180,7 +181,7 @@ pub(crate) struct Ui {
     /// supports once capabilities are known.
     power_led_levels: RefCell<Vec<PowerLedLevel>>,
     touchpad: touchpad::Group,
-    touchscreen_switch: adw::SwitchRow,
+    touchscreen: touchscreen::Group,
     tray: Option<ksni::blocking::Handle<TrayIcon>>,
     /// Where the status row's reading comes from, shared with the battery
     /// report so the two windows cost the EC one walk between them rather than
@@ -235,10 +236,6 @@ impl Ui {
             self.power_led_custom_row
                 .set_visible(level == PowerLedLevel::Custom);
         });
-    }
-
-    fn show_touchscreen(&self, enabled: bool) {
-        self.sync(|| self.touchscreen_switch.set_active(enabled));
     }
 
     /// Moves the charge-limit widgets onto a ceiling without writing it back,
@@ -314,23 +311,9 @@ fn connect_handlers(ui: &Rc<Ui>, proxy: &FrameguinProxy<'static>, controls: &Con
     if let Some(touchpad) = &controls.touchpad {
         ui.touchpad.connect(ui, touchpad);
     }
-    connect_touchscreen_setter(ui, proxy);
-}
-
-fn connect_touchscreen_setter(ui: &Rc<Ui>, proxy: &FrameguinProxy<'static>) {
-    let switch_ui = ui.clone();
-    let switch_proxy = proxy.clone();
-    ui.touchscreen_switch.connect_active_notify(move |row| {
-        if switch_ui.syncing.get() {
-            return;
-        }
-        let enabled = row.is_active();
-        let ui = switch_ui.clone();
-        let proxy = switch_proxy.clone();
-        glib::spawn_future_local(async move {
-            apply_touchscreen(Sink::Window(&ui), &proxy, enabled).await;
-        });
-    });
+    if let Some(touchscreen) = &controls.touchscreen {
+        ui.touchscreen.connect(ui, touchscreen);
+    }
 }
 
 /// Wires a slider whose value reaches the hardware when a drag ends rather
@@ -524,23 +507,6 @@ impl Sink<'_> {
             ui.show_power_led_level(level);
         }
     }
-
-    fn show_touchscreen(&self, enabled: bool) {
-        self.push_tray(TrayValues::touchscreen(enabled));
-        if let Sink::Window(ui) = self {
-            ui.show_touchscreen(enabled);
-        }
-    }
-
-    /// Puts a widget back to the value that still stands after a write the
-    /// hardware refused, which only a window has: the tray's copy never moved,
-    /// and pushing it would block this thread while ksni rebuilt the whole
-    /// menu to merge a value it already holds.
-    fn restore_touchscreen(&self, enabled: bool) {
-        if let Sink::Window(ui) = self {
-            ui.show_touchscreen(enabled);
-        }
-    }
 }
 
 /// The one write for the charge limit. The window's row and the tray preset
@@ -621,29 +587,6 @@ pub(crate) async fn apply_power_led_level(
         && let Ok((percent, _)) = proxy.get_power_led_brightness().await
     {
         ui.sync(|| ui.power_led_scale.set_value(f64::from(percent)));
-    }
-}
-
-/// The one write for the touchscreen. The window's switch and the tray's row
-/// both come here, so neither can drift from the other on what it reports or
-/// what it tells the tray.
-///
-/// Unlike its siblings this one puts a widget *back* when the write fails.
-/// The switch is already carrying the requested value by then — the click is
-/// what moved it — and what it would otherwise assert is "touch is off",
-/// which someone believes by waiting for a tap that never comes. A refused
-/// polkit prompt is the ordinary way to get here, not an exotic one.
-pub(crate) async fn apply_touchscreen(
-    sink: Sink<'_>,
-    proxy: &FrameguinProxy<'static>,
-    enabled: bool,
-) {
-    match proxy.set_touchscreen_enabled(enabled).await {
-        Ok(()) => sink.show_touchscreen(enabled),
-        Err(e) => {
-            sink.toast_error("Switching the touchscreen", e);
-            sink.restore_touchscreen(!enabled);
-        }
     }
 }
 
@@ -885,14 +828,8 @@ pub(crate) fn build_window(
     let touchpad = touchpad::Group::build();
     page.add(&touchpad.widget);
 
-    let display = adw::PreferencesGroup::builder().title("Display").build();
-    let touchscreen_switch = adw::SwitchRow::builder()
-        .title("Touchscreen")
-        .subtitle("Comes back on at the next lid open, resume or restart")
-        .sensitive(false)
-        .build();
-    display.add(&touchscreen_switch);
-    page.add(&display);
+    let touchscreen = touchscreen::Group::build();
+    page.add(&touchscreen.widget);
 
     let application = adw::PreferencesGroup::builder()
         .title("Application")
@@ -960,7 +897,7 @@ pub(crate) fn build_window(
         power_led_custom_row: power_led_row,
         power_led_levels: RefCell::new(Vec::new()),
         touchpad,
-        touchscreen_switch,
+        touchscreen,
         tray,
         feed,
     });
@@ -982,7 +919,6 @@ pub(crate) fn build_window(
         speed_combo: ui.speed_combo.clone(),
         keyboard: keyboard.clone(),
         power_led: power_led.clone(),
-        display: display.clone(),
     };
     // The report goes into the issue body rather than onto the clipboard with
     // instructions to paste it somewhere.
@@ -1037,7 +973,6 @@ struct CapabilityWidgets {
     speed_combo: adw::ComboRow,
     keyboard: adw::PreferencesGroup,
     power_led: adw::PreferencesGroup,
-    display: adw::PreferencesGroup,
 }
 
 impl CapabilityWidgets {
@@ -1058,7 +993,6 @@ impl CapabilityWidgets {
             .set_visible(caps.has(Capability::KeyboardBacklight));
         self.power_led
             .set_visible(caps.has(Capability::PowerLedBrightness));
-        self.display.set_visible(caps.has(Capability::Touchscreen));
     }
 }
 
@@ -1421,6 +1355,7 @@ impl Init {
         let caps = probe.caps;
         self.groups.show_supported(caps);
         ui.touchpad.gate(probe.controls.touchpad.as_ref());
+        ui.touchscreen.gate(probe.controls.touchscreen.as_ref());
         ui.sync_tray(TrayValues::caps(caps));
         // Set whatever the answer was: what a later refresh needs to know is
         // that this daemon has said its piece, not what it said.
@@ -1577,14 +1512,10 @@ async fn load_values(ui: &Rc<Ui>, proxy: &FrameguinProxy<'static>, probe: &Probe
             Err(e) => ui.toast_error("Reading the touchpad", e),
         }
     }
-    if caps.has(Capability::Touchscreen) {
-        match proxy.get_touchscreen_enabled().await {
-            // The pad carries the state, so this is the hardware's answer
-            // rather than a value the daemon remembered — a panel switched
-            // off before this app ran, or by a boot, arrives the same way.
+    if let Some(touchscreen) = &controls.touchscreen {
+        match touchscreen.read().await {
             Ok(enabled) => {
-                ui.show_touchscreen(enabled);
-                ui.touchscreen_switch.set_sensitive(true);
+                ui.touchscreen.show(ui, enabled);
                 values.touchscreen = Some(enabled);
             }
             Err(e) => ui.toast_error("Reading the touchscreen", e),
