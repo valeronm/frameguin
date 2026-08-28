@@ -173,17 +173,21 @@ impl ksni::Tray for TrayIcon {
 }
 
 /// One shape for every preset menu the tray offers: a submenu named after the
-/// active option, holding a radio group over all of them. `selected` is None
-/// when the hardware sits on no preset, which leaves the group unmarked.
+/// value in force, holding a radio group over the presets. `selected` is None
+/// when the hardware sits on no preset, which leaves the group unmarked and
+/// the title naming `unlisted` — the value's own spelling, where the control
+/// has one, and nothing where it hasn't or nothing has been read yet.
 fn radio_submenu(
-    title: String,
+    name: &str,
     selected: Option<usize>,
+    unlisted: Option<&str>,
     labels: Vec<String>,
     select: impl Fn(&mut TrayIcon, usize) + Send + 'static,
 ) -> ksni::MenuItem<TrayIcon> {
     use ksni::menu::{RadioGroup, RadioItem, SubMenu};
+    let current = selected.map(|row| labels[row].as_str()).or(unlisted);
     SubMenu {
-        label: title,
+        label: current.map_or_else(|| name.to_string(), |current| format!("{name} ({current})")),
         submenu: vec![
             RadioGroup {
                 selected: selected.unwrap_or(usize::MAX),
@@ -233,16 +237,18 @@ impl TrayIcon {
         let selected = self.charge_limit.and_then(charge_limit_row);
         // A ceiling dialled in from the window sits on no row; the raw value
         // is named rather than dropped, as for the speed below.
-        let title = match (selected, self.charge_limit) {
-            (Some(row), _) => format!("Charge limit ({})", labels[row]),
-            (None, Some(limit)) => format!("Charge limit ({})", percent_label(limit)),
-            (None, None) => "Charge limit".into(),
-        };
-        Some(radio_submenu(title, selected, labels, |tray, row| {
-            if let Some(percent) = charge_limit_at(row) {
-                tray.send(TrayEvent::SetChargeLimit(percent));
-            }
-        }))
+        let unlisted = self.charge_limit.map(percent_label);
+        Some(radio_submenu(
+            "Charge limit",
+            selected,
+            unlisted.as_deref(),
+            labels,
+            |tray, row| {
+                if let Some(percent) = charge_limit_at(row) {
+                    tray.send(TrayEvent::SetChargeLimit(percent));
+                }
+            },
+        ))
     }
 
     fn charge_speed_item(&self) -> Option<ksni::MenuItem<Self>> {
@@ -262,16 +268,18 @@ impl TrayIcon {
         // Named by its preset where there is one, and by the current itself
         // where there isn't — a menu that can only show presets would say
         // nothing at all about a limit dialled in from the window.
-        let title = match (selected, self.charge_current_limit) {
-            (Some(row), _) => format!("Charge speed ({})", labels[row]),
-            (None, Some(milliamps)) => format!("Charge speed ({})", amps(milliamps)),
-            (None, None) => "Charge speed".into(),
-        };
-        Some(radio_submenu(title, selected, labels, move |tray, row| {
-            if let Some(milliamps) = charge_speed_at(design_capacity, row) {
-                tray.send(TrayEvent::SetChargeSpeed(milliamps));
-            }
-        }))
+        let unlisted = self.charge_current_limit.map(amps);
+        Some(radio_submenu(
+            "Charge speed",
+            selected,
+            unlisted.as_deref(),
+            labels,
+            move |tray, row| {
+                if let Some(milliamps) = charge_speed_at(design_capacity, row) {
+                    tray.send(TrayEvent::SetChargeSpeed(milliamps));
+                }
+            },
+        ))
     }
 
     /// Gated on the presets having arrived: the LED's device answers for
@@ -282,16 +290,13 @@ impl TrayIcon {
             .power_led_level
             .and_then(|level| levels.iter().position(|l| *l == level));
         let options = power_led::labels(&levels);
-        let title = match selected {
-            Some(index) => format!("Power button LED ({})", options[index]),
-            None => "Power button LED".into(),
-        };
         Some(radio_submenu(
-            title,
+            "Power button LED",
             selected,
+            None,
             options,
-            move |tray, index| {
-                tray.send(TrayEvent::SetPowerLedLevel(levels[index]));
+            move |tray, row| {
+                tray.send(TrayEvent::SetPowerLedLevel(levels[row]));
             },
         ))
     }
@@ -305,12 +310,17 @@ impl TrayIcon {
         let enabled = self.touchscreen?;
         let options = state_labels();
         let row = state_row(enabled)?;
-        let title = format!("Touchscreen ({})", options[row]);
-        Some(radio_submenu(title, Some(row), options, |tray, row| {
-            if let Some(enabled) = state_at(row) {
-                tray.send(TrayEvent::SetTouchscreen(enabled));
-            }
-        }))
+        Some(radio_submenu(
+            "Touchscreen",
+            Some(row),
+            None,
+            options,
+            |tray, row| {
+                if let Some(enabled) = state_at(row) {
+                    tray.send(TrayEvent::SetTouchscreen(enabled));
+                }
+            },
+        ))
     }
 }
 

@@ -347,7 +347,7 @@ impl Group {
                     });
                     values.charge_limit = Some(limit);
                 }
-                Err(e) => ui.toast_error("Reading charge limit", e),
+                Err(e) => ui.toast_error("Reading the charge limit", e),
             }
         }
         if control.has(BatteryFeature::ChargeCurrentLimit) {
@@ -363,7 +363,7 @@ impl Group {
                     });
                     values.charge_current_limit = Some(milliamps);
                 }
-                Err(e) => ui.toast_error("Reading charge speed", e),
+                Err(e) => ui.toast_error("Reading the charge speed", e),
             }
         }
         // Read once per run, above.
@@ -505,7 +505,7 @@ pub(crate) async fn apply_charge_limit(
     let written = match control.set_charge_limit(percent).await {
         Ok(written) => written,
         Err(e) => {
-            sink.toast_error("Setting charge limit", e);
+            sink.toast_error("Setting the charge limit", e);
             return;
         }
     };
@@ -533,7 +533,7 @@ pub(crate) async fn apply_charge_speed(
     let written = match control.set_charge_current_limit(milliamps).await {
         Ok(written) => written,
         Err(e) => {
-            sink.toast_error("Setting charge speed", e);
+            sink.toast_error("Setting the charge speed", e);
             return;
         }
     };

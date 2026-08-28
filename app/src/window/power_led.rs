@@ -73,7 +73,7 @@ impl Group {
                 self.show(ui, control, snapshot);
                 values.power_led_level = Some(snapshot.level);
             }
-            Err(e) => ui.toast_error("Reading power button LED brightness", e),
+            Err(e) => ui.toast_error("Reading the power button LED", e),
         }
     }
 
@@ -151,7 +151,7 @@ impl Group {
 /// percentage write, which goes through [`apply_brightness`] instead.
 pub(crate) async fn apply(sink: Sink<'_>, control: &PowerLed, level: PowerLedLevel) {
     if let Err(e) = control.set_level(level).await {
-        sink.toast_error("Setting power button LED level", e);
+        sink.toast_error("Setting the power button LED level", e);
         return;
     }
     sink.push_tray(TrayValues::power_led_level(level));
@@ -171,7 +171,7 @@ pub(crate) async fn apply(sink: Sink<'_>, control: &PowerLed, level: PowerLedLev
 /// each caller to remember it.
 async fn apply_brightness(ui: &Ui, control: &PowerLed, percent: u8) {
     if let Err(e) = control.set_brightness(percent).await {
-        ui.toast_error("Setting power button LED brightness", e);
+        ui.toast_error("Setting the power button LED brightness", e);
         return;
     }
     ui.sync_tray(TrayValues::power_led_level(PowerLedLevel::Custom));

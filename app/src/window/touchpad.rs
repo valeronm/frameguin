@@ -88,7 +88,7 @@ impl Group {
             let control = haptic_control.clone();
             glib::spawn_future_local(async move {
                 if let Err(e) = control.set_haptic_intensity(percent).await {
-                    ui.toast_error("Setting haptic intensity", e);
+                    ui.toast_error("Setting the haptic intensity", e);
                 }
             });
         });
@@ -106,7 +106,7 @@ impl Group {
             let control = force_control.clone();
             glib::spawn_future_local(async move {
                 if let Err(e) = control.set_click_force(force).await {
-                    ui.toast_error("Setting click force", e);
+                    ui.toast_error("Setting the click force", e);
                 }
             });
         });
