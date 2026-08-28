@@ -13,7 +13,7 @@ use gtk4::glib;
 use crate::bus::Bus;
 use crate::tray::TrayValues;
 use crate::window::{
-    SLIDER_DEBOUNCE, Sink, Ui, build_scale, combo_position, combo_selection, debounce,
+    SLIDER_DEBOUNCE, Sink, Ui, build_scale, combo_selection, connect_combo, debounce,
     scale_percent, string_list,
 };
 
@@ -120,28 +120,25 @@ impl Group {
         // Combo: presets write the level and re-read so the slider carries
         // the percentage the preset resolved to; Custom reveals the slider
         // and applies its value, making the EC state actually custom.
-        let combo_ui = ui.clone();
+        let at_control = control.clone();
         let combo_control = control.clone();
-        self.combo.connect_selected_notify(move |row| {
-            if combo_ui.syncing.get() {
-                return;
-            }
-            let Some(level) =
-                combo_position(row.selected()).and_then(|index| combo_control.at(index))
-            else {
-                return;
-            };
-            let ui = combo_ui.clone();
-            let control = combo_control.clone();
-            let percent = scale_percent(ui.power_led.scale.value());
-            glib::spawn_future_local(async move {
-                if level == PowerLedLevel::Custom {
-                    apply_brightness(&ui, &control, percent).await;
-                    return;
-                }
-                apply(Sink::Window(&ui), &control, level).await;
-            });
-        });
+        connect_combo(
+            ui,
+            &self.combo,
+            move |index| at_control.at(index),
+            move |ui, level| {
+                let ui = ui.clone();
+                let control = combo_control.clone();
+                let percent = scale_percent(ui.power_led.scale.value());
+                glib::spawn_future_local(async move {
+                    if level == PowerLedLevel::Custom {
+                        apply_brightness(&ui, &control, percent).await;
+                        return;
+                    }
+                    apply(Sink::Window(&ui), &control, level).await;
+                });
+            },
+        );
     }
 }
 

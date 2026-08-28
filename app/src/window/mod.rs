@@ -164,6 +164,36 @@ impl Ui {
     }
 }
 
+/// A row a sync moved the combo to must not be written back, and a combo
+/// wired here cannot forget that.
+fn connect_combo<T>(
+    ui: &Rc<Ui>,
+    combo: &adw::ComboRow,
+    at: impl Fn(usize) -> Option<T> + 'static,
+    write: impl Fn(&Rc<Ui>, T) + 'static,
+) {
+    let ui = ui.clone();
+    combo.connect_selected_notify(move |row| {
+        if ui.syncing.get() {
+            return;
+        }
+        if let Some(value) = combo_position(row.selected()).and_then(&at) {
+            write(&ui, value);
+        }
+    });
+}
+
+/// Shows `row` exactly while `combo` sits at `index`, so a slider a combo
+/// row reveals is never left showing under another row, whoever moved the
+/// combo.
+fn reveal_under(combo: &adw::ComboRow, row: &impl IsA<gtk::Widget>, index: usize) {
+    combo
+        .bind_property("selected", row, "visible")
+        .transform_to(move |_, selected: u32| Some(combo_position(selected) == Some(index)))
+        .sync_create()
+        .build();
+}
+
 /// (Re)arms a debounce slot: cancels any pending source and schedules `action`
 /// after `delay`.
 fn debounce(

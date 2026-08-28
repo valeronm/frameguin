@@ -10,7 +10,7 @@ use frameguin_model::control::touchpad::{
 use gtk4::glib;
 
 use crate::bus::Bus;
-use crate::window::{Ui, combo_position, combo_selection, string_list};
+use crate::window::{Ui, combo_selection, connect_combo, string_list};
 
 pub(crate) type Touchpad = touchpad::Touchpad<Bus>;
 
@@ -75,16 +75,9 @@ impl Group {
     /// it. A refusal is toasted and the row left where the click put it — a
     /// stale row here outlives nothing worse than the next reload.
     pub(crate) fn connect(&self, ui: &Rc<Ui>, control: &Rc<Touchpad>) {
-        let haptic_ui = ui.clone();
         let haptic_control = control.clone();
-        self.haptic_combo.connect_selected_notify(move |row| {
-            if haptic_ui.syncing.get() {
-                return;
-            }
-            let Some(percent) = combo_position(row.selected()).and_then(haptic_at) else {
-                return;
-            };
-            let ui = haptic_ui.clone();
+        connect_combo(ui, &self.haptic_combo, haptic_at, move |ui, percent| {
+            let ui = ui.clone();
             let control = haptic_control.clone();
             glib::spawn_future_local(async move {
                 if let Err(e) = control.set_haptic_intensity(percent).await {
@@ -93,16 +86,9 @@ impl Group {
             });
         });
 
-        let force_ui = ui.clone();
         let force_control = control.clone();
-        self.force_combo.connect_selected_notify(move |row| {
-            if force_ui.syncing.get() {
-                return;
-            }
-            let Some(force) = combo_position(row.selected()).and_then(click_force_at) else {
-                return;
-            };
-            let ui = force_ui.clone();
+        connect_combo(ui, &self.force_combo, click_force_at, move |ui, force| {
+            let ui = ui.clone();
             let control = force_control.clone();
             glib::spawn_future_local(async move {
                 if let Err(e) = control.set_click_force(force).await {

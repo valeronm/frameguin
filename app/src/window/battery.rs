@@ -21,7 +21,8 @@ use crate::bus::Bus;
 use crate::reading::{Wants, show_while_mapped};
 use crate::tray::TrayValues;
 use crate::window::{
-    Sink, Ui, build_scale, combo_index, combo_position, debounce, scale_percent, string_list,
+    Sink, Ui, build_scale, combo_index, combo_position, connect_combo, debounce, reveal_under,
+    scale_percent, string_list,
 };
 
 pub(crate) type Battery = battery::Battery<Bus>;
@@ -54,12 +55,8 @@ pub(crate) struct Group {
     state_percent: gtk::Label,
     limit_combo: adw::ComboRow,
     limit_scale: gtk::Scale,
-    /// The slider's row; shown only while the ceiling is Custom.
-    limit_custom_row: adw::ActionRow,
     speed_combo: adw::ComboRow,
     speed_scale: gtk::Scale,
-    /// The slider's row; shown only while the speed is Custom.
-    speed_custom_row: adw::ActionRow,
     /// The battery's design capacity in mAh, None until read. Numerically it
     /// is the 1C current, which is what turns the combo's fractions into the
     /// milliamps the daemon takes.
@@ -95,7 +92,7 @@ impl Group {
         let limit_adjustment = gtk::Adjustment::new(floor, floor, 100.0, 5.0, 5.0, 0.0);
         let limit_scale = build_scale(&limit_adjustment, |value| format!("{value:.0}%"));
         limit_custom_row.add_suffix(&limit_scale);
-        limit_custom_row.set_visible(false);
+        reveal_under(&limit_combo, &limit_custom_row, CHARGE_LIMIT_CUSTOM);
         widget.add(&limit_custom_row);
         let speed_combo = adw::ComboRow::builder()
             .title("Charge speed")
@@ -120,7 +117,7 @@ impl Group {
         )]
         let speed_scale = build_scale(&speed_adjustment, |value| amps(value as u32));
         speed_custom_row.add_suffix(&speed_scale);
-        speed_custom_row.set_visible(false);
+        reveal_under(&speed_combo, &speed_custom_row, CHARGE_SPEED_CUSTOM);
         widget.add(&speed_custom_row);
         Self {
             widget,
@@ -128,10 +125,8 @@ impl Group {
             state_percent,
             limit_combo,
             limit_scale,
-            limit_custom_row,
             speed_combo,
             speed_scale,
-            speed_custom_row,
             design_capacity: Cell::default(),
         }
     }
@@ -163,15 +158,13 @@ impl Group {
         let index = custom_or(&self.limit_combo, CHARGE_LIMIT_CUSTOM, preset, custom);
         ui.sync(|| {
             self.limit_combo.set_selected(combo_index(index));
-            self.limit_custom_row
-                .set_visible(index == CHARGE_LIMIT_CUSTOM);
             self.limit_scale.set_value(f64::from(percent));
         });
     }
 
     /// Moves the charge-speed widgets onto a limit without writing it back.
-    /// Shared by the reload and the write, so the combo, the slider and the
-    /// slider's visibility can't disagree about which one is in effect.
+    /// Shared by the reload and the write, so the combo and the slider can't
+    /// disagree about which one is in effect.
     fn show_charge_speed(&self, ui: &Ui, milliamps: u32, custom: Custom) {
         let Some(capacity) = self.design_capacity.get() else {
             ui.sync(|| self.speed_combo.set_selected(gtk::INVALID_LIST_POSITION));
@@ -181,8 +174,6 @@ impl Group {
         let index = custom_or(&self.speed_combo, CHARGE_SPEED_CUSTOM, preset, custom);
         ui.sync(|| {
             self.speed_combo.set_selected(combo_index(index));
-            self.speed_custom_row
-                .set_visible(index == CHARGE_SPEED_CUSTOM);
             // Full speed is the absence of a limit, not a position on a
             // slider that can only express one.
             if milliamps != NO_CHARGE_CURRENT_LIMIT {
@@ -210,30 +201,20 @@ impl Group {
             },
         );
 
-        let limit_ui = ui.clone();
         let limit_control = control.clone();
-        self.limit_combo.connect_selected_notify(move |row| {
-            if limit_ui.syncing.get() {
-                return;
-            }
-            let Some(index) = combo_position(row.selected()) else {
-                return;
-            };
-            // Choosing Custom writes nothing: the row only reveals the slider
-            // that can change the ceiling.
-            if index == CHARGE_LIMIT_CUSTOM {
-                limit_ui.battery.limit_custom_row.set_visible(true);
-                return;
-            }
-            let Some(percent) = charge_limit_at(index) else {
-                return;
-            };
-            let ui = limit_ui.clone();
-            let control = limit_control.clone();
-            glib::spawn_future_local(async move {
-                apply_charge_limit(Sink::Window(&ui), &control, percent, Custom::Rederive).await;
-            });
-        });
+        connect_combo(
+            ui,
+            &self.limit_combo,
+            charge_limit_at,
+            move |ui, percent| {
+                let ui = ui.clone();
+                let control = limit_control.clone();
+                glib::spawn_future_local(async move {
+                    apply_charge_limit(Sink::Window(&ui), &control, percent, Custom::Rederive)
+                        .await;
+                });
+            },
+        );
 
         // Slider: a raw ceiling, reachable only while the combo is on Custom.
         let scale_ui = ui.clone();
@@ -246,38 +227,21 @@ impl Group {
             });
         });
 
-        let speed_ui = ui.clone();
+        let at_ui = ui.clone();
         let speed_control = control.clone();
-        self.speed_combo.connect_selected_notify(move |row| {
-            if speed_ui.syncing.get() {
-                return;
-            }
-            let Some(index) = combo_position(row.selected()) else {
-                return;
-            };
-            // Choosing Custom writes nothing: the limit in effect is already
-            // whatever it is, and the row only reveals the slider that can
-            // change it. Unlike the power LED's custom level, there is no EC
-            // state to enter here — a dialled-in current is just a current.
-            if index == CHARGE_SPEED_CUSTOM {
-                speed_ui.battery.speed_custom_row.set_visible(true);
-                return;
-            }
-            // The row stays insensitive until the capacity is read, so a
-            // preset can't be picked without one; the early return only
-            // keeps the conversion total.
-            let Some(design_capacity) = speed_ui.battery.design_capacity.get() else {
-                return;
-            };
-            let Some(milliamps) = charge_speed_at(design_capacity, index) else {
-                return;
-            };
-            let ui = speed_ui.clone();
-            let control = speed_control.clone();
-            glib::spawn_future_local(async move {
-                apply_charge_speed(Sink::Window(&ui), &control, milliamps, Custom::Rederive).await;
-            });
-        });
+        connect_combo(
+            ui,
+            &self.speed_combo,
+            move |index| charge_speed_at(at_ui.battery.design_capacity.get()?, index),
+            move |ui, milliamps| {
+                let ui = ui.clone();
+                let control = speed_control.clone();
+                glib::spawn_future_local(async move {
+                    apply_charge_speed(Sink::Window(&ui), &control, milliamps, Custom::Rederive)
+                        .await;
+                });
+            },
+        );
 
         // Slider: a raw current, reachable only while the combo is on Custom.
         let scale_ui = ui.clone();
