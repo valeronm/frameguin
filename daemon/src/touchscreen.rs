@@ -21,7 +21,7 @@
 
 use zbus::fdo;
 
-use crate::host::BootStamp;
+use crate::lifetime::HostStamp;
 use crate::{Daemon, gpio, internal_err, panel};
 
 /// The way in, held for the length of one operation.
@@ -67,25 +67,10 @@ pub(crate) fn route() -> fdo::Result<Route> {
 }
 
 impl Route {
-    /// What the hardware itself says, and None where it says nothing.
-    ///
-    /// The whole of the asymmetry, in the shape it really has: three answers
-    /// rather than two. The pad reports the level it is driving, so a value
-    /// set before this daemon started — or by the firmware at power-on —
-    /// reads the same as one written here. The panel is asked nothing,
-    /// because it answers nothing.
-    ///
-    /// Both things the daemon does with the state are read off this. A getter
-    /// falls back to the mirror where there is no reading; a setter skips a
-    /// write only where a reading equals what was asked, so the panel never
-    /// skips one. Its mirror is dated against the boot, which is what stops
-    /// it outliving a reboot, but nothing dates it against the suspend or the
-    /// firmware that can move the panel inside one — so within a boot it is
-    /// no fresher than the caller's own idea of the value, and skipping on it
-    /// would drop exactly the write that would have corrected it, reporting
-    /// success for doing so. The charge current limit may be skipped on
-    /// because the EC restart that invalidates it is the same event its stamp
-    /// catches; here the two come apart.
+    /// What the hardware itself says, and None on the panel route, which
+    /// answers nothing. A getter falls back to the mirror where there is no
+    /// reading, and a setter skips a write only where a reading equals what
+    /// was asked, so the panel skips none.
     pub(crate) fn reading(&self) -> fdo::Result<Option<bool>> {
         match self {
             Self::Pad(pad) => pad.level().map(Some).map_err(internal_err),
@@ -103,16 +88,9 @@ impl Daemon {
         match route {
             Route::Pad(pad) => pad.drive(enabled).map_err(internal_err),
             Route::Panel => {
-                // Dated before the write rather than after it, as the power
-                // LED's darkness is. A date that cannot be taken costs the
-                // record and never the write: what the panel is sent is a
-                // state rather than a gesture, so asserting off on a panel
-                // already off costs nothing, and turning it back on needs no
-                // date at all — where refusing would deny a write the
-                // hardware would have taken, to protect a label that is
-                // approximate anyway, a suspend being able to move the panel
-                // inside a boot with this none the wiser.
-                let stamp = if enabled { None } else { BootStamp::now() };
+                // Dated before the write, so that a restart between the two
+                // reads as having dropped it.
+                let stamp = if enabled { None } else { HostStamp::now() };
                 panel::set_enabled(enabled).map_err(internal_err)?;
                 *self.touchscreen_off.lock().unwrap() = stamp;
                 self.save_state();

@@ -36,6 +36,7 @@ Every heading in the file appears here.
 <!-- GitHub's slugger drops the ² from "I²C"; that anchor is right as written. -->
 
 - [Reaching the EC](#reaching-the-ec)
+  - [The EC's uptime clock](#the-ecs-uptime-clock)
 - [Battery](#battery)
   - [The EC's battery block](#the-ecs-battery-block)
   - [What the flag byte means, and does not](#what-the-flag-byte-means-and-does-not)
@@ -82,6 +83,25 @@ either of the above: an EC round trip *plus* a real bus transaction.
 (an empty driver list — for example aarch64 with no `/dev/cros_ec`), so it
 must be constructed behind a check that the machine is the right one, not
 called speculatively.
+
+### The EC's uptime clock
+
+`EC_CMD_GET_UPTIME_INFO` answers with `time_since_ec_boot_ms`, and it is the
+only thing the EC says about its own life: there is no boot id, no restart
+counter, nothing with an identity. So the only way to ask whether the EC is
+still the one that took a write is to compare how far its clock has advanced
+against how far the host's has, and that comparison has two properties worth
+knowing before trusting it.
+
+**The counter is 32 bits of milliseconds**, so it wraps at 49.7 days of EC
+uptime and starts again from zero. An EC that has been up longer than that
+reads as one that restarted.
+
+**The EC keeps its own time, and keeps it badly**: its firmware documents 1%
+or worse frequency error against the host clock, so the two disagree by
+minutes over a week of uptime even with nothing wrong. Any comparison needs
+slack on that order, which is what stops a long-standing write from reading
+as expired.
 
 ## Battery
 

@@ -7,20 +7,17 @@
 //! apart: nothing is re-applied at startup, since the touchpad keeps its own
 //! state in flash and the EC keeps the limit until it restarts.
 //!
-//! A mirror is worth no more than the life of whatever holds the state it
-//! claims, and two of them are dated to say so: the charge current limit
-//! against the EC that took it, the touch panel against the boot that
-//! switched it. The panel's is the weaker claim of the two, since what its
-//! controller survives is not established — so the boot is taken as the
-//! ceiling the documents point at rather than a measured one, and a mirror
-//! stamped with an earlier boot is dropped rather than believed. Within one
-//! boot it can still be wrong, a suspend or anything else having moved the
-//! panel; there is no reading to prefer to it.
+//! What each mirror is dated against is [`crate::lifetime`]'s vocabulary: the
+//! charge current limit against the EC that took it, the touch panel against
+//! the host that switched it.
+//!
+//! An unknown key is ignored, so a file another version wrote costs the
+//! mirrors the two spell differently, each absence under-claiming until that
+//! control is next written.
 
 use frameguin_wire::{HAPTIC_INTENSITY_LEVELS, NO_CHARGE_CURRENT_LIMIT};
 
-use crate::ec::EcStamp;
-use crate::host::BootStamp;
+use crate::lifetime::{EcStamp, HostStamp};
 use crate::touchpad;
 
 const DEFAULT_HAPTIC_INTENSITY: u8 = 75;
@@ -31,11 +28,9 @@ const STATE_FILE: &str = "/var/lib/frameguin/state";
 const KEY_HAPTIC_INTENSITY: &str = "haptic_intensity";
 const KEY_CLICK_FORCE: &str = "click_force";
 const KEY_CURRENT_LIMIT: &str = "charge_current_limit";
-const KEY_CURRENT_LIMIT_UPTIME: &str = "charge_current_limit_ec_uptime";
-const KEY_CURRENT_LIMIT_WRITTEN_AT: &str = "charge_current_limit_written_at";
-const KEY_POWER_LED_OFF_UPTIME: &str = "power_led_off_ec_uptime";
-const KEY_POWER_LED_OFF_WRITTEN_AT: &str = "power_led_off_written_at";
-const KEY_TOUCHSCREEN_OFF_BOOT: &str = "touchscreen_off_boot";
+const KEY_CURRENT_LIMIT_STAMP: &str = "charge_current_limit_stamp";
+const KEY_POWER_LED_OFF_STAMP: &str = "power_led_off_stamp";
+const KEY_TOUCHSCREEN_OFF_HOST: &str = "touchscreen_off_host";
 
 /// A charge current limit together with the stamp that dates it.
 #[derive(Clone, Copy)]
@@ -49,11 +44,9 @@ pub(crate) struct State {
     pub(crate) click_force: u8,
     pub(crate) charge_current_limit: ChargeCurrentLimit,
     pub(crate) power_led_off: Option<EcStamp>,
-    /// The boot the panel was switched off in, and None while it is
-    /// reporting. Absent rather than false for the reason `power_led_off` is:
-    /// the stamp being there is the whole of the claim that a switch was
-    /// made, so there is no state in which a value and its date can disagree.
-    pub(crate) touchscreen_off: Option<BootStamp>,
+    /// None while the panel is reporting, a stamp's presence being the whole
+    /// of the claim that a switch was made.
+    pub(crate) touchscreen_off: Option<HostStamp>,
 }
 
 /// Loads the mirrored control state, falling back to the factory defaults.
@@ -105,28 +98,19 @@ pub(crate) fn load() -> State {
                         state.charge_current_limit.milliamps = v;
                     }
                 }
-                KEY_CURRENT_LIMIT_UPTIME => {
-                    state.charge_current_limit.stamp.ec_uptime = value.parse().unwrap_or(0);
+                KEY_CURRENT_LIMIT_STAMP => {
+                    if let Some(stamp) = EcStamp::parse(value) {
+                        state.charge_current_limit.stamp = stamp;
+                    }
                 }
-                KEY_CURRENT_LIMIT_WRITTEN_AT => {
-                    state.charge_current_limit.stamp.written_at = value.parse().unwrap_or(0);
-                }
-                KEY_POWER_LED_OFF_UPTIME => {
-                    state.power_led_off.get_or_insert_default().ec_uptime =
-                        value.parse().unwrap_or(0);
-                }
-                KEY_POWER_LED_OFF_WRITTEN_AT => {
-                    state.power_led_off.get_or_insert_default().written_at =
-                        value.parse().unwrap_or(0);
+                KEY_POWER_LED_OFF_STAMP => {
+                    state.power_led_off = EcStamp::parse(value);
                 }
                 // Weighed here rather than after the loop, so that keeping a
-                // stamp and dropping a stale one cannot come apart: a stamp
-                // naming an earlier boot is no evidence about this one, and
-                // the panel comes up reporting, so one wrongly kept would
-                // claim touch is off on hardware that has it on.
-                KEY_TOUCHSCREEN_OFF_BOOT => {
+                // stamp and dropping a stale one cannot come apart.
+                KEY_TOUCHSCREEN_OFF_HOST => {
                     state.touchscreen_off =
-                        Some(BootStamp::stored(value)).filter(BootStamp::still_current);
+                        HostStamp::parse(value).filter(HostStamp::still_current);
                 }
                 _ => {}
             }
@@ -140,28 +124,23 @@ pub(crate) fn save(state: &State) {
     // Absent rather than zeroed while the LED is lit: the stamp only ever
     // withdraws a claim, and a zeroed one would withdraw every time.
     let power_led_off = match state.power_led_off {
-        Some(stamp) => format!(
-            "{KEY_POWER_LED_OFF_UPTIME}={}\n{KEY_POWER_LED_OFF_WRITTEN_AT}={}\n",
-            stamp.ec_uptime, stamp.written_at
-        ),
+        Some(stamp) => format!("{KEY_POWER_LED_OFF_STAMP}={}\n", stamp.stored()),
         None => String::new(),
     };
     // Absent rather than false while the panel is reporting, as the LED's
     // stamp is: a panel nothing has switched needs no record, and the stamp
     // being there is the whole of the claim that one was made.
     let touchscreen_off = match &state.touchscreen_off {
-        Some(stamp) => format!("{KEY_TOUCHSCREEN_OFF_BOOT}={}\n", stamp.as_str()),
+        Some(stamp) => format!("{KEY_TOUCHSCREEN_OFF_HOST}={}\n", stamp.stored()),
         None => String::new(),
     };
     let content = format!(
         "{KEY_HAPTIC_INTENSITY}={}\n{KEY_CLICK_FORCE}={}\n{KEY_CURRENT_LIMIT}={}\n\
-         {KEY_CURRENT_LIMIT_UPTIME}={}\n{KEY_CURRENT_LIMIT_WRITTEN_AT}={}\n\
-         {power_led_off}{touchscreen_off}",
+         {KEY_CURRENT_LIMIT_STAMP}={}\n{power_led_off}{touchscreen_off}",
         state.haptic_intensity,
         state.click_force,
         state.charge_current_limit.milliamps,
-        state.charge_current_limit.stamp.ec_uptime,
-        state.charge_current_limit.stamp.written_at,
+        state.charge_current_limit.stamp.stored(),
     );
     if let Err(e) = std::fs::write(STATE_FILE, content) {
         eprintln!("failed to persist state: {e}");

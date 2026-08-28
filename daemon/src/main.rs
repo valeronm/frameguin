@@ -8,8 +8,8 @@
 mod board;
 mod ec;
 mod gpio;
-mod host;
 mod led;
+mod lifetime;
 mod panel;
 mod power_led;
 mod probe;
@@ -27,8 +27,8 @@ use zbus::message::Header;
 use zbus::{Connection, fdo, interface};
 use zbus_polkit::policykit1::{AuthorityProxy, CheckAuthorizationFlags, Subject};
 
-use crate::ec::{Ec, EcStamp};
-use crate::host::BootStamp;
+use crate::ec::Ec;
+use crate::lifetime::{EcStamp, HostStamp};
 use crate::power_led::PowerLedWrite;
 use crate::state::{ChargeCurrentLimit, State};
 
@@ -53,11 +53,10 @@ struct Daemon {
     /// The kernel holds the LED state itself, so what is mirrored here is only
     /// the date of the write — see [`power_led`] for what that dating settles.
     power_led_off: Mutex<Option<EcStamp>>,
-    /// The boot this daemon switched the touch panel off in, and None while
-    /// it is reporting. Mirrored on the one route into the panel that keeps
-    /// no record of what it was told, and unread on the other; dated because
-    /// the panel is expected to come up reporting — see [`touchscreen`].
-    touchscreen_off: Mutex<Option<BootStamp>>,
+    /// When this daemon switched the touch panel off, and None while it is
+    /// reporting. Read only on the panel route, the pad route carrying the
+    /// level itself.
+    touchscreen_off: Mutex<Option<HostStamp>>,
 }
 
 fn ec_err(e: impl std::fmt::Debug) -> fdo::Error {

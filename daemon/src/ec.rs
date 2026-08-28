@@ -24,6 +24,7 @@ use framework_lib::chromium_ec::{CrosEc, EcResult};
 use framework_lib::power;
 
 use crate::board;
+use crate::lifetime::EcStamp;
 
 /// Reaching the pack directly, past the EC's own copy of what it says. The
 /// port and address are the same on every Framework board — one Nuvoton EC,
@@ -82,8 +83,8 @@ const SB_TERMINATE_DISCHARGE: u16 = 1 << 11;
 /// Where an answer comes from is this type's business and no caller's: most
 /// are read on the spot, a few are remembered, and nothing outside this module
 /// can tell which — that is what makes remembering more of them later a change
-/// here rather than everywhere. A value is only remembered where asking again
-/// could not give a different answer, with one stated exception in [`Memo`].
+/// here rather than everywhere. A value is remembered only where asking again
+/// could not change what the answer settles.
 pub(crate) struct Ec {
     ec: Mutex<CrosEc>,
     memo: Memo,
@@ -104,6 +105,9 @@ struct Memo {
     /// When the pack was built, which the EC publishes nowhere and which
     /// cannot change at all.
     manufacture_date: OnceLock<Option<String>>,
+    /// Both clocks read at one moment, for weighing stamps against. A failed
+    /// read is not kept.
+    ec_clocks: OnceLock<(u64, u64)>,
 }
 
 /// Remembers what a read answered, absence included, and asks only once.
@@ -156,7 +160,7 @@ impl Ec {
     pub(crate) fn set_charge_current_limit(&self, milliamps: u32) -> EcResult<EcStamp> {
         let ec = self.ec();
         ec.set_charge_current_limit(milliamps, None)?;
-        EcStamp::now(&ec)
+        stamp(&ec)
     }
 
     /// The EC's whole memmap battery block.
@@ -313,47 +317,30 @@ impl Ec {
 
     /// Dates a write about to be made against the EC's own life.
     pub(crate) fn stamp(&self) -> EcResult<EcStamp> {
-        EcStamp::now(&self.ec())
+        stamp(&self.ec())
     }
 
     /// Whether the EC has been running without interruption since `stamp` was
     /// taken — which is to say whether what it was holding then is still there.
     pub(crate) fn same_boot_as(&self, stamp: EcStamp) -> EcResult<bool> {
-        Ok(stamp.same_boot(uptime_secs(&self.ec())?, unix_now()))
+        let (ec_uptime, now) = self.ec_clocks()?;
+        Ok(stamp.same_boot(ec_uptime, now))
+    }
+
+    /// Never a date for a write, which [`stamp`] reads afresh for.
+    fn ec_clocks(&self) -> EcResult<(u64, u64)> {
+        if let Some(clocks) = self.memo.ec_clocks.get() {
+            return Ok(*clocks);
+        }
+        let clocks = (uptime_secs(&self.ec())?, unix_now());
+        Ok(*self.memo.ec_clocks.get_or_init(|| clocks))
     }
 }
 
-/// A write dated against the EC's own life: seconds the EC had been running
-/// when it happened, paired with the wall time of that same moment.
-#[derive(Clone, Copy, Default)]
-pub(crate) struct EcStamp {
-    pub(crate) ec_uptime: u64,
-    pub(crate) written_at: u64,
-}
-
-impl EcStamp {
-    /// Taken against both clocks at once, which is what makes a later reading
-    /// of the EC's comparable to the host's.
-    fn now(ec: &CrosEc) -> EcResult<Self> {
-        Ok(Self {
-            ec_uptime: uptime_secs(ec)?,
-            written_at: unix_now(),
-        })
-    }
-
-    /// Whether the EC has been running without interruption since. An EC that
-    /// has been up for less time than the write implies has restarted, and a
-    /// restart drops everything the EC was holding in RAM. The comparison
-    /// carries slack because the EC keeps its own time — its firmware
-    /// documents 1% or worse frequency error against the host clock.
-    ///
-    /// EC uptime is a 32-bit millisecond counter, so this reads as a restart
-    /// once every 49 days of EC uptime; what was written then shows as gone
-    /// until it is set again.
-    fn same_boot(self, ec_uptime: u64, now: u64) -> bool {
-        let expected = self.ec_uptime + now.saturating_sub(self.written_at);
-        expected.saturating_sub(ec_uptime) <= (expected / 20).max(60)
-    }
+/// Both clocks at one moment, which is what makes a later reading of the EC's
+/// comparable to the host's.
+fn stamp(ec: &CrosEc) -> EcResult<EcStamp> {
+    Ok(EcStamp::taken(uptime_secs(ec)?, unix_now()))
 }
 
 fn unix_now() -> u64 {
@@ -504,7 +491,7 @@ fn charge_flow(
 #[cfg(test)]
 mod tests {
     use super::{
-        ChargeSignals, EcStamp, SB_TERMINATE_CHARGE, SB_TERMINATE_DISCHARGE, alarms, charge_flow,
+        ChargeSignals, SB_TERMINATE_CHARGE, SB_TERMINATE_DISCHARGE, alarms, charge_flow,
         decicelsius, ec_power_led_level, manufactured_iso, wire, wire_power_led_level,
     };
 
@@ -686,51 +673,5 @@ mod tests {
             milliamps: 2320,
         };
         assert_eq!(charge_flow(charging), wire::ChargeFlow::Charging);
-    }
-
-    fn taken(ec_uptime: u64, written_at: u64) -> EcStamp {
-        EcStamp {
-            ec_uptime,
-            written_at,
-        }
-    }
-
-    #[test]
-    fn a_write_moments_ago_is_still_the_same_boot() {
-        let stamp = taken(500_000, 1_000_000);
-        assert!(stamp.same_boot(500_002, 1_000_002));
-    }
-
-    #[test]
-    fn an_ec_that_has_run_the_elapsed_time_is_still_the_same_boot() {
-        // A day passes with the EC up throughout.
-        let stamp = taken(500_000, 1_000_000);
-        assert!(stamp.same_boot(586_400, 1_086_400));
-    }
-
-    #[test]
-    fn an_ec_that_restarted_is_a_different_boot() {
-        // An hour of wall clock, but the EC reports a minute of uptime.
-        let stamp = taken(500_000, 1_000_000);
-        assert!(!stamp.same_boot(60, 1_003_600));
-    }
-
-    /// The EC's own clock is documented as 1% or worse against the host's, so
-    /// a tolerance that didn't scale would call a long-standing write expired.
-    #[test]
-    fn clock_drift_over_a_long_uptime_is_not_a_restart() {
-        let stamp = taken(0, 1_000_000);
-        // Ten days later the EC is 1% short of the elapsed wall time.
-        let elapsed = 10 * 86_400;
-        assert!(stamp.same_boot(elapsed - elapsed / 100, 1_000_000 + elapsed));
-    }
-
-    #[test]
-    fn a_recent_write_gets_the_floor_not_the_percentage() {
-        // Seconds after the write, five percent of nothing is nothing, so the
-        // 60s floor is what keeps a fresh one from reading as expired.
-        let stamp = taken(10, 1_000_000);
-        assert!(stamp.same_boot(10, 1_000_030));
-        assert!(!stamp.same_boot(10, 1_000_200));
     }
 }

@@ -104,9 +104,10 @@ it and the non-obvious constraints.
   then the thing that precedence decides, which is whether the control can be
   read at all. The rest divide by job: `board.rs`
   the DMI reads — the vendor deciding whether there is an EC to open, the
-  product name deciding which board's pads are which — `host.rs` what is true
-  of this *run* where `board.rs` answers for the machine, which is the
-  difference between a fact a reboot changes and one it does not, `state.rs`
+  product name deciding which board's pads are which — `lifetime.rs` what
+  holds a mirrored value and whether it still holds it, where `board.rs`
+  answers for the machine, which is the difference between a fact a reboot or
+  a sleep changes and one that outlives both, `state.rs`
   the mirror for what cannot be read back, `probe.rs` the probe rule beside
   the code it governs. Each module's own doc carries why; what is worth saying
   here is what none of them can. `ec.rs` is every EC call: `Ec` is the only
@@ -159,14 +160,14 @@ it and the non-obvious constraints.
   pad — and on the route with no pad, nothing: it skips no write at all. A
   mirror is worth skipping on only where the event that invalidates it is the
   one its stamp catches, which holds for the charge current limit and not
-  here: the panel's mirror is dated against the boot, and what moves the panel
-  inside a boot is dated by nothing, so within one it is no fresher than the
-  client's own idea. What decides is
+  here: the panel's mirror catches the boot and the sleep, and a lid opening
+  moves the panel with neither, so within one waking run it is no fresher
+  than the client's own idea. What decides is
   whether a client can be stale, not whether the value is
   readable: the keyboard backlight is both readable and written by the EC, and
   skips nothing, because the window polls it while mapped and so is not.
 - **A date is best effort, never a gate.** Where a write is dated — the power
-  LED's darkness against the EC, the touch panel's against the boot — a date
+  LED's darkness against the EC, the touch panel's against the host — a date
   that cannot be taken costs the record and not the write. What a stamp buys
   is knowing later whether the value still stands, and that is never worth
   refusing a write the hardware would have taken: it trades a control the user
@@ -243,12 +244,19 @@ asserted and its reason a file away.
   the mirror is whatever holds the state it claims: nothing for the touchpad,
   which keeps its own in flash; the EC's uptime for the power LED's darkness
   and for the charge current limit, whose mirror expires with the EC that took
-  it; the host's boot id for the touch panel, whose controller is expected to
-  come up reporting. Which holder a mirror belongs to is settled by evidence
-  and not by which stamp is nearer: the charge current limit is the EC's to
+  it; the host's own life for the touch panel — its boot together with the
+  time it has spent asleep, since the controller is expected to come up
+  reporting from a reboot and from a resume alike. Which holder a mirror
+  belongs to is settled by evidence and not by which stamp is nearer: the
+  charge current limit is the EC's to
   hold, firmware having been shown to leave it where the charge limit and the
-  LED level are both re-asserted at POST, so its EC stamp wants no boot stamp
-  beside it.
+  LED level are both re-asserted at POST, so its EC stamp wants no host stamp
+  beside it. Weighing an EC stamp costs one host command for the whole daemon
+  run rather than one per read, and the hardware is what settles that: an EC
+  restart takes the machine down with it, so no run spans one and a single
+  reading of its clock answers for every stamp that run weighs. The host's
+  boot is memoized for the same reason; its sleep is not, being the one thing
+  here that moves under a running daemon.
   The touchscreen is both, and which it is depends on the
   route: the pad carries the level, so where a pad is the control the getter
   asks the hardware, and where the panel's own command is, there is nothing
@@ -262,6 +270,13 @@ asserted and its reason a file away.
   re-reads on being mapped; the tray asks when its menu opens, which is a
   request it cannot wait for, so the first menu after such a change still
   draws the old value and the one after it is right.
+- `lifetime.rs` keeps a stamp per holder rather than one stamp with a holder
+  field, so weighing a write dated against the EC by the host's life is a
+  build error and not a review catch. A stamp that cannot be weighed is never
+  believed, and the two ways of acting on that are both right where they are
+  used: the power LED withdraws the claim, since the kernel's account is
+  there either way, while the charge current limit answers with the error,
+  the reading it could not take being the one its answer needed.
 - What the pack is asked directly falls into two groups, and the split is why
   one has a capability and the other does not. The temperature, cell voltages
   and alarms have no fallback, so they are one operation behind
