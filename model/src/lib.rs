@@ -16,18 +16,4 @@ pub mod control;
 pub mod part;
 
 #[cfg(test)]
-pub(crate) mod testing {
-    use std::task::{Context, Poll, Waker};
-
-    /// Polls once: a stub answers on the spot, so a future here never pends.
-    pub(crate) fn ready<T>(future: impl Future<Output = T>) -> T {
-        let mut future = Box::pin(future);
-        match future
-            .as_mut()
-            .poll(&mut Context::from_waker(Waker::noop()))
-        {
-            Poll::Ready(value) => value,
-            Poll::Pending => unreachable!("a stub never pends"),
-        }
-    }
-}
+pub(crate) mod testing;

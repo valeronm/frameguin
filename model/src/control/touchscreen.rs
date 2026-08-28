@@ -62,46 +62,38 @@ mod tests {
     use frameguin_wire::{DeviceError, DeviceResult as Result, TouchscreenControl};
 
     use super::{Touchscreen, state_at, state_labels, state_row};
-    use crate::testing::ready;
+    use crate::testing::{Fault, ready};
 
-    /// A panel that answers what it was built with, refuses every write
-    /// once told to, and answers every read with `failing` where one is set.
+    /// A panel that answers what it was built with.
     struct Stub {
         enabled: Cell<bool>,
-        refusing: Cell<bool>,
-        failing: Option<DeviceError>,
+        fault: Fault,
     }
 
     impl Stub {
-        fn answering() -> Self {
-            Self {
-                enabled: Cell::new(true),
-                refusing: Cell::new(false),
-                failing: None,
-            }
-        }
-
         fn new() -> Rc<Self> {
-            Rc::new(Self::answering())
+            Self::with(Fault::default())
         }
 
         fn failing(error: DeviceError) -> Rc<Self> {
+            Self::with(Fault::failing(error))
+        }
+
+        fn with(fault: Fault) -> Rc<Self> {
             Rc::new(Self {
-                failing: Some(error),
-                ..Self::answering()
+                enabled: Cell::new(true),
+                fault,
             })
         }
     }
 
     impl TouchscreenControl for Stub {
         async fn enabled(&self) -> Result<bool> {
-            self.failing.clone().map_or(Ok(self.enabled.get()), Err)
+            self.fault.read(self.enabled.get())
         }
 
         async fn set_enabled(&self, enabled: bool) -> Result<()> {
-            if self.refusing.get() {
-                return Err(DeviceError::AccessDenied("not authorized".into()));
-            }
+            self.fault.write()?;
             self.enabled.set(enabled);
             Ok(())
         }
@@ -139,7 +131,7 @@ mod tests {
     fn a_refused_write_carries_the_refusal() {
         let stub = Stub::new();
         let touchscreen = Touchscreen::new(stub.clone());
-        stub.refusing.set(true);
+        stub.fault.refuse();
         assert_eq!(
             ready(touchscreen.set_enabled(false)),
             Err(DeviceError::AccessDenied("not authorized".into()))

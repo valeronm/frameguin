@@ -123,54 +123,38 @@ mod tests {
     use frameguin_wire::{DeviceError, DeviceResult as Result, PowerLedControl, PowerLedLevel};
 
     use super::{PowerLed, Snapshot, rank};
-    use crate::testing::ready;
+    use crate::testing::{Fault, ready};
 
-    /// An LED answering what it was built with, refusing every write once
-    /// told to, and answering every read with `failing` where one is set.
+    /// An LED answering what it was built with.
     struct Stub {
         percent: Cell<u8>,
         level: Cell<PowerLedLevel>,
         offered: Vec<PowerLedLevel>,
-        refusing: Cell<bool>,
-        failing: Option<DeviceError>,
+        fault: Fault,
     }
 
     impl Stub {
-        fn answering() -> Self {
-            Self {
-                percent: Cell::new(55),
-                level: Cell::new(PowerLedLevel::High),
-                offered: PowerLedLevel::ALL.to_vec(),
-                refusing: Cell::new(false),
-                failing: None,
-            }
-        }
-
         fn new() -> Rc<Self> {
-            Rc::new(Self::answering())
+            Self::with(Fault::default())
         }
 
         fn failing(error: DeviceError) -> Rc<Self> {
-            Rc::new(Self {
-                failing: Some(error),
-                ..Self::answering()
-            })
+            Self::with(Fault::failing(error))
         }
 
-        fn refuse(&self) -> Result<()> {
-            if self.refusing.get() {
-                Err(DeviceError::AccessDenied("not authorized".into()))
-            } else {
-                Ok(())
-            }
+        fn with(fault: Fault) -> Rc<Self> {
+            Rc::new(Self {
+                percent: Cell::new(55),
+                level: Cell::new(PowerLedLevel::High),
+                offered: PowerLedLevel::ALL.to_vec(),
+                fault,
+            })
         }
     }
 
     impl PowerLedControl for Stub {
         async fn brightness(&self) -> Result<(u8, PowerLedLevel)> {
-            self.failing
-                .clone()
-                .map_or(Ok((self.percent.get(), self.level.get())), Err)
+            self.fault.read((self.percent.get(), self.level.get()))
         }
 
         async fn levels(&self) -> Result<Vec<PowerLedLevel>> {
@@ -178,13 +162,13 @@ mod tests {
         }
 
         async fn set_level(&self, level: PowerLedLevel) -> Result<()> {
-            self.refuse()?;
+            self.fault.write()?;
             self.level.set(level);
             Ok(())
         }
 
         async fn set_brightness(&self, percent: u8) -> Result<()> {
-            self.refuse()?;
+            self.fault.write()?;
             self.percent.set(percent);
             self.level.set(PowerLedLevel::Custom);
             Ok(())
@@ -226,7 +210,7 @@ mod tests {
     fn a_refused_write_carries_the_refusal() {
         let stub = Stub::new();
         let led = PowerLed::new(stub.clone(), PowerLedLevel::ALL.to_vec());
-        stub.refusing.set(true);
+        stub.fault.refuse();
         assert_eq!(
             ready(led.set_level(PowerLedLevel::Low)),
             Err(DeviceError::AccessDenied("not authorized".into()))

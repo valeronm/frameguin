@@ -422,7 +422,7 @@ mod tests {
         charge_speed_labels, charge_speed_row, power_label, retention_label, volts, watt_hours,
         with_custom_row,
     };
-    use crate::testing::ready;
+    use crate::testing::{Fault, ready};
 
     /// A 4640 mAh pack, the Laptop 13's.
     const CAPACITY: u32 = 4640;
@@ -461,48 +461,34 @@ mod tests {
         }
     }
 
-    /// A pack answering what it was built with, refusing every write once
-    /// told to, and answering every read with `failing` where one is set.
+    /// A pack answering what it was built with.
     struct Stub {
         limit: Cell<u8>,
         cap: Cell<u32>,
-        refusing: Cell<bool>,
-        failing: Option<DeviceError>,
+        fault: Fault,
     }
 
     impl Stub {
-        fn answering() -> Self {
-            Self {
-                limit: Cell::new(100),
-                cap: Cell::new(NO_CHARGE_CURRENT_LIMIT),
-                refusing: Cell::new(false),
-                failing: None,
-            }
-        }
-
         fn new() -> Rc<Self> {
-            Rc::new(Self::answering())
+            Self::with(Fault::default())
         }
 
         fn failing(error: DeviceError) -> Rc<Self> {
-            Rc::new(Self {
-                failing: Some(error),
-                ..Self::answering()
-            })
+            Self::with(Fault::failing(error))
         }
 
-        fn refuse(&self) -> Result<()> {
-            if self.refusing.get() {
-                Err(DeviceError::AccessDenied("not authorized".into()))
-            } else {
-                Ok(())
-            }
+        fn with(fault: Fault) -> Rc<Self> {
+            Rc::new(Self {
+                limit: Cell::new(100),
+                cap: Cell::new(NO_CHARGE_CURRENT_LIMIT),
+                fault,
+            })
         }
     }
 
     impl BatteryControl for Stub {
         async fn info(&self) -> Result<BatteryInfo> {
-            self.failing.clone().map_or(Ok(block()), Err)
+            self.fault.read(block())
         }
 
         async fn condition(&self) -> Result<BatteryCondition> {
@@ -514,9 +500,7 @@ mod tests {
         }
 
         async fn features(&self) -> Result<Vec<BatteryFeature>> {
-            self.failing
-                .clone()
-                .map_or(Ok(vec![BatteryFeature::ChargeLimit]), Err)
+            self.fault.read(vec![BatteryFeature::ChargeLimit])
         }
 
         async fn charge_limit(&self) -> Result<u8> {
@@ -524,7 +508,7 @@ mod tests {
         }
 
         async fn set_charge_limit(&self, percent: u8) -> Result<bool> {
-            self.refuse()?;
+            self.fault.write()?;
             self.limit.set(percent);
             Ok(true)
         }
@@ -534,7 +518,7 @@ mod tests {
         }
 
         async fn set_charge_current_limit(&self, milliamps: u32) -> Result<bool> {
-            self.refuse()?;
+            self.fault.write()?;
             self.cap.set(milliamps);
             Ok(true)
         }
@@ -574,7 +558,7 @@ mod tests {
     fn a_refused_write_carries_the_refusal() {
         let stub = Stub::new();
         let battery = Battery::new(stub.clone(), Vec::new());
-        stub.refusing.set(true);
+        stub.fault.refuse();
         assert_eq!(
             ready(battery.set_charge_limit(80)),
             Err(DeviceError::AccessDenied("not authorized".into()))

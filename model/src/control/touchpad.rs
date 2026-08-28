@@ -112,68 +112,50 @@ mod tests {
     };
 
     use super::{Snapshot, Touchpad, haptic_at, haptic_row};
-    use crate::testing::ready;
+    use crate::testing::{Fault, ready};
 
-    /// A pad that answers what it was built with, refuses every write once
-    /// told to, and answers every read with `failing` where one is set.
+    /// A pad that answers what it was built with.
     struct Stub {
         haptic_intensity: Cell<u8>,
         click_force: Cell<ClickForce>,
-        refusing: Cell<bool>,
-        failing: Option<DeviceError>,
+        fault: Fault,
     }
 
     impl Stub {
-        fn answering() -> Self {
-            Self {
-                haptic_intensity: Cell::new(50),
-                click_force: Cell::new(ClickForce::Low),
-                refusing: Cell::new(false),
-                failing: None,
-            }
-        }
-
         fn new() -> Rc<Self> {
-            Rc::new(Self::answering())
+            Self::with(Fault::default())
         }
 
         fn failing(error: DeviceError) -> Rc<Self> {
+            Self::with(Fault::failing(error))
+        }
+
+        fn with(fault: Fault) -> Rc<Self> {
             Rc::new(Self {
-                failing: Some(error),
-                ..Self::answering()
+                haptic_intensity: Cell::new(50),
+                click_force: Cell::new(ClickForce::Low),
+                fault,
             })
-        }
-
-        fn refuse(&self) -> Result<()> {
-            if self.refusing.get() {
-                Err(DeviceError::AccessDenied("not authorized".into()))
-            } else {
-                Ok(())
-            }
-        }
-
-        fn answer<T>(&self, value: T) -> Result<T> {
-            self.failing.clone().map_or(Ok(value), Err)
         }
     }
 
     impl TouchpadControl for Stub {
         async fn haptic_intensity(&self) -> Result<u8> {
-            self.answer(self.haptic_intensity.get())
+            self.fault.read(self.haptic_intensity.get())
         }
 
         async fn set_haptic_intensity(&self, percent: u8) -> Result<()> {
-            self.refuse()?;
+            self.fault.write()?;
             self.haptic_intensity.set(percent);
             Ok(())
         }
 
         async fn click_force(&self) -> Result<ClickForce> {
-            self.answer(self.click_force.get())
+            self.fault.read(self.click_force.get())
         }
 
         async fn set_click_force(&self, force: ClickForce) -> Result<()> {
-            self.refuse()?;
+            self.fault.write()?;
             self.click_force.set(force);
             Ok(())
         }
@@ -228,7 +210,7 @@ mod tests {
     fn a_refused_write_carries_the_refusal() {
         let stub = Stub::new();
         let touchpad = Touchpad::new(stub.clone());
-        stub.refusing.set(true);
+        stub.fault.refuse();
         assert_eq!(
             ready(touchpad.set_haptic_intensity(100)),
             Err(DeviceError::AccessDenied("not authorized".into()))
