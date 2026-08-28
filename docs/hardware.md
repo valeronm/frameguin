@@ -35,6 +35,7 @@ Every heading in the file appears here.
 
 <!-- GitHub's slugger drops the ² from "I²C"; that anchor is right as written. -->
 
+- [What survives what](#what-survives-what)
 - [Reaching the EC](#reaching-the-ec)
   - [The EC's uptime clock](#the-ecs-uptime-clock)
 - [Battery](#battery)
@@ -60,6 +61,29 @@ Every heading in the file appears here.
 - [Touchscreen](#touchscreen)
   - [Touchscreen persistence](#touchscreen-persistence)
 - [Sources](#sources)
+
+## What survives what
+
+Every control chapter's persistence section in one grid. Each row links to the
+section that carries the mechanism and how it was established; nothing here is
+stronger than the section it points at, so a row reading Unknown, or one whose
+section marks its finding untested, means exactly that.
+
+| Control | Suspend | Reboot | EC restart |
+|---|---|---|---|
+| [Charge limit](#charging-persistence) | Kept | **Lost** | Kept |
+| [Charge current limit](#charging-persistence) | Kept | Kept | **Lost** |
+| [Power button LED level](#power-button-led-persistence) | Kept | **Lost** | Kept |
+| [Power button LED darkness](#power-button-led-persistence) | Kept | **Lost** | **Lost** |
+| [Charging LED colour](#charging-led-persistence) | Kept | **Lost** | **Lost** |
+| [Keyboard backlight](#keyboard-backlight-persistence) | Kept | Kept | Kept |
+| [Haptic touchpad](#haptic-touchpad-persistence) | Kept | Kept | Kept |
+| [Touchscreen, pad route](#touchscreen-persistence) | **Lost** | **Lost** | not a case |
+| [Touchscreen, panel route](#touchscreen-persistence) | Unknown | Unknown | Unknown |
+
+The pad route loses its setting to a fourth event the columns cannot carry —
+the lid opening — and the panel route is the Laptop 12's, where none of the
+pad's findings apply.
 
 ## Reaching the EC
 
