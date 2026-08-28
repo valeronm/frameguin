@@ -33,6 +33,11 @@ pub const VENDOR: &str = "Framework";
 /// none; 0 at the other end would mean never charge, which no setter accepts.
 pub const NO_CHARGE_CURRENT_LIMIT: u32 = u32::MAX;
 
+/// The lowest charge limit `SetChargeLimit` accepts, and so a slider's
+/// floor. Spelled here because both ends must agree on it and neither can
+/// see the other's copy.
+pub const MIN_CHARGE_LIMIT: u8 = 20;
+
 /// Every intensity `SetHapticIntensity` accepts. The touchpad firmware
 /// implements five steps rather than the 0-100 its HID descriptor advertises,
 /// and this is the one control whose legal arguments the app cannot look up
@@ -45,20 +50,24 @@ pub const HAPTIC_INTENSITY_LEVELS: [u8; 5] = [0, 25, 50, 75, 100];
 #[zvariant(crate = "zbus::zvariant", signature = "s")]
 #[serde(rename_all = "kebab-case")]
 pub enum Capability {
-    /// A pack the EC's memmap block answers for, and so [`BatteryInfo`] — the
-    /// one reading here that no setter pairs with. Named for the pack rather
-    /// than for a method, because what a board either has or hasn't is the
-    /// battery; which calls that makes answerable is this end's business.
-    Battery,
-    ChargeLimit,
-    ChargeCurrentLimit,
     KeyboardBacklight,
+}
+
+/// What a battery offers past the block every pack answers with, each a
+/// separate question of the hardware: the pack's own report over the EC's
+/// passthrough, and the two limits the charger takes.
+#[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug)]
+#[zvariant(crate = "zbus::zvariant", signature = "s")]
+#[serde(rename_all = "kebab-case")]
+pub enum BatteryFeature {
     /// What the pack says about itself past the EC's summary of it — its
     /// temperature, its cell voltages, and the alarms it is raising. One name
     /// for all three: they are the same device over the same transport,
-    /// reached by the same passthrough, so a board answering for one answers
+    /// reached by the same passthrough, so a pack answering for one answers
     /// for the others.
-    BatteryCondition,
+    Condition,
+    ChargeLimit,
+    ChargeCurrentLimit,
 }
 
 /// Something wrong with the pack, as the pack itself judges it — named rather
@@ -167,7 +176,7 @@ pub struct BatteryState {
 /// What the pack says about *itself* is deliberately absent — its temperature,
 /// its cells, its alarms. Those are reached over the EC's I2C passthrough
 /// rather than read from this block, cost a transfer apiece, and are asked for
-/// separately under [`Capability::BatteryCondition`].
+/// separately under [`BatteryFeature::Condition`].
 #[derive(Serialize, Deserialize, Type, Clone, PartialEq, Eq, Debug)]
 #[zvariant(crate = "zbus::zvariant")]
 pub struct BatteryInfo {
@@ -255,6 +264,7 @@ impl PowerLedLevel {
 #[serde(rename_all = "kebab-case")]
 pub enum PartKind {
     Mainboard,
+    Battery,
     Memory,
     Touchpad,
     Touchscreen,
@@ -482,19 +492,48 @@ pub trait PowerLedControl {
     async fn set_brightness(&self, percent: u8) -> DeviceResult<()>;
 }
 
+/// The battery: the pack the EC's block answers for, and the charger that
+/// shapes what goes into it.
+#[allow(
+    async_fn_in_trait,
+    reason = "the app's implementor and its callers share one thread; the daemon's is checked as a concrete type"
+)]
+pub trait BatteryControl {
+    /// One walk of the EC's block. The charge is the one value here that
+    /// changes without anyone setting it, so a caller showing it re-reads.
+    async fn info(&self) -> DeviceResult<BatteryInfo>;
+    /// What the pack says about itself, offered only under
+    /// [`BatteryFeature::Condition`]: a transfer per cell plus two, to a
+    /// device the EC is also driving.
+    async fn condition(&self) -> DeviceResult<BatteryCondition>;
+    /// What this battery offers past its block; fixed for the device's run.
+    async fn features(&self) -> DeviceResult<Vec<BatteryFeature>>;
+    async fn charge_limit(&self) -> DeviceResult<u8>;
+    /// True when the hardware was written; false when the value was found
+    /// already in place and left alone. The one place the bus's skip shows
+    /// in a contract: a caller announces a change and not a request for
+    /// what already held, and only the bus, which skips to spare the
+    /// authorization prompt, can tell the two apart — the device writes
+    /// whatever it is handed and answers true.
+    async fn set_charge_limit(&self, percent: u8) -> DeviceResult<bool>;
+    /// The cap in mA, or [`NO_CHARGE_CURRENT_LIMIT`] when nothing caps it.
+    /// The EC cannot be asked what it holds, so this is what was last
+    /// written, and reports no limit once the EC has restarted and dropped
+    /// the value.
+    async fn charge_current_limit(&self) -> DeviceResult<u32>;
+    /// Caps how fast the battery charges; [`NO_CHARGE_CURRENT_LIMIT`] lifts
+    /// the cap. Zero is refused: the EC clamps its requested current against
+    /// this value, so zero stops charging altogether. Returns whether the
+    /// hardware was written, as `set_charge_limit` does.
+    async fn set_charge_current_limit(&self, milliamps: u32) -> DeviceResult<bool>;
+}
+
 // No default_service or default_path: they would restate BUS_NAME and
 // OBJECT_PATH as literals the attribute can't read a const into, leaving two
 // spellings of each with nothing checking they agree. Callers name them once,
 // through the proxy builder.
 #[zbus::proxy(interface = "io.github.valeronm.Frameguin1")]
 pub trait Frameguin {
-    async fn get_charge_limit(&self) -> zbus::Result<u8>;
-    /// True when the daemon wrote; false when the value was already set.
-    async fn set_charge_limit(&self, percent: u8) -> zbus::Result<bool>;
-    async fn get_charge_current_limit(&self) -> zbus::Result<u32>;
-    async fn set_charge_current_limit(&self, milliamps: u32) -> zbus::Result<bool>;
-    async fn get_battery_info(&self) -> zbus::Result<BatteryInfo>;
-    async fn get_battery_condition(&self) -> zbus::Result<BatteryCondition>;
     async fn get_keyboard_backlight(&self) -> zbus::Result<u8>;
     async fn set_keyboard_backlight(&self, percent: u8) -> zbus::Result<()>;
     async fn get_capabilities(&self) -> zbus::Result<Vec<Capability>>;
@@ -532,6 +571,19 @@ pub trait PowerLed {
     async fn get_levels(&self) -> zbus::Result<Vec<PowerLedLevel>>;
     async fn set_level(&self, level: PowerLedLevel) -> zbus::Result<()>;
     async fn set_brightness(&self, percent: u8) -> zbus::Result<()>;
+}
+
+/// The battery, on its own interface at the same path and absent from the
+/// bus where no pack answered in the EC's block.
+#[zbus::proxy(interface = "io.github.valeronm.Frameguin1.Battery")]
+pub trait Battery {
+    async fn get_info(&self) -> zbus::Result<BatteryInfo>;
+    async fn get_condition(&self) -> zbus::Result<BatteryCondition>;
+    async fn get_features(&self) -> zbus::Result<Vec<BatteryFeature>>;
+    async fn get_charge_limit(&self) -> zbus::Result<u8>;
+    async fn set_charge_limit(&self, percent: u8) -> zbus::Result<bool>;
+    async fn get_charge_current_limit(&self) -> zbus::Result<u32>;
+    async fn set_charge_current_limit(&self, milliamps: u32) -> zbus::Result<bool>;
 }
 
 #[cfg(test)]

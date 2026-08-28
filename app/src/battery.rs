@@ -12,21 +12,22 @@
 //! already open is found in the application's own window list rather than
 //! remembered in a slot that a closed window would leave stale.
 //!
-//! What each value is *called* stays in [`crate::format`] with the rest of the
-//! labels; which rows there are and what fills them is this module's.
+//! What each value is *called* is `frameguin_model::control::battery`'s, with
+//! the rest of the words; which rows there are and what fills them is this
+//! module's.
 
 use std::rc::Rc;
 
 use adw::prelude::*;
-use frameguin_wire::{Capability, cause};
+use frameguin_model::control::battery::{
+    alarms_label, capacity, cell_spread, cell_voltages, charge_direction, charger_label, milliamps,
+    percent_label, power_label, retention_label, temperature, text_or_unknown, volts,
+};
+use frameguin_wire::BatteryFeature;
 use gtk4 as gtk;
 use gtk4::gio;
 use gtk4::glib;
 
-use crate::format::{
-    alarms_label, capacity, cell_spread, cell_voltages, charge_direction, charger_label, milliamps,
-    percent_label, power_label, retention_label, temperature, text_or_unknown, volts,
-};
 use crate::reading::{Feed, Reading, Wants, show_while_mapped};
 use crate::report::{self, Shell, value_row};
 
@@ -184,15 +185,19 @@ fn build(app: &adw::Application, feed: &Rc<Feed>) -> adw::Window {
 
     let feed = feed.clone();
     glib::spawn_future_local(async move {
-        // Asked only for the rows that a board can lack. The report is
+        // Asked only for the rows that a pack can lack. The report is
         // reachable only from a reading the board already has, so nothing else
         // here is in question by the time this window exists — and an ask that
-        // fails leaves those rows out, which is the same as a board without
+        // fails leaves those rows out, which is the same as a pack without
         // them.
-        let caps = feed.capabilities().await.unwrap_or_default();
-        let wants = Wants {
-            condition: caps.has(Capability::BatteryCondition),
-        };
+        let condition = feed.probe().await.is_ok_and(|probe| {
+            probe
+                .controls
+                .battery
+                .as_ref()
+                .is_some_and(|battery| battery.has(BatteryFeature::Condition))
+        });
+        let wants = Wants { condition };
         // Both rows read the pack over I2C, so one capability answers for the
         // pair.
         report.temperature_row.set_visible(wants.condition);
@@ -208,7 +213,7 @@ fn build(app: &adw::Application, feed: &Rc<Feed>) -> adw::Window {
         // reads on its own schedule, silently, as every repeating read in this
         // app does.
         if let Err(e) = feed.read().await {
-            let message = format!("Reading the battery failed: {}", cause(&e));
+            let message = format!("Reading the battery failed: {e}");
             toasts.add_toast(adw::Toast::new(&message));
         }
     });

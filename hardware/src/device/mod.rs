@@ -7,6 +7,7 @@
 //! nothing of the bus: authorization is the bus's business, and a caller
 //! linking this crate directly has already got past it.
 
+pub mod battery;
 pub mod mainboard;
 pub mod memory;
 pub mod power_led;

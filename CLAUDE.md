@@ -51,14 +51,15 @@ it and the non-obvious constraints.
   one lands. The bullets below describe the code as it still stands where a
   device has not moved; each dissolves with the last device using it.
 - Inside `app/`, a module boundary is drawn where it makes a class of mistake
-  impossible, not where a file got long. `format.rs` holds the presets, the
-  values behind them and the words those values carry — the chrome around
-  them, group and row titles and the sentences a toast makes, stays with the
-  widget that is its only site; `caps.rs` holds the probe's answer.
-  Neither links GTK or the bus, so the window and the tray cannot disagree
-  about what a preset sends or what it is called, and `Capabilities`' private
-  field means the app can only offer what the daemon answered with — the
-  probe rule, held up by the compiler at this end. `tray.rs` links no GTK
+  impossible, not where a file got long. A control's presets, the values
+  behind them and the words those values carry are its `model` control's —
+  the chrome around them, group and row titles and the sentences a toast
+  makes, stays with the widget that is its only site; `caps.rs` holds the
+  probe's answer for the one control not yet moved. Neither links GTK or the
+  bus, so the window and the tray cannot disagree about what a preset sends
+  or what it is called, and `Capabilities`' private field means the app can
+  only offer what the daemon answered with — the probe rule, held up by the
+  compiler at this end. `tray.rs` links no GTK
   either, which matters because its menu runs on ksni's own thread; its
   fields are private, so `tray_push` is the only way that state moves.
   `ui.rs` is the largest and stays that way on purpose: `Ui`'s fields are
@@ -131,9 +132,8 @@ it and the non-obvious constraints.
   holds a mirrored value and whether it still holds it, where `dmi.rs`
   answers for the machine, which is the difference between a fact a reboot or
   a sleep changes and one that outlives both, `state.rs`
-  the keyed store for what cannot be read back — a moved device holds its
-  own mirror over it, the daemon's `state.rs` the mirrors of the un-moved —
-  `probe.rs` the probe rule beside
+  the keyed store for what cannot be read back, each device holding its
+  own mirror over it under its own keys, `probe.rs` the probe rule beside
   the code it governs. A module's own doc says what it is for; the reasoning
   is here. `ec.rs` is every EC call: `Ec` is the only
   holder of the `CrosEc`, one method per operation, each taking the lock and
@@ -180,10 +180,10 @@ it and the non-obvious constraints.
   can be stale, and skips it before the polkit call for the same reason
   argument checks come first — nobody should answer a prompt for a write that
   won't happen. The skip belongs in the daemon rather than in a caller, asked
-  of the closest thing to the truth each one has: `set_charge_limit` asks the
-  EC, `set_charge_current_limit` its own mirror, the touchscreen's
-  `set_enabled` the pad — and on the route with no pad, nothing: it skips no
-  write at all. A
+  of the closest thing to the truth each one has: the battery's
+  `set_charge_limit` asks the EC, its `set_charge_current_limit` the
+  device's mirror, the touchscreen's `set_enabled` the pad — and on the
+  route with no pad, nothing: it skips no write at all. A
   mirror is worth skipping on only where the event that invalidates it is the
   one its stamp catches, which holds for the charge current limit and not
   here: the panel's mirror catches the boot and the sleep, and a lid opening
@@ -309,14 +309,14 @@ asserted and its reason a file away.
   there either way, while the charge current limit answers with the error,
   the reading it could not take being the one its answer needed.
 - What the pack is asked directly falls into two groups, and the split is why
-  one has a capability and the other does not. The temperature, cell voltages
-  and alarms have no fallback, so they are one operation behind
-  `BatteryCondition`, probed by the getter's own read and nested under a
-  readable pack — a mainboard running standalone must not spend transfers
-  asking a battery that is not there what it thinks. The cycle count and the
-  manufacturing date each fall back to the EC's answer or to nothing, so they
-  need no capability and are read inside `battery_info`, once per run and then
-  remembered, absence included.
+  one is a feature the battery offers and the other is not. The temperature,
+  cell voltages and alarms have no fallback, so they are one operation behind
+  `BatteryFeature::Condition`, probed by the getter's own read and only on a
+  device whose pack answered — a mainboard running standalone must not spend
+  transfers asking a battery that is not there what it thinks. The cycle
+  count and the manufacturing date each fall back to the EC's answer or to
+  nothing, so they need no feature and are read inside the `Pack` role's
+  `info`, once per run and then remembered, absence included.
 - A direction is never taken from the EC's flags alone; `charge_flow` weighs
   them against the charger and the rate, because the flags do not mean what
   their names suggest and the charge limiter produces a state they cannot

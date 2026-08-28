@@ -8,6 +8,7 @@
 //! included, is the device's, so a caller reaching the hardware crate
 //! directly gets the same refusals without this layer.
 
+pub(crate) mod battery;
 pub(crate) mod power_led;
 pub(crate) mod touchpad;
 pub(crate) mod touchscreen;

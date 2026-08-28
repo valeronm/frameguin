@@ -11,10 +11,9 @@ use gtk4 as gtk;
 use gtk4::glib;
 
 use crate::bus::Bus;
-use crate::format::scale_percent;
 use crate::tray::TrayValues;
 use crate::window::{
-    SLIDER_DEBOUNCE, Sink, Ui, build_scale, combo_selection, debounce, string_list,
+    SLIDER_DEBOUNCE, Sink, Ui, build_scale, combo_selection, debounce, scale_percent, string_list,
 };
 
 pub(crate) type PowerLed = power_led::PowerLed<Bus>;

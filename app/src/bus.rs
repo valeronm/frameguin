@@ -5,15 +5,16 @@
 //! [`crate::reading::Feed`] for who holds it.
 
 use frameguin_wire::{
-    BUS_NAME, ClickForce, DeviceResult, FrameguinProxy, OBJECT_PATH, PowerLedControl,
-    PowerLedLevel, PowerLedProxy, TouchpadControl, TouchpadProxy, TouchscreenControl,
-    TouchscreenProxy,
+    BUS_NAME, BatteryCondition, BatteryControl, BatteryFeature, BatteryInfo, BatteryProxy,
+    ClickForce, DeviceResult, FrameguinProxy, OBJECT_PATH, PowerLedControl, PowerLedLevel,
+    PowerLedProxy, TouchpadControl, TouchpadProxy, TouchscreenControl, TouchscreenProxy,
 };
 use zbus::proxy::ProxyImpl;
 
 pub(crate) struct Bus {
     /// The daemon's own interface, for the operations no device owns yet.
     pub(crate) frameguin: FrameguinProxy<'static>,
+    battery: BatteryProxy<'static>,
     touchpad: TouchpadProxy<'static>,
     touchscreen: TouchscreenProxy<'static>,
     power_led: PowerLedProxy<'static>,
@@ -26,6 +27,7 @@ impl Bus {
         let conn = zbus::Connection::system().await?;
         Ok(Self {
             frameguin: proxy(&conn).await?,
+            battery: proxy(&conn).await?,
             touchpad: proxy(&conn).await?,
             touchscreen: proxy(&conn).await?,
             power_led: proxy(&conn).await?,
@@ -42,6 +44,36 @@ async fn proxy<P: ProxyImpl<'static> + From<zbus::Proxy<'static>>>(
         .path(OBJECT_PATH)?
         .build()
         .await
+}
+
+impl BatteryControl for Bus {
+    async fn info(&self) -> DeviceResult<BatteryInfo> {
+        Ok(self.battery.get_info().await?)
+    }
+
+    async fn condition(&self) -> DeviceResult<BatteryCondition> {
+        Ok(self.battery.get_condition().await?)
+    }
+
+    async fn features(&self) -> DeviceResult<Vec<BatteryFeature>> {
+        Ok(self.battery.get_features().await?)
+    }
+
+    async fn charge_limit(&self) -> DeviceResult<u8> {
+        Ok(self.battery.get_charge_limit().await?)
+    }
+
+    async fn set_charge_limit(&self, percent: u8) -> DeviceResult<bool> {
+        Ok(self.battery.set_charge_limit(percent).await?)
+    }
+
+    async fn charge_current_limit(&self) -> DeviceResult<u32> {
+        Ok(self.battery.get_charge_current_limit().await?)
+    }
+
+    async fn set_charge_current_limit(&self, milliamps: u32) -> DeviceResult<bool> {
+        Ok(self.battery.set_charge_current_limit(milliamps).await?)
+    }
 }
 
 impl TouchpadControl for Bus {

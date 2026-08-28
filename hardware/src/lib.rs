@@ -43,7 +43,43 @@ pub mod touchscreen;
 
 #[cfg(test)]
 pub(crate) mod testing {
+    use std::sync::{Arc, Mutex};
     use std::task::{Context, Poll, Waker};
+
+    use frameguin_wire::{DeviceError, DeviceResult};
+
+    use crate::ec::EcClock;
+    use crate::lifetime::EcStamp;
+
+    /// An EC clock answering one way about every stamp, or not at all.
+    pub(crate) struct Clock {
+        pub(crate) same_boot: Mutex<Option<bool>>,
+    }
+
+    impl Clock {
+        pub(crate) fn new(same_boot: Option<bool>) -> Arc<Self> {
+            Arc::new(Self {
+                same_boot: Mutex::new(same_boot),
+            })
+        }
+
+        fn answer(&self) -> DeviceResult<bool> {
+            self.same_boot
+                .lock()
+                .unwrap()
+                .ok_or_else(|| DeviceError::Failed("no EC".into()))
+        }
+    }
+
+    impl EcClock for Clock {
+        fn stamp(&self) -> DeviceResult<EcStamp> {
+            self.answer().map(|_| EcStamp::taken(500, 1_000_000))
+        }
+
+        fn same_boot_as(&self, _stamp: EcStamp) -> DeviceResult<bool> {
+            self.answer()
+        }
+    }
 
     /// Polls once: the direct implementation never pends.
     pub(crate) fn ready<T>(future: impl Future<Output = T>) -> T {

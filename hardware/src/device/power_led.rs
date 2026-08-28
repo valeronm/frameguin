@@ -215,12 +215,11 @@ mod tests {
     use frameguin_wire::{DeviceError, DeviceResult, PowerLedControl, PowerLedLevel};
 
     use super::{KEY_OFF_STAMP, PowerLed};
-    use crate::ec::{EcClock, PowerLedEc};
+    use crate::ec::PowerLedEc;
     use crate::led::LedClass;
-    use crate::lifetime::EcStamp;
     use crate::state::Store;
     use crate::state::tests::Memory;
-    use crate::testing::ready;
+    use crate::testing::{Clock, ready};
 
     /// Every write the EC and the kernel took, in the order they took them.
     type Log = Arc<Mutex<Vec<String>>>;
@@ -259,30 +258,6 @@ mod tests {
 
         fn custom_power_led_levels(&self) -> bool {
             self.custom
-        }
-    }
-
-    /// A clock answering one way about every stamp, or not at all.
-    struct Clock {
-        same_boot: Mutex<Option<bool>>,
-    }
-
-    impl Clock {
-        fn answer(&self) -> DeviceResult<bool> {
-            self.same_boot
-                .lock()
-                .unwrap()
-                .ok_or_else(|| DeviceError::Failed("no EC".into()))
-        }
-    }
-
-    impl EcClock for Clock {
-        fn stamp(&self) -> DeviceResult<EcStamp> {
-            self.answer().map(|_| EcStamp::taken(500, 1_000_000))
-        }
-
-        fn same_boot_as(&self, _stamp: EcStamp) -> DeviceResult<bool> {
-            self.answer()
         }
     }
 
@@ -348,9 +323,7 @@ mod tests {
             refusing: machine.refusing,
             log: log.clone(),
         });
-        let clock = Arc::new(Clock {
-            same_boot: Mutex::new(machine.same_boot),
-        });
+        let clock = Clock::new(machine.same_boot);
         let leds = Box::new(Leds {
             node: machine.node.then(|| PathBuf::from("/sys/class/leds/power")),
             dark: Mutex::new(false),

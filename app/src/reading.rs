@@ -27,7 +27,7 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use frameguin_model::control::Controls;
-use frameguin_wire::{BatteryCondition, BatteryInfo, DeviceResult, FrameguinProxy};
+use frameguin_wire::{BatteryCondition, BatteryInfo, DeviceError, DeviceResult, FrameguinProxy};
 use gtk4 as gtk;
 use gtk4::glib;
 use gtk4::prelude::*;
@@ -239,10 +239,6 @@ impl Feed {
         Ok(probe)
     }
 
-    pub(crate) async fn capabilities(&self) -> DeviceResult<Capabilities> {
-        Ok(self.probe().await?.caps)
-    }
-
     fn arm(self: &Rc<Self>) {
         let feed = self.clone();
         self.timer
@@ -275,9 +271,17 @@ impl Feed {
     /// a successor seconds behind it. Only the block itself can fail the call:
     /// an extra that fails arrives as None, and the row keeps what it last
     /// showed rather than emptying over a single miss.
-    pub(crate) async fn read(&self) -> zbus::Result<BatteryInfo> {
-        let proxy = self.proxy().await?;
-        let info = proxy.get_battery_info().await?;
+    pub(crate) async fn read(&self) -> DeviceResult<BatteryInfo> {
+        let probe = self.probe().await?;
+        let battery = probe
+            .controls
+            .battery
+            .as_ref()
+            // Not `Absent`, which is the bus's alone to raise: every view here
+            // hangs off a pack that answered, so this is a caller's mistake
+            // rather than a device's answer.
+            .ok_or_else(|| DeviceError::Failed("no battery on this board".into()))?;
+        let info = battery.read().await?;
         let wants = self
             .views
             .borrow()
@@ -290,7 +294,7 @@ impl Feed {
         let ticks = self.ticks.get();
         self.ticks.set(ticks.wrapping_add(1));
         let condition = if wants.condition && ticks.is_multiple_of(CONDITION_EVERY) {
-            proxy.get_battery_condition().await.ok()
+            battery.condition().await.ok()
         } else {
             None
         };

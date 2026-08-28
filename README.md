@@ -183,9 +183,10 @@ shadowing each other; see Uninstall.
 
 ## How it works
 
-Controls are capability-driven: the daemon probes the hardware once
-(`GetCapabilities`) and the app only shows the groups the board supports, so
-new boards work without code changes. The board name in the header comes
+Controls are detected, not assumed: each device probes itself once when the
+daemon starts and is served on the bus only where it was found, and the app
+shows only the groups whose device answered — so new boards work without
+code changes. The board name in the header comes
 from DMI sysfs. Frameguin currently covers the everyday controls, with more
 of `framework_tool`'s surface planned.
 

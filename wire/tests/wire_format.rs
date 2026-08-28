@@ -4,8 +4,8 @@
 //! no compiler on either side would report.
 
 use frameguin_wire::{
-    BatteryAlarm, BatteryCondition, BatteryInfo, BatteryState, Capability, ChargeFlow, ClickForce,
-    Identity, PartKind, PowerLedLevel,
+    BatteryAlarm, BatteryCondition, BatteryFeature, BatteryInfo, BatteryState, Capability,
+    ChargeFlow, ClickForce, Identity, PartKind, PowerLedLevel,
 };
 use zbus::zvariant::serialized::Context;
 use zbus::zvariant::{LE, Type, to_bytes};
@@ -18,6 +18,7 @@ fn wire_string<T: serde::Serialize + Type>(value: T) -> String {
 #[test]
 fn every_enum_crosses_the_bus_as_a_plain_string() {
     assert_eq!(Capability::SIGNATURE, "s");
+    assert_eq!(BatteryFeature::SIGNATURE, "s");
     assert_eq!(PowerLedLevel::SIGNATURE, "s");
     assert_eq!(ClickForce::SIGNATURE, "s");
     assert_eq!(ChargeFlow::SIGNATURE, "s");
@@ -51,6 +52,7 @@ fn the_composite_signatures_are_the_ones_the_methods_declare() {
 #[test]
 fn part_kind_names_are_kebab_case() {
     assert_eq!(wire_string(PartKind::Mainboard), "mainboard");
+    assert_eq!(wire_string(PartKind::Battery), "battery");
     assert_eq!(wire_string(PartKind::Memory), "memory");
     assert_eq!(wire_string(PartKind::Touchpad), "touchpad");
     assert_eq!(wire_string(PartKind::Touchscreen), "touchscreen");
@@ -68,19 +70,19 @@ fn battery_alarm_names_are_kebab_case() {
 
 #[test]
 fn capability_names_are_kebab_case() {
-    assert_eq!(wire_string(Capability::Battery), "battery");
-    assert_eq!(
-        wire_string(Capability::BatteryCondition),
-        "battery-condition"
-    );
-    assert_eq!(wire_string(Capability::ChargeLimit), "charge-limit");
-    assert_eq!(
-        wire_string(Capability::ChargeCurrentLimit),
-        "charge-current-limit"
-    );
     assert_eq!(
         wire_string(Capability::KeyboardBacklight),
         "keyboard-backlight"
+    );
+}
+
+#[test]
+fn battery_feature_names_are_kebab_case() {
+    assert_eq!(wire_string(BatteryFeature::Condition), "condition");
+    assert_eq!(wire_string(BatteryFeature::ChargeLimit), "charge-limit");
+    assert_eq!(
+        wire_string(BatteryFeature::ChargeCurrentLimit),
+        "charge-current-limit"
     );
 }
 

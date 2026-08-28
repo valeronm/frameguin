@@ -8,11 +8,11 @@
 mod interface;
 mod served;
 mod service;
-mod state;
 
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
+use frameguin_hardware::device::battery::Battery;
 use frameguin_hardware::device::mainboard::Mainboard;
 use frameguin_hardware::device::memory::Module;
 use frameguin_hardware::device::power_led::PowerLed;
@@ -22,14 +22,13 @@ use frameguin_hardware::ec::Ec;
 use frameguin_hardware::part::{Identity, Part};
 use frameguin_hardware::probe;
 use frameguin_hardware::state::{StateFile, Store};
-use frameguin_wire::{self as wire, NO_CHARGE_CURRENT_LIMIT};
+use frameguin_wire as wire;
 use zbus::message::Header;
 use zbus::{Connection, fdo, interface};
 use zbus_polkit::policykit1::AuthorityProxy;
 
 use crate::served::Served;
 use crate::service::Service;
-use crate::state::{ChargeCurrentLimit, State};
 
 const IDLE_EXIT: Duration = Duration::from_mins(5);
 
@@ -38,16 +37,11 @@ struct Daemon {
     /// with the devices the EC is a transport for.
     ec: Option<Arc<Ec>>,
     service: Arc<Service>,
-    store: Arc<dyn Store>,
     /// Probed once per daemon lifetime; the EC feature set can't change
     /// while running.
     capabilities: OnceLock<Vec<wire::Capability>>,
     /// Every part detection found at startup, which is the one time it looks.
     parts: Vec<Identity>,
-    /// Mirrored rather than read back — see [`state`]. This one expires: the
-    /// EC keeps the limit in RAM, which outlives host reboots but not an EC
-    /// restart.
-    charge_current_limit: Mutex<ChargeCurrentLimit>,
 }
 
 fn ec_err(e: impl std::fmt::Debug) -> fdo::Error {
@@ -59,35 +53,6 @@ fn internal_err(e: impl std::fmt::Display) -> fdo::Error {
 }
 
 impl Daemon {
-    fn save_state(&self) {
-        // Bound before the write so the guard drops here rather than being
-        // held across the file I/O.
-        let state = State {
-            charge_current_limit: *self.charge_current_limit.lock().unwrap(),
-        };
-        state::save(&*self.store, &state);
-    }
-
-    /// The mirrored charge current limit, or `NO_CHARGE_CURRENT_LIMIT` once
-    /// the EC has restarted and dropped whatever was written.
-    fn held_charge_current_limit(&self) -> fdo::Result<u32> {
-        // Asked for before the mirror is read: a board with no EC has no
-        // limit to report, and answering the sentinel would call that "no
-        // limit set" rather than "no such control".
-        let ec = self.ec()?;
-        let limit = *self.charge_current_limit.lock().unwrap();
-        // Nothing mirrored is already the answer, so don't spend an EC round
-        // trip dating it.
-        if limit.milliamps == NO_CHARGE_CURRENT_LIMIT {
-            return Ok(NO_CHARGE_CURRENT_LIMIT);
-        }
-        Ok(if ec.same_boot_as(limit.stamp).map_err(ec_err)? {
-            limit.milliamps
-        } else {
-            NO_CHARGE_CURRENT_LIMIT
-        })
-    }
-
     fn ec(&self) -> fdo::Result<&Ec> {
         self.ec
             .as_deref()
@@ -113,112 +78,6 @@ impl Daemon {
     fn get_devices(&self) -> Vec<Identity> {
         self.service.touch();
         self.parts.clone()
-    }
-
-    fn get_charge_limit(&self) -> fdo::Result<u8> {
-        self.service.touch();
-        self.ec()?.charge_limit().map_err(ec_err)
-    }
-
-    /// Returns whether the EC was written, so a caller can tell a change from
-    /// a request for the ceiling already in place and not announce the two
-    /// the same way.
-    async fn set_charge_limit(
-        &self,
-        percent: u8,
-        #[zbus(header)] header: Header<'_>,
-    ) -> fdo::Result<bool> {
-        self.service.touch();
-        if !(20..=100).contains(&percent) {
-            return Err(fdo::Error::InvalidArgs(
-                "charge limit must be 20-100".into(),
-            ));
-        }
-        // Already there: nothing to write, and nothing worth an authorization
-        // prompt either — same reason arguments are validated before asking.
-        // Checked here rather than by the caller, so the answer comes from
-        // the hardware and no client can act on a stale idea of it.
-        if self.get_charge_limit()? == percent {
-            return Ok(false);
-        }
-        self.service.authorize(&header).await?;
-        self.ec()?.set_charge_limit(percent).map_err(ec_err)?;
-        Ok(true)
-    }
-
-    /// How fast the battery may charge, in mA, or `NO_CHARGE_CURRENT_LIMIT`
-    /// when nothing caps it. The EC cannot be asked what it holds, so this is
-    /// what the daemon last wrote, and it reports no limit once the EC has
-    /// restarted and dropped the value.
-    fn get_charge_current_limit(&self) -> fdo::Result<u32> {
-        self.service.touch();
-        self.held_charge_current_limit()
-    }
-
-    /// Everything the EC's battery block says about the pack, for a reader
-    /// looking at the pack rather than at the controls that shape it. One walk
-    /// of the block, so the reading it carries cannot disagree with the rest
-    /// of what it reports.
-    ///
-    /// The charge is the one value here that changes without anyone setting
-    /// it, so a caller showing it has to re-read; it is also the only
-    /// observable effect a charge current limit has, the limit itself being
-    /// unreadable.
-    fn get_battery_info(&self) -> fdo::Result<wire::BatteryInfo> {
-        self.service.touch();
-        // Spelled here rather than shared with the reading below, which fails
-        // for a different reason and says so: a passthrough that stays silent
-        // is not an absent pack, and can happen with one fitted.
-        self.ec()?
-            .battery_info()
-            .ok_or_else(|| fdo::Error::Failed("no battery present".into()))
-    }
-
-    /// What the pack says about itself past the EC's summary: its temperature,
-    /// its cell voltages, and any alarms it is raising. Separate from the
-    /// report above because it reaches the pack over the EC's I2C passthrough
-    /// rather than reading the EC's own block, so a board can answer one and
-    /// not the other — and because a transfer per cell plus two, to a device
-    /// the EC is also driving, is not something to spend on a caller that
-    /// shows none of it.
-    fn get_battery_condition(&self) -> fdo::Result<wire::BatteryCondition> {
-        self.service.touch();
-        self.ec()?
-            .battery_condition()
-            .ok_or_else(|| fdo::Error::Failed("the battery did not answer".into()))
-    }
-
-    /// Caps how fast the battery charges, in mA; `NO_CHARGE_CURRENT_LIMIT`
-    /// lifts the cap. Zero is refused: the EC clamps its requested current
-    /// against this value, so zero stops charging altogether rather than
-    /// meaning "unrestricted", and nothing would report that back.
-    /// Returns whether the EC was written, as `set_charge_limit` does.
-    async fn set_charge_current_limit(
-        &self,
-        milliamps: u32,
-        #[zbus(header)] header: Header<'_>,
-    ) -> fdo::Result<bool> {
-        self.service.touch();
-        if milliamps == 0 {
-            return Err(fdo::Error::InvalidArgs(format!(
-                "0 stops charging; pass {NO_CHARGE_CURRENT_LIMIT} to remove the limit"
-            )));
-        }
-        // Already there: nothing to write, and nothing worth an authorization
-        // prompt either, as in `set_charge_limit` — except that the closest
-        // thing to the truth here is the daemon's own mirror, the EC having
-        // no readback to offer.
-        if self.get_charge_current_limit()? == milliamps {
-            return Ok(false);
-        }
-        self.service.authorize(&header).await?;
-        let stamp = self
-            .ec()?
-            .set_charge_current_limit(milliamps)
-            .map_err(ec_err)?;
-        *self.charge_current_limit.lock().unwrap() = ChargeCurrentLimit { milliamps, stamp };
-        self.save_state();
-        Ok(true)
     }
 
     /// The daemon's version and the path it was started from. The path is the
@@ -258,7 +117,6 @@ fn main() -> zbus::Result<()> {
     let last_used = Arc::new(Mutex::new(Instant::now()));
     let clock = last_used.clone();
     let store: Arc<dyn Store> = Arc::new(StateFile::load());
-    let state = state::load(&*store);
     // One walk of the HID bus for every device asked about: building an
     // `HidApi` enumerates the lot.
     let hid = hidapi::HidApi::new().ok();
@@ -272,10 +130,14 @@ fn main() -> zbus::Result<()> {
     let power_led = ec
         .as_ref()
         .and_then(|ec| PowerLed::detect(ec, store.clone()));
+    let battery = ec
+        .as_ref()
+        .and_then(|ec| Battery::detect(ec, store.clone()));
     let mainboard = Mainboard::detect(ec.as_deref());
     let memory = Module::detect();
     let parts: Vec<Identity> = [
         mainboard.as_ref().map(Part::identity),
+        battery.as_ref().map(Part::identity),
         touchpad.as_ref().map(Part::identity),
         touchscreen.as_ref().map(Part::identity),
     ]
@@ -298,10 +160,8 @@ fn main() -> zbus::Result<()> {
         let daemon = Daemon {
             ec,
             service: service.clone(),
-            store,
             capabilities: OnceLock::new(),
             parts,
-            charge_current_limit: Mutex::new(state.charge_current_limit),
         };
         let server = conn.object_server();
         server.at(wire::OBJECT_PATH, daemon).await?;
@@ -319,7 +179,12 @@ fn main() -> zbus::Result<()> {
         }
         if let Some(power_led) = power_led {
             server
-                .at(wire::OBJECT_PATH, Served::new(power_led, service))
+                .at(wire::OBJECT_PATH, Served::new(power_led, service.clone()))
+                .await?;
+        }
+        if let Some(battery) = battery {
+            server
+                .at(wire::OBJECT_PATH, Served::new(battery, service))
                 .await?;
         }
         // Claim the name only once the objects are served, so an activating

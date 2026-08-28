@@ -8,6 +8,7 @@ use frameguin_wire::{Identity, PartKind, VENDOR};
 pub fn kind_label(kind: PartKind) -> &'static str {
     match kind {
         PartKind::Mainboard => "Mainboard",
+        PartKind::Battery => "Battery",
         PartKind::Memory => "Memory",
         PartKind::Touchpad => "Touchpad",
         PartKind::Touchscreen => "Touchscreen",
@@ -21,8 +22,9 @@ fn rank(kind: PartKind) -> u8 {
     match kind {
         PartKind::Mainboard => 0,
         PartKind::Memory => 1,
-        PartKind::Touchpad => 2,
-        PartKind::Touchscreen => 3,
+        PartKind::Battery => 2,
+        PartKind::Touchpad => 3,
+        PartKind::Touchscreen => 4,
     }
 }
 
@@ -68,6 +70,10 @@ pub fn catalogue(part: &Identity) -> Option<Catalogue> {
         (PartKind::Mainboard, "dmi-board:FRANMJCP07") => Some(Catalogue {
             model: "Laptop 13 Pro Mainboard (Intel Core Ultra Series 3)",
             url: "https://frame.work/products/laptop13pro-mainboard-intel-ultra-3",
+        }),
+        (PartKind::Battery, "sbs:FRANEDA") => Some(Catalogue {
+            model: "Laptop 13 Pro Battery - 74Wh",
+            url: "https://frame.work/products/pro-battery-74wh",
         }),
         // The haptic touchpad is sold only fitted to the input cover frame.
         (PartKind::Touchpad, "hid:093a:1343") => Some(Catalogue {

@@ -25,6 +25,7 @@ use framework_lib::power;
 
 use crate::dmi;
 use crate::lifetime::EcStamp;
+use crate::part::{self, Identity};
 
 /// Reaching the pack directly, past the EC's own copy of what it says. The
 /// port and address are the same on every Framework board — one Nuvoton EC,
@@ -104,6 +105,34 @@ pub trait EcClock: Send + Sync {
     fn same_boot_as(&self, stamp: EcStamp) -> DeviceResult<bool>;
 }
 
+/// What the battery's device needs of the pack: whether one answers in the
+/// EC's block and what it is, the block itself, and what the pack says past
+/// it.
+pub trait Pack: Send + Sync {
+    /// The pack as a part, and None where none answers in the block. This is
+    /// the presence check, and it reads the block rather than the report a
+    /// caller would build from it — the report's own reads behind the cycle
+    /// count and the manufacturing date run once per run and remember an
+    /// absence, and one unlucky transfer here would fix that for the whole
+    /// of it.
+    fn identity(&self) -> Option<Identity>;
+    fn info(&self) -> Option<wire::BatteryInfo>;
+    fn condition(&self) -> Option<wire::BatteryCondition>;
+}
+
+/// What the battery's device needs of the charger: the ceiling, and the
+/// current cap with the stamp that dates it.
+pub trait Charger: Send + Sync {
+    fn charge_limit(&self) -> DeviceResult<u8>;
+    fn set_charge_limit(&self, percent: u8) -> DeviceResult<()>;
+    /// Dated in the same lock as the write: the stamp is only worth anything
+    /// taken against the same EC the write reached.
+    fn set_charge_current_limit(&self, milliamps: u32) -> DeviceResult<EcStamp>;
+    /// Whether the firmware implements the current cap at all, there being
+    /// no readback to probe it by.
+    fn charge_current_limit_supported(&self) -> bool;
+}
+
 /// An EC failure as a device raises it.
 fn device_error(e: impl std::fmt::Debug) -> DeviceError {
     DeviceError::Failed(format!("EC error: {e:?}"))
@@ -171,74 +200,9 @@ impl Ec {
         self.ec.lock().unwrap()
     }
 
-    /// The ceiling the EC holds. Its command answers with a floor as well,
-    /// which nothing here sets or reports.
-    pub fn charge_limit(&self) -> EcResult<u8> {
-        let (_min, max) = self.ec().get_charge_limit()?;
-        Ok(max)
-    }
-
-    pub fn set_charge_limit(&self, percent: u8) -> EcResult<()> {
-        self.ec().set_charge_limit(0, percent)
-    }
-
-    /// Caps the charging current and dates the write in one lock: the stamp is
-    /// only worth anything taken against the same EC the write reached.
-    ///
-    /// Always the unconditional form. The command's state-of-charge variant
-    /// latches inside the EC: once applied it is never re-evaluated, so a
-    /// later threshold cannot lift it (framework-system issue #342).
-    pub fn set_charge_current_limit(&self, milliamps: u32) -> EcResult<EcStamp> {
-        let ec = self.ec();
-        ec.set_charge_current_limit(milliamps, None)?;
-        stamp(&ec)
-    }
-
     /// The EC's whole memmap battery block.
     fn power(&self) -> Option<power::PowerInfo> {
         power::power_info(&self.ec())
-    }
-
-    /// Whether a pack answers in the EC's block at all.
-    ///
-    /// The two steps here are the only ones [`Ec::battery_info`] can fail at —
-    /// everything past them reads fields out of the block this walked, or
-    /// falls back where the pack will not answer. So this exercises that
-    /// getter's own path rather than an easier neighbour, which is what the
-    /// probe rule asks, without building a report to throw away.
-    ///
-    /// Calling the getter itself would go one step further and cost more than
-    /// a struct: it would run the reads behind `cycle_count` and
-    /// `manufacture_date` inside the cold probe, and one unlucky transfer
-    /// there would have the daemon remember an absence for its whole run.
-    pub fn battery_present(&self) -> bool {
-        self.power().is_some_and(|info| info.battery.is_some())
-    }
-
-    /// The same block in full, for a reader looking at the pack rather than at
-    /// the controls that shape it. One walk, so the reading it carries is that
-    /// walk's rather than a second one taken a moment later.
-    pub fn battery_info(&self) -> Option<wire::BatteryInfo> {
-        let info = self.power()?;
-        let battery = info.battery.as_ref()?;
-        Some(wire::BatteryInfo {
-            state: wire_battery_state(&info, battery),
-            remaining_capacity: battery.remaining_capacity,
-            last_full_capacity: battery.last_full_charge_capacity,
-            design_capacity: battery.design_capacity,
-            design_millivolts: battery.design_voltage,
-            // The pack's own count where it answers, the EC's published copy
-            // otherwise — that copy is frozen at the last battery init, so it
-            // is a floor rather than a reading.
-            cycle_count: self.cycle_count().unwrap_or(battery.cycle_count),
-            charger_connected: info.ac_present,
-            critical: battery.level_critical,
-            manufacturer: battery.manufacturer.clone(),
-            model: battery.model_number.clone(),
-            serial: battery.serial_number.clone(),
-            chemistry: battery.battery_type.clone(),
-            manufactured: self.manufacture_date().unwrap_or_default(),
-        })
     }
 
     /// How many cycles the pack counts, asked of the pack rather than read
@@ -270,25 +234,6 @@ impl Ec {
     fn manufacture_date(&self) -> Option<String> {
         remembered(&self.memo.manufacture_date, || {
             manufactured_iso(self.sb_word(SB_MANUFACTURE_DATE)?)
-        })
-    }
-
-    /// What the pack says about itself past the EC's summary: each cell's
-    /// voltage, and the alarms it is raising.
-    ///
-    /// Not memoized and not in the EC's block at all. The memmap publishes one
-    /// voltage for the whole pack, no temperature of its own and none of the
-    /// alarms, and all of these move, so they are read afresh — a transfer per
-    /// cell plus two, which is why only a caller showing them asks.
-    pub fn battery_condition(&self) -> Option<wire::BatteryCondition> {
-        let cell_millivolts: Vec<u32> = SB_CELL_VOLTAGES
-            .iter()
-            .map(|register| self.sb_word(*register).map(u32::from))
-            .collect::<Option<_>>()?;
-        Some(wire::BatteryCondition {
-            cell_millivolts,
-            alarms: alarms(self.sb_word(SB_BATTERY_STATUS)?),
-            decicelsius: decicelsius(self.sb_word(SB_TEMPERATURE)?),
         })
     }
 
@@ -331,18 +276,6 @@ impl Ec {
         self.ec().cmd_version_supported(command as u32, version)
     }
 
-    /// Dates a write about to be made against the EC's own life.
-    pub fn stamp(&self) -> EcResult<EcStamp> {
-        stamp(&self.ec())
-    }
-
-    /// Whether the EC has been running without interruption since `stamp` was
-    /// taken — which is to say whether what it was holding then is still there.
-    pub fn same_boot_as(&self, stamp: EcStamp) -> EcResult<bool> {
-        let (ec_uptime, now) = self.ec_clocks()?;
-        Ok(stamp.same_boot(ec_uptime, now))
-    }
-
     /// Never a date for a write, which [`stamp`] reads afresh for.
     fn ec_clocks(&self) -> EcResult<(u64, u64)> {
         if let Some(clocks) = self.memo.ec_clocks.get() {
@@ -378,23 +311,116 @@ impl PowerLedEc for Ec {
     /// presets high/medium/low. V1 added the raw-percentage write, and the
     /// same firmware generation added the ultra-low and auto levels
     /// (framework-system issue #211) — so V1 support stands in for all of
-    /// them. `GET_CMD_VERSIONS` is side-effect-free and asks about the exact
-    /// command the setters use. An EC that won't answer is read as "no": this
-    /// is asked once per run, so offering on a silent read would keep
-    /// offering levels that may not be there for the whole of it.
+    /// them.
     fn custom_power_led_levels(&self) -> bool {
-        self.command_supported(EcCommands::FpLedLevelControl, 1)
-            .unwrap_or(false)
+        self.offers(EcCommands::FpLedLevelControl, 1)
+    }
+}
+
+impl Ec {
+    /// Whether a write-only command can be offered, asked of the firmware by
+    /// `GET_CMD_VERSIONS`, which is side-effect-free and about the exact
+    /// command a setter sends. An EC that won't answer is read as "no": a
+    /// device settles its offer once per run, so offering on a silent read
+    /// would keep offering a control that may not be there for the whole of
+    /// it.
+    fn offers(&self, command: EcCommands, version: u8) -> bool {
+        self.command_supported(command, version).unwrap_or(false)
     }
 }
 
 impl EcClock for Ec {
     fn stamp(&self) -> DeviceResult<EcStamp> {
-        Ec::stamp(self).map_err(device_error)
+        stamp(&self.ec()).map_err(device_error)
     }
 
     fn same_boot_as(&self, stamp: EcStamp) -> DeviceResult<bool> {
-        Ec::same_boot_as(self, stamp).map_err(device_error)
+        let (ec_uptime, now) = self.ec_clocks().map_err(device_error)?;
+        Ok(stamp.same_boot(ec_uptime, now))
+    }
+}
+
+impl Pack for Ec {
+    fn identity(&self) -> Option<Identity> {
+        let info = self.power()?;
+        let battery = info.battery.as_ref()?;
+        Some(part::sbs(
+            &battery.manufacturer,
+            &battery.model_number,
+            &battery.serial_number,
+        ))
+    }
+
+    /// One walk, so the reading it carries is that walk's rather than a
+    /// second one taken a moment later.
+    fn info(&self) -> Option<wire::BatteryInfo> {
+        let info = self.power()?;
+        let battery = info.battery.as_ref()?;
+        Some(wire::BatteryInfo {
+            state: wire_battery_state(&info, battery),
+            remaining_capacity: battery.remaining_capacity,
+            last_full_capacity: battery.last_full_charge_capacity,
+            design_capacity: battery.design_capacity,
+            design_millivolts: battery.design_voltage,
+            // The pack's own count where it answers, the EC's published copy
+            // otherwise — that copy is frozen at the last battery init, so it
+            // is a floor rather than a reading.
+            cycle_count: self.cycle_count().unwrap_or(battery.cycle_count),
+            charger_connected: info.ac_present,
+            critical: battery.level_critical,
+            manufacturer: battery.manufacturer.clone(),
+            model: battery.model_number.clone(),
+            serial: battery.serial_number.clone(),
+            chemistry: battery.battery_type.clone(),
+            manufactured: self.manufacture_date().unwrap_or_default(),
+        })
+    }
+
+    /// Not memoized and not in the EC's block at all. The memmap publishes
+    /// one voltage for the whole pack, no temperature of its own and none of
+    /// the alarms, and all of these move, so they are read afresh — a
+    /// transfer per cell plus two, which is why only a caller showing them
+    /// asks.
+    fn condition(&self) -> Option<wire::BatteryCondition> {
+        let cell_millivolts: Vec<u32> = SB_CELL_VOLTAGES
+            .iter()
+            .map(|register| self.sb_word(*register).map(u32::from))
+            .collect::<Option<_>>()?;
+        Some(wire::BatteryCondition {
+            cell_millivolts,
+            alarms: alarms(self.sb_word(SB_BATTERY_STATUS)?),
+            decicelsius: decicelsius(self.sb_word(SB_TEMPERATURE)?),
+        })
+    }
+}
+
+impl Charger for Ec {
+    /// The ceiling the EC holds. Its command answers with a floor as well,
+    /// which nothing here sets or reports.
+    fn charge_limit(&self) -> DeviceResult<u8> {
+        let (_min, max) = self.ec().get_charge_limit().map_err(device_error)?;
+        Ok(max)
+    }
+
+    fn set_charge_limit(&self, percent: u8) -> DeviceResult<()> {
+        self.ec().set_charge_limit(0, percent).map_err(device_error)
+    }
+
+    /// Always the unconditional form. The command's state-of-charge variant
+    /// latches inside the EC: once applied it is never re-evaluated, so a
+    /// later threshold cannot lift it (framework-system issue #342).
+    fn set_charge_current_limit(&self, milliamps: u32) -> DeviceResult<EcStamp> {
+        let ec = self.ec();
+        ec.set_charge_current_limit(milliamps, None)
+            .map_err(device_error)?;
+        stamp(&ec).map_err(device_error)
+    }
+
+    /// No same-path probe exists: the charge current limit is write-only,
+    /// with no readback in any command version (framework-system issue
+    /// #180), so the firmware is asked about the command itself.
+    fn charge_current_limit_supported(&self) -> bool {
+        self.offers(EcCommands::ChargeCurrentLimit, 0)
     }
 }
 

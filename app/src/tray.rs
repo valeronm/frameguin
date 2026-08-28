@@ -7,17 +7,16 @@
 use std::rc::Rc;
 
 use frameguin_model::control::Controls;
-use frameguin_model::control::power_led;
-use frameguin_model::control::touchscreen::{state_at, state_labels, state_row};
-use frameguin_wire::{BatteryState, Capability, PowerLedLevel};
-
-use crate::APP_ID;
-use crate::bus::Bus;
-use crate::caps::Capabilities;
-use crate::format::{
+use frameguin_model::control::battery::{
     CHARGE_SPEED_LABELS, amps, battery_summary, charge_limit_labels, charge_limit_percent,
     charge_limit_position, charge_speed_milliamps, charge_speed_position, percent_label,
 };
+use frameguin_model::control::power_led;
+use frameguin_model::control::touchscreen::{state_at, state_labels, state_row};
+use frameguin_wire::{BatteryFeature, BatteryState, PowerLedLevel};
+
+use crate::APP_ID;
+use crate::bus::Bus;
 use crate::reading::Feed;
 
 pub(crate) enum TrayEvent {
@@ -48,6 +47,9 @@ pub(crate) struct TrayIcon {
     /// fails to read leaves the last one standing, the push protocol having
     /// no way to say "no longer known".
     battery: Option<BatteryState>,
+    /// Which limits the charger takes, pushed in with the probe; None until
+    /// then, which a machine with no pack never changes.
+    battery_features: Option<Vec<BatteryFeature>>,
     /// Currently applied charge limit, pushed in from the app so the radio
     /// group can mark it; None until the first daemon read.
     charge_limit: Option<u8>,
@@ -66,10 +68,6 @@ pub(crate) struct TrayIcon {
     /// Whether the touch panel is on, pushed in from the app; None until the
     /// first read, which a machine with no panel to switch never makes.
     touchscreen: Option<bool>,
-    /// Pushed in once the app reads the daemon's probe, and fixed for the
-    /// daemon's run thereafter. None until then, which leaves the menu at
-    /// Open/Quit.
-    caps: Option<Capabilities>,
 }
 
 impl TrayIcon {
@@ -78,13 +76,13 @@ impl TrayIcon {
         Self {
             tx,
             battery: None,
+            battery_features: None,
             charge_limit: None,
             charge_current_limit: None,
             design_capacity: None,
             power_led_presets: None,
             power_led_level: None,
             touchscreen: None,
-            caps: None,
         }
     }
 
@@ -207,14 +205,10 @@ fn radio_submenu(
 
 impl TrayIcon {
     /// The reading heading the battery group, and the way into the full
-    /// report. Asks the capability like every other item, and the value on top
-    /// of it: a board that has the reading still has nothing to show until the
-    /// first one arrives.
+    /// report. Gated on the reading itself: a board that has a pack still has
+    /// nothing to show until the first one arrives.
     fn battery_item(&self) -> Option<ksni::MenuItem<Self>> {
         use ksni::menu::StandardItem;
-        if !self.caps?.has(Capability::Battery) {
-            return None;
-        }
         Some(
             StandardItem {
                 label: battery_summary(self.battery?),
@@ -225,8 +219,14 @@ impl TrayIcon {
         )
     }
 
+    fn offers(&self, feature: BatteryFeature) -> bool {
+        self.battery_features
+            .as_ref()
+            .is_some_and(|features| features.contains(&feature))
+    }
+
     fn charge_limit_item(&self) -> Option<ksni::MenuItem<Self>> {
-        if !self.caps?.has(Capability::ChargeLimit) {
+        if !self.offers(BatteryFeature::ChargeLimit) {
             return None;
         }
         let labels = charge_limit_labels();
@@ -244,7 +244,7 @@ impl TrayIcon {
     }
 
     fn charge_speed_item(&self) -> Option<ksni::MenuItem<Self>> {
-        if !self.caps?.has(Capability::ChargeCurrentLimit) {
+        if !self.offers(BatteryFeature::ChargeCurrentLimit) {
             return None;
         }
         // Still needed to turn the chosen speed into the milliamps the daemon
@@ -330,8 +330,8 @@ impl TrayIcon {
 /// copy is the better one.
 #[derive(Clone, Default)]
 pub(crate) struct TrayValues {
-    pub(crate) caps: Option<Capabilities>,
     pub(crate) battery: Option<BatteryState>,
+    pub(crate) battery_features: Option<Vec<BatteryFeature>>,
     pub(crate) charge_limit: Option<u8>,
     pub(crate) design_capacity: Option<u32>,
     pub(crate) charge_current_limit: Option<u32>,
@@ -341,11 +341,14 @@ pub(crate) struct TrayValues {
 }
 
 impl TrayValues {
-    /// What the board offers, by both accounts: the capability list, and
-    /// what each detected control has to say about its rows.
-    pub(crate) fn offered(caps: Capabilities, controls: &Controls<Bus>) -> Self {
+    /// What the board offers: what each detected control has to say about
+    /// its rows. Pushed once, the answer being fixed for the daemon's run.
+    pub(crate) fn offered(controls: &Controls<Bus>) -> Self {
         Self {
-            caps: Some(caps),
+            battery_features: controls
+                .battery
+                .as_ref()
+                .map(|battery| battery.features().to_vec()),
             power_led_presets: controls.power_led.as_ref().map(|led| led.presets()),
             ..Self::default()
         }
@@ -379,8 +382,8 @@ impl TrayValues {
 /// thread and makes it rebuild and re-signal the whole menu.
 pub(crate) fn tray_push(handle: &ksni::blocking::Handle<TrayIcon>, values: TrayValues) {
     handle.update(move |tray| {
-        tray.caps = values.caps.or(tray.caps);
         tray.battery = values.battery.or(tray.battery);
+        tray.battery_features = values.battery_features.or(tray.battery_features.take());
         tray.charge_limit = values.charge_limit.or(tray.charge_limit);
         tray.design_capacity = values.design_capacity.or(tray.design_capacity);
         tray.charge_current_limit = values.charge_current_limit.or(tray.charge_current_limit);
@@ -397,9 +400,6 @@ pub(crate) async fn refresh_tray(handle: &ksni::blocking::Handle<TrayIcon>, feed
     // One write at the end. Every `update` blocks this thread on the tray's
     // own, and makes it rebuild the entire menu and signal it over D-Bus, so
     // a field-at-a-time refresh would do that once per field.
-    let Ok(proxy) = feed.proxy().await else {
-        return;
-    };
     // The feed's answer rather than a probe of the tray's own, and asked
     // unconditionally: it is a cached value after the first ask, where reading
     // the menu's copy would cost a hop onto ksni's thread to save nothing. The
@@ -407,48 +407,29 @@ pub(crate) async fn refresh_tray(handle: &ksni::blocking::Handle<TrayIcon>, feed
     let Ok(probe) = feed.probe().await else {
         return;
     };
-    let caps = probe.caps;
-    // The one block read in the app that does not go through the feed: the
-    // feed's may pull the pack's condition with it, which a menu opening
-    // cannot wait on. A second walk of the memmap is the cheaper half of that
-    // trade.
-    let info = if caps.has(Capability::Battery) {
-        proxy.get_battery_info().await.ok()
-    } else {
-        None
-    };
-    let battery = info.as_ref().map(|info| info.state);
-    let capacity = info.as_ref().map(|info| info.design_capacity);
-    let limit = if caps.has(Capability::ChargeLimit) {
-        proxy.get_charge_limit().await.ok()
-    } else {
-        None
-    };
-    // Without a capacity the speeds have no rate to name, so the menu leaves
-    // the submenu out and the limit goes unasked.
-    let speed = if caps.has(Capability::ChargeCurrentLimit) && capacity.is_some() {
-        proxy.get_charge_current_limit().await.ok()
-    } else {
-        None
-    };
-    let level = match &probe.controls.power_led {
-        Some(led) => led.read().await.ok().map(|snapshot| snapshot.level),
-        None => None,
-    };
-    let touchscreen = match &probe.controls.touchscreen {
-        Some(touchscreen) => touchscreen.read().await.ok(),
-        None => None,
-    };
-    tray_push(
-        handle,
-        TrayValues {
-            battery,
-            charge_limit: limit,
-            design_capacity: capacity,
-            charge_current_limit: speed,
-            power_led_level: level,
-            touchscreen,
-            ..TrayValues::offered(caps, &probe.controls)
-        },
-    );
+    let mut values = TrayValues::offered(&probe.controls);
+    if let Some(pack) = &probe.controls.battery {
+        // The one block read in the app that does not go through the feed:
+        // the feed's may pull the pack's condition with it, which a menu
+        // opening cannot wait on. A second walk of the memmap is the cheaper
+        // half of that trade.
+        let info = pack.read().await.ok();
+        values.battery = info.as_ref().map(|info| info.state);
+        values.design_capacity = info.as_ref().map(|info| info.design_capacity);
+        if pack.has(BatteryFeature::ChargeLimit) {
+            values.charge_limit = pack.charge_limit().await.ok();
+        }
+        // Without a capacity the speeds have no rate to name, so the menu
+        // leaves the submenu out and the limit goes unasked.
+        if pack.has(BatteryFeature::ChargeCurrentLimit) && values.design_capacity.is_some() {
+            values.charge_current_limit = pack.charge_current_limit().await.ok();
+        }
+    }
+    if let Some(led) = &probe.controls.power_led {
+        values.power_led_level = led.read().await.ok().map(|snapshot| snapshot.level);
+    }
+    if let Some(touchscreen) = &probe.controls.touchscreen {
+        values.touchscreen = touchscreen.read().await.ok();
+    }
+    tray_push(handle, values);
 }

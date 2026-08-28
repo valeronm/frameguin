@@ -24,8 +24,8 @@ One meaning per word, and each word names one place in the tree.
   a `Vec<Identity>`. A device that is a part and no control detects into a
   list, memory being one per slot.
 - **Control** — the facet "something that can be read and set": one trait
-  per device in `wire` — `TouchpadControl`, `TouchscreenControl`,
-  `PowerLedControl` — with one
+  per device in `wire` — `BatteryControl`, `TouchpadControl`,
+  `TouchscreenControl`, `PowerLedControl` — with one
   async fn per operation and three implementations, the device itself, the
   bus, and a stub. `DeviceError` is the one error every control and every
   detection raises.
@@ -216,20 +216,18 @@ every layer. The first carried the scaffolding the rest reuse: the keyed
 Order: touchpad, touchscreen, power LED, battery. Smallest column first, the
 one with the most shared state last.
 
-Moved so far: **touchpad, touchscreen, power LED**. Parts with no control so far:
-**mainboard, memory**.
+Moved so far: **touchpad, touchscreen, power LED, battery**. Parts with no
+control so far: **mainboard, memory**.
 
-Until the rest have moved, `Daemon` in `daemon/src/main.rs` still holds
-their methods and mirrors, reaching the hardware crate's transports
-directly rather than through a device — `app/src/format.rs` and
-`app/src/caps.rs` their presets
-and gating, `window/mod.rs` their widgets, and `tray.rs` its `TrayValues`
-with a field per setting. `GetCapabilities` names only the un-moved
-controls: a moved device detects itself at both ends — in `hardware` by its
-own probe, in `model` by its own first read, which an unregistered interface
-answers with `DeviceError::Absent`, the one kind only the bus raises, so a
-present device's own `NotSupported` cannot read as absence — so each move
-deletes a capability rather than keeping one alive for the app.
-`GetCapabilities` goes with the last of them; the features a device offers
-beyond presence travel on its own interface. Each of those dissolves as the
-last device using it moves.
+One control is left un-moved, the keyboard backlight, which the app never
+shows — the desktop already carries it on its own keys. `Daemon` in
+`daemon/src/main.rs` still holds its two methods, reaching the EC directly
+rather than through a device, `app/src/caps.rs` the capability that gates
+it, and `window/mod.rs` its slider. `GetCapabilities` names only it: a moved
+device detects itself at both ends — in `hardware` by its own probe, in
+`model` by its own first read, which an unregistered interface answers with
+`DeviceError::Absent`, the one kind only the bus raises, so a present
+device's own `NotSupported` cannot read as absence — so each move deleted a
+capability rather than keeping one alive for the app. `GetCapabilities` goes
+with it; the features a device offers beyond presence travel on its own
+interface.

@@ -1,18 +1,79 @@
-//! The values the controls offer and the words for them: the presets, the
-//! percentages and currents behind them, and how each is named. Nothing here
-//! reaches GTK or the bus, which is what lets the window and the tray share
-//! it and so keeps them from disagreeing about what "Half" sends or what a
-//! ceiling of 100% is called.
+//! The battery: the pack's reading, the two limits that shape its charging,
+//! and the words for all of it — the presets, the figures behind them, and
+//! how each value is named.
 //!
 //! Row order is settled here. A control that caps something starts at the
-//! setting that caps nothing and tightens down the list; every other reads as
-//! a scale climbing from off. An automatic mode is on no scale and leads; the
-//! row that reveals a slider trails the presets it extends.
-//!
-//! A device moved to `frameguin_model` carries its own presets and words
-//! there, under the same rule.
+//! setting that caps nothing and tightens down the list; the row that
+//! reveals a slider trails the presets it extends.
 
-use frameguin_wire::{BatteryAlarm, BatteryState, ChargeFlow, NO_CHARGE_CURRENT_LIMIT};
+use std::rc::Rc;
+
+use frameguin_wire::{
+    BatteryAlarm, BatteryCondition, BatteryControl, BatteryFeature, BatteryInfo, BatteryState,
+    ChargeFlow, DeviceError, DeviceResult as Result, NO_CHARGE_CURRENT_LIMIT,
+};
+
+pub struct Battery<C> {
+    control: Rc<C>,
+    features: Vec<BatteryFeature>,
+}
+
+impl<C: BatteryControl> Battery<C> {
+    pub fn new(control: Rc<C>, features: Vec<BatteryFeature>) -> Self {
+        Self { control, features }
+    }
+
+    /// Whether this board has a pack, decided by the device's own path: an
+    /// answer is the pack, `Absent` is no pack, and anything else is the
+    /// device being unreachable, which says nothing about the pack and is
+    /// passed up as the error it is. The features are what is asked, being
+    /// wanted anyway and fixed for the device's run — a read of the block
+    /// here would only be repeated by the first fill.
+    pub async fn detect(control: &Rc<C>) -> Result<Option<Self>> {
+        match control.features().await {
+            Ok(features) => Ok(Some(Self::new(control.clone(), features))),
+            Err(DeviceError::Absent(_)) => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+
+    #[must_use]
+    pub fn has(&self, feature: BatteryFeature) -> bool {
+        self.features.contains(&feature)
+    }
+
+    /// Every feature this battery offers, for a front-end that keeps its own
+    /// copy.
+    #[must_use]
+    pub fn features(&self) -> &[BatteryFeature] {
+        &self.features
+    }
+
+    pub async fn read(&self) -> Result<BatteryInfo> {
+        self.control.info().await
+    }
+
+    pub async fn condition(&self) -> Result<BatteryCondition> {
+        self.control.condition().await
+    }
+
+    pub async fn charge_limit(&self) -> Result<u8> {
+        self.control.charge_limit().await
+    }
+
+    /// True where the hardware was written, which is what earns a toast.
+    pub async fn set_charge_limit(&self, percent: u8) -> Result<bool> {
+        self.control.set_charge_limit(percent).await
+    }
+
+    pub async fn charge_current_limit(&self) -> Result<u32> {
+        self.control.charge_current_limit().await
+    }
+
+    pub async fn set_charge_current_limit(&self, milliamps: u32) -> Result<bool> {
+        self.control.set_charge_current_limit(milliamps).await
+    }
+}
 
 const CHARGE_PRESETS: [u8; 3] = [100, 80, 60];
 
@@ -20,63 +81,37 @@ const CHARGE_PRESETS: [u8; 3] = [100, 80, 60];
 /// one: the daemon takes 100 and writes it to the EC like any other
 /// percentage, and it is only here that the value stops being a limit and
 /// starts being the absence of one.
-pub(crate) const NO_CHARGE_LIMIT: u8 = 100;
+pub const NO_CHARGE_LIMIT: u8 = 100;
 
 /// The window's combo carries one row past the presets, for a ceiling the
 /// user dials in; the tray offers the presets alone.
-pub(crate) const CHARGE_LIMIT_CUSTOM: usize = CHARGE_PRESETS.len();
-
-/// The lowest ceiling the daemon accepts, and so the slider's floor.
-pub(crate) const MIN_CHARGE_LIMIT: f64 = 20.0;
+pub const CHARGE_LIMIT_CUSTOM: usize = CHARGE_PRESETS.len();
 
 /// The charge speeds the combo offers, as the divisor applied to the
 /// battery's 1C design current. `None` is full speed, which the daemon takes
 /// as no limit at all.
 const CHARGE_SPEEDS: [Option<u32>; 3] = [None, Some(2), Some(4)];
-pub(crate) const CHARGE_SPEED_LABELS: [&str; 3] = ["Full speed", "Half", "Quarter"];
+pub const CHARGE_SPEED_LABELS: [&str; 3] = ["Full speed", "Half", "Quarter"];
 
 /// The window's combo carries one row past the presets, for a rate the user
 /// dials in. The tray offers only the presets: a slider has no menu form, and
 /// a preset menu that can't reach every state is the honest half.
-pub(crate) const CHARGE_SPEED_CUSTOM: usize = CHARGE_SPEEDS.len();
+pub const CHARGE_SPEED_CUSTOM: usize = CHARGE_SPEEDS.len();
 
 /// The slowest the custom slider will ask for. The EC takes anything above
 /// zero, but a limit this side of it charges so slowly that it reads as a
 /// fault rather than a setting.
-pub(crate) const MIN_CUSTOM_CHARGE_MA: f64 = 100.0;
+pub const MIN_CUSTOM_CHARGE_MA: u32 = 100;
 
 /// What the custom slider rounds to. A `GtkScale` is continuous while
 /// dragged — its step increment reaches only keys and the wheel — so without
 /// this a drag lands on a value like 984 mA that the row then displays as
 /// "1.0 A", reporting a current nobody chose.
-pub(crate) const CUSTOM_CHARGE_STEP_MA: f64 = 100.0;
-
-/// GTK carries adjustment values as f64. The cast alone saturates at 255, so
-/// the clamp is what holds the result inside the range the daemon accepts;
-/// each control's own floor is enforced by its adjustment.
-#[expect(
-    clippy::cast_possible_truncation,
-    clippy::cast_sign_loss,
-    reason = "clamped into range before the cast"
-)]
-pub(crate) fn scale_percent(value: f64) -> u8 {
-    value.round().clamp(0.0, 100.0) as u8
-}
-
-/// GTK carries the slider's value as f64; the clamp is what holds the result
-/// inside what the daemon accepts, its floor coming from the adjustment.
-#[expect(
-    clippy::cast_possible_truncation,
-    clippy::cast_sign_loss,
-    reason = "clamped into range before the cast"
-)]
-pub(crate) fn scale_milliamps(value: f64) -> u32 {
-    let snapped = (value / CUSTOM_CHARGE_STEP_MA).round() * CUSTOM_CHARGE_STEP_MA;
-    snapped.clamp(MIN_CUSTOM_CHARGE_MA, f64::from(u32::MAX)) as u32
-}
+pub const CUSTOM_CHARGE_STEP_MA: u32 = 100;
 
 /// Milliamps as the amps a person reads off a charger.
-pub(crate) fn amps(milliamps: u32) -> String {
+#[must_use]
+pub fn amps(milliamps: u32) -> String {
     format!("{:.1} A", f64::from(milliamps) / 1000.0)
 }
 
@@ -104,7 +139,8 @@ fn watts(state: BatteryState) -> Option<String> {
 /// where the EC claims neither direction, which is the state its charge limiter
 /// holds the pack in while the current falls away. A pack simply resting at its
 /// ceiling reports a clean zero, so the two never collide.
-pub(crate) fn charge_direction(state: BatteryState) -> &'static str {
+#[must_use]
+pub fn charge_direction(state: BatteryState) -> &'static str {
     match state.flow {
         ChargeFlow::Charging => "Charging",
         ChargeFlow::Discharging => "Discharging",
@@ -117,7 +153,8 @@ pub(crate) fn charge_direction(state: BatteryState) -> &'static str {
 /// voltage whose product it is. Unknown rather than zero where the pack
 /// reports no voltage: a watt figure computed from a voltage that isn't there
 /// would read as a measurement.
-pub(crate) fn power_label(state: BatteryState) -> String {
+#[must_use]
+pub fn power_label(state: BatteryState) -> String {
     watts(state).unwrap_or_else(|| UNKNOWN.to_string())
 }
 
@@ -127,7 +164,8 @@ pub(crate) fn power_label(state: BatteryState) -> String {
 /// A rate of zero is dropped rather than rendered: "0.0 A" is what a pack
 /// reports in the moment either side of a direction changing, and it reads as
 /// a fault.
-pub(crate) fn charge_flow_label(state: BatteryState) -> String {
+#[must_use]
+pub fn charge_flow_label(state: BatteryState) -> String {
     let direction = charge_direction(state);
     if state.milliamps == 0 {
         return direction.to_string();
@@ -151,7 +189,8 @@ fn watt_hours(milliamp_hours: u32, design_millivolts: u32) -> String {
 
 /// A capacity in both units, energy first because that is what the pack is
 /// sold as, with the charge the EC actually reported after it.
-pub(crate) fn capacity(milliamp_hours: u32, design_millivolts: u32) -> String {
+#[must_use]
+pub fn capacity(milliamp_hours: u32, design_millivolts: u32) -> String {
     format!(
         "{} ({milliamp_hours} mAh)",
         watt_hours(milliamp_hours, design_millivolts)
@@ -159,7 +198,8 @@ pub(crate) fn capacity(milliamp_hours: u32, design_millivolts: u32) -> String {
 }
 
 /// Millivolts as the volts a pack is rated in.
-pub(crate) fn volts(millivolts: u32) -> String {
+#[must_use]
+pub fn volts(millivolts: u32) -> String {
     format!("{:.2} V", f64::from(millivolts) / 1000.0)
 }
 
@@ -167,14 +207,16 @@ pub(crate) fn volts(millivolts: u32) -> String {
 /// tenth a charger is labelled with. The report is where the exact figure
 /// belongs: "1.2 A" cannot show a current settling, which is most of what
 /// there is to watch as a charge ends.
-pub(crate) fn milliamps(milliamps: u32) -> String {
+#[must_use]
+pub fn milliamps(milliamps: u32) -> String {
     format!("{milliamps} mA")
 }
 
 /// A charge as a percentage: what the window's row and the report's first line
 /// both show, spelled once so the two windows cannot render one reading two
 /// ways.
-pub(crate) fn percent_label(percent: u8) -> String {
+#[must_use]
+pub fn percent_label(percent: u8) -> String {
     format!("{percent}%")
 }
 
@@ -182,7 +224,8 @@ pub(crate) fn percent_label(percent: u8) -> String {
 /// nothing to measure it against. A new pack that outperforms its rating
 /// reads above 100%, left as it stands: unlike a charge, this has no ceiling
 /// that makes more than full meaningless.
-pub(crate) fn retention_label(last_full_capacity: u32, design_capacity: u32) -> String {
+#[must_use]
+pub fn retention_label(last_full_capacity: u32, design_capacity: u32) -> String {
     match retention_percent(last_full_capacity, design_capacity) {
         Some(percent) => format!("{percent}%"),
         None => UNKNOWN.to_string(),
@@ -203,11 +246,13 @@ fn retention_percent(last_full_capacity: u32, design_capacity: u32) -> Option<u3
 }
 
 /// The pack's temperature, to the tenth of a degree its sensor resolves.
-pub(crate) fn temperature(decicelsius: i16) -> String {
+#[must_use]
+pub fn temperature(decicelsius: i16) -> String {
     format!("{:.1} °C", f64::from(decicelsius) / 10.0)
 }
 
-pub(crate) fn charger_label(connected: bool) -> &'static str {
+#[must_use]
+pub fn charger_label(connected: bool) -> &'static str {
     if connected {
         "Connected"
     } else {
@@ -220,7 +265,8 @@ pub(crate) fn charger_label(connected: bool) -> &'static str {
 /// whose total reads healthy can still have one cell drifting away from the
 /// rest — that drift is the earliest sign a pack is failing, and the only
 /// place it shows. `None` on a pack that reports no cells.
-pub(crate) fn cell_spread(cell_millivolts: &[u32]) -> Option<String> {
+#[must_use]
+pub fn cell_spread(cell_millivolts: &[u32]) -> Option<String> {
     let high = cell_millivolts.iter().max()?;
     let low = cell_millivolts.iter().min()?;
     Some(format!("{} mV", high - low))
@@ -229,7 +275,8 @@ pub(crate) fn cell_spread(cell_millivolts: &[u32]) -> Option<String> {
 /// Every cell's voltage on one line, to sit under the spread. To three
 /// decimals where [`volts`] gives two: the whole point is the millivolts
 /// between them, which two decimals would round away.
-pub(crate) fn cell_voltages(cell_millivolts: &[u32]) -> String {
+#[must_use]
+pub fn cell_voltages(cell_millivolts: &[u32]) -> String {
     let cells: Vec<String> = cell_millivolts
         .iter()
         .map(|millivolts| format!("{:.3}", f64::from(*millivolts) / 1000.0))
@@ -250,7 +297,8 @@ fn alarm_label(alarm: BatteryAlarm) -> &'static str {
 /// Every alarm the pack is raising, on one line. Empty for a pack raising
 /// none, which is the caller's cue to show nothing at all rather than a row
 /// announcing that nothing is wrong.
-pub(crate) fn alarms_label(alarms: &[BatteryAlarm]) -> String {
+#[must_use]
+pub fn alarms_label(alarms: &[BatteryAlarm]) -> String {
     alarms
         .iter()
         .map(|alarm| alarm_label(*alarm))
@@ -265,13 +313,15 @@ const UNKNOWN: &str = "Unknown";
 
 /// A name the pack left blank, which some do for the serial. Named rather than
 /// left empty: a blank value reads as a row that failed to fill.
-pub(crate) fn text_or_unknown(text: &str) -> &str {
+#[must_use]
+pub fn text_or_unknown(text: &str) -> &str {
     if text.is_empty() { UNKNOWN } else { text }
 }
 
 /// The whole state on one line, for the tray, which has no second line to
 /// put the charge on.
-pub(crate) fn battery_summary(state: BatteryState) -> String {
+#[must_use]
+pub fn battery_summary(state: BatteryState) -> String {
     format!(
         "{} · {}",
         percent_label(state.percent),
@@ -281,7 +331,8 @@ pub(crate) fn battery_summary(state: BatteryState) -> String {
 
 /// The milliamps a charge speed asks the daemon for. Shared by the window and
 /// the tray so the two can't disagree about what "Half" sends.
-pub(crate) fn charge_speed_milliamps(design_capacity: u32, index: usize) -> u32 {
+#[must_use]
+pub fn charge_speed_milliamps(design_capacity: u32, index: usize) -> u32 {
     match CHARGE_SPEEDS.get(index).copied().flatten() {
         Some(divisor) => design_capacity / divisor,
         None => NO_CHARGE_CURRENT_LIMIT,
@@ -291,14 +342,16 @@ pub(crate) fn charge_speed_milliamps(design_capacity: u32, index: usize) -> u32 
 /// Which speed a limit corresponds to, and `None` when it matches no preset —
 /// `framework_tool` can set any value, and guessing the nearest would
 /// misreport it.
-pub(crate) fn charge_speed_position(design_capacity: u32, milliamps: u32) -> Option<usize> {
+#[must_use]
+pub fn charge_speed_position(design_capacity: u32, milliamps: u32) -> Option<usize> {
     (0..CHARGE_SPEEDS.len())
         .find(|&index| charge_speed_milliamps(design_capacity, index) == milliamps)
 }
 
 /// Combo labels carrying the rate each fraction works out to — "Half" alone
 /// doesn't say half of what.
-pub(crate) fn charge_speed_labels(design_capacity: u32) -> Vec<String> {
+#[must_use]
+pub fn charge_speed_labels(design_capacity: u32) -> Vec<String> {
     CHARGE_SPEEDS
         .iter()
         .zip(CHARGE_SPEED_LABELS)
@@ -312,21 +365,24 @@ pub(crate) fn charge_speed_labels(design_capacity: u32) -> Vec<String> {
 /// The ceiling a preset row asks the daemon for. Rows are addressed by
 /// position in the labels built below, so an index from anywhere else can be
 /// out of range.
-pub(crate) fn charge_limit_percent(row: usize) -> u8 {
+#[must_use]
+pub fn charge_limit_percent(row: usize) -> u8 {
     CHARGE_PRESETS[row]
 }
 
 /// Which preset a ceiling sits on, and `None` when it matches none — the EC's
 /// own battery extender lowers the limit unasked, and guessing the nearest
 /// preset would misreport it.
-pub(crate) fn charge_limit_position(percent: u8) -> Option<usize> {
+#[must_use]
+pub fn charge_limit_position(percent: u8) -> Option<usize> {
     CHARGE_PRESETS.iter().position(|preset| *preset == percent)
 }
 
 /// Preset names, shared so the window's combo and the tray's menu can't
 /// disagree about what a ceiling is called. The window's combo appends
 /// "Custom"; the tray's menu takes these as they are.
-pub(crate) fn charge_limit_labels() -> Vec<String> {
+#[must_use]
+pub fn charge_limit_labels() -> Vec<String> {
     CHARGE_PRESETS
         .iter()
         // Named as a state rather than as the absence of one, so a title
@@ -344,20 +400,187 @@ pub(crate) fn charge_limit_labels() -> Vec<String> {
 /// A combo's rows: the presets, then the one that reveals a slider. Both
 /// preset-plus-custom controls build their model this way, so neither can
 /// leave the extra row off and address it anyway.
-pub(crate) fn with_custom_row(mut labels: Vec<String>) -> Vec<String> {
+#[must_use]
+pub fn with_custom_row(mut labels: Vec<String>) -> Vec<String> {
     labels.push("Custom".to_string());
     labels
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        BatteryState, CHARGE_SPEEDS, ChargeFlow, MIN_CUSTOM_CHARGE_MA, NO_CHARGE_CURRENT_LIMIT,
-        NO_CHARGE_LIMIT, battery_summary, capacity, charge_direction, charge_flow_label,
-        charge_limit_labels, charge_limit_percent, charge_limit_position, charge_speed_labels,
-        charge_speed_milliamps, charge_speed_position, power_label, retention_label,
-        scale_milliamps, volts, watt_hours, with_custom_row,
+    use std::cell::Cell;
+    use std::rc::Rc;
+
+    use frameguin_wire::{
+        BatteryCondition, BatteryControl, BatteryFeature, BatteryInfo, BatteryState, ChargeFlow,
+        DeviceError, DeviceResult as Result, NO_CHARGE_CURRENT_LIMIT,
     };
+
+    use super::{
+        Battery, CHARGE_SPEEDS, NO_CHARGE_LIMIT, battery_summary, capacity, charge_direction,
+        charge_flow_label, charge_limit_labels, charge_limit_percent, charge_limit_position,
+        charge_speed_labels, charge_speed_milliamps, charge_speed_position, power_label,
+        retention_label, volts, watt_hours, with_custom_row,
+    };
+    use crate::testing::ready;
+
+    /// A 4640 mAh pack, the Laptop 13's.
+    const CAPACITY: u32 = 4640;
+
+    /// Mid-charge on the same pack's four cells.
+    const MILLIVOLTS: u32 = 15_400;
+
+    /// What that pack is rated at, which is what its energy is measured
+    /// against however charged it happens to be.
+    const NOMINAL_MILLIVOLTS: u32 = 15_640;
+
+    fn state(flow: ChargeFlow, milliamps: u32) -> BatteryState {
+        BatteryState {
+            percent: 62,
+            flow,
+            milliamps,
+            millivolts: MILLIVOLTS,
+        }
+    }
+
+    fn block() -> BatteryInfo {
+        BatteryInfo {
+            state: state(ChargeFlow::Charging, 2320),
+            remaining_capacity: 2843,
+            last_full_capacity: 4176,
+            design_capacity: CAPACITY,
+            design_millivolts: NOMINAL_MILLIVOLTS,
+            cycle_count: 40,
+            charger_connected: true,
+            critical: false,
+            manufacturer: "NVT".into(),
+            model: "FRANGWA".into(),
+            serial: String::new(),
+            chemistry: "LION".into(),
+            manufactured: String::new(),
+        }
+    }
+
+    /// A pack answering what it was built with, refusing every write once
+    /// told to, and answering every read with `failing` where one is set.
+    struct Stub {
+        limit: Cell<u8>,
+        cap: Cell<u32>,
+        refusing: Cell<bool>,
+        failing: Option<DeviceError>,
+    }
+
+    impl Stub {
+        fn answering() -> Self {
+            Self {
+                limit: Cell::new(100),
+                cap: Cell::new(NO_CHARGE_CURRENT_LIMIT),
+                refusing: Cell::new(false),
+                failing: None,
+            }
+        }
+
+        fn new() -> Rc<Self> {
+            Rc::new(Self::answering())
+        }
+
+        fn failing(error: DeviceError) -> Rc<Self> {
+            Rc::new(Self {
+                failing: Some(error),
+                ..Self::answering()
+            })
+        }
+
+        fn refuse(&self) -> Result<()> {
+            if self.refusing.get() {
+                Err(DeviceError::AccessDenied("not authorized".into()))
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    impl BatteryControl for Stub {
+        async fn info(&self) -> Result<BatteryInfo> {
+            self.failing.clone().map_or(Ok(block()), Err)
+        }
+
+        async fn condition(&self) -> Result<BatteryCondition> {
+            Ok(BatteryCondition {
+                cell_millivolts: vec![3_850; 4],
+                alarms: Vec::new(),
+                decicelsius: 300,
+            })
+        }
+
+        async fn features(&self) -> Result<Vec<BatteryFeature>> {
+            self.failing
+                .clone()
+                .map_or(Ok(vec![BatteryFeature::ChargeLimit]), Err)
+        }
+
+        async fn charge_limit(&self) -> Result<u8> {
+            Ok(self.limit.get())
+        }
+
+        async fn set_charge_limit(&self, percent: u8) -> Result<bool> {
+            self.refuse()?;
+            self.limit.set(percent);
+            Ok(true)
+        }
+
+        async fn charge_current_limit(&self) -> Result<u32> {
+            Ok(self.cap.get())
+        }
+
+        async fn set_charge_current_limit(&self, milliamps: u32) -> Result<bool> {
+            self.refuse()?;
+            self.cap.set(milliamps);
+            Ok(true)
+        }
+    }
+
+    #[test]
+    fn a_pack_the_hardware_answers_for_is_detected_with_its_features() {
+        let battery = ready(Battery::detect(&Stub::new())).unwrap().unwrap();
+        assert!(battery.has(BatteryFeature::ChargeLimit));
+        assert!(!battery.has(BatteryFeature::Condition));
+    }
+
+    #[test]
+    fn a_pack_the_hardware_does_not_serve_is_absent() {
+        let stub = Stub::failing(DeviceError::Absent("no such interface".into()));
+        assert!(ready(Battery::detect(&stub)).unwrap().is_none());
+    }
+
+    #[test]
+    fn hardware_that_cannot_be_asked_is_not_an_absent_pack() {
+        let error = DeviceError::Failed("no reply".into());
+        let stub = Stub::failing(error.clone());
+        assert_eq!(ready(Battery::detect(&stub)).err(), Some(error));
+    }
+
+    #[test]
+    fn a_write_reaches_the_hardware_and_a_read_sees_it() {
+        let stub = Stub::new();
+        let battery = Battery::new(stub.clone(), Vec::new());
+        assert_eq!(ready(battery.set_charge_limit(80)), Ok(true));
+        assert_eq!(ready(battery.charge_limit()), Ok(80));
+        assert_eq!(ready(battery.set_charge_current_limit(1_160)), Ok(true));
+        assert_eq!(ready(battery.charge_current_limit()), Ok(1_160));
+    }
+
+    #[test]
+    fn a_refused_write_carries_the_refusal() {
+        let stub = Stub::new();
+        let battery = Battery::new(stub.clone(), Vec::new());
+        stub.refusing.set(true);
+        assert_eq!(
+            ready(battery.set_charge_limit(80)),
+            Err(DeviceError::AccessDenied("not authorized".into()))
+        );
+        assert_eq!(stub.limit.get(), 100);
+    }
 
     /// One row is the off row, and it is the one that sends the ceiling that
     /// isn't one. The label and the toast branch on the same constant, so
@@ -412,25 +635,6 @@ mod tests {
     fn energy_is_the_charge_against_the_nominal_voltage() {
         assert_eq!(watt_hours(2843, NOMINAL_MILLIVOLTS), "44.5 Wh");
         assert_eq!(watt_hours(0, NOMINAL_MILLIVOLTS), "0.0 Wh");
-    }
-
-    /// A 4640 mAh pack, the Laptop 13's.
-    const CAPACITY: u32 = 4640;
-
-    /// Mid-charge on the same pack's four cells.
-    const MILLIVOLTS: u32 = 15_400;
-
-    /// What that pack is rated at, which is what its energy is measured
-    /// against however charged it happens to be.
-    const NOMINAL_MILLIVOLTS: u32 = 15_640;
-
-    fn state(flow: ChargeFlow, milliamps: u32) -> BatteryState {
-        BatteryState {
-            percent: 62,
-            flow,
-            milliamps,
-            millivolts: MILLIVOLTS,
-        }
     }
 
     #[test]
@@ -564,23 +768,6 @@ mod tests {
     #[test]
     fn a_dialled_in_value_matches_no_preset() {
         assert_eq!(charge_speed_position(CAPACITY, 1500), None);
-    }
-
-    /// A `GtkScale` is continuous while dragged, so without snapping a drag
-    /// lands on values like 984 mA that the row then displays as "1.0 A".
-    #[test]
-    fn the_slider_snaps_to_whole_steps() {
-        assert_eq!(scale_milliamps(984.0), 1000);
-        assert_eq!(scale_milliamps(1049.0), 1000);
-        assert_eq!(scale_milliamps(1050.0), 1100);
-    }
-
-    #[test]
-    fn the_slider_never_asks_for_a_current_that_stops_charging() {
-        let floor = scale_milliamps(MIN_CUSTOM_CHARGE_MA);
-        assert!(floor > 0);
-        assert_eq!(scale_milliamps(0.0), floor);
-        assert_eq!(scale_milliamps(-50.0), floor);
     }
 
     #[test]

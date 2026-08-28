@@ -9,7 +9,6 @@ mod battery;
 mod board;
 mod bus;
 mod caps;
-mod format;
 mod mapped;
 mod parts;
 mod reading;
@@ -27,9 +26,8 @@ use gtk4::glib;
 
 use crate::reading::Feed;
 use crate::tray::{TrayEvent, TrayIcon, refresh_tray};
-use crate::window::{
-    Custom, Sink, Ui, apply_charge_limit, apply_charge_speed, build_window, power_led, touchscreen,
-};
+use crate::window::battery::Custom;
+use crate::window::{Sink, Ui, build_window};
 
 const APP_ID: &str = "io.github.valeronm.Frameguin";
 
@@ -93,8 +91,8 @@ fn setup_tray(app: &adw::Application, state: Rc<AppState>) {
             // first dial failed, where a held `Option` would have swallowed
             // every preset click for as long as the tray ran while the menu
             // beside it went on refreshing.
-            let proxy = state.feed.proxy().await.ok();
-            let controls = state.feed.probe().await.ok();
+            let probe = state.feed.probe().await.ok();
+            let controls = probe.as_ref().map(|probe| &probe.controls);
             match event {
                 TrayEvent::Show => {
                     let window = state.window_for(&app).0;
@@ -114,30 +112,36 @@ fn setup_tray(app: &adw::Application, state: Rc<AppState>) {
                 // moving the widget: a widget already showing the requested
                 // value emits no change, and the click would be swallowed.
                 TrayEvent::SetChargeLimit(percent) => {
-                    if let Some(proxy) = &proxy {
-                        apply_charge_limit(sink, proxy, percent, Custom::Rederive).await;
+                    if let Some(control) = controls.and_then(|c| c.battery.as_ref()) {
+                        window::battery::apply_charge_limit(
+                            sink,
+                            control,
+                            percent,
+                            Custom::Rederive,
+                        )
+                        .await;
                     }
                 }
                 TrayEvent::Refresh => refresh_tray(&handle, &state.feed).await,
                 TrayEvent::SetChargeSpeed(milliamps) => {
-                    if let Some(proxy) = &proxy {
-                        apply_charge_speed(sink, proxy, milliamps, Custom::Rederive).await;
+                    if let Some(control) = controls.and_then(|c| c.battery.as_ref()) {
+                        window::battery::apply_charge_speed(
+                            sink,
+                            control,
+                            milliamps,
+                            Custom::Rederive,
+                        )
+                        .await;
                     }
                 }
                 TrayEvent::SetPowerLedLevel(level) => {
-                    if let Some(control) = controls
-                        .as_ref()
-                        .and_then(|probe| probe.controls.power_led.as_ref())
-                    {
-                        power_led::apply(sink, control, level).await;
+                    if let Some(control) = controls.and_then(|c| c.power_led.as_ref()) {
+                        window::power_led::apply(sink, control, level).await;
                     }
                 }
                 TrayEvent::SetTouchscreen(enabled) => {
-                    if let Some(control) = controls
-                        .as_ref()
-                        .and_then(|probe| probe.controls.touchscreen.as_ref())
-                    {
-                        touchscreen::apply(sink, control, enabled).await;
+                    if let Some(control) = controls.and_then(|c| c.touchscreen.as_ref()) {
+                        window::touchscreen::apply(sink, control, enabled).await;
                     }
                 }
                 // Through the action, like the window's row: the report has
