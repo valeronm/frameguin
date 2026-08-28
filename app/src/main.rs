@@ -7,40 +7,30 @@ mod about;
 mod autostart;
 mod battery;
 mod board;
+mod bus;
 mod caps;
 mod format;
 mod mapped;
 mod reading;
 mod tray;
-mod ui;
+mod window;
 
 use std::cell::RefCell;
 use std::ops::ControlFlow;
 use std::rc::Rc;
 
 use adw::prelude::*;
-use frameguin_wire::FrameguinProxy;
 use gtk4::gio;
 use gtk4::glib;
 
 use crate::reading::Feed;
 use crate::tray::{TrayEvent, TrayIcon, refresh_tray};
-use crate::ui::{
+use crate::window::{
     Custom, Sink, Ui, apply_charge_limit, apply_charge_speed, apply_power_led_level,
     apply_touchscreen, build_window,
 };
 
 const APP_ID: &str = "io.github.valeronm.Frameguin";
-
-/// The app's one way of attaching to the daemon.
-async fn daemon_proxy() -> zbus::Result<FrameguinProxy<'static>> {
-    let conn = zbus::Connection::system().await?;
-    FrameguinProxy::builder(&conn)
-        .destination(frameguin_wire::BUS_NAME)?
-        .path(frameguin_wire::OBJECT_PATH)?
-        .build()
-        .await
-}
 
 /// Window and tray state shared between activation and tray events. The
 /// window is built on first use, so a service-mode start (autostart) costs

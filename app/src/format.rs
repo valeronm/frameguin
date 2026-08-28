@@ -4,17 +4,16 @@
 //! it and so keeps them from disagreeing about what "Half" sends or what a
 //! ceiling of 100% is called.
 //!
-//! Row order is settled here, except where the vocabulary already carries an
-//! order that is a fact about the values rather than a layout — the click
-//! forces and the haptic steps — and `wire` keeps it. A control that caps
-//! something starts at the setting that caps nothing and tightens down the
-//! list; every other reads as a scale climbing from off. An automatic mode is
-//! on no scale and leads; the row that reveals a slider trails the presets it
-//! extends.
+//! Row order is settled here. A control that caps something starts at the
+//! setting that caps nothing and tightens down the list; every other reads as
+//! a scale climbing from off. An automatic mode is on no scale and leads; the
+//! row that reveals a slider trails the presets it extends.
+//!
+//! A device moved to `frameguin_model` carries its own presets and words
+//! there, under the same rule.
 
 use frameguin_wire::{
-    BatteryAlarm, BatteryState, ChargeFlow, ClickForce, HAPTIC_INTENSITY_LEVELS,
-    NO_CHARGE_CURRENT_LIMIT, PowerLedLevel,
+    BatteryAlarm, BatteryState, ChargeFlow, NO_CHARGE_CURRENT_LIMIT, PowerLedLevel,
 };
 
 const CHARGE_PRESETS: [u8; 3] = [100, 80, 60];
@@ -386,22 +385,6 @@ pub(crate) fn power_led_level_labels(levels: &[PowerLedLevel]) -> Vec<String> {
         .collect()
 }
 
-/// The haptic combo's rows, derived from the steps they select rather than
-/// kept in step with them by hand, which a step added upstream would break
-/// silently.
-pub(crate) fn haptic_labels() -> Vec<String> {
-    HAPTIC_INTENSITY_LEVELS
-        .iter()
-        .map(|&percent| {
-            if percent == 0 {
-                "Off".to_string()
-            } else {
-                format!("{percent}%")
-            }
-        })
-        .collect()
-}
-
 /// The touchscreen's two states as the tray names them, each beside the state
 /// its row means.
 ///
@@ -431,22 +414,14 @@ pub(crate) fn touchscreen_state(row: usize) -> Option<bool> {
     TOUCHSCREEN_STATES.get(row).map(|(_, state)| *state)
 }
 
-pub(crate) fn click_force_label(force: ClickForce) -> &'static str {
-    match force {
-        ClickForce::Low => "Low",
-        ClickForce::Medium => "Medium",
-        ClickForce::High => "High",
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::{
-        BatteryState, CHARGE_SPEEDS, ChargeFlow, HAPTIC_INTENSITY_LEVELS, MIN_CUSTOM_CHARGE_MA,
-        NO_CHARGE_CURRENT_LIMIT, NO_CHARGE_LIMIT, PowerLedLevel, battery_summary, capacity,
-        charge_direction, charge_flow_label, charge_limit_labels, charge_limit_percent,
-        charge_limit_position, charge_speed_labels, charge_speed_milliamps, charge_speed_position,
-        power_label, power_led_row_rank, retention_label, scale_milliamps, touchscreen_labels,
+        BatteryState, CHARGE_SPEEDS, ChargeFlow, MIN_CUSTOM_CHARGE_MA, NO_CHARGE_CURRENT_LIMIT,
+        NO_CHARGE_LIMIT, PowerLedLevel, battery_summary, capacity, charge_direction,
+        charge_flow_label, charge_limit_labels, charge_limit_percent, charge_limit_position,
+        charge_speed_labels, charge_speed_milliamps, charge_speed_position, power_label,
+        power_led_row_rank, retention_label, scale_milliamps, touchscreen_labels,
         touchscreen_position, touchscreen_state, volts, watt_hours, with_custom_row,
     };
 
@@ -472,16 +447,6 @@ mod tests {
         ranks.sort_unstable();
         ranks.dedup();
         assert_eq!(ranks.len(), PowerLedLevel::ALL.len());
-    }
-
-    /// The steps are the touchpad's list, not this module's, and the rows are
-    /// those steps in order — so a scale that stopped climbing would be drawn
-    /// as one anyway. What this catches is `wire`'s copy being updated to a
-    /// reordered upstream list; that the copy matches upstream at all is the
-    /// daemon's test, one boundary over.
-    #[test]
-    fn the_haptic_steps_climb() {
-        assert!(HAPTIC_INTENSITY_LEVELS.is_sorted_by(|low, high| low < high));
     }
 
     /// The row a state marks is the row that sends it back. A menu picks by

@@ -27,7 +27,6 @@ impl Capabilities {
     pub(crate) fn has(self, capability: Capability) -> bool {
         self.0 & (1 << capability as u32) != 0
     }
-
     /// Nothing to offer on this board. True as well before a probe has
     /// answered, so ask it only where an answer has arrived.
     pub(crate) fn is_empty(self) -> bool {

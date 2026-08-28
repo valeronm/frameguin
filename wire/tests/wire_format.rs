@@ -80,7 +80,6 @@ fn capability_names_are_kebab_case() {
         "power-led-brightness-custom"
     );
     assert_eq!(wire_string(Capability::PowerLedOff), "power-led-off");
-    assert_eq!(wire_string(Capability::HapticTouchpad), "haptic-touchpad");
 }
 
 #[test]

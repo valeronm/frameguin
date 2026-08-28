@@ -6,7 +6,7 @@ use std::sync::OnceLock;
 /// A write dated against the EC's life, as seconds of EC uptime paired with
 /// the wall time of that same moment.
 #[derive(Clone, Copy, Default)]
-pub(crate) struct EcStamp {
+pub struct EcStamp {
     ec_uptime: u64,
     written_at: u64,
 }
@@ -14,7 +14,7 @@ pub(crate) struct EcStamp {
 impl EcStamp {
     /// Both readings are [`crate::ec`]'s to take, that module holding every
     /// EC call.
-    pub(crate) fn taken(ec_uptime: u64, written_at: u64) -> Self {
+    pub fn taken(ec_uptime: u64, written_at: u64) -> Self {
         Self {
             ec_uptime,
             written_at,
@@ -22,16 +22,16 @@ impl EcStamp {
     }
 
     /// The slack absorbs the EC clock's 1% frequency error against the host's.
-    pub(crate) fn same_boot(self, ec_uptime: u64, now: u64) -> bool {
+    pub fn same_boot(self, ec_uptime: u64, now: u64) -> bool {
         let expected = self.ec_uptime + now.saturating_sub(self.written_at);
         expected.saturating_sub(ec_uptime) <= (expected / 20).max(60)
     }
 
-    pub(crate) fn stored(self) -> String {
+    pub fn stored(self) -> String {
         format!("{}:{}", self.ec_uptime, self.written_at)
     }
 
-    pub(crate) fn parse(value: &str) -> Option<Self> {
+    pub fn parse(value: &str) -> Option<Self> {
         let (uptime, written_at) = value.rsplit_once(':')?;
         Some(Self::taken(uptime.parse().ok()?, written_at.parse().ok()?))
     }
@@ -40,7 +40,7 @@ impl EcStamp {
 /// A write dated against this host's power state, by the boot it was made in
 /// and the time that boot had spent asleep.
 #[derive(Clone)]
-pub(crate) struct HostStamp {
+pub struct HostStamp {
     boot: String,
     suspended_ms: u64,
 }
@@ -52,7 +52,7 @@ const SUSPEND_FLOOR_MS: u64 = 100;
 impl HostStamp {
     /// None where the host will not name its boot, which costs the record and
     /// never the write.
-    pub(crate) fn now() -> Option<Self> {
+    pub fn now() -> Option<Self> {
         Some(Self {
             boot: boot()?.to_owned(),
             suspended_ms: suspended_ms()?,
@@ -61,15 +61,15 @@ impl HostStamp {
 
     /// False where the host will not answer, an unweighable stamp being one
     /// there is no reason to believe.
-    pub(crate) fn still_current(&self) -> bool {
+    pub fn still_current(&self) -> bool {
         self.matches(boot(), suspended_ms())
     }
 
-    pub(crate) fn stored(&self) -> String {
+    pub fn stored(&self) -> String {
         format!("{}:{}", self.boot, self.suspended_ms)
     }
 
-    pub(crate) fn parse(value: &str) -> Option<Self> {
+    pub fn parse(value: &str) -> Option<Self> {
         let (boot, suspended_ms) = value.rsplit_once(':')?;
         Some(Self {
             boot: boot.to_owned(),

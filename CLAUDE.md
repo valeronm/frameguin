@@ -5,9 +5,17 @@ it and the non-obvious constraints.
 
 ## Layout and contracts
 
-- Three crates, two binaries: `daemon/` runs as root and links the hardware
-  libraries (`framework_lib`, `hidapi`); `app/` is the GTK4/libadwaita UI and
-  links no hardware code; `wire/` is the D-Bus vocabulary both share. The
+- Five crates, two binaries: `hardware/` is direct access to the machine —
+  the transports, the roles, and the devices implementing the control
+  traits `wire` declares — and the only crate linking `framework_lib` and
+  `hidapi`; `daemon/` runs as root, links it, and serves it over the bus;
+  `app/` is the GTK4/libadwaita UI and links no hardware code; `wire/` is
+  the D-Bus vocabulary, the control traits and the error kind every
+  implementation of them shares; `model/` is the controls as the app holds
+  them, over those traits. `docs/architecture.md` opens with the vocabulary
+  — transport, role, device, part, control, interface, bus, client control,
+  group — and each word means one thing; "device" is the real thing on the
+  machine and nothing on the app side. The
   split is the security model — the root process carries no GUI, the GUI
   process has no hardware access — and the D-Bus interface
   `io.github.valeronm.Frameguin1` is their only bridge. Nothing that touches
@@ -36,6 +44,12 @@ it and the non-obvious constraints.
   get/set methods in the daemon, one gated UI group in the app — and nothing
   in between, because the app holds the probe's answer as a set rather than
   unpacking it into a flag per capability.
+- The code is moving from layers to devices, one device per commit, and
+  `docs/architecture.md` is the shape it is moving to: what each layer may
+  link, what a device's column holds at each, and which device has moved.
+  Read it before touching a device, and move its "Moved so far" line when
+  one lands. The bullets below describe the code as it still stands where a
+  device has not moved; each dissolves with the last device using it.
 - Inside `app/`, a module boundary is drawn where it makes a class of mistake
   impossible, not where a file got long. `format.rs` holds the presets, the
   values behind them and the words those values carry — the chrome around
@@ -102,10 +116,11 @@ it and the non-obvious constraints.
   the order to make it in; `touchscreen.rs` because the panel has two possible
   routes and a machine has only one, so what it settles is a precedence — and
   then the thing that precedence decides, which is whether the control can be
-  read at all. The rest divide by job: `board.rs`
-  the DMI reads — the vendor deciding whether there is an EC to open, the
-  product name deciding which board's pads are which — `lifetime.rs` what
-  holds a mirrored value and whether it still holds it, where `board.rs`
+  read at all. The rest divide by job: `dmi.rs`
+  the SMBIOS reads — the vendor deciding whether there is an EC to open, the
+  product name deciding which board's pads are which, the raw entries a
+  part's identity comes from — `lifetime.rs` what
+  holds a mirrored value and whether it still holds it, where `dmi.rs`
   answers for the machine, which is the difference between a fact a reboot or
   a sleep changes and one that outlives both, `state.rs`
   the mirror for what cannot be read back, `probe.rs` the probe rule beside
@@ -179,10 +194,13 @@ it and the non-obvious constraints.
 - D-Bus types name the value, not either end's convenience: a percentage is
   `y` (`u8`), never GTK's f64. The daemon validates every argument because
   any client can call it — an app-side clamp is UI convenience, not the check.
-- In the daemon's `#[interface]` impl the signature carries meaning: `async`
+- In `Daemon`'s `#[interface]` impl the signature carries meaning: `async`
   means the method awaits polkit, `fdo::Result` that it can fail — neither
   implies it touches the EC (`get_capabilities` does, and is neither). zbus
   boxes sync and async alike, so never reach for `async` to get concurrency.
+  A `Served<Device>` interface is `async` throughout, the control trait it
+  forwards to being async for the bus's sake; there the meaning is carried
+  by the order in the body instead.
 - The daemon's connection runs on one executor thread and every hardware call
   blocks rather than awaits, so a slow one stalls every other task on that
   connection — the cold `get_capabilities` probe most of all, which now walks
@@ -339,8 +357,9 @@ asserted and its reason a file away.
   or in `docs/`, not in a module doc. The module doc says what the module is
   for; the reasoning behind a mechanism — why a boundary sits where it does,
   what a rule is protecting against — goes here, where one statement covers
-  every module that obeys it, and a fact about the machine goes to
-  `docs/hardware.md`.
+  every module that obeys it. The shape of the whole — the layers, what each
+  links, what a device is at each — goes to `docs/architecture.md`, and a
+  fact about the machine to `docs/hardware.md`.
 - Clippy suppressions live at the site with a `reason`, never in a manifest:
   a manifest allow is invisible where the code is read and blankets the whole
   workspace. `#[expect]` when the suppression is situational, so a stale one

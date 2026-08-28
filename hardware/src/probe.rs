@@ -19,12 +19,15 @@ use framework_lib::chromium_ec::command::EcCommands;
 use framework_lib::touchscreen::{HX_PID, HX_VID};
 
 use crate::ec::Ec;
+use crate::led;
 use crate::touchscreen::{self, Route};
-use crate::{led, touchpad};
 
-/// `ec` is None on hardware with no Framework EC, which leaves everything but
-/// the touchpad unsupported.
-pub(crate) fn capabilities(ec: Option<&Ec>) -> Vec<wire::Capability> {
+/// The controls not yet served as devices of their own; a device answers for
+/// itself by being on the bus or not. `ec` is None on hardware with no
+/// Framework EC, which leaves everything but the touchscreen unsupported.
+/// `hid` is the one walk of the HID bus a daemon run makes, taken at startup
+/// for the devices detected there and handed on here for the rest.
+pub fn capabilities(ec: Option<&Ec>, hid: Option<&hidapi::HidApi>) -> Vec<wire::Capability> {
     let mut caps = Vec::new();
     if let Some(ec) = ec {
         // The report's own walk, run for the one thing that can stop it
@@ -96,15 +99,6 @@ pub(crate) fn capabilities(ec: Option<&Ec>) -> Vec<wire::Capability> {
             }
         }
     }
-    // One walk of the HID bus for every device asked about below. Building an
-    // `HidApi` enumerates the lot, so one per question would pay for the whole
-    // bus twice on the coldest call this daemon has.
-    let hid = hidapi::HidApi::new().ok();
-    // One name for both haptic controls: they share the identical support
-    // condition (same device, same firmware feature set).
-    if hid.as_ref().is_some_and(touchpad::haptic_present) {
-        caps.push(wire::Capability::HapticTouchpad);
-    }
     // Outside the EC's block: neither route runs through it, so a board whose
     // EC would not open can still have one of them.
     //
@@ -113,7 +107,7 @@ pub(crate) fn capabilities(ec: Option<&Ec>) -> Vec<wire::Capability> {
     // an operation will take. What is left here is the surplus an offer needs
     // over a write, which differs by route and is why this is a match rather
     // than a condition.
-    let touchscreen = match touchscreen::find(hid.as_ref()) {
+    let touchscreen = match touchscreen::find(hid) {
         // The pad gates a panel rather than being one, so the board naming
         // the pad is only half of it: the controller on the bus is what says
         // anything is behind the line. Panels and mainboards are sold apart
@@ -124,9 +118,7 @@ pub(crate) fn capabilities(ec: Option<&Ec>) -> Vec<wire::Capability> {
         // `level` is the setter's own line request, side-effect-free and
         // failing on everything the write would fail on: a chip that will not
         // open, a locked pad, a line another driver holds.
-        Some(Route::Pad(pad)) => {
-            pad.level().is_ok() && hid.as_ref().is_some_and(gated_panel_present)
-        }
+        Some(Route::Pad(pad)) => pad.level().is_ok() && hid.is_some_and(gated_panel_present),
         // Nothing to add: the command is the controller's own, so finding the
         // controller was the whole question and no board answers for it.
         Some(Route::Panel) => true,

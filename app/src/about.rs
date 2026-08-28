@@ -8,8 +8,9 @@ use gtk4 as gtk;
 use gtk4::gio;
 use gtk4::glib;
 
+use crate::APP_ID;
 use crate::board::dmi;
-use crate::{APP_ID, daemon_proxy};
+use crate::bus::Bus;
 
 /// The unit an install writes, one spelling for the two places a package and
 /// a tarball put it.
@@ -159,7 +160,7 @@ pub(crate) async fn debug_info() -> String {
     // Dialled rather than taken from the app's shared connection: this also
     // runs from `--debug-info`, where there is no app to have one, and a
     // report of whether the daemon answers wants asking afresh.
-    let proxy = daemon_proxy().await;
+    let proxy = Bus::connect().await.map(|bus| bus.frameguin);
     let build = match &proxy {
         Ok(p) => p
             .get_build()

@@ -58,7 +58,7 @@ const VENDOR_USAGE_PAGE: u16 = 0xFF00;
 ///
 /// Takes an enumeration already in hand where there is one, as
 /// [`crate::touchpad`] does, and makes one only where there is not.
-pub(crate) fn present(hid: Option<&hidapi::HidApi>) -> bool {
+pub fn present(hid: Option<&hidapi::HidApi>) -> bool {
     if let Some(&fitted) = FITTED.get() {
         return fitted;
     }
@@ -86,7 +86,7 @@ fn scan(hid: &hidapi::HidApi) -> bool {
 /// a controller that enumerates but will not open would take this daemon
 /// down rather than return an error. Running as root against hidraw is what
 /// keeps that theoretical.
-pub(crate) fn set_enabled(enabled: bool) -> io::Result<()> {
+pub fn set_enabled(enabled: bool) -> io::Result<()> {
     touchscreen::enable_touch(enabled)
         .ok_or_else(|| io::Error::other("the touch panel refused the enable command"))
 }

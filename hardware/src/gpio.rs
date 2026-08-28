@@ -23,7 +23,7 @@ use std::io;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 use std::path::PathBuf;
 
-use crate::board;
+use crate::dmi;
 
 /// The pad gating the touch controller, and the board that is true of.
 ///
@@ -181,7 +181,7 @@ fn ioctl<T>(fd: &impl AsRawFd, request: libc::c_ulong, arg: &mut T) -> io::Resul
 /// A pad this daemon can address: which chip owns it and which line it is
 /// there. Held rather than re-derived between the two questions asked of it,
 /// so a reading and the write that follows cannot land on different lines.
-pub(crate) struct Pad {
+pub struct Pad {
     chip: PathBuf,
     line: u32,
 }
@@ -236,7 +236,7 @@ impl Pad {
     /// Asking `GET_LINEINFO` instead would be a different call answering for
     /// the one that matters. Harmless only on a pad already in GPIO mode,
     /// which is what [`usable`] insists on.
-    pub(crate) fn level(&self) -> io::Result<bool> {
+    pub fn level(&self) -> io::Result<bool> {
         let line = self.request(None)?;
         let mut values = LineValues { bits: 0, mask: 1 };
         ioctl(&line, GET_LINE_VALUES, &mut values)?;
@@ -250,7 +250,7 @@ impl Pad {
     /// the setting with it. Intel's pinctrl leaves `PADCFG` as the last
     /// requester set it, so the level outlives both the request and the
     /// process that made it.
-    pub(crate) fn drive(&self, level: bool) -> io::Result<()> {
+    pub fn drive(&self, level: bool) -> io::Result<()> {
         self.request(Some(level))?;
         Ok(())
     }
@@ -311,8 +311,8 @@ fn chip_of(controller: &str) -> Option<PathBuf> {
 /// directory walks. It also means a pad some driver has claimed since the
 /// probe answered fails at its own request, instead of being written blindly
 /// on the strength of what was true at startup.
-pub(crate) fn touchscreen() -> Option<Pad> {
-    if board::product().as_deref() != Some(TOUCHSCREEN_BOARD) {
+pub fn touchscreen() -> Option<Pad> {
+    if dmi::product().as_deref() != Some(TOUCHSCREEN_BOARD) {
         return None;
     }
     Pad::locate(TOUCHSCREEN_PAD)

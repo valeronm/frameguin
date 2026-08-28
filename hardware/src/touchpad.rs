@@ -1,15 +1,15 @@
-//! The haptic touchpad, which `framework_lib` drives over the pad's own HID
-//! transport rather than through the EC.
+//! The haptic touchpad's transport: `framework_lib` drives it over the pad's
+//! own HID reports rather than through the EC.
 //!
-//! The single door to the device: its detection, the vocabulary its settings
-//! travel in, and the writes themselves. Every one of them is write-only —
-//! the firmware ACKs `GET_FEATURE` with zeros — so what was set is only
-//! knowable from the mirror in [`crate::state`].
+//! What the device needs of it is [`HapticPad`]; [`Hid`] is the pad itself.
+//! Every write is write-only — the firmware ACKs `GET_FEATURE` with zeros —
+//! so what was set is only knowable from the mirror [`crate::device::touchpad`]
+//! keeps.
+
+use std::io;
 
 use frameguin_wire as wire;
 use framework_lib::touchpad::{self, ClickForce};
-
-pub(crate) use framework_lib::touchpad::{set_click_force, set_haptic_intensity};
 
 /// Known haptic touchpad models (`PixArt` PIDs). A curated device list, per
 /// the probe rule: the haptic setters have no side-effect-free probe
@@ -23,17 +23,39 @@ const HAPTIC_PIDS: [u16; 1] = [0x1343];
 /// What the pad ships with, and so what a read before any write answers
 /// with. Spelled in the wire's terms because both users want it there: the
 /// getter returns it, and the mirror stores the code this maps to.
-pub(crate) const DEFAULT_CLICK_FORCE: wire::ClickForce = wire::ClickForce::Medium;
+pub const DEFAULT_CLICK_FORCE: wire::ClickForce = wire::ClickForce::Medium;
 
-/// Takes the enumeration rather than making one: `HidApi::new` walks every
-/// HID device on the machine before a caller asks it anything, and the probe
-/// has more than one device to look for.
-pub(crate) fn haptic_present(hid: &hidapi::HidApi) -> bool {
-    hid.device_list()
-        .any(|dev| dev.vendor_id() == touchpad::PIX_VID && HAPTIC_PIDS.contains(&dev.product_id()))
+/// The writes the haptic touchpad takes, in the wire's vocabulary so that a
+/// device over it needs none of the transport's.
+pub trait HapticPad: Send + Sync {
+    fn set_haptic_intensity(&self, percent: u8) -> io::Result<()>;
+    fn set_click_force(&self, force: wire::ClickForce) -> io::Result<()>;
 }
 
-pub(crate) fn click_force(force: wire::ClickForce) -> ClickForce {
+/// The pad on the HID bus.
+pub struct Hid;
+
+impl HapticPad for Hid {
+    fn set_haptic_intensity(&self, percent: u8) -> io::Result<()> {
+        touchpad::set_haptic_intensity(percent).map_err(io::Error::other)
+    }
+
+    fn set_click_force(&self, force: wire::ClickForce) -> io::Result<()> {
+        touchpad::set_click_force(click_force(force)).map_err(io::Error::other)
+    }
+}
+
+/// The haptic pad on the bus, if there is one, as the bus describes it.
+///
+/// Takes the enumeration rather than making one: `HidApi::new` walks every
+/// HID device on the machine before a caller asks it anything, and the
+/// daemon has more than one device to look for.
+pub fn haptic_pad(hid: &hidapi::HidApi) -> Option<&hidapi::DeviceInfo> {
+    hid.device_list()
+        .find(|dev| dev.vendor_id() == touchpad::PIX_VID && HAPTIC_PIDS.contains(&dev.product_id()))
+}
+
+pub fn click_force(force: wire::ClickForce) -> ClickForce {
     match force {
         wire::ClickForce::Low => ClickForce::Low,
         wire::ClickForce::Medium => ClickForce::Medium,
@@ -43,7 +65,7 @@ pub(crate) fn click_force(force: wire::ClickForce) -> ClickForce {
 
 /// The device code the state file carries, back to the wire's name; None for
 /// a code no force maps to.
-pub(crate) fn wire_click_force(code: u8) -> Option<wire::ClickForce> {
+pub fn wire_click_force(code: u8) -> Option<wire::ClickForce> {
     wire::ClickForce::ALL
         .into_iter()
         .find(|force| click_force(*force) as u8 == code)

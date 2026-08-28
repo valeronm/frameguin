@@ -58,7 +58,7 @@ fn power_node() -> Option<(PathBuf, String)> {
 
 /// The node for a power LED this daemon could take and give back, whatever
 /// state it is in now.
-pub(crate) fn controllable_power() -> Option<PathBuf> {
+pub fn controllable_power() -> Option<PathBuf> {
     power_node().map(|(dir, _)| dir)
 }
 
@@ -71,7 +71,7 @@ pub(crate) fn controllable_power() -> Option<PathBuf> {
 /// command answers only with which colours exist. So a write that goes
 /// straight to the EC (`ectool led`) passes unseen, while a host reboot
 /// re-probes the driver and re-attaches the trigger, which reads as on.
-pub(crate) fn power_held_dark() -> Option<PathBuf> {
+pub fn power_held_dark() -> Option<PathBuf> {
     let (dir, listed) = power_node()?;
     let held_dark = active_in(&listed) == Some(NO_TRIGGER)
         && std::fs::read_to_string(dir.join("brightness")).is_ok_and(|value| value.trim() == "0");
@@ -88,7 +88,7 @@ pub(crate) fn power_held_dark() -> Option<PathBuf> {
 /// trigger before the brightness write is that same argument a level down —
 /// the trigger has no deactivate handler and never re-asserts, so a write
 /// underneath one leaves the file naming a policy no longer in force.
-pub(crate) fn darken(dir: &Path) -> std::io::Result<()> {
+pub fn darken(dir: &Path) -> std::io::Result<()> {
     std::fs::write(dir.join("trigger"), NO_TRIGGER)?;
     std::fs::write(dir.join("brightness"), "0")
 }
@@ -99,7 +99,7 @@ pub(crate) fn darken(dir: &Path) -> std::io::Result<()> {
 /// dark once nothing is holding the LED dark. Writing it after the trigger
 /// instead would be a host command against a LED the EC had just taken back,
 /// undoing the handover.
-pub(crate) fn release(dir: &Path) -> std::io::Result<()> {
+pub fn release(dir: &Path) -> std::io::Result<()> {
     std::fs::write(dir.join("brightness"), "1")?;
     std::fs::write(dir.join("trigger"), AUTO_TRIGGER)
 }

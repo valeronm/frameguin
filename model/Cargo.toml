@@ -1,0 +1,15 @@
+[package]
+name = "frameguin-model"
+version.workspace = true
+edition = "2024"
+license = "MIT"
+
+[lints]
+workspace = true
+
+# Neither GTK nor a bus connection belongs here: the tray draws from this
+# crate on ksni's own thread, and a device is exercised in tests against a
+# stub of its hardware trait. What `wire` brings in transitively is types,
+# not a connection.
+[dependencies]
+frameguin-wire = { workspace = true }

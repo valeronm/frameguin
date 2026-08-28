@@ -1,11 +1,13 @@
 [workspace]
-members = ["daemon", "app", "wire"]
+members = ["daemon", "app", "wire", "model", "hardware"]
 resolver = "2"
 
 [workspace.package]
 version = "0.1.3"
 
 [workspace.dependencies]
+frameguin-hardware = { path = "hardware" }
+frameguin-model = { path = "model" }
 frameguin-wire = { path = "wire" }
 serde = { version = "1", features = ["derive"] }
 zbus = "5.19.0"

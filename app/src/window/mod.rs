@@ -5,31 +5,39 @@
 //! because the window is the end with somewhere to report; a tray preset
 //! borrows them when a window has been built and answers for itself when one
 //! has not.
+//!
+//! A control with a module of its own in `frameguin_model` has a group
+//! module of its own here — its widgets, how a snapshot moves them, and what
+//! its handlers dispatch — and the rest of this file is the controls not yet
+//! moved.
+
+mod touchpad;
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::time::Duration;
 
 use adw::prelude::*;
+use frameguin_model::control::Controls;
 use frameguin_wire::{
-    BatteryState, Capability, ClickForce, FrameguinProxy, HAPTIC_INTENSITY_LEVELS,
-    NO_CHARGE_CURRENT_LIMIT, PowerLedLevel, cause,
+    BatteryState, Capability, DeviceError, FrameguinProxy, NO_CHARGE_CURRENT_LIMIT, PowerLedLevel,
 };
 use gtk4 as gtk;
 use gtk4::gdk;
 use gtk4::gio;
 use gtk4::glib;
 
+use crate::bus::Bus;
 use crate::caps::{Capabilities, power_led_rows};
 use crate::format::{
     CHARGE_LIMIT_CUSTOM, CHARGE_SPEED_CUSTOM, CHARGE_SPEED_LABELS, CUSTOM_CHARGE_STEP_MA,
     MIN_CHARGE_LIMIT, MIN_CUSTOM_CHARGE_MA, NO_CHARGE_LIMIT, amps, charge_flow_label,
     charge_limit_labels, charge_limit_percent, charge_limit_position, charge_speed_labels,
-    charge_speed_milliamps, charge_speed_position, click_force_label, haptic_labels, percent_label,
-    power_led_level_labels, scale_milliamps, scale_percent, with_custom_row,
+    charge_speed_milliamps, charge_speed_position, percent_label, power_led_level_labels,
+    scale_milliamps, scale_percent, with_custom_row,
 };
 use crate::mapped::poll_while_mapped;
-use crate::reading::{Feed, Wants, show_while_mapped};
+use crate::reading::{Feed, Probe, Wants, show_while_mapped};
 use crate::tray::{TrayIcon, TrayValues, tray_push};
 use crate::{APP_ID, about, autostart, battery, board};
 
@@ -160,9 +168,6 @@ pub(crate) struct Ui {
     /// is the 1C current, which is what turns the combo's fractions into the
     /// milliamps the daemon takes.
     design_capacity: Cell<Option<u32>>,
-    /// What the daemon said this board supports, so a later reload knows
-    /// which values to ask for.
-    caps: Cell<Capabilities>,
     /// Set while widgets are being moved to mirror the hardware, so their
     /// change handlers don't echo the reading back as a write.
     syncing: Cell<bool>,
@@ -174,8 +179,7 @@ pub(crate) struct Ui {
     /// The levels behind the combo's rows, narrowed to what this board
     /// supports once capabilities are known.
     power_led_levels: RefCell<Vec<PowerLedLevel>>,
-    haptic_combo: adw::ComboRow,
-    force_combo: adw::ComboRow,
+    touchpad: touchpad::Group,
     touchscreen_switch: adw::SwitchRow,
     tray: Option<ksni::blocking::Handle<TrayIcon>>,
     /// Where the status row's reading comes from, shared with the battery
@@ -193,9 +197,10 @@ impl Ui {
     /// charge limit", "Reading the battery". The sentence is built here rather
     /// than at each site so that every failure loses the D-Bus error name and
     /// none has to remember to; what each site still spells is its own half,
-    /// which is the half no other site could supply.
-    fn toast_error(&self, attempt: &str, error: &zbus::Error) {
-        self.toast(&format!("{attempt} failed: {}", cause(error)));
+    /// which is the half no other site could supply. Takes a bus error or a
+    /// device's `DeviceError` alike, the conversion being what drops the name.
+    fn toast_error(&self, attempt: &str, error: impl Into<DeviceError>) {
+        self.toast(&format!("{attempt} failed: {}", error.into()));
     }
 
     /// Moves widgets to match the hardware without their handlers writing the
@@ -298,13 +303,17 @@ fn debounce(
 
 // Widgets for absent capabilities stay hidden and insensitive, so their
 // handlers can never fire; connecting unconditionally keeps one wiring path.
-fn connect_handlers(ui: &Rc<Ui>, proxy: &FrameguinProxy<'static>) {
+// A control's group connects only where the control is, its handlers needing
+// one to dispatch to.
+fn connect_handlers(ui: &Rc<Ui>, proxy: &FrameguinProxy<'static>, controls: &Controls<Bus>) {
     connect_battery_state(ui);
     connect_charge_setter(ui, proxy);
     connect_charge_speed_setter(ui, proxy);
     connect_kbd_setter(ui, proxy);
     connect_power_led_setter(ui, proxy);
-    connect_touchpad_setters(ui, proxy);
+    if let Some(touchpad) = &controls.touchpad {
+        ui.touchpad.connect(ui, touchpad);
+    }
     connect_touchscreen_setter(ui, proxy);
 }
 
@@ -454,40 +463,6 @@ fn connect_battery_state(ui: &Rc<Ui>) {
     });
 }
 
-fn connect_touchpad_setters(ui: &Rc<Ui>, proxy: &FrameguinProxy<'static>) {
-    let haptic_ui = ui.clone();
-    let haptic_proxy = proxy.clone();
-    ui.haptic_combo.connect_selected_notify(move |row| {
-        if haptic_ui.syncing.get() {
-            return;
-        }
-        let percent = HAPTIC_INTENSITY_LEVELS[row.selected() as usize];
-        let ui = haptic_ui.clone();
-        let proxy = haptic_proxy.clone();
-        glib::spawn_future_local(async move {
-            if let Err(e) = proxy.set_haptic_intensity(percent).await {
-                ui.toast_error("Setting haptic intensity", &e);
-            }
-        });
-    });
-
-    let force_ui = ui.clone();
-    let force_proxy = proxy.clone();
-    ui.force_combo.connect_selected_notify(move |row| {
-        if force_ui.syncing.get() {
-            return;
-        }
-        let force = ClickForce::ALL[row.selected() as usize];
-        let ui = force_ui.clone();
-        let proxy = force_proxy.clone();
-        glib::spawn_future_local(async move {
-            if let Err(e) = proxy.set_touchpad_click_force(force).await {
-                ui.toast_error("Setting click force", &e);
-            }
-        });
-    });
-}
-
 /// Where a write reports back to. A tray preset can arrive in a session whose
 /// window has never been built, and building a widget tree to hold a toast
 /// nobody will see is not worth it — so the tray answers for itself, and only
@@ -505,7 +480,7 @@ impl Sink<'_> {
         }
     }
 
-    fn toast_error(&self, attempt: &str, error: &zbus::Error) {
+    fn toast_error(&self, attempt: &str, error: impl Into<DeviceError>) {
         if let Sink::Window(ui) = self {
             ui.toast_error(attempt, error);
         }
@@ -597,7 +572,7 @@ pub(crate) async fn apply_charge_limit(
             }
             sink.show_charge_limit(percent, custom);
         }
-        Err(e) => sink.toast_error("Setting charge limit", &e),
+        Err(e) => sink.toast_error("Setting charge limit", e),
     }
 }
 
@@ -613,7 +588,7 @@ pub(crate) async fn apply_charge_speed(
     let written = match proxy.set_charge_current_limit(milliamps).await {
         Ok(written) => written,
         Err(e) => {
-            sink.toast_error("Setting charge speed", &e);
+            sink.toast_error("Setting charge speed", e);
             return;
         }
     };
@@ -636,7 +611,7 @@ pub(crate) async fn apply_power_led_level(
     level: PowerLedLevel,
 ) {
     if let Err(e) = proxy.set_power_led_level(level).await {
-        sink.toast_error("Setting power button LED level", &e);
+        sink.toast_error("Setting power button LED level", e);
         return;
     }
     sink.show_power_led_level(level);
@@ -666,7 +641,7 @@ pub(crate) async fn apply_touchscreen(
     match proxy.set_touchscreen_enabled(enabled).await {
         Ok(()) => sink.show_touchscreen(enabled),
         Err(e) => {
-            sink.toast_error("Switching the touchscreen", &e);
+            sink.toast_error("Switching the touchscreen", e);
             sink.restore_touchscreen(!enabled);
         }
     }
@@ -677,7 +652,7 @@ pub(crate) async fn apply_touchscreen(
 /// than leaving each caller to remember it.
 async fn apply_power_led_brightness(ui: &Ui, proxy: &FrameguinProxy<'static>, percent: u8) {
     if let Err(e) = proxy.set_power_led_brightness(percent).await {
-        ui.toast_error("Setting power button LED brightness", &e);
+        ui.toast_error("Setting power button LED brightness", e);
         return;
     }
     ui.sync_tray(TrayValues::power_led_level(PowerLedLevel::Custom));
@@ -781,7 +756,7 @@ fn connect_kbd_setter(ui: &Rc<Ui>, proxy: &FrameguinProxy<'static>) {
         debounce(&kbd_write_slot, SLIDER_DEBOUNCE, move || {
             glib::spawn_future_local(async move {
                 if let Err(e) = proxy.set_keyboard_backlight(value).await {
-                    ui.toast_error("Setting keyboard backlight", &e);
+                    ui.toast_error("Setting keyboard backlight", e);
                 }
             });
         });
@@ -907,24 +882,8 @@ pub(crate) fn build_window(
     power_led.add(&power_led_row);
     page.add(&power_led);
 
-    let touchpad = adw::PreferencesGroup::builder().title("Touchpad").build();
-    let haptic_combo = adw::ComboRow::builder()
-        .title("Haptic intensity")
-        .subtitle("How strong the click feels")
-        .model(&string_list(&haptic_labels()))
-        .sensitive(false)
-        .build();
-    touchpad.add(&haptic_combo);
-    let force_combo = adw::ComboRow::builder()
-        .title("Click force")
-        .subtitle("How hard you press to click")
-        .model(&gtk::StringList::new(
-            &ClickForce::ALL.map(click_force_label),
-        ))
-        .sensitive(false)
-        .build();
-    touchpad.add(&force_combo);
-    page.add(&touchpad);
+    let touchpad = touchpad::Group::build();
+    page.add(&touchpad.widget);
 
     let display = adw::PreferencesGroup::builder().title("Display").build();
     let touchscreen_switch = adw::SwitchRow::builder()
@@ -994,15 +953,13 @@ pub(crate) fn build_window(
         speed_scale,
         speed_custom_row,
         design_capacity: Cell::default(),
-        caps: Cell::default(),
         syncing: Cell::new(false),
         kbd_scale,
         power_led_scale,
         power_led_combo,
         power_led_custom_row: power_led_row,
         power_led_levels: RefCell::new(Vec::new()),
-        haptic_combo,
-        force_combo,
+        touchpad,
         touchscreen_switch,
         tray,
         feed,
@@ -1025,7 +982,6 @@ pub(crate) fn build_window(
         speed_combo: ui.speed_combo.clone(),
         keyboard: keyboard.clone(),
         power_led: power_led.clone(),
-        touchpad: touchpad.clone(),
         display: display.clone(),
     };
     // The report goes into the issue body rather than onto the clipboard with
@@ -1081,11 +1037,13 @@ struct CapabilityWidgets {
     speed_combo: adw::ComboRow,
     keyboard: adw::PreferencesGroup,
     power_led: adw::PreferencesGroup,
-    touchpad: adw::PreferencesGroup,
     display: adw::PreferencesGroup,
 }
 
 impl CapabilityWidgets {
+    /// The controls still gated on the capability list; a control with a
+    /// group of its own gates that group on its device having detected
+    /// itself.
     fn show_supported(&self, caps: Capabilities) {
         let battery = caps.has(Capability::Battery);
         let charge_limit = caps.has(Capability::ChargeLimit);
@@ -1100,8 +1058,6 @@ impl CapabilityWidgets {
             .set_visible(caps.has(Capability::KeyboardBacklight));
         self.power_led
             .set_visible(caps.has(Capability::PowerLedBrightness));
-        self.touchpad
-            .set_visible(caps.has(Capability::HapticTouchpad));
         self.display.set_visible(caps.has(Capability::Touchscreen));
     }
 }
@@ -1353,17 +1309,20 @@ impl Init {
             self.fill().await;
             return;
         }
+        // Cached since the probe, so this cannot realistically fail; nothing
+        // to say if it does, the next map asking again.
+        let Ok(probe) = self.ui.feed.probe().await else {
+            return;
+        };
         // Answered, with nothing to reload: a board that supports none of
         // these controls and a machine that is not a Framework are what they
         // are, and asking again would spawn the root daemon once per window
         // opened to be told so a second time.
-        if self.ui.caps.get().is_empty() {
+        if probe.is_empty() {
             return;
         }
-        // Cached since the probe, so this cannot realistically fail; nothing
-        // to say if it does, the next map asking again.
         if let Ok(proxy) = self.ui.feed.proxy().await {
-            load_values(&self.ui, &proxy).await;
+            load_values(&self.ui, &proxy, &probe).await;
         }
     }
 
@@ -1455,17 +1414,18 @@ impl Init {
             Ok(p) => p,
             Err(e) => return Some(Empty::DaemonUnavailable(e.to_string())),
         };
-        let caps = match ui.feed.capabilities().await {
-            Ok(caps) => caps,
+        let probe = match ui.feed.probe().await {
+            Ok(probe) => probe,
             Err(e) => return Some(Empty::DaemonUnavailable(e.to_string())),
         };
-        ui.caps.set(caps);
+        let caps = probe.caps;
         self.groups.show_supported(caps);
+        ui.touchpad.gate(probe.controls.touchpad.as_ref());
         ui.sync_tray(TrayValues::caps(caps));
         // Set whatever the answer was: what a later refresh needs to know is
         // that this daemon has said its piece, not what it said.
         self.answered.set(true);
-        if caps.is_empty() {
+        if probe.is_empty() {
             // The daemon gates its EC on the same vendor string the app
             // reads, so an empty answer is expected on anything else and says
             // nothing about the board; only a Framework answering with none
@@ -1484,8 +1444,8 @@ impl Init {
         ui.power_led_combo
             .set_model(Some(&string_list(&power_led_level_labels(&rows))));
         ui.power_led_levels.replace(rows);
-        load_values(ui, &proxy).await;
-        connect_handlers(ui, &proxy);
+        load_values(ui, &proxy, &probe).await;
+        connect_handlers(ui, &proxy, &probe.controls);
         None
     }
 }
@@ -1493,8 +1453,11 @@ impl Init {
 /// The Battery group's half of a reload: the reading at the top, then the
 /// ceiling and the speed with their combos and sliders. Returns what the
 /// tray should be told, for the one push [`load_values`] makes at the end.
-async fn load_battery_values(ui: &Rc<Ui>, proxy: &FrameguinProxy<'static>) -> TrayValues {
-    let caps = ui.caps.get();
+async fn load_battery_values(
+    ui: &Rc<Ui>,
+    proxy: &FrameguinProxy<'static>,
+    caps: Capabilities,
+) -> TrayValues {
     let mut values = TrayValues::default();
     // The design capacity the reading below carries, kept for the charge
     // speeds further down: it is numerically the pack's 1C current, which is
@@ -1514,7 +1477,7 @@ async fn load_battery_values(ui: &Rc<Ui>, proxy: &FrameguinProxy<'static>) -> Tr
                 values.battery = Some(info.state);
                 design_capacity = Some(info.design_capacity);
             }
-            Err(e) => ui.toast_error("Reading the battery", &e),
+            Err(e) => ui.toast_error("Reading the battery", e),
         }
     }
     if caps.has(Capability::ChargeLimit) {
@@ -1527,7 +1490,7 @@ async fn load_battery_values(ui: &Rc<Ui>, proxy: &FrameguinProxy<'static>) -> Tr
                 });
                 values.charge_limit = Some(limit);
             }
-            Err(e) => ui.toast_error("Reading charge limit", &e),
+            Err(e) => ui.toast_error("Reading charge limit", e),
         }
     }
     if caps.has(Capability::ChargeCurrentLimit) {
@@ -1567,7 +1530,7 @@ async fn load_battery_values(ui: &Rc<Ui>, proxy: &FrameguinProxy<'static>) -> Tr
                 });
                 values.charge_current_limit = Some(milliamps);
             }
-            Err(e) => ui.toast_error("Reading charge speed", &e),
+            Err(e) => ui.toast_error("Reading charge speed", e),
         }
     }
     // Read above if the capability is there at all, and only once per run.
@@ -1581,16 +1544,17 @@ async fn load_battery_values(ui: &Rc<Ui>, proxy: &FrameguinProxy<'static>) -> Tr
 /// and handed over in one go at the end: each push blocks on the tray's
 /// thread and rebuilds its whole menu, which would be wasted three times over
 /// on a menu nobody has opened.
-async fn load_values(ui: &Rc<Ui>, proxy: &FrameguinProxy<'static>) {
-    let caps = ui.caps.get();
-    let mut values = load_battery_values(ui, proxy).await;
+async fn load_values(ui: &Rc<Ui>, proxy: &FrameguinProxy<'static>, probe: &Probe) {
+    let caps = probe.caps;
+    let controls = &probe.controls;
+    let mut values = load_battery_values(ui, proxy, caps).await;
     if caps.has(Capability::KeyboardBacklight) {
         match proxy.get_keyboard_backlight().await {
             Ok(percent) => ui.sync(|| {
                 ui.kbd_scale.set_value(f64::from(percent));
                 ui.kbd_scale.set_sensitive(true);
             }),
-            Err(e) => ui.toast_error("Reading keyboard backlight", &e),
+            Err(e) => ui.toast_error("Reading keyboard backlight", e),
         }
     }
     if caps.has(Capability::PowerLedBrightness) {
@@ -1604,29 +1568,13 @@ async fn load_values(ui: &Rc<Ui>, proxy: &FrameguinProxy<'static>) {
                 });
                 values.power_led_level = Some(level);
             }
-            Err(e) => ui.toast_error("Reading power button LED brightness", &e),
+            Err(e) => ui.toast_error("Reading power button LED brightness", e),
         }
     }
-    if caps.has(Capability::HapticTouchpad) {
-        match proxy.get_haptic_intensity().await {
-            Ok(percent) => {
-                let row = HAPTIC_INTENSITY_LEVELS.iter().position(|l| *l == percent);
-                ui.sync(|| {
-                    ui.haptic_combo.set_selected(combo_selection(row));
-                    ui.haptic_combo.set_sensitive(true);
-                });
-            }
-            Err(e) => ui.toast_error("Reading haptic intensity", &e),
-        }
-        match proxy.get_touchpad_click_force().await {
-            Ok(force) => {
-                let row = ClickForce::ALL.iter().position(|f| *f == force);
-                ui.sync(|| {
-                    ui.force_combo.set_selected(combo_selection(row));
-                    ui.force_combo.set_sensitive(true);
-                });
-            }
-            Err(e) => ui.toast_error("Reading click force", &e),
+    if let Some(touchpad) = &controls.touchpad {
+        match touchpad.read().await {
+            Ok(snapshot) => ui.touchpad.show(ui, snapshot),
+            Err(e) => ui.toast_error("Reading the touchpad", e),
         }
     }
     if caps.has(Capability::Touchscreen) {
@@ -1639,7 +1587,7 @@ async fn load_values(ui: &Rc<Ui>, proxy: &FrameguinProxy<'static>) {
                 ui.touchscreen_switch.set_sensitive(true);
                 values.touchscreen = Some(enabled);
             }
-            Err(e) => ui.toast_error("Reading the touchscreen", &e),
+            Err(e) => ui.toast_error("Reading the touchscreen", e),
         }
     }
     ui.sync_tray(values);

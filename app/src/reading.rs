@@ -26,13 +26,14 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
-use frameguin_wire::{BatteryCondition, BatteryInfo, FrameguinProxy};
+use frameguin_model::control::Controls;
+use frameguin_wire::{BatteryCondition, BatteryInfo, DeviceResult, FrameguinProxy};
 use gtk4 as gtk;
 use gtk4::glib;
 use gtk4::prelude::*;
 
+use crate::bus::Bus;
 use crate::caps::Capabilities;
-use crate::daemon_proxy;
 use crate::mapped::{Timer, while_mapped};
 
 /// How often the block is read while anything is showing it. One rate for
@@ -112,16 +113,32 @@ impl Drop for Subscription {
     }
 }
 
+/// What this board has, as the app holds it: the daemon's capability list
+/// for the controls not yet served on an interface of their own, and the
+/// controls whose devices detected themselves — shared by every window so a
+/// control is one object however many views reach it.
+pub(crate) struct Probe {
+    pub(crate) caps: Capabilities,
+    pub(crate) controls: Controls<Bus>,
+}
+
+impl Probe {
+    /// Nothing to offer on this board, by either account.
+    pub(crate) fn is_empty(&self) -> bool {
+        self.caps.is_empty() && self.controls.is_empty()
+    }
+}
+
 #[derive(Default)]
 pub(crate) struct Feed {
     /// Built on demand and kept: the feed outlives any one window, so a report
     /// opened, closed and opened again costs one connection rather than one
     /// apiece — and a session that only ever shows the tray opens none.
-    proxy: RefCell<Option<FrameguinProxy<'static>>>,
+    bus: RefCell<Option<Rc<Bus>>>,
     /// The daemon's probe, asked once. Fixed for the daemon's run, and the
     /// cold call that walks the EC — so the report reopening pays for one,
     /// not one per open. None until asked; a failed ask is not remembered.
-    caps: Cell<Option<Capabilities>>,
+    probe: RefCell<Option<Rc<Probe>>>,
     views: RefCell<Vec<(u64, View)>>,
     next_id: Cell<u64>,
     /// The pending tick. Armed as the first view arrives and dropped as the
@@ -184,32 +201,46 @@ impl Feed {
     /// fresh handshake each time, and the feed outlives any one window, so a
     /// report opened, closed and opened again costs none.
     pub(crate) async fn proxy(&self) -> zbus::Result<FrameguinProxy<'static>> {
-        let held = self.proxy.borrow().clone();
-        if let Some(proxy) = held {
-            return Ok(proxy);
+        Ok(self.bus().await?.frameguin.clone())
+    }
+
+    /// The bus as every control reaches it, on the one connection.
+    pub(crate) async fn bus(&self) -> zbus::Result<Rc<Bus>> {
+        let held = self.bus.borrow().clone();
+        if let Some(bus) = held {
+            return Ok(bus);
         }
-        let proxy = daemon_proxy().await?;
+        let bus = Rc::new(Bus::connect().await?);
         // Whatever landed in the slot while this one was dialling wins, rather
         // than being overwritten: two first callers racing would otherwise
         // leave the loser's connection held by whoever it was handed to, and
         // the app would keep both sockets for the rest of the run.
-        Ok(self.proxy.borrow_mut().get_or_insert(proxy).clone())
+        Ok(self.bus.borrow_mut().get_or_insert(bus).clone())
     }
 
-    /// What this board supports, asked once for the daemon's run. A failure is
-    /// not remembered — the probe is the cold call, and caching one unlucky
+    /// What this board has, asked once for the daemon's run. A failure is not
+    /// remembered — the probe is the cold call, and caching one unlucky
     /// answer would hold the app to it for the session.
-    pub(crate) async fn capabilities(&self) -> zbus::Result<Capabilities> {
-        if let Some(caps) = self.caps.get() {
-            return Ok(caps);
+    pub(crate) async fn probe(&self) -> DeviceResult<Rc<Probe>> {
+        let held = self.probe.borrow().clone();
+        if let Some(probe) = held {
+            return Ok(probe);
         }
-        let names = self.proxy().await?.get_capabilities().await?;
-        // No re-check for a racing asker, unlike `proxy`: two of them compute
-        // the same answer from the same probe, and a capability set is a value
-        // rather than a resource one of them would be left holding.
-        let caps = Capabilities::from_probe(&names);
-        self.caps.set(Some(caps));
-        Ok(caps)
+        let bus = self.bus().await?;
+        let names = bus.frameguin.get_capabilities().await?;
+        // No re-check for a racing asker, unlike `bus`: two of them compute
+        // the same answer from the same probe, and a control holds nothing a
+        // second copy would be left owning.
+        let probe = Rc::new(Probe {
+            caps: Capabilities::from_probe(&names),
+            controls: Controls::detect(&bus).await?,
+        });
+        self.probe.replace(Some(probe.clone()));
+        Ok(probe)
+    }
+
+    pub(crate) async fn capabilities(&self) -> DeviceResult<Capabilities> {
+        Ok(self.probe().await?.caps)
     }
 
     fn arm(self: &Rc<Self>) {

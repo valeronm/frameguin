@@ -1,7 +1,7 @@
 //! Who owns the power button LED.
 //!
 //! It has two possible drivers — the EC's own policy and the kernel holding
-//! it dark — and only one at a time. [`crate::led`] is the kernel half's
+//! it dark — and only one at a time. [`led`] is the kernel half's
 //! mechanism; this is the arbitration: which one holds it now, dating the
 //! handover against the EC's life, and taking the LED back before any write
 //! the EC has to be the one to make.
@@ -14,8 +14,10 @@ use frameguin_wire as wire;
 use framework_lib::chromium_ec::commands::FpLedBrightnessLevel;
 use zbus::fdo;
 
-use crate::ec::Ec;
-use crate::{Daemon, ec, ec_err, internal_err, led};
+use frameguin_hardware::ec::{self, Ec};
+use frameguin_hardware::led;
+
+use crate::{Daemon, ec_err, internal_err};
 
 /// How long the EC's own deferred hook takes to move the LED's PWM duty to a
 /// level just written, plus margin — the hook is scheduled at 100 ms, not

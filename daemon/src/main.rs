@@ -5,49 +5,48 @@
 //! action io.github.valeronm.frameguin.manage. Exits after 5 idle
 //! minutes; D-Bus activation restarts it on demand.
 
-mod board;
-mod ec;
-mod gpio;
-mod led;
-mod lifetime;
-mod panel;
+mod interface;
 mod power_led;
-mod probe;
+mod served;
+mod service;
 mod state;
-mod touchpad;
 mod touchscreen;
 
-use std::collections::HashMap;
-use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-use frameguin_wire::{self as wire, HAPTIC_INTENSITY_LEVELS, NO_CHARGE_CURRENT_LIMIT};
+use frameguin_hardware::device::touchpad::Touchpad;
+use frameguin_hardware::ec::Ec;
+use frameguin_hardware::lifetime::{EcStamp, HostStamp};
+use frameguin_hardware::probe;
+use frameguin_hardware::state::{StateFile, Store};
+use frameguin_wire::{self as wire, NO_CHARGE_CURRENT_LIMIT};
 use zbus::message::Header;
 use zbus::{Connection, fdo, interface};
-use zbus_polkit::policykit1::{AuthorityProxy, CheckAuthorizationFlags, Subject};
+use zbus_polkit::policykit1::AuthorityProxy;
 
-use crate::ec::Ec;
-use crate::lifetime::{EcStamp, HostStamp};
 use crate::power_led::PowerLedWrite;
+use crate::served::Served;
+use crate::service::Service;
 use crate::state::{ChargeCurrentLimit, State};
 
-const POLKIT_ACTION: &str = "io.github.valeronm.frameguin.manage";
 const IDLE_EXIT: Duration = Duration::from_mins(5);
 
 struct Daemon {
     /// None on hardware with no Framework EC — see [`Ec::open`].
     ec: Option<Ec>,
-    authority: AuthorityProxy<'static>,
-    last_used: Arc<Mutex<Instant>>,
+    service: Arc<Service>,
+    store: Arc<dyn Store>,
+    /// The one walk of the HID bus this run makes, kept for the probe: the
+    /// devices detected at startup came off it, and the ones the probe still
+    /// answers for are asked of the same enumeration.
+    hid: Option<hidapi::HidApi>,
     /// Probed once per daemon lifetime; the EC feature set can't change
     /// while running.
     capabilities: OnceLock<Vec<wire::Capability>>,
-    /// Mirrored rather than read back — see [`state`].
-    haptic_intensity: AtomicU8,
-    click_force: AtomicU8,
-    /// Mirrored like the touchpad's, but this one expires: the EC keeps the
-    /// limit in RAM, which outlives host reboots but not an EC restart.
+    /// Mirrored rather than read back — see [`state`]. This one expires: the
+    /// EC keeps the limit in RAM, which outlives host reboots but not an EC
+    /// restart.
     charge_current_limit: Mutex<ChargeCurrentLimit>,
     /// When this daemon last darkened the power LED, and None when it has not.
     /// The kernel holds the LED state itself, so what is mirrored here is only
@@ -68,21 +67,15 @@ fn internal_err(e: impl std::fmt::Display) -> fdo::Error {
 }
 
 impl Daemon {
-    fn touch(&self) {
-        *self.last_used.lock().unwrap() = Instant::now();
-    }
-
     fn save_state(&self) {
         // Bound before the write so both guards drop here rather than being
         // held across the file I/O.
         let state = State {
-            haptic_intensity: self.haptic_intensity.load(Ordering::Relaxed),
-            click_force: self.click_force.load(Ordering::Relaxed),
             charge_current_limit: *self.charge_current_limit.lock().unwrap(),
             power_led_off: *self.power_led_off.lock().unwrap(),
             touchscreen_off: self.touchscreen_off.lock().unwrap().clone(),
         };
-        state::save(&state);
+        state::save(&*self.store, &state);
     }
 
     /// The mirrored charge current limit, or `NO_CHARGE_CURRENT_LIMIT` once
@@ -112,29 +105,6 @@ impl Daemon {
             // hardware, permanently" from a transient EC error.
             .ok_or_else(|| fdo::Error::NotSupported("no Framework EC on this hardware".into()))
     }
-
-    /// Call only once the arguments have been validated: this can raise a
-    /// password prompt, and a caller that authorizes first makes the user
-    /// answer one for a request that can only end in `InvalidArgs`.
-    async fn authorize(&self, header: &Header<'_>) -> fdo::Result<()> {
-        let subject = Subject::new_for_message_header(header).map_err(internal_err)?;
-        let result = self
-            .authority
-            .check_authorization(
-                &subject,
-                POLKIT_ACTION,
-                &HashMap::new(),
-                CheckAuthorizationFlags::AllowUserInteraction.into(),
-                "",
-            )
-            .await
-            .map_err(internal_err)?;
-        if result.is_authorized {
-            Ok(())
-        } else {
-            Err(fdo::Error::AccessDenied("not authorized".into()))
-        }
-    }
 }
 
 #[interface(name = "io.github.valeronm.Frameguin1")]
@@ -142,14 +112,14 @@ impl Daemon {
     /// Which controls this board actually supports — see [`probe`] for the
     /// rule each answer has to meet.
     fn get_capabilities(&self) -> Vec<wire::Capability> {
-        self.touch();
+        self.service.touch();
         self.capabilities
-            .get_or_init(|| probe::capabilities(self.ec.as_ref()))
+            .get_or_init(|| probe::capabilities(self.ec.as_ref(), self.hid.as_ref()))
             .clone()
     }
 
     fn get_charge_limit(&self) -> fdo::Result<u8> {
-        self.touch();
+        self.service.touch();
         self.ec()?.charge_limit().map_err(ec_err)
     }
 
@@ -161,7 +131,7 @@ impl Daemon {
         percent: u8,
         #[zbus(header)] header: Header<'_>,
     ) -> fdo::Result<bool> {
-        self.touch();
+        self.service.touch();
         if !(20..=100).contains(&percent) {
             return Err(fdo::Error::InvalidArgs(
                 "charge limit must be 20-100".into(),
@@ -174,7 +144,7 @@ impl Daemon {
         if self.get_charge_limit()? == percent {
             return Ok(false);
         }
-        self.authorize(&header).await?;
+        self.service.authorize(&header).await?;
         self.ec()?.set_charge_limit(percent).map_err(ec_err)?;
         Ok(true)
     }
@@ -184,7 +154,7 @@ impl Daemon {
     /// what the daemon last wrote, and it reports no limit once the EC has
     /// restarted and dropped the value.
     fn get_charge_current_limit(&self) -> fdo::Result<u32> {
-        self.touch();
+        self.service.touch();
         self.held_charge_current_limit()
     }
 
@@ -198,7 +168,7 @@ impl Daemon {
     /// observable effect a charge current limit has, the limit itself being
     /// unreadable.
     fn get_battery_info(&self) -> fdo::Result<wire::BatteryInfo> {
-        self.touch();
+        self.service.touch();
         // Spelled here rather than shared with the reading below, which fails
         // for a different reason and says so: a passthrough that stays silent
         // is not an absent pack, and can happen with one fitted.
@@ -215,7 +185,7 @@ impl Daemon {
     /// the EC is also driving, is not something to spend on a caller that
     /// shows none of it.
     fn get_battery_condition(&self) -> fdo::Result<wire::BatteryCondition> {
-        self.touch();
+        self.service.touch();
         self.ec()?
             .battery_condition()
             .ok_or_else(|| fdo::Error::Failed("the battery did not answer".into()))
@@ -231,7 +201,7 @@ impl Daemon {
         milliamps: u32,
         #[zbus(header)] header: Header<'_>,
     ) -> fdo::Result<bool> {
-        self.touch();
+        self.service.touch();
         if milliamps == 0 {
             return Err(fdo::Error::InvalidArgs(format!(
                 "0 stops charging; pass {NO_CHARGE_CURRENT_LIMIT} to remove the limit"
@@ -244,7 +214,7 @@ impl Daemon {
         if self.get_charge_current_limit()? == milliamps {
             return Ok(false);
         }
-        self.authorize(&header).await?;
+        self.service.authorize(&header).await?;
         let stamp = self
             .ec()?
             .set_charge_current_limit(milliamps)
@@ -255,7 +225,7 @@ impl Daemon {
     }
 
     fn get_ec_version(&self) -> fdo::Result<String> {
-        self.touch();
+        self.service.touch();
         self.ec()?.version().map_err(ec_err)
     }
 
@@ -264,7 +234,7 @@ impl Daemon {
     /// daemon runs is decided by the D-Bus activation file rather than by
     /// PATH. Answers without touching the EC, so it works on any hardware.
     fn get_build(&self) -> (String, String) {
-        self.touch();
+        self.service.touch();
         let exe = std::fs::read_link("/proc/self/exe").unwrap_or_else(|_| "unknown".into());
         (
             env!("CARGO_PKG_VERSION").to_string(),
@@ -278,7 +248,7 @@ impl Daemon {
     /// all — it is the host holding the LED, and the percentage alongside it
     /// is the one the EC will light it at when the host lets go.
     fn get_power_led_brightness(&self) -> fdo::Result<(u8, wire::PowerLedLevel)> {
-        self.touch();
+        self.service.touch();
         let ec = self.ec()?;
         let (percent, level) = ec.power_led_level().map_err(ec_err)?;
         if self.power_led_off_node(ec).is_some() {
@@ -292,9 +262,9 @@ impl Daemon {
         level: wire::PowerLedLevel,
         #[zbus(header)] header: Header<'_>,
     ) -> fdo::Result<()> {
-        self.touch();
+        self.service.touch();
         let write = PowerLedWrite::for_level(level)?;
-        self.authorize(&header).await?;
+        self.service.authorize(&header).await?;
         self.write_power_led(write).await
     }
 
@@ -303,67 +273,22 @@ impl Daemon {
         percent: u8,
         #[zbus(header)] header: Header<'_>,
     ) -> fdo::Result<()> {
-        self.touch();
+        self.service.touch();
         // The EC accepts 1-100; 0 is rejected (it will not let the host
         // extinguish the indicator) and 0xFF is the protocol's read sentinel.
         if !(1..=100).contains(&percent) {
             return Err(fdo::Error::InvalidArgs("brightness must be 1-100".into()));
         }
         let write = PowerLedWrite::Percentage(percent);
-        self.authorize(&header).await?;
+        self.service.authorize(&header).await?;
         self.write_power_led(write).await
-    }
-
-    fn get_haptic_intensity(&self) -> u8 {
-        self.touch();
-        self.haptic_intensity.load(Ordering::Relaxed)
-    }
-
-    async fn set_haptic_intensity(
-        &self,
-        percent: u8,
-        #[zbus(header)] header: Header<'_>,
-    ) -> fdo::Result<()> {
-        self.touch();
-        if !HAPTIC_INTENSITY_LEVELS.contains(&percent) {
-            return Err(fdo::Error::InvalidArgs(format!(
-                "intensity must be one of {HAPTIC_INTENSITY_LEVELS:?}"
-            )));
-        }
-        self.authorize(&header).await?;
-        touchpad::set_haptic_intensity(percent).map_err(internal_err)?;
-        self.haptic_intensity.store(percent, Ordering::Relaxed);
-        self.save_state();
-        Ok(())
-    }
-
-    fn get_touchpad_click_force(&self) -> wire::ClickForce {
-        self.touch();
-        // A code no force maps to reads as the factory default, the same
-        // answer this gives before anything has been written.
-        touchpad::wire_click_force(self.click_force.load(Ordering::Relaxed))
-            .unwrap_or(touchpad::DEFAULT_CLICK_FORCE)
-    }
-
-    async fn set_touchpad_click_force(
-        &self,
-        force: wire::ClickForce,
-        #[zbus(header)] header: Header<'_>,
-    ) -> fdo::Result<()> {
-        self.touch();
-        let force = touchpad::click_force(force);
-        self.authorize(&header).await?;
-        touchpad::set_click_force(force).map_err(internal_err)?;
-        self.click_force.store(force as u8, Ordering::Relaxed);
-        self.save_state();
-        Ok(())
     }
 
     /// Whether the touch panel is on, from whichever account this machine's
     /// route keeps — see [`touchscreen`] for why one of them reads the
     /// hardware and the other this daemon's own record.
     fn get_touchscreen_enabled(&self) -> fdo::Result<bool> {
-        self.touch();
+        self.service.touch();
         Ok(touchscreen::route()?
             .reading()?
             .unwrap_or_else(|| self.touchscreen_off.lock().unwrap().is_none()))
@@ -386,7 +311,7 @@ impl Daemon {
         enabled: bool,
         #[zbus(header)] header: Header<'_>,
     ) -> fdo::Result<()> {
-        self.touch();
+        self.service.touch();
         // Resolved before the prompt for the reason arguments are checked
         // before it: hardware with neither route can only end in an error,
         // and nobody should answer for a write that cannot happen.
@@ -400,12 +325,12 @@ impl Daemon {
         if route.reading()? == Some(enabled) {
             return Ok(());
         }
-        self.authorize(&header).await?;
+        self.service.authorize(&header).await?;
         self.write_touchscreen(&route, enabled)
     }
 
     fn get_keyboard_backlight(&self) -> fdo::Result<u8> {
-        self.touch();
+        self.service.touch();
         self.ec()?.keyboard_backlight().map_err(ec_err)
     }
 
@@ -414,11 +339,11 @@ impl Daemon {
         percent: u8,
         #[zbus(header)] header: Header<'_>,
     ) -> fdo::Result<()> {
-        self.touch();
+        self.service.touch();
         if percent > 100 {
             return Err(fdo::Error::InvalidArgs("backlight must be 0-100".into()));
         }
-        self.authorize(&header).await?;
+        self.service.authorize(&header).await?;
         self.ec()?.set_keyboard_backlight(percent);
         Ok(())
     }
@@ -427,26 +352,41 @@ impl Daemon {
 fn main() -> zbus::Result<()> {
     let last_used = Arc::new(Mutex::new(Instant::now()));
     let clock = last_used.clone();
-    let state = state::load();
+    let store: Arc<dyn Store> = Arc::new(StateFile::load());
+    let state = state::load(&*store);
+    // One walk of the HID bus for every device asked about, here and in the
+    // probe: building an `HidApi` enumerates the lot.
+    let hid = hidapi::HidApi::new().ok();
+    let touchpad = hid
+        .as_ref()
+        .and_then(|hid| Touchpad::detect(hid, store.clone()));
     let _conn = zbus::block_on(async move {
         let conn = Connection::system().await?;
         let authority = AuthorityProxy::new(&conn)
             .await
             .map_err(|e| zbus::Error::Failure(e.to_string()))?;
+        let service = Arc::new(Service::new(authority, last_used));
         let daemon = Daemon {
             ec: Ec::open(),
-            authority,
-            last_used,
+            service: service.clone(),
+            store,
+            hid,
             capabilities: OnceLock::new(),
-            haptic_intensity: AtomicU8::new(state.haptic_intensity),
-            click_force: AtomicU8::new(state.click_force),
             charge_current_limit: Mutex::new(state.charge_current_limit),
             power_led_off: Mutex::new(state.power_led_off),
             touchscreen_off: Mutex::new(state.touchscreen_off),
         };
-        conn.object_server().at(wire::OBJECT_PATH, daemon).await?;
-        // Claim the name only once the object is served, so an activating
-        // client can't call into a not-yet-registered path.
+        let server = conn.object_server();
+        server.at(wire::OBJECT_PATH, daemon).await?;
+        // A device not detected is not on the bus: the interfaces present at
+        // the path are the inventory.
+        if let Some(touchpad) = touchpad {
+            server
+                .at(wire::OBJECT_PATH, Served::new(touchpad, service))
+                .await?;
+        }
+        // Claim the name only once the objects are served, so an activating
+        // client can't call into a not-yet-registered interface.
         conn.request_name(wire::BUS_NAME).await?;
         Ok::<_, zbus::Error>(conn)
     })?;

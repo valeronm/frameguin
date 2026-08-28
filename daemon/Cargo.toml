@@ -10,11 +10,12 @@ workspace = true
 [dependencies]
 # Already in the tree via zbus; named for the power LED's one timer.
 async-io = "2"
+frameguin-hardware = { workspace = true }
 frameguin-wire = { workspace = true }
+# Linked by the controls not yet moved into `frameguin-hardware`'s device
+# modules, whose EC vocabulary still surfaces here; goes with the last of
+# them.
 framework_lib = { version = "0.6.5", default-features = false, features = ["hidapi"] }
 hidapi = "2"
-# Already in the tree via framework_lib; named for the GPIO character
-# device's ioctls, which no safe wrapper here would be smaller than.
-libc = "0.2"
 zbus = { workspace = true }
 zbus_polkit = "5.0.0"

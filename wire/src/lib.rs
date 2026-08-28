@@ -68,9 +68,6 @@ pub enum Capability {
     /// reached by the same passthrough, so a board answering for one answers
     /// for the others.
     BatteryCondition,
-    /// One name for both touchpad controls — same device, same firmware
-    /// feature set, so nothing can support one and not the other.
-    HapticTouchpad,
     /// Switching the touch panel off. Named for the panel rather than for the
     /// way it is reached, which differs by machine and is the daemon's
     /// business alone: this end asks whether touch can be switched, never how.
@@ -315,6 +312,98 @@ pub fn cause(error: &zbus::Error) -> String {
     }
 }
 
+/// What a failed operation says, by the kind the daemon's interface answers
+/// with — so a caller can tell an argument it got wrong from hardware that
+/// is not there from a prompt that was declined — and the sentence for it.
+///
+/// The one error every implementation of the device traits below raises.
+/// The direct implementation raises the kind itself; over the bus the kind
+/// travels as the D-Bus error name and the sentence as its detail, and
+/// [`DeviceError::from`] a `zbus::Error` puts the two back together.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum DeviceError {
+    InvalidArgs(String),
+    /// The hardware that is there cannot do this — no EC on the board, no
+    /// route to the panel. A device that is present raises it.
+    NotSupported(String),
+    AccessDenied(String),
+    /// No such device. Only the bus implementation raises it, from the bus's
+    /// unknown-interface reply: the daemon registers a device's interface
+    /// only where it detected the device, so that reply is the device's
+    /// absence and nothing else, and a device's `detect` reads it as such.
+    Absent(String),
+    Failed(String),
+}
+
+impl std::fmt::Display for DeviceError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InvalidArgs(m)
+            | Self::NotSupported(m)
+            | Self::AccessDenied(m)
+            | Self::Absent(m)
+            | Self::Failed(m) => f.write_str(m),
+        }
+    }
+}
+
+/// The kind is read off `fdo::Error`, whose derive already sorts a reply by
+/// its error name; a reply outside that vocabulary keeps its sentence alone.
+impl From<zbus::Error> for DeviceError {
+    fn from(error: zbus::Error) -> Self {
+        use zbus::fdo::Error as Fdo;
+        match Fdo::from(error) {
+            Fdo::InvalidArgs(m) => Self::InvalidArgs(m),
+            Fdo::NotSupported(m) => Self::NotSupported(m),
+            Fdo::AccessDenied(m) => Self::AccessDenied(m),
+            Fdo::UnknownInterface(m) => Self::Absent(m),
+            Fdo::ZBus(e) => Self::Failed(cause(&e)),
+            other => Self::Failed(other.to_string()),
+        }
+    }
+}
+
+impl From<std::io::Error> for DeviceError {
+    fn from(error: std::io::Error) -> Self {
+        Self::Failed(error.to_string())
+    }
+}
+
+impl From<DeviceError> for zbus::fdo::Error {
+    fn from(error: DeviceError) -> Self {
+        match error {
+            DeviceError::InvalidArgs(m) => Self::InvalidArgs(m),
+            DeviceError::NotSupported(m) => Self::NotSupported(m),
+            DeviceError::AccessDenied(m) => Self::AccessDenied(m),
+            DeviceError::Absent(m) => Self::UnknownInterface(m),
+            DeviceError::Failed(m) => Self::Failed(m),
+        }
+    }
+}
+
+pub type DeviceResult<T> = Result<T, DeviceError>;
+
+/// What a device asks of the hardware, one trait per device and one async fn
+/// per operation. Three implementations: `frameguin_hardware`'s device,
+/// which touches the machine; the app's, which calls the daemon over the bus;
+/// and a test's stub. A device holds only its own trait, so a stub
+/// implements one and a device cannot reach past its column.
+///
+/// `async` for the bus, where every call is; the direct implementation never
+/// pends. No `Send` bound — the app's implementor lives on one thread — and
+/// a server awaiting the direct one checks its future's `Send` from the
+/// concrete type.
+#[allow(
+    async_fn_in_trait,
+    reason = "the app's implementor and its callers share one thread; the daemon's is checked as a concrete type"
+)]
+pub trait TouchpadControl {
+    async fn haptic_intensity(&self) -> DeviceResult<u8>;
+    async fn set_haptic_intensity(&self, percent: u8) -> DeviceResult<()>;
+    async fn click_force(&self) -> DeviceResult<ClickForce>;
+    async fn set_click_force(&self, force: ClickForce) -> DeviceResult<()>;
+}
+
 // No default_service or default_path: they would restate BUS_NAME and
 // OBJECT_PATH as literals the attribute can't read a const into, leaving two
 // spellings of each with nothing checking they agree. Callers name them once,
@@ -336,15 +425,23 @@ pub trait Frameguin {
     async fn get_power_led_brightness(&self) -> zbus::Result<(u8, PowerLedLevel)>;
     async fn set_power_led_brightness(&self, percent: u8) -> zbus::Result<()>;
     async fn set_power_led_level(&self, level: PowerLedLevel) -> zbus::Result<()>;
-    async fn get_haptic_intensity(&self) -> zbus::Result<u8>;
-    async fn set_haptic_intensity(&self, percent: u8) -> zbus::Result<()>;
-    async fn get_touchpad_click_force(&self) -> zbus::Result<ClickForce>;
-    async fn set_touchpad_click_force(&self, force: ClickForce) -> zbus::Result<()>;
     /// Whether the touch panel is on. Read from the pad the setter drives,
     /// so it answers for the hardware rather than for what this app last
     /// asked — including a value some other writer, or a boot, put there.
     async fn get_touchscreen_enabled(&self) -> zbus::Result<bool>;
     async fn set_touchscreen_enabled(&self, enabled: bool) -> zbus::Result<()>;
+}
+
+/// The haptic touchpad, on its own interface at the same path. Absent from
+/// the bus on a machine without one: the daemon registers a device's
+/// interface only where it detected the device, so the interfaces at
+/// [`OBJECT_PATH`] are the inventory.
+#[zbus::proxy(interface = "io.github.valeronm.Frameguin1.Touchpad")]
+pub trait Touchpad {
+    async fn get_haptic_intensity(&self) -> zbus::Result<u8>;
+    async fn set_haptic_intensity(&self, percent: u8) -> zbus::Result<()>;
+    async fn get_click_force(&self) -> zbus::Result<ClickForce>;
+    async fn set_click_force(&self, force: ClickForce) -> zbus::Result<()>;
 }
 
 #[cfg(test)]
