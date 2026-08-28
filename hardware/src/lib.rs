@@ -17,9 +17,9 @@
 //! device, [`dmi`] the firmware's SMBIOS table. [`touchscreen`] settles
 //! which of two routes a machine has, and is the role over either.
 //! [`lifetime`] is what holds a mirrored
-//! value, [`state`] the store for what cannot be read back, [`probe`] the
-//! probe rule beside the code it governs, [`part`] what a device is as a
-//! part of the machine, and [`device`] the devices themselves.
+//! value, [`state`] the store for what cannot be read back, [`part`] what a
+//! device is as a part of the machine, and [`device`] the devices
+//! themselves.
 
 #![allow(
     clippy::missing_errors_doc,
@@ -36,7 +36,6 @@ pub mod led;
 pub mod lifetime;
 pub mod panel;
 pub mod part;
-pub mod probe;
 pub mod state;
 pub mod touchpad;
 pub mod touchscreen;

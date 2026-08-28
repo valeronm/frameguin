@@ -33,7 +33,6 @@ use gtk4::glib;
 use gtk4::prelude::*;
 
 use crate::bus::Bus;
-use crate::caps::Capabilities;
 use crate::mapped::{Timer, while_mapped};
 
 /// How often the block is read while anything is showing it. One rate for
@@ -113,32 +112,16 @@ impl Drop for Subscription {
     }
 }
 
-/// What this board has, as the app holds it: the daemon's capability list
-/// for the controls not yet served on an interface of their own, and the
-/// controls whose devices detected themselves — shared by every window so a
-/// control is one object however many views reach it.
-pub(crate) struct Probe {
-    pub(crate) caps: Capabilities,
-    pub(crate) controls: Controls<Bus>,
-}
-
-impl Probe {
-    /// Nothing to offer on this board, by either account.
-    pub(crate) fn is_empty(&self) -> bool {
-        self.caps.is_empty() && self.controls.is_empty()
-    }
-}
-
 #[derive(Default)]
 pub(crate) struct Feed {
     /// Built on demand and kept: the feed outlives any one window, so a report
     /// opened, closed and opened again costs one connection rather than one
     /// apiece — and a session that only ever shows the tray opens none.
     bus: RefCell<Option<Rc<Bus>>>,
-    /// The daemon's probe, asked once. Fixed for the daemon's run, and the
-    /// cold call that walks the EC — so the report reopening pays for one,
-    /// not one per open. None until asked; a failed ask is not remembered.
-    probe: RefCell<Option<Rc<Probe>>>,
+    /// The controls detected, asked once. Fixed for the daemon's run, and
+    /// the cold call — so the report reopening pays for one, not one per
+    /// open. None until asked; a failed ask is not remembered.
+    controls: RefCell<Option<Rc<Controls<Bus>>>>,
     views: RefCell<Vec<(u64, View)>>,
     next_id: Cell<u64>,
     /// The pending tick. Armed as the first view arrives and dropped as the
@@ -196,10 +179,9 @@ impl Feed {
         }
     }
 
-    /// The app's connection to the daemon, built on the first read that needs
-    /// one. Every window takes its reads over this: dialling the bus runs a
-    /// fresh handshake each time, and the feed outlives any one window, so a
-    /// report opened, closed and opened again costs none.
+    /// The daemon's root interface, on the app's one connection: dialling the
+    /// bus runs a fresh handshake each time, and the feed outlives any one
+    /// window, so a report opened, closed and opened again costs none.
     pub(crate) async fn proxy(&self) -> zbus::Result<FrameguinProxy<'static>> {
         Ok(self.bus().await?.frameguin.clone())
     }
@@ -218,25 +200,23 @@ impl Feed {
         Ok(self.bus.borrow_mut().get_or_insert(bus).clone())
     }
 
-    /// What this board has, asked once for the daemon's run. A failure is not
-    /// remembered — the probe is the cold call, and caching one unlucky
-    /// answer would hold the app to it for the session.
-    pub(crate) async fn probe(&self) -> DeviceResult<Rc<Probe>> {
-        let held = self.probe.borrow().clone();
-        if let Some(probe) = held {
-            return Ok(probe);
+    /// The controls whose devices detected themselves, asked once for the
+    /// daemon's run and shared by every window so a control is one object
+    /// however many views reach it. A failure is not remembered — detection
+    /// is the cold call, and caching one unlucky answer would hold the app
+    /// to it for the session.
+    pub(crate) async fn controls(&self) -> DeviceResult<Rc<Controls<Bus>>> {
+        let held = self.controls.borrow().clone();
+        if let Some(controls) = held {
+            return Ok(controls);
         }
         let bus = self.bus().await?;
-        let names = bus.frameguin.get_capabilities().await?;
         // No re-check for a racing asker, unlike `bus`: two of them compute
-        // the same answer from the same probe, and a control holds nothing a
-        // second copy would be left owning.
-        let probe = Rc::new(Probe {
-            caps: Capabilities::from_probe(&names),
-            controls: Controls::detect(&bus).await?,
-        });
-        self.probe.replace(Some(probe.clone()));
-        Ok(probe)
+        // the same answer from the same detection, and a control holds
+        // nothing a second copy would be left owning.
+        let controls = Rc::new(Controls::detect(&bus).await?);
+        self.controls.replace(Some(controls.clone()));
+        Ok(controls)
     }
 
     fn arm(self: &Rc<Self>) {
@@ -272,9 +252,8 @@ impl Feed {
     /// an extra that fails arrives as None, and the row keeps what it last
     /// showed rather than emptying over a single miss.
     pub(crate) async fn read(&self) -> DeviceResult<BatteryInfo> {
-        let probe = self.probe().await?;
-        let battery = probe
-            .controls
+        let controls = self.controls().await?;
+        let battery = controls
             .battery
             .as_ref()
             // Not `Absent`, which is the bus's alone to raise: every view here

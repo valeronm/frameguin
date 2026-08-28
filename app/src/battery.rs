@@ -62,7 +62,7 @@ struct Report {
     power: gtk::Label,
     charger: gtk::Label,
     /// Hidden on a board whose pack will not answer over I2C, which is the
-    /// same capability the spread's row below waits on.
+    /// same feature the spread's row below waits on.
     temperature_row: adw::ActionRow,
     temperature: gtk::Label,
     /// Shown only while the EC's own low-charge alarm stands, which is the
@@ -190,15 +190,14 @@ fn build(app: &adw::Application, feed: &Rc<Feed>) -> adw::Window {
         // here is in question by the time this window exists — and an ask that
         // fails leaves those rows out, which is the same as a pack without
         // them.
-        let condition = feed.probe().await.is_ok_and(|probe| {
-            probe
-                .controls
+        let condition = feed.controls().await.is_ok_and(|controls| {
+            controls
                 .battery
                 .as_ref()
                 .is_some_and(|battery| battery.has(BatteryFeature::Condition))
         });
         let wants = Wants { condition };
-        // Both rows read the pack over I2C, so one capability answers for the
+        // Both rows read the pack over I2C, so one feature answers for the
         // pair.
         report.temperature_row.set_visible(wants.condition);
         report.spread_row.set_visible(wants.condition);
@@ -231,7 +230,7 @@ fn build_rows(page: &adw::PreferencesPage) -> Rc<Report> {
     let power = value(&status_group, "Power");
     let charger = value(&status_group, "Charger");
     let (temperature_row, temperature) = value_row(&status_group, "Temperature");
-    // Hidden until the daemon's probe says there is a sensor; a row that
+    // Hidden until the pack's features say there is a sensor; a row that
     // appeared empty would read as one that failed to fill.
     temperature_row.set_visible(false);
     let (spread_row, spread) = value_row(&status_group, "Cell balance");

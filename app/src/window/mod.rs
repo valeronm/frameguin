@@ -8,8 +8,7 @@
 //!
 //! A control with a module of its own in `frameguin_model` has a group
 //! module of its own here — its widgets, how a snapshot moves them, and what
-//! its handlers dispatch — and the rest of this file is the window itself
-//! and the one control not yet moved.
+//! its handlers dispatch — and the rest of this file is the window itself.
 
 pub(crate) mod battery;
 pub(crate) mod power_led;
@@ -22,21 +21,18 @@ use std::time::Duration;
 
 use adw::prelude::*;
 use frameguin_model::control::Controls;
-use frameguin_wire::{Capability, DeviceError, FrameguinProxy};
+use frameguin_wire::DeviceError;
 use gtk4 as gtk;
 use gtk4::gdk;
 use gtk4::gio;
 use gtk4::glib;
 
 use crate::bus::Bus;
-use crate::caps::Capabilities;
-use crate::mapped::poll_while_mapped;
-use crate::reading::{Feed, Probe};
+use crate::reading::Feed;
 use crate::tray::{TrayIcon, TrayValues, tray_push};
 use crate::{APP_ID, about, autostart, board, parts};
 
 const SLIDER_DEBOUNCE: Duration = Duration::from_millis(200);
-const KBD_SYNC_SECONDS: u32 = 2;
 /// How long the window waits before asking an unreachable daemon again, and
 /// the ceiling the wait doubles up to. Bounded rather than endless-fast: the
 /// service is bus-activated, so every attempt is a start attempt.
@@ -68,7 +64,7 @@ fn scale_percent(value: f64) -> u8 {
 }
 
 /// The chrome every slider in this window shares, so a change to how one
-/// reads doesn't have to be made four times. `format` renders the value in
+/// reads doesn't have to be made once per slider. `format` renders the value in
 /// the control's own unit, which is the only part that differs.
 fn build_scale(
     adjustment: &gtk::Adjustment,
@@ -121,7 +117,6 @@ pub(crate) struct Ui {
     /// Set while widgets are being moved to mirror the hardware, so their
     /// change handlers don't echo the reading back as a write.
     syncing: Cell<bool>,
-    kbd_scale: gtk::Scale,
     battery: battery::Group,
     power_led: power_led::Group,
     touchpad: touchpad::Group,
@@ -181,12 +176,9 @@ fn debounce(
     slot.replace(Some(id));
 }
 
-// Widgets for absent capabilities stay hidden and insensitive, so their
-// handlers can never fire; connecting unconditionally keeps one wiring path.
 // A control's group connects only where the control is, its handlers needing
 // one to dispatch to.
-fn connect_handlers(ui: &Rc<Ui>, proxy: &FrameguinProxy<'static>, controls: &Controls<Bus>) {
-    connect_kbd_setter(ui, proxy);
+fn connect_handlers(ui: &Rc<Ui>, controls: &Controls<Bus>) {
     if let Some(battery) = &controls.battery {
         ui.battery.connect(ui, battery);
     }
@@ -233,50 +225,6 @@ impl Sink<'_> {
     }
 }
 
-fn connect_kbd_setter(ui: &Rc<Ui>, proxy: &FrameguinProxy<'static>) {
-    let kbd_slot = Rc::new(RefCell::new(None));
-    let kbd_ui = ui.clone();
-    let kbd_proxy = proxy.clone();
-    let kbd_write_slot = kbd_slot.clone();
-    ui.kbd_scale.connect_value_changed(move |scale| {
-        if kbd_ui.syncing.get() {
-            return;
-        }
-        let value = scale_percent(scale.value());
-        let ui = kbd_ui.clone();
-        let proxy = kbd_proxy.clone();
-        debounce(&kbd_write_slot, SLIDER_DEBOUNCE, move || {
-            glib::spawn_future_local(async move {
-                if let Err(e) = proxy.set_keyboard_backlight(value).await {
-                    ui.toast_error("Setting keyboard backlight", e);
-                }
-            });
-        });
-    });
-
-    // The EC is a second writer to the backlight (Fn+Space, and on newer
-    // boards a firmware auto mode that overrides host writes), so while the
-    // slider is on screen it follows the actual value. The tick skips while a
-    // write is pending so it can't yank the slider mid-drag.
-    let kbd_poll_ui = ui.clone();
-    let kbd_poll_proxy = proxy.clone();
-    poll_while_mapped(&ui.kbd_scale, KBD_SYNC_SECONDS, move || {
-        if kbd_slot.borrow().is_some() {
-            return;
-        }
-        let ui = kbd_poll_ui.clone();
-        let proxy = kbd_poll_proxy.clone();
-        glib::spawn_future_local(async move {
-            if let Ok(percent) = proxy.get_keyboard_backlight().await
-                && percent != scale_percent(ui.kbd_scale.value())
-            {
-                ui.sync(|| ui.kbd_scale.set_value(f64::from(percent)));
-            }
-        });
-    });
-}
-
-#[expect(clippy::too_many_lines, reason = "flat widget construction")]
 pub(crate) fn build_window(
     app: &adw::Application,
     tray: Option<ksni::blocking::Handle<TrayIcon>>,
@@ -286,17 +234,6 @@ pub(crate) fn build_window(
 
     let battery = battery::Group::build();
     page.add(&battery.widget);
-
-    let keyboard = adw::PreferencesGroup::builder().title("Keyboard").build();
-    let kbd_row = adw::ActionRow::builder().title("Backlight").build();
-    // Explicit adjustment: with_range would set page_increment to 10x the
-    // step, and a mouse wheel click on a GtkRange moves by the page
-    // increment — which would jump the slider across its whole range.
-    let kbd_adjustment = gtk::Adjustment::new(0.0, 0.0, 100.0, 10.0, 10.0, 0.0);
-    let kbd_scale = build_scale(&kbd_adjustment, |value| format!("{value:.0}%"));
-    kbd_row.add_suffix(&kbd_scale);
-    keyboard.add(&kbd_row);
-    page.add(&keyboard);
 
     let power_led = power_led::Group::build();
     page.add(&power_led.widget);
@@ -359,7 +296,6 @@ pub(crate) fn build_window(
     let ui = Rc::new(Ui {
         toasts,
         syncing: Cell::new(false),
-        kbd_scale,
         battery,
         power_led,
         touchpad,
@@ -378,9 +314,6 @@ pub(crate) fn build_window(
         }
     });
 
-    let groups = CapabilityWidgets {
-        keyboard: keyboard.clone(),
-    };
     // The report goes into the issue body rather than onto the clipboard with
     // instructions to paste it somewhere.
     let report_ui = ui.clone();
@@ -400,10 +333,9 @@ pub(crate) fn build_window(
     });
     let init = Rc::new(Init {
         ui: ui.clone(),
-        groups,
         empty,
         answered: Cell::default(),
-        probing: Cell::default(),
+        filling: Cell::default(),
         next_attempt: Cell::new(FIRST_RETRY_SECONDS),
         retry: Cell::default(),
     });
@@ -421,23 +353,6 @@ pub(crate) fn build_window(
     glib::spawn_future_local(async move { init.fill().await });
 
     (window, ui)
-}
-
-/// Everything gated on a capability, so hiding what a board lacks is one call
-/// rather than one line per control.
-struct CapabilityWidgets {
-    keyboard: adw::PreferencesGroup,
-}
-
-impl CapabilityWidgets {
-    /// The controls still gated on the capability list; a control with a
-    /// group of its own gates that group on its device having detected
-    /// itself.
-    fn show_supported(&self, caps: Capabilities) {
-        // Withheld from every board by `caps::offered`, so this reads false.
-        self.keyboard
-            .set_visible(caps.has(Capability::KeyboardBacklight));
-    }
 }
 
 /// Why the window has no controls. Told apart because what the reader should
@@ -477,7 +392,7 @@ fn build_empty_page(controls: &adw::PreferencesPage) -> EmptyPage {
     // between them, so the page that isn't showing should cost nothing.
     stack.set_hhomogeneous(false);
     stack.set_vhomogeneous(false);
-    // The controls first, so a window opened before the probe answers shows
+    // The controls first, so a window opened before detection answers shows
     // the page it will keep in the ordinary case rather than flashing an
     // explanation of an emptiness that is about to be filled.
     stack.add_named(controls, Some(CONTROLS_PAGE));
@@ -616,9 +531,9 @@ impl EmptyPage {
                         .to_string(),
                 ),
                 detail: None,
-                // A Framework board the probe finds nothing on is the report
+                // A Framework board detection finds nothing on is the report
                 // this project asks for by name, and the report already
-                // carries what a probe found.
+                // carries the parts it found.
                 report: true,
             },
         };
@@ -654,18 +569,17 @@ impl EmptyPage {
 /// and differ only in what made them run.
 struct Init {
     ui: Rc<Ui>,
-    groups: CapabilityWidgets,
     empty: EmptyPage,
-    /// Whether a probe has reached the daemon, which is the answer to whether
+    /// Whether an ask has reached the daemon, which is the answer to whether
     /// asking again could tell us anything new: one that answered will answer
     /// the same way for as long as it runs. A flag rather than the connection
     /// it used to be kept as — the feed holds the connection, and a handle
     /// stored to be tested for presence says the wrong thing about why it is
     /// there.
     answered: Cell<bool>,
-    /// Set while a probe is in flight, so the two things that start one — the
+    /// Set while a fill is in flight, so the two things that start one — the
     /// window mapping and the countdown reaching zero — cannot both be in it.
-    probing: Cell<bool>,
+    filling: Cell<bool>,
     /// How long until the next unprompted attempt, doubling per failure.
     next_attempt: Cell<u32>,
     /// The pending tick, held so that arming replaces a countdown rather than
@@ -679,7 +593,7 @@ impl Init {
     /// lowers the charge limit on its own, and `framework_tool` writes any of
     /// these behind the app's back — so a mapped window reloads rather than
     /// trusting what it read at startup. A window still holding no
-    /// capabilities has nothing to reload and asks the daemon again instead,
+    /// controls has nothing to reload and asks the daemon again instead,
     /// which is how a service that started late is picked up without the
     /// reader finding the button.
     async fn refresh(self: &Rc<Self>) {
@@ -687,35 +601,33 @@ impl Init {
             self.fill().await;
             return;
         }
-        // Cached since the probe, so this cannot realistically fail; nothing
+        // Cached since detection, so this cannot realistically fail; nothing
         // to say if it does, the next map asking again.
-        let Ok(probe) = self.ui.feed.probe().await else {
+        let Ok(controls) = self.ui.feed.controls().await else {
             return;
         };
         // Answered, with nothing to reload: a board that supports none of
         // these controls and a machine that is not a Framework are what they
         // are, and asking again would spawn the root daemon once per window
         // opened to be told so a second time.
-        if probe.is_empty() {
+        if controls.is_empty() {
             return;
         }
-        if let Ok(proxy) = self.ui.feed.proxy().await {
-            load_values(&self.ui, &proxy, &probe).await;
-        }
+        load_values(&self.ui, &controls).await;
     }
 
     /// One attempt at filling the window, and what to do with how it went:
     /// only an unreachable service is worth another, and the waiting between
     /// them is this function's to arrange.
     async fn fill(self: &Rc<Self>) {
-        // Guarded because two things start a probe — the window mapping and
+        // Guarded because two things start a fill — the window mapping and
         // the countdown reaching zero — and two runs finishing would connect
         // every setter twice, which is two writes and two prompts per change.
-        if self.probing.replace(true) {
+        if self.filling.replace(true) {
             return;
         }
-        let reason = self.probe().await;
-        self.probing.set(false);
+        let reason = self.attempt().await;
+        self.filling.set(false);
         let Some(reason) = reason else {
             self.stop_retrying();
             self.next_attempt.set(FIRST_RETRY_SECONDS);
@@ -774,38 +686,32 @@ impl Init {
         }
     }
 
-    /// Asks the daemon what this board supports, hides what it can't do,
-    /// loads current values, then connects the setters — last, so the
-    /// programmatic `set_value` calls during init can't echo back into the
-    /// daemon. Returns the state the window is left in, or None where it was
-    /// filled.
-    async fn probe(&self) -> Option<Empty> {
+    /// Takes the detected controls from the feed, gates each group on its
+    /// control, loads current values, then connects the setters — last, so
+    /// the programmatic `set_value` calls during init can't echo back into
+    /// the daemon. Returns the state the window is left in, or None where it
+    /// was filled.
+    async fn attempt(&self) -> Option<Empty> {
         let ui = &self.ui;
         // The page rather than a toast: a toast is gone in seconds and leaves
         // a window whose emptiness has no explanation on it.
-        // Both through the feed rather than dialled and asked here: a fresh
-        // handshake per window and a second cold probe per session are what a
-        // window answering for itself costs, and the feed outlives any of
-        // them. The probe's answer reaching it here is also what spares the
-        // report a probe of its own.
-        let proxy = match ui.feed.proxy().await {
-            Ok(p) => p,
+        // Through the feed rather than dialled and asked here: a fresh
+        // handshake per window and a second cold detection per session are
+        // what a window answering for itself costs, and the feed outlives
+        // any of them. The answer reaching it here is also what spares the
+        // report a detection of its own.
+        let controls = match ui.feed.controls().await {
+            Ok(controls) => controls,
             Err(e) => return Some(Empty::DaemonUnavailable(e.to_string())),
         };
-        let probe = match ui.feed.probe().await {
-            Ok(probe) => probe,
-            Err(e) => return Some(Empty::DaemonUnavailable(e.to_string())),
-        };
-        self.groups.show_supported(probe.caps);
-        ui.battery.gate(probe.controls.battery.as_ref());
-        ui.power_led.gate(probe.controls.power_led.as_ref());
-        ui.touchpad.gate(probe.controls.touchpad.as_ref());
-        ui.touchscreen.gate(probe.controls.touchscreen.as_ref());
-        ui.sync_tray(TrayValues::offered(&probe.controls));
+        ui.battery.gate(controls.battery.as_ref());
+        ui.power_led.gate(controls.power_led.as_ref());
+        ui.touchpad.gate(controls.touchpad.as_ref());
+        ui.touchscreen.gate(controls.touchscreen.as_ref());
         // Set whatever the answer was: what a later refresh needs to know is
         // that this daemon has said its piece, not what it said.
         self.answered.set(true);
-        if probe.is_empty() {
+        if controls.is_empty() {
             // The daemon gates its EC on the same vendor string the app
             // reads, so an empty answer is expected on anything else and says
             // nothing about the board; only a Framework answering with none
@@ -818,33 +724,22 @@ impl Init {
         // Back to the controls, for a run that got here after an earlier one
         // put the empty page up.
         self.empty.show_controls();
-        load_values(ui, &proxy, &probe).await;
-        connect_handlers(ui, &proxy, &probe.controls);
+        load_values(ui, &controls).await;
+        connect_handlers(ui, &controls);
         None
     }
 }
 
-/// Re-reads every supported control and moves the widgets to match, pushing
-/// the same values to the tray. Each write goes through `Ui::sync`, so a
-/// reload can't echo back as a setter call. The tray's copies are collected
-/// and handed over in one go at the end: each push blocks on the tray's
-/// thread and rebuilds its whole menu, which would be wasted three times over
-/// on a menu nobody has opened.
-async fn load_values(ui: &Rc<Ui>, proxy: &FrameguinProxy<'static>, probe: &Probe) {
-    let caps = probe.caps;
-    let controls = &probe.controls;
-    let mut values = match &controls.battery {
-        Some(battery) => ui.battery.load(ui, battery).await,
-        None => TrayValues::default(),
-    };
-    if caps.has(Capability::KeyboardBacklight) {
-        match proxy.get_keyboard_backlight().await {
-            Ok(percent) => ui.sync(|| {
-                ui.kbd_scale.set_value(f64::from(percent));
-                ui.kbd_scale.set_sensitive(true);
-            }),
-            Err(e) => ui.toast_error("Reading keyboard backlight", e),
-        }
+/// Re-reads every detected control and moves the widgets to match, pushing
+/// the same values to the tray along with what each control offers. Each
+/// write goes through `Ui::sync`, so a reload can't echo back as a setter
+/// call. The tray's copies are collected and handed over in one go at the
+/// end: each push blocks on the tray's thread and rebuilds its whole menu,
+/// which would be wasted once per control on a menu nobody has opened.
+async fn load_values(ui: &Rc<Ui>, controls: &Controls<Bus>) {
+    let mut values = TrayValues::offered(controls);
+    if let Some(battery) = &controls.battery {
+        ui.battery.load(ui, battery, &mut values).await;
     }
     if let Some(power_led) = &controls.power_led {
         match power_led.read().await {

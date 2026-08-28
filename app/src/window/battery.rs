@@ -319,10 +319,10 @@ impl Group {
     }
 
     /// The group's half of a reload: the reading at the top, then the
-    /// ceiling and the speed with their combos and sliders. Returns what the
-    /// tray should be told, for the one push the window makes at the end.
-    pub(crate) async fn load(&self, ui: &Rc<Ui>, control: &Rc<Battery>) -> TrayValues {
-        let mut values = TrayValues::default();
+    /// ceiling and the speed with their combos and sliders. What the tray
+    /// should be told goes into `values`, for the one push the window makes
+    /// at the end.
+    pub(crate) async fn load(&self, ui: &Rc<Ui>, control: &Rc<Battery>, values: &mut TrayValues) {
         // Read here as well as fed: the feed's first tick is a couple of
         // seconds after the window appears, and an empty row until then reads
         // as a control that failed rather than one still filling. Through the
@@ -371,7 +371,6 @@ impl Group {
         }
         // Read once per run, above.
         values.design_capacity = self.design_capacity.get();
-        values
     }
 }
 

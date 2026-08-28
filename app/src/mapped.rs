@@ -3,8 +3,8 @@
 //! A resident app whose window is hidden to the tray does no periodic work,
 //! and neither does one whose board lacks the row — an unsupported widget is
 //! never mapped. Every repeating thing in this app obeys that rule, and the
-//! rule is written here once: what each of them holds differs, when it is
-//! taken and when it is let go does not.
+//! rule is written here once: what is held is the caller's, when it is taken
+//! and when it is let go is not.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -45,9 +45,9 @@ pub(crate) fn while_mapped<G: 'static>(
     });
 }
 
-/// A repeating timer that stops when it is dropped, which is what lets
-/// [`while_mapped`] hold one: a `glib::SourceId` removes nothing on its own,
-/// and one let fall is a tick outliving whatever it fed.
+/// A repeating timer that stops when it is dropped, which is what lets a
+/// holder forget it rather than remove it: a `glib::SourceId` removes
+/// nothing on its own, and one let fall is a tick outliving whatever it fed.
 pub(crate) struct Timer(Option<glib::SourceId>);
 
 impl Timer {
@@ -65,18 +65,4 @@ impl Drop for Timer {
             source.remove();
         }
     }
-}
-
-/// Runs `tick` every `seconds` for as long as `widget` is on screen, the timer
-/// being what [`while_mapped`] holds.
-pub(crate) fn poll_while_mapped(
-    widget: &impl IsA<gtk::Widget>,
-    seconds: u32,
-    tick: impl Fn() + 'static,
-) {
-    let tick = Rc::new(tick);
-    while_mapped(widget, move || {
-        let tick = tick.clone();
-        Timer::every_seconds(seconds, move || tick())
-    });
 }

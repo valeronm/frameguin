@@ -172,7 +172,7 @@ session without one. Over SSH, or from an inactive session, admin
 authentication is required by design.
 
 ```sh
-# both versions with the paths they ran from, every part with its firmware, capabilities
+# both versions with the paths they ran from, every part with its firmware
 frameguin --debug-info
 # daemon logs
 sudo journalctl -u frameguin-daemon.service
@@ -234,7 +234,7 @@ layered:
   inactive sessions are denied; everything else (SSH, daemons) needs admin
   authentication via a polkit agent.
 - **Getters** are unauthenticated: they expose only hardware metadata
-  (current levels, capabilities, the parts and their firmware).
+  (current levels, features, the parts and their firmware).
 - **Surface** — a fixed set of operations with all inputs validated against
   hardware-accepted values; no raw command passthrough.
 
@@ -277,7 +277,7 @@ does, without the release step. Cutting a release is
 Issues and pull requests welcome:
 <https://github.com/valeronm/frameguin/issues>
 
-Capability reports from boards other than the Laptop 13 Pro are especially
-useful. Include the output of `frameguin --debug-info` — the same report the
-main menu → **About Frameguin** → **Troubleshooting** page offers behind a
-copy button.
+Reports from boards other than the Laptop 13 Pro are especially useful.
+Include the output of `frameguin --debug-info` — the same report the main
+menu → **About Frameguin** → **Troubleshooting** page offers behind a copy
+button.

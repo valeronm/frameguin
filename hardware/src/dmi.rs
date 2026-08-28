@@ -19,7 +19,7 @@ pub fn field(name: &str) -> Option<String> {
 
 /// Without `/dev/cros_ec`, `framework_lib` falls back to raw port I/O; on a
 /// non-Framework EC every command spin-waits to a timeout, stalling the
-/// first `GetCapabilities` for tens of seconds. Don't touch the EC unless the
+/// daemon's start for tens of seconds. Don't touch the EC unless the
 /// firmware says this is the hardware it belongs to.
 pub fn is_framework() -> bool {
     field("sys_vendor").as_deref() == Some(frameguin_wire::VENDOR)

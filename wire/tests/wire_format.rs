@@ -4,8 +4,8 @@
 //! no compiler on either side would report.
 
 use frameguin_wire::{
-    BatteryAlarm, BatteryCondition, BatteryFeature, BatteryInfo, BatteryState, Capability,
-    ChargeFlow, ClickForce, Identity, PartKind, PowerLedLevel,
+    BatteryAlarm, BatteryCondition, BatteryFeature, BatteryInfo, BatteryState, ChargeFlow,
+    ClickForce, Identity, PartKind, PowerLedLevel,
 };
 use zbus::zvariant::serialized::Context;
 use zbus::zvariant::{LE, Type, to_bytes};
@@ -17,7 +17,6 @@ fn wire_string<T: serde::Serialize + Type>(value: T) -> String {
 
 #[test]
 fn every_enum_crosses_the_bus_as_a_plain_string() {
-    assert_eq!(Capability::SIGNATURE, "s");
     assert_eq!(BatteryFeature::SIGNATURE, "s");
     assert_eq!(PowerLedLevel::SIGNATURE, "s");
     assert_eq!(ClickForce::SIGNATURE, "s");
@@ -26,12 +25,12 @@ fn every_enum_crosses_the_bus_as_a_plain_string() {
 }
 
 /// The shapes the interface actually carries, as they appear in
-/// introspection: `GetCapabilities` answers `as`, the power LED's
-/// `GetBrightness` answers `(ys)`, `GetBatteryInfo` the battery block as a
-/// struct carrying a struct.
+/// introspection: the battery's `GetFeatures` answers `as`, the power LED's
+/// `GetBrightness` answers `(ys)`, `GetInfo` the battery block as a struct
+/// carrying a struct.
 #[test]
 fn the_composite_signatures_are_the_ones_the_methods_declare() {
-    assert_eq!(Vec::<Capability>::SIGNATURE, "as");
+    assert_eq!(Vec::<BatteryFeature>::SIGNATURE, "as");
     assert_eq!(<(u8, PowerLedLevel)>::SIGNATURE, "(ys)");
     // Field order is the protocol here, the members being positional and
     // unnamed: reordering the struct silently re-maps every field a client
@@ -66,14 +65,6 @@ fn battery_alarm_names_are_kebab_case() {
         "over-temperature"
     );
     assert_eq!(wire_string(BatteryAlarm::SafetyFault), "safety-fault");
-}
-
-#[test]
-fn capability_names_are_kebab_case() {
-    assert_eq!(
-        wire_string(Capability::KeyboardBacklight),
-        "keyboard-backlight"
-    );
 }
 
 #[test]

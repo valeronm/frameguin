@@ -200,15 +200,6 @@ pub(crate) async fn debug_info() -> String {
             }
             Err(e) => out.push_str(&line("parts", Err(e))),
         }
-        out.push_str(&line(
-            "capabilities",
-            p.get_capabilities()
-                .await
-                // Variant names, not the wire's: the kebab spelling lives in
-                // one serde attribute, and a second copy to format from here
-                // is the drift these types exist to remove.
-                .map(|caps| format!("{caps:?}")),
-        ));
     } else {
         // What the inventory would have said of the board, from the sysfs
         // copy the app can read without it.

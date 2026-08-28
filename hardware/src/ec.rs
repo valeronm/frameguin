@@ -16,9 +16,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use frameguin_wire::{self as wire, DeviceError, DeviceResult};
 use framework_lib::chromium_ec::command::{EcCommands, EcRequestRaw};
-use framework_lib::chromium_ec::commands::{
-    EcRequestGetUptimeInfo, EcRequestPwmGetKeyboardBacklight, FpLedBrightnessLevel,
-};
+use framework_lib::chromium_ec::commands::{EcRequestGetUptimeInfo, FpLedBrightnessLevel};
 use framework_lib::chromium_ec::i2c_passthrough::i2c_read;
 use framework_lib::chromium_ec::{CrosEc, EcResult};
 use framework_lib::power;
@@ -249,20 +247,6 @@ impl Ec {
             *response.data.first()?,
             *response.data.get(1)?,
         ]))
-    }
-
-    /// `framework_lib`'s `get_keyboard_backlight()` reads via `PWM_GET_DUTY`,
-    /// and the percent survives two floor divisions (percent→duty in the EC,
-    /// then duty→percent in the lib), coming back one low for most values —
-    /// 5% reads as 4%. This EC command returns the exact stored percent.
-    pub fn keyboard_backlight(&self) -> EcResult<u8> {
-        Ok(EcRequestPwmGetKeyboardBacklight {}
-            .send_command(&self.ec())?
-            .percent)
-    }
-
-    pub fn set_keyboard_backlight(&self, percent: u8) {
-        self.ec().set_keyboard_backlight(percent);
     }
 
     pub fn version(&self) -> EcResult<String> {

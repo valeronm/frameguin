@@ -12,7 +12,8 @@ use frameguin_wire::{
 use zbus::proxy::ProxyImpl;
 
 pub(crate) struct Bus {
-    /// The daemon's own interface, for the operations no device owns yet.
+    /// The root interface, for what belongs to no device: the inventory and
+    /// the daemon's build.
     pub(crate) frameguin: FrameguinProxy<'static>,
     battery: BatteryProxy<'static>,
     touchpad: TouchpadProxy<'static>,

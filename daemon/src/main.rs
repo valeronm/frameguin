@@ -9,7 +9,7 @@ mod interface;
 mod served;
 mod service;
 
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use frameguin_hardware::device::battery::Battery;
@@ -20,10 +20,8 @@ use frameguin_hardware::device::touchpad::Touchpad;
 use frameguin_hardware::device::touchscreen::Touchscreen;
 use frameguin_hardware::ec::Ec;
 use frameguin_hardware::part::{Identity, Part};
-use frameguin_hardware::probe;
 use frameguin_hardware::state::{StateFile, Store};
 use frameguin_wire as wire;
-use zbus::message::Header;
 use zbus::{Connection, fdo, interface};
 use zbus_polkit::policykit1::AuthorityProxy;
 
@@ -33,46 +31,17 @@ use crate::service::Service;
 const IDLE_EXIT: Duration = Duration::from_mins(5);
 
 struct Daemon {
-    /// None on hardware with no Framework EC — see [`Ec::open`]. Shared
-    /// with the devices the EC is a transport for.
-    ec: Option<Arc<Ec>>,
     service: Arc<Service>,
-    /// Probed once per daemon lifetime; the EC feature set can't change
-    /// while running.
-    capabilities: OnceLock<Vec<wire::Capability>>,
     /// Every part detection found at startup, which is the one time it looks.
     parts: Vec<Identity>,
-}
-
-fn ec_err(e: impl std::fmt::Debug) -> fdo::Error {
-    fdo::Error::Failed(format!("EC error: {e:?}"))
 }
 
 fn internal_err(e: impl std::fmt::Display) -> fdo::Error {
     fdo::Error::Failed(e.to_string())
 }
 
-impl Daemon {
-    fn ec(&self) -> fdo::Result<&Ec> {
-        self.ec
-            .as_deref()
-            // NotSupported (not Failed): lets a caller distinguish "wrong
-            // hardware, permanently" from a transient EC error.
-            .ok_or_else(|| fdo::Error::NotSupported("no Framework EC on this hardware".into()))
-    }
-}
-
 #[interface(name = "io.github.valeronm.Frameguin1")]
 impl Daemon {
-    /// Which controls this board actually supports — see [`probe`] for the
-    /// rule each answer has to meet.
-    fn get_capabilities(&self) -> Vec<wire::Capability> {
-        self.service.touch();
-        self.capabilities
-            .get_or_init(|| probe::capabilities(self.ec.as_deref()))
-            .clone()
-    }
-
     /// The inventory: every device that is a part, whether or not it is
     /// also a control.
     fn get_devices(&self) -> Vec<Identity> {
@@ -91,25 +60,6 @@ impl Daemon {
             env!("CARGO_PKG_VERSION").to_string(),
             exe.display().to_string(),
         )
-    }
-
-    fn get_keyboard_backlight(&self) -> fdo::Result<u8> {
-        self.service.touch();
-        self.ec()?.keyboard_backlight().map_err(ec_err)
-    }
-
-    async fn set_keyboard_backlight(
-        &self,
-        percent: u8,
-        #[zbus(header)] header: Header<'_>,
-    ) -> fdo::Result<()> {
-        self.service.touch();
-        if percent > 100 {
-            return Err(fdo::Error::InvalidArgs("backlight must be 0-100".into()));
-        }
-        self.service.authorize(&header).await?;
-        self.ec()?.set_keyboard_backlight(percent);
-        Ok(())
     }
 }
 
@@ -158,9 +108,7 @@ fn main() -> zbus::Result<()> {
             .map_err(|e| zbus::Error::Failure(e.to_string()))?;
         let service = Arc::new(Service::new(authority, last_used));
         let daemon = Daemon {
-            ec,
             service: service.clone(),
-            capabilities: OnceLock::new(),
             parts,
         };
         let server = conn.object_server();

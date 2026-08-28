@@ -8,7 +8,6 @@ mod autostart;
 mod battery;
 mod board;
 mod bus;
-mod caps;
 mod mapped;
 mod parts;
 mod reading;
@@ -76,7 +75,7 @@ fn setup_tray(app: &adw::Application, state: Rc<AppState>) {
     glib::spawn_future_local(async move {
         let _hold = hold;
         // Populate the menu right away: in tray-only mode (autostart) nothing
-        // else fetches capabilities until the window is first opened, which
+        // else detects the controls until the window is first opened, which
         // would leave the menu at Open/Quit.
         refresh_tray(&handle, &state.feed).await;
         while let Ok(event) = rx.recv().await {
@@ -85,14 +84,11 @@ fn setup_tray(app: &adw::Application, state: Rc<AppState>) {
             // in one place however many presets the menu grows.
             let built = state.built_ui();
             let sink = built.as_deref().map_or(Sink::Tray(&handle), Sink::Window);
-            // Asked for per write rather than held from startup. The feed
-            // keeps the connection once it has one, so this costs a borrow and
-            // no handshake — and it costs nothing at all to a session whose
-            // first dial failed, where a held `Option` would have swallowed
-            // every preset click for as long as the tray ran while the menu
-            // beside it went on refreshing.
-            let probe = state.feed.probe().await.ok();
-            let controls = probe.as_ref().map(|probe| &probe.controls);
+            // The controls are asked for per write rather than held from
+            // startup, and only by the arms that write: the feed keeps them
+            // once it has them, so a write costs a borrow and no handshake —
+            // and a session whose first dial failed pays the dial again only
+            // for a click that needs it, never for Show or Quit.
             match event {
                 TrayEvent::Show => {
                     let window = state.window_for(&app).0;
@@ -112,7 +108,9 @@ fn setup_tray(app: &adw::Application, state: Rc<AppState>) {
                 // moving the widget: a widget already showing the requested
                 // value emits no change, and the click would be swallowed.
                 TrayEvent::SetChargeLimit(percent) => {
-                    if let Some(control) = controls.and_then(|c| c.battery.as_ref()) {
+                    if let Ok(controls) = state.feed.controls().await
+                        && let Some(control) = &controls.battery
+                    {
                         window::battery::apply_charge_limit(
                             sink,
                             control,
@@ -124,7 +122,9 @@ fn setup_tray(app: &adw::Application, state: Rc<AppState>) {
                 }
                 TrayEvent::Refresh => refresh_tray(&handle, &state.feed).await,
                 TrayEvent::SetChargeSpeed(milliamps) => {
-                    if let Some(control) = controls.and_then(|c| c.battery.as_ref()) {
+                    if let Ok(controls) = state.feed.controls().await
+                        && let Some(control) = &controls.battery
+                    {
                         window::battery::apply_charge_speed(
                             sink,
                             control,
@@ -135,12 +135,16 @@ fn setup_tray(app: &adw::Application, state: Rc<AppState>) {
                     }
                 }
                 TrayEvent::SetPowerLedLevel(level) => {
-                    if let Some(control) = controls.and_then(|c| c.power_led.as_ref()) {
+                    if let Ok(controls) = state.feed.controls().await
+                        && let Some(control) = &controls.power_led
+                    {
                         window::power_led::apply(sink, control, level).await;
                     }
                 }
                 TrayEvent::SetTouchscreen(enabled) => {
-                    if let Some(control) = controls.and_then(|c| c.touchscreen.as_ref()) {
+                    if let Ok(controls) = state.feed.controls().await
+                        && let Some(control) = &controls.touchscreen
+                    {
                         window::touchscreen::apply(sink, control, enabled).await;
                     }
                 }

@@ -30,7 +30,8 @@ One meaning per word, and each word names one place in the tree.
   bus, and a stub. `DeviceError` is the one error every control and every
   detection raises.
 - **Interface** — the D-Bus surface for one device's control, on
-  `Served<Device>`. `daemon/src/interface/<name>.rs`.
+  `Served<Device>`. `daemon/src/interface/<name>.rs`. The root interface,
+  for what belongs to no device, is `Daemon`'s own.
 - **Bus** — the app's implementation of every control trait, each operation
   a call on the daemon. `app/src/bus.rs`, `Bus`.
 - **Client control** — the app's side of one control: its read as a
@@ -190,8 +191,7 @@ mainboard is a part the daemon reads and never sets, and its BIOS and EC are
 firmware it runs rather than parts of their own. So the inventory is its own
 list, a control's device is on it only where it happens to be a part, and
 the bus carries it as one method on the root interface —
-`GetDevices -> Vec<Identity>`, the thing `GetCapabilities` was always going
-to become — beside the per-device control interfaces. Where a part maps to
+`GetDevices -> Vec<Identity>` — beside the per-device control interfaces. Where a part maps to
 something purchasable — the pad's descriptor names nothing, the part a
 person buys is Framework's — that is `model::part::catalogue`, a curated
 table keyed on `Identity::id`, or on the part number for memory, whose
@@ -216,18 +216,16 @@ every layer. The first carried the scaffolding the rest reuse: the keyed
 Order: touchpad, touchscreen, power LED, battery. Smallest column first, the
 one with the most shared state last.
 
-Moved so far: **touchpad, touchscreen, power LED, battery**. Parts with no
-control so far: **mainboard, memory**.
+Every control has moved: **touchpad, touchscreen, power LED, battery**.
+Parts with no control: **mainboard, memory**. The keyboard backlight, which
+the app never showed — the desktop already carries it on its own keys — was
+dropped rather than moved.
 
-One control is left un-moved, the keyboard backlight, which the app never
-shows — the desktop already carries it on its own keys. `Daemon` in
-`daemon/src/main.rs` still holds its two methods, reaching the EC directly
-rather than through a device, `app/src/caps.rs` the capability that gates
-it, and `window/mod.rs` its slider. `GetCapabilities` names only it: a moved
-device detects itself at both ends — in `hardware` by its own probe, in
+A device detects itself at both ends — in `hardware` by its own probe, in
 `model` by its own first read, which an unregistered interface answers with
 `DeviceError::Absent`, the one kind only the bus raises, so a present
-device's own `NotSupported` cannot read as absence — so each move deleted a
-capability rather than keeping one alive for the app. `GetCapabilities` goes
-with it; the features a device offers beyond presence travel on its own
-interface.
+device's own `NotSupported` cannot read as absence. There is no capability
+list: presence is the interface being on the bus, and the features a device
+offers beyond presence travel on its own interface. The root interface
+carries only what belongs to no device — the inventory and the daemon's
+build.

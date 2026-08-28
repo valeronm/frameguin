@@ -27,7 +27,7 @@ it and the non-obvious constraints.
   package does the same — so an app talking to a daemon of another version is
   not a state this project has to work in, and nothing outside the pair is a
   caller it answers for. Renaming a method, dropping one or respelling a
-  capability is a free change needing no deprecation window. (`busctl` against
+  feature is a free change needing no deprecation window. (`busctl` against
   it stays a fine way to inspect a running daemon; it is a debugging tool, not
   a client the interface holds still for.) None of this loosens what `wire/`
   is for: the two ends still restate the interface separately and still meet
@@ -35,31 +35,25 @@ it and the non-obvious constraints.
   from drifting apart.
 - `wire/` holds the proxy the app calls through, the bus name and object
   path, and the vocabularies as enums serializing as `s`. The daemon's
-  `#[interface]` impl cannot move there — it is an impl on the type owning
-  `CrosEc` — so the method set is still two declarations meeting only at
-  runtime, in the bus. What the enums buy is the other half: a capability,
+  `#[interface]` impls cannot move there — each is an impl on a daemon-side
+  type — so the method set is still two declarations meeting only at
+  runtime, in the bus. What the enums buy is the other half: a feature,
   level or click force the two ends spell differently used to be a
   well-formed string that meant nothing to the receiver, and is now a
-  compile error. Adding a control means: one variant in `wire`, one probe +
-  get/set methods in the daemon, one gated UI group in the app — and nothing
-  in between, because the app holds the probe's answer as a set rather than
-  unpacking it into a flag per capability.
-- The code is moving from layers to devices, one device per commit, and
-  `docs/architecture.md` is the shape it is moving to: what each layer may
-  link, what a device's column holds at each, and which device has moved.
-  Read it before touching a device, and move its "Moved so far" line when
-  one lands. The bullets below describe the code as it still stands where a
-  device has not moved; each dissolves with the last device using it.
+  compile error. Adding a control is one edit per layer, which
+  `docs/architecture.md` lists under "Adding a control".
+- `docs/architecture.md` is the shape of the code: what each layer may
+  link, and what a device's column holds at each. Read it before touching a
+  device.
 - Inside `app/`, a module boundary is drawn where it makes a class of mistake
   impossible, not where a file got long. A control's presets, the values
   behind them and the words those values carry are its `model` control's —
   the chrome around them, group and row titles and the sentences a toast
-  makes, stays with the widget that is its only site; `caps.rs` holds the
-  probe's answer for the one control not yet moved. Neither links GTK or the
-  bus, so the window and the tray cannot disagree about what a preset sends
-  or what it is called, and `Capabilities`' private field means the app can
-  only offer what the daemon answered with — the probe rule, held up by the
-  compiler at this end. `tray.rs` links no GTK
+  makes, stays with the widget that is its only site. `model` links neither
+  GTK nor the bus, so the window and the tray cannot disagree about what a
+  preset sends or what it is called, and a control exists in the app only
+  where its device answered — the probe rule, held up by the compiler at
+  this end. `tray.rs` links no GTK
   either, which matters because its menu runs on ksni's own thread; its
   fields are private, so `tray_push` is the only way that state moves.
   `ui.rs` is the largest and stays that way on purpose: `Ui`'s fields are
@@ -78,8 +72,8 @@ it and the non-obvious constraints.
   itself made the EC answer twice and let the two windows sit a tick apart, so
   a view subscribes and the feed does the reading; it also holds the two facts
   fixed for a daemon's run that every window wants — the bus connection and
-  the probe's answer — so the window, the report and the tray share one of
-  each. (`about.rs` dials for itself, deliberately: its report also runs from
+  the detected controls — so the window, the report and the tray share one
+  of each. (`about.rs` dials for itself, deliberately: its report also runs from
   `--debug-info` where no app state exists, and a bug report wants a fresh
   answer rather than one the app is already holding.) `mapped.rs` is
   the rule both timers and subscriptions obey, that nothing repeats while its
@@ -133,21 +127,22 @@ it and the non-obvious constraints.
   answers for the machine, which is the difference between a fact a reboot or
   a sleep changes and one that outlives both, `state.rs`
   the keyed store for what cannot be read back, each device holding its
-  own mirror over it under its own keys, `probe.rs` the probe rule beside
-  the code it governs. A module's own doc says what it is for; the reasoning
-  is here. `ec.rs` is every EC call: `Ec` is the only
+  own mirror over it under its own keys. A module's own doc says what it is
+  for; the reasoning is here. `ec.rs` is every EC call: `Ec` is the only
   holder of the `CrosEc`, one method per operation, each taking the lock and
   releasing it before returning and none reaching the handle through another —
   `Mutex` does not re-enter, so a method wanting two commands under one lock
-  issues both against the guard it holds. `daemon/src/main.rs` keeps the `Daemon` object,
-  polkit, the idle exit and the `#[interface]` surface, and what stays inline
-  there is the *order* — validate, skip a write already in place, authorize,
-  write. That order is the policy, and splitting the write out would leave it
-  legible at neither end.
+  issues both against the guard it holds. `daemon/src/main.rs` keeps the
+  `Daemon` object with the root interface, polkit, the idle exit and the
+  detection that registers each device's interface; `daemon/src/interface/`
+  holds those interfaces, and what stays inline in each is the *order* —
+  validate, skip a write already in place, authorize, write. That order is
+  the policy, and splitting the write out would leave it legible at neither
+  end.
 - A control the tray can also set gets an `apply_*` function owning the whole
   write: the daemon call, the toast, the tray's copy, and moving the widget to
   match. Both the window's handler and the tray item call it; neither writes
-  around it. Controls only the window sets (backlight, touchpad) write inline
+  around it. Controls only the window sets (the touchpad) write inline
   in their handler — one caller needs no shared function, and giving it one
   would be ceremony. Writing *by* moving the widget, which the tray used to
   do, makes state the command channel: a widget already showing the requested
@@ -188,10 +183,8 @@ it and the non-obvious constraints.
   one its stamp catches, which holds for the charge current limit and not
   here: the panel's mirror catches the boot and the sleep, and a lid opening
   moves the panel with neither, so within one waking run it is no fresher
-  than the client's own idea. What decides is
-  whether a client can be stale, not whether the value is
-  readable: the keyboard backlight is both readable and written by the EC, and
-  skips nothing, because the window polls it while mapped and so is not.
+  than the client's own idea. What decides is whether a client can be stale,
+  not whether the value is readable.
 - **A date is best effort, never a gate.** Where a write is dated — the power
   LED's darkness against the EC, the touch panel's against the host — a date
   that cannot be taken costs the record and not the write. What a stamp buys
@@ -207,21 +200,21 @@ it and the non-obvious constraints.
   any client can call it — an app-side clamp is UI convenience, not the check.
 - In `Daemon`'s `#[interface]` impl the signature carries meaning: `async`
   means the method awaits polkit, `fdo::Result` that it can fail — neither
-  implies it touches the EC (`get_capabilities` does, and is neither). zbus
-  boxes sync and async alike, so never reach for `async` to get concurrency.
-  A `Served<Device>` interface is `async` throughout, the control trait it
-  forwards to being async for the bus's sake; there the meaning is carried
-  by the order in the body instead.
+  implies it touches the hardware. zbus boxes sync and async alike, so never
+  reach for `async` to get concurrency. A `Served<Device>` interface is
+  `async` throughout, the control trait it forwards to being async for the
+  bus's sake; there the meaning is carried by the order in the body instead.
 - The daemon's connection runs on one executor thread and every hardware call
   blocks rather than awaits, so a slow one stalls every other task on that
-  connection — the cold `get_capabilities` probe most of all, which now walks
-  pinctrl for the touchscreen's pad as well as waking the EC. The fix is to
-  move the call off the executor onto a blocking pool, not more `async`.
+  connection. Detection — the pinctrl walk for the touchscreen's pad, the EC
+  waking — runs before the name is claimed, so no client waits on it; a
+  slow call after that is fixed by moving it off the executor onto a
+  blocking pool, not by more `async`.
 
 ## The probe rule
 
-`daemon/src/probe.rs` documents it: one capability per exposed
-operation, and a probe vouches for an operation only by a side-effect-free
+Each device's `detect` and `new` apply it: one probe per exposed operation,
+and a probe vouches for an operation only by a side-effect-free
 exercise of that operation's own code path, or by curated knowledge — not by
 an adjacent, easier check. The reason is concrete, and turned out to be worse
 than first understood: the touchscreen's version read succeeds on a panel that
@@ -239,7 +232,7 @@ answered for a command the panel turned out not to have. Where even that isn't
 available, the condition is hardcoded with a comment explaining why. A probe
 may also require more than command support: `charge-current-limit` needs a
 readable battery too, because a cap is only offered as a share of what the
-pack asks for, and a capability should mean the control works rather than
+pack asks for, and a feature should mean the control works rather than
 merely that the write exists.
 
 A probe decides what to *offer*, never what to *accept*. Some are proxies:
@@ -262,14 +255,13 @@ finding that is the evidence for a rule stated here, like the touchscreen's
 version read under the probe rule — separating those would leave the rule
 asserted and its reason a file away.
 
-- The daemon holds `Ec` as an `Option` behind the DMI vendor check, never
-  constructing it speculatively: `CrosEc::new()` panics outright where
-  `framework_lib` finds no driver. Nothing the EC answers for is offered
-  there; the devices reached over HID — the haptic touchpad, the touch panel
-  — detect themselves outside it.
+- The daemon opens `Ec` behind the DMI vendor check, never constructing it
+  speculatively: `CrosEc::new()` panics outright where `framework_lib`
+  finds no driver. Nothing the EC answers for is detected there; the
+  devices reached over HID — the haptic touchpad, the touch panel — detect
+  themselves outside it.
 - A value the EC is a second writer for cannot be shown from what was last
-  written — the keyboard backlight's slider polls while mapped for that
-  reason. A value with no readback at all is mirrored instead, and what dates
+  written. A value with no readback at all is mirrored instead, and what dates
   the mirror is whatever holds the state it claims: nothing for the touchpad,
   which keeps its own in flash; the EC's uptime for the power LED's darkness
   and for the charge current limit, whose mirror expires with the EC that took
@@ -344,7 +336,8 @@ asserted and its reason a file away.
   a fresh build.
 - Daemon logs: `sudo journalctl -u frameguin-daemon.service`. Direct calls:
   `busctl call io.github.valeronm.Frameguin /io/github/valeronm/Frameguin
-  io.github.valeronm.Frameguin1 GetCapabilities`.
+  io.github.valeronm.Frameguin1 GetDevices`; `busctl introspect` on the
+  same path lists the control interfaces detection registered.
 - Non-Framework hardware is a test case in its own right: expected behavior
   is "No Framework hardware detected" in the header, a status page naming the
   vendor where the controls would be, fast, no error toast. Both real
@@ -352,7 +345,7 @@ asserted and its reason a file away.
   there.
 - A window with no controls says which of its three reasons it is — no
   Framework hardware, a daemon it could not reach, a Framework board that
-  answered with no capabilities. They look identical as a bare empty window,
+  answered with no controls. They look identical as a bare empty window,
   and only one of the three is a bug worth a report, so the page carries the
   distinction rather than a toast that is gone by the time anyone asks.
 

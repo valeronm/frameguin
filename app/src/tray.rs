@@ -47,8 +47,8 @@ pub(crate) struct TrayIcon {
     /// fails to read leaves the last one standing, the push protocol having
     /// no way to say "no longer known".
     battery: Option<BatteryState>,
-    /// Which limits the charger takes, pushed in with the probe; None until
-    /// then, which a machine with no pack never changes.
+    /// Which limits the charger takes, pushed in with the detected controls;
+    /// None until then, which a machine with no pack never changes.
     battery_features: Option<Vec<BatteryFeature>>,
     /// Currently applied charge limit, pushed in from the app so the radio
     /// group can mark it; None until the first daemon read.
@@ -59,8 +59,8 @@ pub(crate) struct TrayIcon {
     charge_current_limit: Option<u32>,
     design_capacity: Option<u32>,
     /// The levels the LED's board has that a click can apply, pushed in with
-    /// the probe; None until then, which a machine with no LED to set never
-    /// changes.
+    /// the detected controls; None until then, which a machine with no LED to
+    /// set never changes.
     power_led_presets: Option<Vec<PowerLedLevel>>,
     /// Current power button LED level, pushed in from the app; Custom marks no
     /// radio option.
@@ -281,9 +281,8 @@ impl TrayIcon {
         ))
     }
 
-    /// Gated on the presets having arrived rather than on a capability: the
-    /// LED's device answers for itself, and which levels it has is part of
-    /// that answer.
+    /// Gated on the presets having arrived: the LED's device answers for
+    /// itself, and which levels it has is part of that answer.
     fn power_led_level_item(&self) -> Option<ksni::MenuItem<Self>> {
         let levels = self.power_led_presets.clone()?;
         let selected = self
@@ -307,9 +306,8 @@ impl TrayIcon {
     /// Two states named as presets, through the same submenu the rest use.
     /// A checkmark would say as much in less room, but it draws in a column
     /// the submenus around it do not have, so the row sits out of line with
-    /// every other control. Gated on a reading rather than on a capability:
-    /// the panel's device answers for itself, and the app hears of it by
-    /// reading it.
+    /// every other control. Gated on a reading: the panel's device answers
+    /// for itself, and the app hears of it by reading it.
     fn touchscreen_item(&self) -> Option<ksni::MenuItem<Self>> {
         let enabled = self.touchscreen?;
         let options = state_labels();
@@ -400,15 +398,15 @@ pub(crate) async fn refresh_tray(handle: &ksni::blocking::Handle<TrayIcon>, feed
     // One write at the end. Every `update` blocks this thread on the tray's
     // own, and makes it rebuild the entire menu and signal it over D-Bus, so
     // a field-at-a-time refresh would do that once per field.
-    // The feed's answer rather than a probe of the tray's own, and asked
+    // The feed's answer rather than a detection of the tray's own, and asked
     // unconditionally: it is a cached value after the first ask, where reading
     // the menu's copy would cost a hop onto ksni's thread to save nothing. The
     // menu keeps a copy because it draws over there, not because it caches.
-    let Ok(probe) = feed.probe().await else {
+    let Ok(controls) = feed.controls().await else {
         return;
     };
-    let mut values = TrayValues::offered(&probe.controls);
-    if let Some(pack) = &probe.controls.battery {
+    let mut values = TrayValues::offered(&controls);
+    if let Some(pack) = &controls.battery {
         // The one block read in the app that does not go through the feed:
         // the feed's may pull the pack's condition with it, which a menu
         // opening cannot wait on. A second walk of the memmap is the cheaper
@@ -425,10 +423,10 @@ pub(crate) async fn refresh_tray(handle: &ksni::blocking::Handle<TrayIcon>, feed
             values.charge_current_limit = pack.charge_current_limit().await.ok();
         }
     }
-    if let Some(led) = &probe.controls.power_led {
+    if let Some(led) = &controls.power_led {
         values.power_led_level = led.read().await.ok().map(|snapshot| snapshot.level);
     }
-    if let Some(touchscreen) = &probe.controls.touchscreen {
+    if let Some(touchscreen) = &controls.touchscreen {
         values.touchscreen = touchscreen.read().await.ok();
     }
     tray_push(handle, values);

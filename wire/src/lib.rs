@@ -3,7 +3,7 @@
 //! The daemon's `#[interface]` impl and the app's calls are two independent
 //! restatements of the same interface that meet only at runtime, in the bus:
 //! a name or a signature they disagree about comes back as an error reply,
-//! and a *string* they disagree about — a capability, a level, a click force
+//! and a *string* they disagree about — a feature, a level, a click force
 //! — comes back as a value that is well-formed and meaningless. Naming those
 //! strings as types is what moves that second class of drift to compile time.
 //! A number both ends must simply agree on belongs here for the same reason,
@@ -43,15 +43,6 @@ pub const MIN_CHARGE_LIMIT: u8 = 20;
 /// and this is the one control whose legal arguments the app cannot look up
 /// for itself — the crate that knows them is the one it must not link.
 pub const HAPTIC_INTENSITY_LEVELS: [u8; 5] = [0, 25, 50, 75, 100];
-
-/// What a board supports, per the daemon's probe: one name per exposed
-/// operation, never per subsystem.
-#[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug)]
-#[zvariant(crate = "zbus::zvariant", signature = "s")]
-#[serde(rename_all = "kebab-case")]
-pub enum Capability {
-    KeyboardBacklight,
-}
 
 /// What a battery offers past the block every pack answers with, each a
 /// separate question of the hardware: the pack's own report over the EC's
@@ -534,9 +525,6 @@ pub trait BatteryControl {
 // through the proxy builder.
 #[zbus::proxy(interface = "io.github.valeronm.Frameguin1")]
 pub trait Frameguin {
-    async fn get_keyboard_backlight(&self) -> zbus::Result<u8>;
-    async fn set_keyboard_backlight(&self, percent: u8) -> zbus::Result<()>;
-    async fn get_capabilities(&self) -> zbus::Result<Vec<Capability>>;
     /// Every part detection found, mainboard first; fixed for the daemon's
     /// run.
     async fn get_devices(&self) -> zbus::Result<Vec<Identity>>;
