@@ -1,8 +1,6 @@
 //! The daemon's probe as the app holds it, and the rows it decides.
 
-use frameguin_wire::{Capability, PowerLedLevel};
-
-use crate::format::power_led_row_rank;
+use frameguin_wire::Capability;
 
 /// What this app offers on the connected board: what the daemon's probe
 /// answered with, less what [`offered`] declines to show. Kept as one bit per
@@ -41,24 +39,4 @@ impl Capabilities {
 /// polls or draws it.
 fn offered(capability: Capability) -> bool {
     capability != Capability::KeyboardBacklight
-}
-
-/// The window's rows: every level this board has, Custom included, in the
-/// order [`power_led_row_rank`] gives them. Both front-ends come through
-/// here, which is what keeps them from drawing the rows two ways.
-pub(crate) fn power_led_rows(caps: Capabilities) -> Vec<PowerLedLevel> {
-    let mut rows: Vec<PowerLedLevel> = PowerLedLevel::ALL
-        .into_iter()
-        .filter(|level| caps.has(level.requires()))
-        .collect();
-    rows.sort_unstable_by_key(|&level| power_led_row_rank(level));
-    rows
-}
-
-/// The tray's rows: the window's, less the one no click can apply.
-pub(crate) fn power_led_presets(caps: Capabilities) -> Vec<PowerLedLevel> {
-    power_led_rows(caps)
-        .into_iter()
-        .filter(|level| level.is_settable())
-        .collect()
 }

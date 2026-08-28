@@ -198,9 +198,9 @@ building against these machines.
 Cargo workspace:
 
 - `daemon/` (`frameguin-daemon`) — owns
-  `io.github.valeronm.Frameguin` on the **system bus**, runs as root,
-  links `framework_lib` (default features off plus `hidapi`, used by the
-  haptic touchpad support and its capability probe).
+  `io.github.valeronm.Frameguin` on the **system bus**, runs as root, and
+  links `hardware/`, the one crate holding `framework_lib` (default features
+  off plus `hidapi`) and the devices over it.
   D-Bus-activated via systemd (`Type=dbus`), exits after 5 minutes idle.
   Setters are polkit-gated.
 - `app/` (`frameguin`) — gtk4-rs + libadwaita GUI talking to the

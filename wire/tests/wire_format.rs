@@ -25,9 +25,9 @@ fn every_enum_crosses_the_bus_as_a_plain_string() {
 }
 
 /// The shapes the interface actually carries, as they appear in
-/// introspection: `GetCapabilities` answers `as`, `GetPowerLedBrightness`
-/// answers `(ys)`, `GetBatteryInfo` the battery block as a struct carrying a
-/// struct.
+/// introspection: `GetCapabilities` answers `as`, the power LED's
+/// `GetBrightness` answers `(ys)`, `GetBatteryInfo` the battery block as a
+/// struct carrying a struct.
 #[test]
 fn the_composite_signatures_are_the_ones_the_methods_declare() {
     assert_eq!(Vec::<Capability>::SIGNATURE, "as");
@@ -82,15 +82,6 @@ fn capability_names_are_kebab_case() {
         wire_string(Capability::KeyboardBacklight),
         "keyboard-backlight"
     );
-    assert_eq!(
-        wire_string(Capability::PowerLedBrightness),
-        "power-led-brightness"
-    );
-    assert_eq!(
-        wire_string(Capability::PowerLedBrightnessCustom),
-        "power-led-brightness-custom"
-    );
-    assert_eq!(wire_string(Capability::PowerLedOff), "power-led-off");
 }
 
 #[test]

@@ -14,7 +14,7 @@
 use std::sync::{Mutex, MutexGuard, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use frameguin_wire as wire;
+use frameguin_wire::{self as wire, DeviceError, DeviceResult};
 use framework_lib::chromium_ec::command::{EcCommands, EcRequestRaw};
 use framework_lib::chromium_ec::commands::{
     EcRequestGetUptimeInfo, EcRequestPwmGetKeyboardBacklight, FpLedBrightnessLevel,
@@ -77,6 +77,37 @@ const SB_ALARM_BITS: [(u16, wire::BatteryAlarm); 2] = [
 /// together they cannot be ordinary at all. See [`wire::BatteryAlarm`].
 const SB_TERMINATE_CHARGE: u16 = 1 << 14;
 const SB_TERMINATE_DISCHARGE: u16 = 1 << 11;
+
+/// What the power LED's device needs of the EC: the level it holds, the two
+/// writes that move it, and whether the firmware has the levels that came
+/// with command v1.
+pub trait PowerLedEc: Send + Sync {
+    /// The brightness percentage and the level the EC reports it as.
+    /// `Custom` is what it answers after any raw percentage write.
+    fn power_led_level(&self) -> DeviceResult<(u8, wire::PowerLedLevel)>;
+    /// Refuses `Custom` and `Off`, the two levels the EC has no setting for.
+    fn set_power_led_level(&self, level: wire::PowerLedLevel) -> DeviceResult<()>;
+    fn set_power_led_percentage(&self, percent: u8) -> DeviceResult<()>;
+    /// Whether the firmware takes a raw percentage, and with it the
+    /// ultra-low and auto levels.
+    fn custom_power_led_levels(&self) -> bool;
+}
+
+/// The EC's own clock: dating a write against its life, and weighing the
+/// date later.
+pub trait EcClock: Send + Sync {
+    fn stamp(&self) -> DeviceResult<EcStamp>;
+    /// Whether the EC has been running without interruption since `stamp`
+    /// was taken — which is to say whether what it was holding then is still
+    /// there. `Err` where the EC would not say, which is not the same
+    /// answer; what to make of a silent EC is the caller's to decide.
+    fn same_boot_as(&self, stamp: EcStamp) -> DeviceResult<bool>;
+}
+
+/// An EC failure as a device raises it.
+fn device_error(e: impl std::fmt::Debug) -> DeviceError {
+    DeviceError::Failed(format!("EC error: {e:?}"))
+}
 
 /// The daemon's one way of asking the embedded controller anything.
 ///
@@ -289,21 +320,6 @@ impl Ec {
         self.ec().set_keyboard_backlight(percent);
     }
 
-    /// The brightness percentage and the level the EC reports it as. `Custom`
-    /// is what it answers after any raw percentage write.
-    pub fn power_led_level(&self) -> EcResult<(u8, wire::PowerLedLevel)> {
-        let (percent, level) = self.ec().get_fp_led_level()?;
-        Ok((percent, wire_power_led_level(level.as_ref())))
-    }
-
-    pub fn set_power_led_level(&self, level: FpLedBrightnessLevel) -> EcResult<()> {
-        self.ec().set_fp_led_level(level)
-    }
-
-    pub fn set_power_led_percentage(&self, percent: u8) -> EcResult<()> {
-        self.ec().set_fp_led_percentage(percent)
-    }
-
     pub fn version(&self) -> EcResult<String> {
         self.ec().version_info()
     }
@@ -337,6 +353,51 @@ impl Ec {
     }
 }
 
+impl PowerLedEc for Ec {
+    fn power_led_level(&self) -> DeviceResult<(u8, wire::PowerLedLevel)> {
+        let (percent, level) = self.ec().get_fp_led_level().map_err(device_error)?;
+        Ok((percent, wire_power_led_level(level.as_ref())))
+    }
+
+    fn set_power_led_level(&self, level: wire::PowerLedLevel) -> DeviceResult<()> {
+        let Some(level) = ec_power_led_level(level) else {
+            return Err(DeviceError::InvalidArgs(format!(
+                "{level:?} is not a level the EC takes"
+            )));
+        };
+        self.ec().set_fp_led_level(level).map_err(device_error)
+    }
+
+    fn set_power_led_percentage(&self, percent: u8) -> DeviceResult<()> {
+        self.ec()
+            .set_fp_led_percentage(percent)
+            .map_err(device_error)
+    }
+
+    /// Older EC firmware implements only command v0 of `FpLedLevelControl`:
+    /// presets high/medium/low. V1 added the raw-percentage write, and the
+    /// same firmware generation added the ultra-low and auto levels
+    /// (framework-system issue #211) — so V1 support stands in for all of
+    /// them. `GET_CMD_VERSIONS` is side-effect-free and asks about the exact
+    /// command the setters use. An EC that won't answer is read as "no": this
+    /// is asked once per run, so offering on a silent read would keep
+    /// offering levels that may not be there for the whole of it.
+    fn custom_power_led_levels(&self) -> bool {
+        self.command_supported(EcCommands::FpLedLevelControl, 1)
+            .unwrap_or(false)
+    }
+}
+
+impl EcClock for Ec {
+    fn stamp(&self) -> DeviceResult<EcStamp> {
+        Ec::stamp(self).map_err(device_error)
+    }
+
+    fn same_boot_as(&self, stamp: EcStamp) -> DeviceResult<bool> {
+        Ec::same_boot_as(self, stamp).map_err(device_error)
+    }
+}
+
 /// Both clocks at one moment, which is what makes a later reading of the EC's
 /// comparable to the host's.
 fn stamp(ec: &CrosEc) -> EcResult<EcStamp> {
@@ -360,7 +421,7 @@ fn uptime_secs(ec: &CrosEc) -> EcResult<u64> {
 
 /// None for the levels the EC has no setting for: `Custom`, which it only
 /// ever reports, and `Off`, which is not the EC's to give.
-pub fn ec_power_led_level(level: wire::PowerLedLevel) -> Option<FpLedBrightnessLevel> {
+fn ec_power_led_level(level: wire::PowerLedLevel) -> Option<FpLedBrightnessLevel> {
     Some(match level {
         wire::PowerLedLevel::High => FpLedBrightnessLevel::High,
         wire::PowerLedLevel::Medium => FpLedBrightnessLevel::Medium,

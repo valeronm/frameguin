@@ -24,7 +24,8 @@ One meaning per word, and each word names one place in the tree.
   a `Vec<Identity>`. A device that is a part and no control detects into a
   list, memory being one per slot.
 - **Control** — the facet "something that can be read and set": one trait
-  per device in `wire` — `TouchpadControl`, `TouchscreenControl` — with one
+  per device in `wire` — `TouchpadControl`, `TouchscreenControl`,
+  `PowerLedControl` — with one
   async fn per operation and three implementations, the device itself, the
   bus, and a stub. `DeviceError` is the one error every control and every
   detection raises.
@@ -215,13 +216,13 @@ every layer. The first carried the scaffolding the rest reuse: the keyed
 Order: touchpad, touchscreen, power LED, battery. Smallest column first, the
 one with the most shared state last.
 
-Moved so far: **touchpad, touchscreen**. Parts with no control so far:
+Moved so far: **touchpad, touchscreen, power LED**. Parts with no control so far:
 **mainboard, memory**.
 
 Until the rest have moved, `Daemon` in `daemon/src/main.rs` still holds
-their methods and mirrors — reaching the hardware crate's transports
-directly rather than through a device, which is why the daemon still links
-`framework_lib` — `app/src/format.rs` and `app/src/caps.rs` their presets
+their methods and mirrors, reaching the hardware crate's transports
+directly rather than through a device — `app/src/format.rs` and
+`app/src/caps.rs` their presets
 and gating, `window/mod.rs` their widgets, and `tray.rs` its `TrayValues`
 with a field per setting. `GetCapabilities` names only the un-moved
 controls: a moved device detects itself at both ends — in `hardware` by its

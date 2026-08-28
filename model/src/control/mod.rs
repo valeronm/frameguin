@@ -1,11 +1,12 @@
 //! One module per control: its detection, its read, its commands, its words.
 
+pub mod power_led;
 pub mod touchpad;
 pub mod touchscreen;
 
 use std::rc::Rc;
 
-use frameguin_wire::{DeviceResult, TouchpadControl, TouchscreenControl};
+use frameguin_wire::{DeviceResult, PowerLedControl, TouchpadControl, TouchscreenControl};
 
 /// The controls this board has, each behind the one implementation of the
 /// control traits. `None` is a control whose device answered for itself as
@@ -13,9 +14,10 @@ use frameguin_wire::{DeviceResult, TouchpadControl, TouchscreenControl};
 pub struct Controls<C> {
     pub touchpad: Option<Rc<touchpad::Touchpad<C>>>,
     pub touchscreen: Option<Rc<touchscreen::Touchscreen<C>>>,
+    pub power_led: Option<Rc<power_led::PowerLed<C>>>,
 }
 
-impl<C: TouchpadControl + TouchscreenControl> Controls<C> {
+impl<C: TouchpadControl + TouchscreenControl + PowerLedControl> Controls<C> {
     /// Asks each control's device to detect itself. Fails only where the
     /// device could not be asked at all — an absent device is an answer, not
     /// a failure.
@@ -25,11 +27,12 @@ impl<C: TouchpadControl + TouchscreenControl> Controls<C> {
             touchscreen: touchscreen::Touchscreen::detect(control)
                 .await?
                 .map(Rc::new),
+            power_led: power_led::PowerLed::detect(control).await?.map(Rc::new),
         })
     }
 
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.touchpad.is_none() && self.touchscreen.is_none()
+        self.touchpad.is_none() && self.touchscreen.is_none() && self.power_led.is_none()
     }
 }

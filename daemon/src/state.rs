@@ -14,7 +14,6 @@ use frameguin_wire::NO_CHARGE_CURRENT_LIMIT;
 // writer spells them, so a rename can't quietly break the round trip.
 const KEY_CURRENT_LIMIT: &str = "charge_current_limit";
 const KEY_CURRENT_LIMIT_STAMP: &str = "charge_current_limit_stamp";
-const KEY_POWER_LED_OFF_STAMP: &str = "power_led_off_stamp";
 
 /// A charge current limit together with the stamp that dates it.
 #[derive(Clone, Copy)]
@@ -25,7 +24,6 @@ pub(crate) struct ChargeCurrentLimit {
 
 pub(crate) struct State {
     pub(crate) charge_current_limit: ChargeCurrentLimit,
-    pub(crate) power_led_off: Option<EcStamp>,
 }
 
 pub(crate) fn load(store: &dyn Store) -> State {
@@ -43,9 +41,6 @@ pub(crate) fn load(store: &dyn Store) -> State {
                 .and_then(|v| EcStamp::parse(&v))
                 .unwrap_or_default(),
         },
-        power_led_off: store
-            .get(KEY_POWER_LED_OFF_STAMP)
-            .and_then(|v| EcStamp::parse(&v)),
     }
 }
 
@@ -57,11 +52,5 @@ pub(crate) fn save(store: &dyn Store, state: &State) {
     store.set(
         KEY_CURRENT_LIMIT_STAMP,
         Some(state.charge_current_limit.stamp.stored()),
-    );
-    // Absent rather than zeroed while the LED is lit: the stamp only ever
-    // withdraws a claim, and a zeroed one would withdraw every time.
-    store.set(
-        KEY_POWER_LED_OFF_STAMP,
-        state.power_led_off.map(EcStamp::stored),
     );
 }

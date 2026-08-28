@@ -18,7 +18,6 @@ use frameguin_wire as wire;
 use framework_lib::chromium_ec::command::EcCommands;
 
 use crate::ec::Ec;
-use crate::led;
 
 /// The controls not yet served as devices of their own; a device answers for
 /// itself by being on the bus or not. `ec` is None on hardware with no
@@ -68,31 +67,6 @@ pub fn capabilities(ec: Option<&Ec>) -> Vec<wire::Capability> {
         }
         if ec.keyboard_backlight().is_ok() {
             caps.push(wire::Capability::KeyboardBacklight);
-        }
-        if ec.power_led_level().is_ok() {
-            caps.push(wire::Capability::PowerLedBrightness);
-            // Older EC firmware implements only command v0 of
-            // FpLedLevelControl: presets high/medium/low. V1 added the
-            // raw-percentage write, and the same firmware generation added
-            // the ultra-low and auto levels (framework-system issue #211) —
-            // so V1 support gates all of them. GET_CMD_VERSIONS is
-            // side-effect-free and asks about the exact command the setters
-            // use.
-            if ec
-                .command_supported(EcCommands::FpLedLevelControl, 1)
-                .unwrap_or(false)
-            {
-                caps.push(wire::Capability::PowerLedBrightnessCustom);
-            }
-            // Nested under the EC's own power-LED control, which this one
-            // needs even though it never commands the LED through it: the
-            // setter dates its write against the EC, and off is offered as
-            // one level among that control's rest rather than as a control of
-            // its own. The probe is the same lookup the setter makes, so the
-            // two cannot come to different answers about what is reachable.
-            if led::controllable_power().is_some() {
-                caps.push(wire::Capability::PowerLedOff);
-            }
         }
     }
     caps

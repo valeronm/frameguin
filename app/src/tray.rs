@@ -6,15 +6,17 @@
 
 use std::rc::Rc;
 
+use frameguin_model::control::Controls;
+use frameguin_model::control::power_led;
 use frameguin_model::control::touchscreen::{state_at, state_labels, state_row};
 use frameguin_wire::{BatteryState, Capability, PowerLedLevel};
 
 use crate::APP_ID;
-use crate::caps::{Capabilities, power_led_presets};
+use crate::bus::Bus;
+use crate::caps::Capabilities;
 use crate::format::{
     CHARGE_SPEED_LABELS, amps, battery_summary, charge_limit_labels, charge_limit_percent,
     charge_limit_position, charge_speed_milliamps, charge_speed_position, percent_label,
-    power_led_level_labels,
 };
 use crate::reading::Feed;
 
@@ -54,6 +56,10 @@ pub(crate) struct TrayIcon {
     /// stays out: a fraction then has no rate to show or to send.
     charge_current_limit: Option<u32>,
     design_capacity: Option<u32>,
+    /// The levels the LED's board has that a click can apply, pushed in with
+    /// the probe; None until then, which a machine with no LED to set never
+    /// changes.
+    power_led_presets: Option<Vec<PowerLedLevel>>,
     /// Current power button LED level, pushed in from the app; Custom marks no
     /// radio option.
     power_led_level: Option<PowerLedLevel>,
@@ -75,6 +81,7 @@ impl TrayIcon {
             charge_limit: None,
             charge_current_limit: None,
             design_capacity: None,
+            power_led_presets: None,
             power_led_level: None,
             touchscreen: None,
             caps: None,
@@ -274,16 +281,15 @@ impl TrayIcon {
         ))
     }
 
+    /// Gated on the presets having arrived rather than on a capability: the
+    /// LED's device answers for itself, and which levels it has is part of
+    /// that answer.
     fn power_led_level_item(&self) -> Option<ksni::MenuItem<Self>> {
-        let caps = self.caps?;
-        if !caps.has(Capability::PowerLedBrightness) {
-            return None;
-        }
-        let levels = power_led_presets(caps);
+        let levels = self.power_led_presets.clone()?;
         let selected = self
             .power_led_level
             .and_then(|level| levels.iter().position(|l| *l == level));
-        let options = power_led_level_labels(&levels);
+        let options = power_led::labels(&levels);
         let title = match selected {
             Some(index) => format!("Power button LED ({})", options[index]),
             None => "Power button LED".into(),
@@ -322,21 +328,25 @@ impl TrayIcon {
 /// is what makes a write from a window that has not read the battery yet safe
 /// to apply: it knows the milliamps but not the capacity, and the menu's own
 /// copy is the better one.
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Default)]
 pub(crate) struct TrayValues {
     pub(crate) caps: Option<Capabilities>,
     pub(crate) battery: Option<BatteryState>,
     pub(crate) charge_limit: Option<u8>,
     pub(crate) design_capacity: Option<u32>,
     pub(crate) charge_current_limit: Option<u32>,
+    pub(crate) power_led_presets: Option<Vec<PowerLedLevel>>,
     pub(crate) power_led_level: Option<PowerLedLevel>,
     pub(crate) touchscreen: Option<bool>,
 }
 
 impl TrayValues {
-    pub(crate) fn caps(caps: Capabilities) -> Self {
+    /// What the board offers, by both accounts: the capability list, and
+    /// what each detected control has to say about its rows.
+    pub(crate) fn offered(caps: Capabilities, controls: &Controls<Bus>) -> Self {
         Self {
             caps: Some(caps),
+            power_led_presets: controls.power_led.as_ref().map(|led| led.presets()),
             ..Self::default()
         }
     }
@@ -374,6 +384,7 @@ pub(crate) fn tray_push(handle: &ksni::blocking::Handle<TrayIcon>, values: TrayV
         tray.charge_limit = values.charge_limit.or(tray.charge_limit);
         tray.design_capacity = values.design_capacity.or(tray.design_capacity);
         tray.charge_current_limit = values.charge_current_limit.or(tray.charge_current_limit);
+        tray.power_led_presets = values.power_led_presets.or(tray.power_led_presets.take());
         tray.power_led_level = values.power_led_level.or(tray.power_led_level);
         tray.touchscreen = values.touchscreen.or(tray.touchscreen);
     });
@@ -420,14 +431,9 @@ pub(crate) async fn refresh_tray(handle: &ksni::blocking::Handle<TrayIcon>, feed
     } else {
         None
     };
-    let level = if caps.has(Capability::PowerLedBrightness) {
-        proxy
-            .get_power_led_brightness()
-            .await
-            .ok()
-            .map(|(_, level)| level)
-    } else {
-        None
+    let level = match &probe.controls.power_led {
+        Some(led) => led.read().await.ok().map(|snapshot| snapshot.level),
+        None => None,
     };
     let touchscreen = match &probe.controls.touchscreen {
         Some(touchscreen) => touchscreen.read().await.ok(),
@@ -436,13 +442,13 @@ pub(crate) async fn refresh_tray(handle: &ksni::blocking::Handle<TrayIcon>, feed
     tray_push(
         handle,
         TrayValues {
-            caps: Some(caps),
             battery,
             charge_limit: limit,
             design_capacity: capacity,
             charge_current_limit: speed,
             power_led_level: level,
             touchscreen,
+            ..TrayValues::offered(caps, &probe.controls)
         },
     );
 }

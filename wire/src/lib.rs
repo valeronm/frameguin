@@ -53,17 +53,6 @@ pub enum Capability {
     ChargeLimit,
     ChargeCurrentLimit,
     KeyboardBacklight,
-    PowerLedBrightness,
-    /// V1 of the EC's `FP_LED` brightness command: the raw percentage write,
-    /// and with it the ultra-low and auto levels (framework-system issue
-    /// #211).
-    PowerLedBrightnessCustom,
-    /// Darkening the LED, which the EC's command cannot express: it takes
-    /// 1-100 and reserves 0, refusing to extinguish the indicator. Off is
-    /// reached by taking the LED off the EC's own policy through the kernel's
-    /// LED class, so this capability answers for that interface rather than
-    /// for a command version.
-    PowerLedOff,
     /// What the pack says about itself past the EC's summary of it — its
     /// temperature, its cell voltages, and the alarms it is raising. One name
     /// for all three: they are the same device over the same transport,
@@ -257,18 +246,6 @@ impl PowerLedLevel {
     #[must_use]
     pub const fn is_settable(self) -> bool {
         !matches!(self, Self::Custom)
-    }
-
-    /// The capability that answers for this level. Which levels a board has
-    /// is a fact about its firmware, and so belongs here rather than in the
-    /// process that links none of it.
-    #[must_use]
-    pub const fn requires(self) -> Capability {
-        match self {
-            Self::High | Self::Medium | Self::Low => Capability::PowerLedBrightness,
-            Self::Auto | Self::UltraLow | Self::Custom => Capability::PowerLedBrightnessCustom,
-            Self::Off => Capability::PowerLedOff,
-        }
     }
 }
 
@@ -486,6 +463,25 @@ pub trait TouchscreenControl {
     async fn set_enabled(&self, enabled: bool) -> DeviceResult<()>;
 }
 
+/// The power button LED: a level, and behind every level a percentage.
+#[allow(
+    async_fn_in_trait,
+    reason = "the app's implementor and its callers share one thread; the daemon's is checked as a concrete type"
+)]
+pub trait PowerLedControl {
+    /// The percentage and the level it belongs to. The level can be `Custom`,
+    /// which the EC reports after any raw percentage write, or `Off`, which
+    /// the EC cannot report at all — it is the host holding the LED, and
+    /// the percentage beside it is what the EC will light it at when the
+    /// host lets go.
+    async fn brightness(&self) -> DeviceResult<(u8, PowerLedLevel)>;
+    /// Every level this board has, `Custom` included where a percentage
+    /// can be written; fixed for the device's run.
+    async fn levels(&self) -> DeviceResult<Vec<PowerLedLevel>>;
+    async fn set_level(&self, level: PowerLedLevel) -> DeviceResult<()>;
+    async fn set_brightness(&self, percent: u8) -> DeviceResult<()>;
+}
+
 // No default_service or default_path: they would restate BUS_NAME and
 // OBJECT_PATH as literals the attribute can't read a const into, leaving two
 // spellings of each with nothing checking they agree. Callers name them once,
@@ -506,9 +502,6 @@ pub trait Frameguin {
     /// run.
     async fn get_devices(&self) -> zbus::Result<Vec<Identity>>;
     async fn get_build(&self) -> zbus::Result<(String, String)>;
-    async fn get_power_led_brightness(&self) -> zbus::Result<(u8, PowerLedLevel)>;
-    async fn set_power_led_brightness(&self, percent: u8) -> zbus::Result<()>;
-    async fn set_power_led_level(&self, level: PowerLedLevel) -> zbus::Result<()>;
 }
 
 /// The haptic touchpad, on its own interface at the same path. Absent from
@@ -529,6 +522,16 @@ pub trait Touchpad {
 pub trait Touchscreen {
     async fn get_enabled(&self) -> zbus::Result<bool>;
     async fn set_enabled(&self, enabled: bool) -> zbus::Result<()>;
+}
+
+/// The power button LED, on its own interface at the same path and absent
+/// from the bus where the EC does not answer for one.
+#[zbus::proxy(interface = "io.github.valeronm.Frameguin1.PowerLed")]
+pub trait PowerLed {
+    async fn get_brightness(&self) -> zbus::Result<(u8, PowerLedLevel)>;
+    async fn get_levels(&self) -> zbus::Result<Vec<PowerLedLevel>>;
+    async fn set_level(&self, level: PowerLedLevel) -> zbus::Result<()>;
+    async fn set_brightness(&self, percent: u8) -> zbus::Result<()>;
 }
 
 #[cfg(test)]

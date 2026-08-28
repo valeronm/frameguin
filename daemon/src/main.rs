@@ -1,12 +1,11 @@
 //! System D-Bus daemon exposing privileged Framework laptop controls.
 //!
-//! Owns io.github.valeronm.Frameguin on the system bus and talks to the
-//! embedded controller directly via `framework_lib`. Setters require the polkit
+//! Owns io.github.valeronm.Frameguin on the system bus and reaches the
+//! machine through `frameguin_hardware`. Setters require the polkit
 //! action io.github.valeronm.frameguin.manage. Exits after 5 idle
 //! minutes; D-Bus activation restarts it on demand.
 
 mod interface;
-mod power_led;
 mod served;
 mod service;
 mod state;
@@ -16,10 +15,10 @@ use std::time::{Duration, Instant};
 
 use frameguin_hardware::device::mainboard::Mainboard;
 use frameguin_hardware::device::memory::Module;
+use frameguin_hardware::device::power_led::PowerLed;
 use frameguin_hardware::device::touchpad::Touchpad;
 use frameguin_hardware::device::touchscreen::Touchscreen;
 use frameguin_hardware::ec::Ec;
-use frameguin_hardware::lifetime::EcStamp;
 use frameguin_hardware::part::{Identity, Part};
 use frameguin_hardware::probe;
 use frameguin_hardware::state::{StateFile, Store};
@@ -28,7 +27,6 @@ use zbus::message::Header;
 use zbus::{Connection, fdo, interface};
 use zbus_polkit::policykit1::AuthorityProxy;
 
-use crate::power_led::PowerLedWrite;
 use crate::served::Served;
 use crate::service::Service;
 use crate::state::{ChargeCurrentLimit, State};
@@ -36,8 +34,9 @@ use crate::state::{ChargeCurrentLimit, State};
 const IDLE_EXIT: Duration = Duration::from_mins(5);
 
 struct Daemon {
-    /// None on hardware with no Framework EC — see [`Ec::open`].
-    ec: Option<Ec>,
+    /// None on hardware with no Framework EC — see [`Ec::open`]. Shared
+    /// with the devices the EC is a transport for.
+    ec: Option<Arc<Ec>>,
     service: Arc<Service>,
     store: Arc<dyn Store>,
     /// Probed once per daemon lifetime; the EC feature set can't change
@@ -49,10 +48,6 @@ struct Daemon {
     /// EC keeps the limit in RAM, which outlives host reboots but not an EC
     /// restart.
     charge_current_limit: Mutex<ChargeCurrentLimit>,
-    /// When this daemon last darkened the power LED, and None when it has not.
-    /// The kernel holds the LED state itself, so what is mirrored here is only
-    /// the date of the write — see [`power_led`] for what that dating settles.
-    power_led_off: Mutex<Option<EcStamp>>,
 }
 
 fn ec_err(e: impl std::fmt::Debug) -> fdo::Error {
@@ -65,11 +60,10 @@ fn internal_err(e: impl std::fmt::Display) -> fdo::Error {
 
 impl Daemon {
     fn save_state(&self) {
-        // Bound before the write so both guards drop here rather than being
+        // Bound before the write so the guard drops here rather than being
         // held across the file I/O.
         let state = State {
             charge_current_limit: *self.charge_current_limit.lock().unwrap(),
-            power_led_off: *self.power_led_off.lock().unwrap(),
         };
         state::save(&*self.store, &state);
     }
@@ -96,7 +90,7 @@ impl Daemon {
 
     fn ec(&self) -> fdo::Result<&Ec> {
         self.ec
-            .as_ref()
+            .as_deref()
             // NotSupported (not Failed): lets a caller distinguish "wrong
             // hardware, permanently" from a transient EC error.
             .ok_or_else(|| fdo::Error::NotSupported("no Framework EC on this hardware".into()))
@@ -110,7 +104,7 @@ impl Daemon {
     fn get_capabilities(&self) -> Vec<wire::Capability> {
         self.service.touch();
         self.capabilities
-            .get_or_init(|| probe::capabilities(self.ec.as_ref()))
+            .get_or_init(|| probe::capabilities(self.ec.as_deref()))
             .clone()
     }
 
@@ -240,48 +234,6 @@ impl Daemon {
         )
     }
 
-    /// Returns the brightness percentage and the preset it came from. That
-    /// can be `Custom`, which the EC reports after any raw percentage write
-    /// and which no setter accepts, or `Off`, which the EC cannot report at
-    /// all — it is the host holding the LED, and the percentage alongside it
-    /// is the one the EC will light it at when the host lets go.
-    fn get_power_led_brightness(&self) -> fdo::Result<(u8, wire::PowerLedLevel)> {
-        self.service.touch();
-        let ec = self.ec()?;
-        let (percent, level) = ec.power_led_level().map_err(ec_err)?;
-        if self.power_led_off_node(ec).is_some() {
-            return Ok((percent, wire::PowerLedLevel::Off));
-        }
-        Ok((percent, level))
-    }
-
-    async fn set_power_led_level(
-        &self,
-        level: wire::PowerLedLevel,
-        #[zbus(header)] header: Header<'_>,
-    ) -> fdo::Result<()> {
-        self.service.touch();
-        let write = PowerLedWrite::for_level(level)?;
-        self.service.authorize(&header).await?;
-        self.write_power_led(write).await
-    }
-
-    async fn set_power_led_brightness(
-        &self,
-        percent: u8,
-        #[zbus(header)] header: Header<'_>,
-    ) -> fdo::Result<()> {
-        self.service.touch();
-        // The EC accepts 1-100; 0 is rejected (it will not let the host
-        // extinguish the indicator) and 0xFF is the protocol's read sentinel.
-        if !(1..=100).contains(&percent) {
-            return Err(fdo::Error::InvalidArgs("brightness must be 1-100".into()));
-        }
-        let write = PowerLedWrite::Percentage(percent);
-        self.service.authorize(&header).await?;
-        self.write_power_led(write).await
-    }
-
     fn get_keyboard_backlight(&self) -> fdo::Result<u8> {
         self.service.touch();
         self.ec()?.keyboard_backlight().map_err(ec_err)
@@ -316,8 +268,11 @@ fn main() -> zbus::Result<()> {
     let touchscreen = hid
         .as_ref()
         .and_then(|hid| Touchscreen::detect(hid, store.clone()));
-    let ec = Ec::open();
-    let mainboard = Mainboard::detect(ec.as_ref());
+    let ec = Ec::open().map(Arc::new);
+    let power_led = ec
+        .as_ref()
+        .and_then(|ec| PowerLed::detect(ec, store.clone()));
+    let mainboard = Mainboard::detect(ec.as_deref());
     let memory = Module::detect();
     let parts: Vec<Identity> = [
         mainboard.as_ref().map(Part::identity),
@@ -347,7 +302,6 @@ fn main() -> zbus::Result<()> {
             capabilities: OnceLock::new(),
             parts,
             charge_current_limit: Mutex::new(state.charge_current_limit),
-            power_led_off: Mutex::new(state.power_led_off),
         };
         let server = conn.object_server();
         server.at(wire::OBJECT_PATH, daemon).await?;
@@ -360,7 +314,12 @@ fn main() -> zbus::Result<()> {
         }
         if let Some(touchscreen) = touchscreen {
             server
-                .at(wire::OBJECT_PATH, Served::new(touchscreen, service))
+                .at(wire::OBJECT_PATH, Served::new(touchscreen, service.clone()))
+                .await?;
+        }
+        if let Some(power_led) = power_led {
+            server
+                .at(wire::OBJECT_PATH, Served::new(power_led, service))
                 .await?;
         }
         // Claim the name only once the objects are served, so an activating

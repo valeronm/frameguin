@@ -116,10 +116,11 @@ it and the non-obvious constraints.
   `led.rs` the kernel's LED class, `touchpad.rs` the pad's own HID transport,
   `panel.rs` the touch panel's, `gpio.rs` a pad on the processor through the
   GPIO character device. Two of those pairs need an arbitration, and the two
-  arbitrations are not alike: `power_led.rs` (still the daemon's, until its
-  device moves) because the power button LED has two possible drivers and
-  one at a time, so what it settles is a handover and the order to make it
-  in; `touchscreen.rs` because the panel has two possible
+  arbitrations are not alike: the power button LED has two possible drivers
+  and one at a time, so what is settled is a handover and the order to make
+  it in — and that lives in the device, `device/power_led.rs`, over the
+  `PowerLedEc` and `LedClass` roles, because the order is what a stub has to
+  be able to check; `touchscreen.rs` because the panel has two possible
   routes and a machine has only one, so what it settles is a precedence — and
   then the thing that precedence decides, which is whether the control can be
   read at all, stated once in the `TouchSwitch` role it declares over both.
@@ -242,14 +243,14 @@ pack asks for, and a capability should mean the control works rather than
 merely that the write exists.
 
 A probe decides what to *offer*, never what to *accept*. Some are proxies:
-`power-led-brightness-custom` asks for command v1, exactly right for the
+the power LED's custom levels ask for command v1, exactly right for the
 percentage write but only a stand-in for the ultra-low and auto levels, which
 the v0 handler takes on any firmware that has them. Narrowing an offer on a
 proxy costs at worst a row nobody could have used; refusing a write on one
-denies a call the EC would have honoured — and capabilities are probed once
-per daemon lifetime, so one transient read would deny it for the whole run. So
-setters validate against the thing itself: `set_power_led_level` looks up
-the LED node rather than consulting `power-led-off`.
+denies a call the EC would have honoured — and what a device offers is
+settled once per daemon lifetime, so one transient read would deny it for the
+whole run. So setters validate against the thing itself: `PowerLed::check_level`
+looks up the LED node rather than consulting the levels it offered.
 
 ## What the hardware forces on the code
 

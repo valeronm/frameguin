@@ -28,8 +28,7 @@ use gtk4::glib;
 use crate::reading::Feed;
 use crate::tray::{TrayEvent, TrayIcon, refresh_tray};
 use crate::window::{
-    Custom, Sink, Ui, apply_charge_limit, apply_charge_speed, apply_power_led_level, build_window,
-    touchscreen,
+    Custom, Sink, Ui, apply_charge_limit, apply_charge_speed, build_window, power_led, touchscreen,
 };
 
 const APP_ID: &str = "io.github.valeronm.Frameguin";
@@ -126,8 +125,11 @@ fn setup_tray(app: &adw::Application, state: Rc<AppState>) {
                     }
                 }
                 TrayEvent::SetPowerLedLevel(level) => {
-                    if let Some(proxy) = &proxy {
-                        apply_power_led_level(sink, proxy, level).await;
+                    if let Some(control) = controls
+                        .as_ref()
+                        .and_then(|probe| probe.controls.power_led.as_ref())
+                    {
+                        power_led::apply(sink, control, level).await;
                     }
                 }
                 TrayEvent::SetTouchscreen(enabled) => {

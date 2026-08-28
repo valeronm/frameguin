@@ -10,6 +10,8 @@ workspace = true
 # The one crate that links the hardware libraries. A process that links it
 # has hardware access, which is why the app does not and the daemon does.
 [dependencies]
+# Already in the tree via zbus; named for the power LED's one timer.
+async-io = "2"
 frameguin-wire = { workspace = true }
 framework_lib = { version = "0.6.5", default-features = false, features = ["hidapi"] }
 hidapi = "2"

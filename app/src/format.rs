@@ -12,9 +12,7 @@
 //! A device moved to `frameguin_model` carries its own presets and words
 //! there, under the same rule.
 
-use frameguin_wire::{
-    BatteryAlarm, BatteryState, ChargeFlow, NO_CHARGE_CURRENT_LIMIT, PowerLedLevel,
-};
+use frameguin_wire::{BatteryAlarm, BatteryState, ChargeFlow, NO_CHARGE_CURRENT_LIMIT};
 
 const CHARGE_PRESETS: [u8; 3] = [100, 80, 60];
 
@@ -351,48 +349,14 @@ pub(crate) fn with_custom_row(mut labels: Vec<String>) -> Vec<String> {
     labels
 }
 
-/// Where a level's row sits. A match rather than a second list of the levels,
-/// so a level added to the vocabulary fails to build here rather than landing
-/// wherever it happened to be declared.
-pub(crate) fn power_led_row_rank(level: PowerLedLevel) -> u8 {
-    match level {
-        PowerLedLevel::Auto => 0,
-        PowerLedLevel::Off => 1,
-        PowerLedLevel::UltraLow => 2,
-        PowerLedLevel::Low => 3,
-        PowerLedLevel::Medium => 4,
-        PowerLedLevel::High => 5,
-        PowerLedLevel::Custom => 6,
-    }
-}
-
-fn power_led_level_label(level: PowerLedLevel) -> &'static str {
-    match level {
-        PowerLedLevel::Auto => "Auto",
-        PowerLedLevel::Off => "Off",
-        PowerLedLevel::UltraLow => "Ultra-low",
-        PowerLedLevel::Low => "Low",
-        PowerLedLevel::Medium => "Medium",
-        PowerLedLevel::High => "High",
-        PowerLedLevel::Custom => "Custom",
-    }
-}
-
-pub(crate) fn power_led_level_labels(levels: &[PowerLedLevel]) -> Vec<String> {
-    levels
-        .iter()
-        .map(|level| power_led_level_label(*level).into())
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::{
         BatteryState, CHARGE_SPEEDS, ChargeFlow, MIN_CUSTOM_CHARGE_MA, NO_CHARGE_CURRENT_LIMIT,
-        NO_CHARGE_LIMIT, PowerLedLevel, battery_summary, capacity, charge_direction,
-        charge_flow_label, charge_limit_labels, charge_limit_percent, charge_limit_position,
-        charge_speed_labels, charge_speed_milliamps, charge_speed_position, power_label,
-        power_led_row_rank, retention_label, scale_milliamps, volts, watt_hours, with_custom_row,
+        NO_CHARGE_LIMIT, battery_summary, capacity, charge_direction, charge_flow_label,
+        charge_limit_labels, charge_limit_percent, charge_limit_position, charge_speed_labels,
+        charge_speed_milliamps, charge_speed_position, power_label, retention_label,
+        scale_milliamps, volts, watt_hours, with_custom_row,
     };
 
     /// One row is the off row, and it is the one that sends the ceiling that
@@ -405,18 +369,6 @@ mod tests {
         let row = charge_limit_position(NO_CHARGE_LIMIT).expect("the off row is a preset");
         assert_eq!(charge_limit_percent(row), NO_CHARGE_LIMIT);
         assert_eq!(charge_limit_labels()[row], "Off");
-    }
-
-    /// The match is exhaustive, so being ranked at all is the compiler's
-    /// business; being ranked apart is this. Two levels sharing a rank would
-    /// fall back to whichever the vocabulary lists first, which is the
-    /// inheritance the rank exists to stop.
-    #[test]
-    fn no_two_power_led_levels_share_a_row() {
-        let mut ranks = PowerLedLevel::ALL.map(power_led_row_rank).to_vec();
-        ranks.sort_unstable();
-        ranks.dedup();
-        assert_eq!(ranks.len(), PowerLedLevel::ALL.len());
     }
 
     /// A pack that has lost some of what it was built to hold, which is what

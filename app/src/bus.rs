@@ -5,8 +5,9 @@
 //! [`crate::reading::Feed`] for who holds it.
 
 use frameguin_wire::{
-    BUS_NAME, ClickForce, DeviceResult, FrameguinProxy, OBJECT_PATH, TouchpadControl,
-    TouchpadProxy, TouchscreenControl, TouchscreenProxy,
+    BUS_NAME, ClickForce, DeviceResult, FrameguinProxy, OBJECT_PATH, PowerLedControl,
+    PowerLedLevel, PowerLedProxy, TouchpadControl, TouchpadProxy, TouchscreenControl,
+    TouchscreenProxy,
 };
 use zbus::proxy::ProxyImpl;
 
@@ -15,6 +16,7 @@ pub(crate) struct Bus {
     pub(crate) frameguin: FrameguinProxy<'static>,
     touchpad: TouchpadProxy<'static>,
     touchscreen: TouchscreenProxy<'static>,
+    power_led: PowerLedProxy<'static>,
 }
 
 impl Bus {
@@ -26,6 +28,7 @@ impl Bus {
             frameguin: proxy(&conn).await?,
             touchpad: proxy(&conn).await?,
             touchscreen: proxy(&conn).await?,
+            power_led: proxy(&conn).await?,
         })
     }
 }
@@ -66,5 +69,23 @@ impl TouchscreenControl for Bus {
 
     async fn set_enabled(&self, enabled: bool) -> DeviceResult<()> {
         Ok(self.touchscreen.set_enabled(enabled).await?)
+    }
+}
+
+impl PowerLedControl for Bus {
+    async fn brightness(&self) -> DeviceResult<(u8, PowerLedLevel)> {
+        Ok(self.power_led.get_brightness().await?)
+    }
+
+    async fn levels(&self) -> DeviceResult<Vec<PowerLedLevel>> {
+        Ok(self.power_led.get_levels().await?)
+    }
+
+    async fn set_level(&self, level: PowerLedLevel) -> DeviceResult<()> {
+        Ok(self.power_led.set_level(level).await?)
+    }
+
+    async fn set_brightness(&self, percent: u8) -> DeviceResult<()> {
+        Ok(self.power_led.set_brightness(percent).await?)
     }
 }

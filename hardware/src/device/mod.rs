@@ -9,5 +9,6 @@
 
 pub mod mainboard;
 pub mod memory;
+pub mod power_led;
 pub mod touchpad;
 pub mod touchscreen;

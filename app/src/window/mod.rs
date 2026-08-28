@@ -11,6 +11,7 @@
 //! its handlers dispatch — and the rest of this file is the controls not yet
 //! moved.
 
+pub(crate) mod power_led;
 mod touchpad;
 pub(crate) mod touchscreen;
 
@@ -21,7 +22,7 @@ use std::time::Duration;
 use adw::prelude::*;
 use frameguin_model::control::Controls;
 use frameguin_wire::{
-    BatteryState, Capability, DeviceError, FrameguinProxy, NO_CHARGE_CURRENT_LIMIT, PowerLedLevel,
+    BatteryState, Capability, DeviceError, FrameguinProxy, NO_CHARGE_CURRENT_LIMIT,
 };
 use gtk4 as gtk;
 use gtk4::gdk;
@@ -29,13 +30,13 @@ use gtk4::gio;
 use gtk4::glib;
 
 use crate::bus::Bus;
-use crate::caps::{Capabilities, power_led_rows};
+use crate::caps::Capabilities;
 use crate::format::{
     CHARGE_LIMIT_CUSTOM, CHARGE_SPEED_CUSTOM, CHARGE_SPEED_LABELS, CUSTOM_CHARGE_STEP_MA,
     MIN_CHARGE_LIMIT, MIN_CUSTOM_CHARGE_MA, NO_CHARGE_LIMIT, amps, charge_flow_label,
     charge_limit_labels, charge_limit_percent, charge_limit_position, charge_speed_labels,
-    charge_speed_milliamps, charge_speed_position, percent_label, power_led_level_labels,
-    scale_milliamps, scale_percent, with_custom_row,
+    charge_speed_milliamps, charge_speed_position, percent_label, scale_milliamps, scale_percent,
+    with_custom_row,
 };
 use crate::mapped::poll_while_mapped;
 use crate::reading::{Feed, Probe, Wants, show_while_mapped};
@@ -173,13 +174,7 @@ pub(crate) struct Ui {
     /// change handlers don't echo the reading back as a write.
     syncing: Cell<bool>,
     kbd_scale: gtk::Scale,
-    power_led_scale: gtk::Scale,
-    power_led_combo: adw::ComboRow,
-    /// The slider's row; shown only while the level is Custom.
-    power_led_custom_row: adw::ActionRow,
-    /// The levels behind the combo's rows, narrowed to what this board
-    /// supports once capabilities are known.
-    power_led_levels: RefCell<Vec<PowerLedLevel>>,
+    power_led: power_led::Group,
     touchpad: touchpad::Group,
     touchscreen: touchscreen::Group,
     tray: Option<ksni::blocking::Handle<TrayIcon>>,
@@ -226,18 +221,6 @@ impl Ui {
         self.state_row.set_subtitle(&charge_flow_label(state));
     }
 
-    /// Moves the power LED widgets onto a level without writing it back.
-    /// Unlike the charge controls, Custom is a state the EC reports, so the
-    /// row it belongs on is read off the level rather than remembered.
-    fn show_power_led_level(&self, level: PowerLedLevel) {
-        self.sync(|| {
-            self.power_led_combo
-                .set_selected(self.power_led_combo_index(level));
-            self.power_led_custom_row
-                .set_visible(level == PowerLedLevel::Custom);
-        });
-    }
-
     /// Moves the charge-limit widgets onto a ceiling without writing it back,
     /// the counterpart of [`Ui::show_charge_speed`] — change one and read the
     /// other.
@@ -273,11 +256,6 @@ impl Ui {
             }
         });
     }
-
-    fn power_led_combo_index(&self, level: PowerLedLevel) -> u32 {
-        let levels = self.power_led_levels.borrow();
-        combo_selection(levels.iter().position(|l| *l == level))
-    }
 }
 
 /// (Re)arms a debounce slot: cancels any pending source and schedules `action`
@@ -307,7 +285,9 @@ fn connect_handlers(ui: &Rc<Ui>, proxy: &FrameguinProxy<'static>, controls: &Con
     connect_charge_setter(ui, proxy);
     connect_charge_speed_setter(ui, proxy);
     connect_kbd_setter(ui, proxy);
-    connect_power_led_setter(ui, proxy);
+    if let Some(power_led) = &controls.power_led {
+        ui.power_led.connect(ui, power_led);
+    }
     if let Some(touchpad) = &controls.touchpad {
         ui.touchpad.connect(ui, touchpad);
     }
@@ -500,13 +480,6 @@ impl Sink<'_> {
             ui.show_charge_speed(milliamps, custom);
         }
     }
-
-    fn show_power_led_level(&self, level: PowerLedLevel) {
-        self.push_tray(TrayValues::power_led_level(level));
-        if let Sink::Window(ui) = self {
-            ui.show_power_led_level(level);
-        }
-    }
 }
 
 /// The one write for the charge limit. The window's row and the tray preset
@@ -566,83 +539,6 @@ pub(crate) async fn apply_charge_speed(
         }
     }
     sink.show_charge_speed(milliamps, custom);
-}
-
-/// The one write for a power LED preset. Custom is not one: the EC reports
-/// it after a raw percentage write, which goes through
-/// [`apply_power_led_brightness`] instead.
-pub(crate) async fn apply_power_led_level(
-    sink: Sink<'_>,
-    proxy: &FrameguinProxy<'static>,
-    level: PowerLedLevel,
-) {
-    if let Err(e) = proxy.set_power_led_level(level).await {
-        sink.toast_error("Setting power button LED level", e);
-        return;
-    }
-    sink.show_power_led_level(level);
-    // The preset resolves to a percentage only the EC knows, and only the
-    // window has anywhere to put it.
-    if let Sink::Window(ui) = sink
-        && let Ok((percent, _)) = proxy.get_power_led_brightness().await
-    {
-        ui.sync(|| ui.power_led_scale.set_value(f64::from(percent)));
-    }
-}
-
-/// The one write for a custom power LED percentage. Any raw percentage
-/// leaves the EC reporting "custom", so this owns that consequence rather
-/// than leaving each caller to remember it.
-async fn apply_power_led_brightness(ui: &Ui, proxy: &FrameguinProxy<'static>, percent: u8) {
-    if let Err(e) = proxy.set_power_led_brightness(percent).await {
-        ui.toast_error("Setting power button LED brightness", e);
-        return;
-    }
-    ui.sync_tray(TrayValues::power_led_level(PowerLedLevel::Custom));
-    ui.sync(|| ui.power_led_custom_row.set_visible(true));
-}
-
-fn connect_power_led_setter(ui: &Rc<Ui>, proxy: &FrameguinProxy<'static>) {
-    // Slider: a raw percentage write; only reachable while the level is
-    // Custom, so combo and tray already reflect it.
-    let scale_slot = Rc::new(RefCell::new(None));
-    let scale_ui = ui.clone();
-    let scale_proxy = proxy.clone();
-    ui.power_led_scale.connect_value_changed(move |scale| {
-        if scale_ui.syncing.get() {
-            return;
-        }
-        let value = scale_percent(scale.value());
-        let ui = scale_ui.clone();
-        let proxy = scale_proxy.clone();
-        debounce(&scale_slot, SLIDER_DEBOUNCE, move || {
-            glib::spawn_future_local(async move {
-                apply_power_led_brightness(&ui, &proxy, value).await;
-            });
-        });
-    });
-
-    // Combo: presets write the level and re-read so the slider carries the
-    // percentage the preset resolved to; Custom reveals the slider and
-    // applies its value, making the EC state actually custom.
-    let combo_ui = ui.clone();
-    let combo_proxy = proxy.clone();
-    ui.power_led_combo.connect_selected_notify(move |row| {
-        if combo_ui.syncing.get() {
-            return;
-        }
-        let level = combo_ui.power_led_levels.borrow()[row.selected() as usize];
-        let ui = combo_ui.clone();
-        let proxy = combo_proxy.clone();
-        glib::spawn_future_local(async move {
-            if level == PowerLedLevel::Custom {
-                let percent = scale_percent(ui.power_led_scale.value());
-                apply_power_led_brightness(&ui, &proxy, percent).await;
-                return;
-            }
-            apply_power_led_level(Sink::Window(&ui), &proxy, level).await;
-        });
-    });
 }
 
 fn connect_charge_setter(ui: &Rc<Ui>, proxy: &FrameguinProxy<'static>) {
@@ -805,25 +701,8 @@ pub(crate) fn build_window(
     keyboard.add(&kbd_row);
     page.add(&keyboard);
 
-    // "Power button LED" is the name Framework's own firmware setup uses.
-    let power_led = adw::PreferencesGroup::builder()
-        .title("Power button LED")
-        .build();
-    // No model: which levels a board has is the daemon's answer, and the row
-    // it would show meanwhile is one the board may not have.
-    let power_led_combo = adw::ComboRow::builder()
-        .title("Level")
-        .sensitive(false)
-        .build();
-    power_led.add(&power_led_combo);
-    let power_led_row = adw::ActionRow::builder().title("Brightness").build();
-    // The EC accepts 1-100 for this LED; 0 is not a valid level.
-    let power_led_adjustment = gtk::Adjustment::new(1.0, 1.0, 100.0, 10.0, 10.0, 0.0);
-    let power_led_scale = build_scale(&power_led_adjustment, |value| format!("{value:.0}%"));
-    power_led_row.add_suffix(&power_led_scale);
-    power_led_row.set_visible(false);
-    power_led.add(&power_led_row);
-    page.add(&power_led);
+    let power_led = power_led::Group::build();
+    page.add(&power_led.widget);
 
     let touchpad = touchpad::Group::build();
     page.add(&touchpad.widget);
@@ -893,10 +772,7 @@ pub(crate) fn build_window(
         design_capacity: Cell::default(),
         syncing: Cell::new(false),
         kbd_scale,
-        power_led_scale,
-        power_led_combo,
-        power_led_custom_row: power_led_row,
-        power_led_levels: RefCell::new(Vec::new()),
+        power_led,
         touchpad,
         touchscreen,
         tray,
@@ -919,7 +795,6 @@ pub(crate) fn build_window(
         limit_combo: ui.limit_combo.clone(),
         speed_combo: ui.speed_combo.clone(),
         keyboard: keyboard.clone(),
-        power_led: power_led.clone(),
     };
     // The report goes into the issue body rather than onto the clipboard with
     // instructions to paste it somewhere.
@@ -973,7 +848,6 @@ struct CapabilityWidgets {
     limit_combo: adw::ComboRow,
     speed_combo: adw::ComboRow,
     keyboard: adw::PreferencesGroup,
-    power_led: adw::PreferencesGroup,
 }
 
 impl CapabilityWidgets {
@@ -992,8 +866,6 @@ impl CapabilityWidgets {
         // Withheld from every board by `caps::offered`, so this reads false.
         self.keyboard
             .set_visible(caps.has(Capability::KeyboardBacklight));
-        self.power_led
-            .set_visible(caps.has(Capability::PowerLedBrightness));
     }
 }
 
@@ -1355,9 +1227,10 @@ impl Init {
         };
         let caps = probe.caps;
         self.groups.show_supported(caps);
+        ui.power_led.gate(probe.controls.power_led.as_ref());
         ui.touchpad.gate(probe.controls.touchpad.as_ref());
         ui.touchscreen.gate(probe.controls.touchscreen.as_ref());
-        ui.sync_tray(TrayValues::caps(caps));
+        ui.sync_tray(TrayValues::offered(caps, &probe.controls));
         // Set whatever the answer was: what a later refresh needs to know is
         // that this daemon has said its piece, not what it said.
         self.answered.set(true);
@@ -1374,12 +1247,6 @@ impl Init {
         // Back to the controls, for a run that got here after an earlier one
         // put the empty page up.
         self.empty.show_controls();
-        // Fixed for a board, so the combo's rows are chosen once here rather
-        // than rebuilt by every reload.
-        let rows = power_led_rows(caps);
-        ui.power_led_combo
-            .set_model(Some(&string_list(&power_led_level_labels(&rows))));
-        ui.power_led_levels.replace(rows);
         load_values(ui, &proxy, &probe).await;
         connect_handlers(ui, &proxy, &probe.controls);
         None
@@ -1493,16 +1360,11 @@ async fn load_values(ui: &Rc<Ui>, proxy: &FrameguinProxy<'static>, probe: &Probe
             Err(e) => ui.toast_error("Reading keyboard backlight", e),
         }
     }
-    if caps.has(Capability::PowerLedBrightness) {
-        match proxy.get_power_led_brightness().await {
-            Ok((percent, level)) => {
-                ui.show_power_led_level(level);
-                ui.sync(|| {
-                    ui.power_led_scale.set_value(f64::from(percent));
-                    ui.power_led_scale.set_sensitive(true);
-                    ui.power_led_combo.set_sensitive(true);
-                });
-                values.power_led_level = Some(level);
+    if let Some(power_led) = &controls.power_led {
+        match power_led.read().await {
+            Ok(snapshot) => {
+                ui.power_led.show(ui, power_led, snapshot);
+                values.power_led_level = Some(snapshot.level);
             }
             Err(e) => ui.toast_error("Reading power button LED brightness", e),
         }
