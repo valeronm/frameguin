@@ -124,50 +124,19 @@ impl TouchpadControl for Touchpad {
 mod tests {
     use std::sync::Arc;
 
-    use frameguin_wire::{ClickForce, DeviceError, DeviceResult, TouchpadControl};
+    use frameguin_wire::{ClickForce, DeviceError, TouchpadControl};
 
     use super::{KEY_CLICK_FORCE, KEY_HAPTIC_INTENSITY, Touchpad};
-    use crate::part::{self, Part, PartKind};
+    use crate::part::Part;
     use crate::state::Store;
-    use crate::state::tests::Memory;
-    use crate::testing::{mirrors, ready};
-    use crate::touchpad::HapticPad;
-
-    /// A pad that takes every write, or refuses every one.
-    struct Pad {
-        refusing: bool,
-    }
-
-    impl Pad {
-        fn answer(&self) -> DeviceResult<()> {
-            if self.refusing {
-                Err(DeviceError::Failed("no pad".into()))
-            } else {
-                Ok(())
-            }
-        }
-    }
-
-    impl HapticPad for Pad {
-        fn set_haptic_intensity(&self, _percent: u8) -> DeviceResult<()> {
-            self.answer()
-        }
-
-        fn set_click_force(&self, _force: ClickForce) -> DeviceResult<()> {
-            self.answer()
-        }
-    }
+    use crate::testing::{Memory, Pad, mirrors, ready, touchpad_identity};
 
     fn over(pad: Pad, store: &Arc<Memory>) -> Touchpad {
-        let identity = part::hid(
-            PartKind::Touchpad,
-            0x093a,
-            0x1343,
-            "PixArt",
-            "Haptic touchpad",
-            "",
-        );
-        Touchpad::new(Box::new(pad), &mirrors(store, None, None), identity)
+        Touchpad::new(
+            Box::new(pad),
+            &mirrors(store, None, None),
+            touchpad_identity(),
+        )
     }
 
     const TAKING: Pad = Pad { refusing: false };

@@ -148,105 +148,16 @@ impl BatteryControl for Battery {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{Arc, Mutex};
+    use std::sync::Arc;
 
-    use frameguin_wire::{
-        BatteryCondition, BatteryControl, BatteryFeature, BatteryInfo, BatteryState, ChargeFlow,
-        DeviceError, DeviceResult, Identity, NO_CHARGE_CURRENT_LIMIT, PartKind,
-    };
+    use frameguin_wire::{BatteryControl, BatteryFeature, DeviceError, NO_CHARGE_CURRENT_LIMIT};
 
     use super::{Battery, KEY_CURRENT_LIMIT};
-    use crate::ec::{Charger, Pack};
+    use crate::ec::Pack;
     use crate::lifetime::EcBoot;
     use crate::mirror::evidence_key;
     use crate::state::Store;
-    use crate::state::tests::Memory;
-    use crate::testing::{mirrors, ready};
-
-    fn block() -> BatteryInfo {
-        BatteryInfo {
-            state: BatteryState {
-                percent: 80,
-                flow: ChargeFlow::Idle,
-                milliamps: 0,
-                millivolts: 15_000,
-            },
-            remaining_capacity: 3_000,
-            last_full_capacity: 3_600,
-            design_capacity: 3_900,
-            design_millivolts: 15_400,
-            cycle_count: 12,
-            charger_connected: true,
-            critical: false,
-            manufacturer: "NVT".into(),
-            model: "FRANGWA".into(),
-            serial: "0001".into(),
-            chemistry: "LION".into(),
-            manufactured: "2026-01-01".into(),
-        }
-    }
-
-    /// A pack that answers its block, and its condition where told to.
-    struct Gauge {
-        answering: bool,
-    }
-
-    impl Pack for Gauge {
-        fn identity(&self) -> Option<Identity> {
-            Some(Identity {
-                kind: PartKind::Battery,
-                vendor: "NVT".into(),
-                model: "FRANGWA".into(),
-                serial: "0001".into(),
-                id: "sbs:FRANGWA".into(),
-                firmware: Vec::new(),
-            })
-        }
-
-        fn info(&self) -> Option<BatteryInfo> {
-            Some(block())
-        }
-
-        fn condition(&self) -> Option<BatteryCondition> {
-            self.answering.then(|| BatteryCondition {
-                cell_millivolts: vec![3_750, 3_751, 3_749, 3_750],
-                alarms: Vec::new(),
-                decicelsius: 301,
-            })
-        }
-    }
-
-    /// A charger holding one ceiling, taking every cap or refusing them all,
-    /// and logging what it took.
-    struct Ec {
-        limit: Mutex<u8>,
-        caps: bool,
-        refusing: bool,
-        written: Mutex<Vec<u32>>,
-    }
-
-    impl Charger for Ec {
-        fn charge_limit(&self) -> DeviceResult<u8> {
-            Ok(*self.limit.lock().unwrap())
-        }
-
-        fn set_charge_limit(&self, percent: u8) -> DeviceResult<()> {
-            *self.limit.lock().unwrap() = percent;
-            Ok(())
-        }
-
-        fn set_charge_current_limit(&self, milliamps: u32) -> DeviceResult<()> {
-            if self.refusing {
-                return Err(DeviceError::Failed("no EC".into()));
-            }
-            self.written.lock().unwrap().push(milliamps);
-            Ok(())
-        }
-
-        fn charge_current_limit_supported(&self) -> bool {
-            self.caps
-        }
-    }
+    use crate::testing::{EC_BOOT, EC_RESTARTED, EcCharger, Gauge, Memory, block, mirrors, ready};
 
     struct Machine {
         condition: bool,
@@ -259,28 +170,27 @@ mod tests {
         condition: true,
         caps: true,
         refusing: false,
-        ec_boot: Some(EcBoot::from_clocks(500_000, 1_000_000)),
+        ec_boot: Some(EC_BOOT),
     };
 
     const RESTARTED: Machine = Machine {
-        ec_boot: Some(EcBoot::from_clocks(60, 1_003_600)),
+        ec_boot: Some(EC_RESTARTED),
         ..FULL
     };
 
     struct Bench {
         battery: Battery,
-        ec: Arc<Ec>,
+        ec: Arc<EcCharger>,
     }
 
     fn over(machine: &Machine, store: &Arc<Memory>) -> Bench {
         let pack = Arc::new(Gauge {
             answering: machine.condition,
         });
-        let ec = Arc::new(Ec {
-            limit: Mutex::new(100),
+        let ec = Arc::new(EcCharger {
             caps: machine.caps,
             refusing: machine.refusing,
-            written: Mutex::new(Vec::new()),
+            ..EcCharger::default()
         });
         let identity = pack.identity().unwrap();
         let mirrors = mirrors(store, machine.ec_boot, None);

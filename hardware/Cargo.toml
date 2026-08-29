@@ -7,6 +7,12 @@ license = "MIT"
 [lints]
 workspace = true
 
+[features]
+# The role and store stubs this crate's own tests run the devices against,
+# for another crate's tests to build the same devices from. Asked for only by
+# a dev-dependency, which the workspace's resolver keeps out of the binaries.
+testing = []
+
 # The one crate that links the hardware libraries. A process that links it
 # has hardware access, which is why the app does not and the daemon does.
 [dependencies]

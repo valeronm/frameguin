@@ -1,26 +1,22 @@
 //! The interfaces served to the `wire` proxies over a socket pair, polkit
 //! answering as told.
 
-use std::collections::BTreeMap;
 use std::os::unix::net::UnixStream;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use frameguin_hardware::device::battery::Battery;
 use frameguin_hardware::device::power_led::PowerLed;
 use frameguin_hardware::device::touchpad::Touchpad;
 use frameguin_hardware::device::touchscreen::Touchscreen;
-use frameguin_hardware::ec::{Charger, Pack, PowerLedEc};
-use frameguin_hardware::led::LedClass;
-use frameguin_hardware::lifetime::{EcBoot, Holders};
-use frameguin_hardware::mirror::Mirrors;
+use frameguin_hardware::ec::Pack;
+use frameguin_hardware::lifetime::EcBoot;
 use frameguin_hardware::part;
-use frameguin_hardware::state::Store;
-use frameguin_hardware::touchpad::HapticPad;
-use frameguin_hardware::touchscreen::TouchSwitch;
+use frameguin_hardware::testing::{
+    EcCharger, Fp, Gauge, Leds, Log, Memory, Pad, Route, block, mirrors,
+};
 use frameguin_wire::{
-    BatteryCondition, BatteryFeature, BatteryInfo, BatteryProxy, BatteryState, ChargeFlow,
-    ClickForce, DeviceError, DeviceResult, Identity, NO_CHARGE_CURRENT_LIMIT, PartKind,
+    BatteryFeature, BatteryProxy, ClickForce, DeviceError, NO_CHARGE_CURRENT_LIMIT, PartKind,
     PowerLedLevel, PowerLedProxy, TouchpadProxy, TouchscreenProxy, proxy,
 };
 use zbus::{Connection, Guid, block_on, connection};
@@ -28,190 +24,24 @@ use zbus::{Connection, Guid, block_on, connection};
 use super::Devices;
 use crate::service::Service;
 
-#[derive(Default)]
-struct Memory(Mutex<BTreeMap<String, String>>);
-
-impl Store for Memory {
-    fn get(&self, key: &str) -> Option<String> {
-        self.0.lock().unwrap().get(key).cloned()
-    }
-
-    fn set(&self, key: &str, value: Option<String>) {
-        let mut entries = self.0.lock().unwrap();
-        match value {
-            Some(value) => entries.insert(key.to_owned(), value),
-            None => entries.remove(key),
-        };
-    }
-}
-
-fn block() -> BatteryInfo {
-    BatteryInfo {
-        state: BatteryState {
-            percent: 80,
-            flow: ChargeFlow::Idle,
-            milliamps: 0,
-            millivolts: 15_000,
-        },
-        remaining_capacity: 3_000,
-        last_full_capacity: 3_600,
-        design_capacity: 3_900,
-        design_millivolts: 15_400,
-        cycle_count: 12,
-        charger_connected: true,
-        critical: false,
-        manufacturer: "NVT".into(),
-        model: "FRANGWA".into(),
-        serial: "0001".into(),
-        chemistry: "LION".into(),
-        manufactured: "2026-01-01".into(),
-    }
-}
-
-struct Gauge;
-
-impl Pack for Gauge {
-    fn identity(&self) -> Option<Identity> {
-        Some(Identity {
-            kind: PartKind::Battery,
-            vendor: "NVT".into(),
-            model: "FRANGWA".into(),
-            serial: "0001".into(),
-            id: "sbs:FRANGWA".into(),
-            firmware: Vec::new(),
-        })
-    }
-
-    fn info(&self) -> Option<BatteryInfo> {
-        Some(block())
-    }
-
-    fn condition(&self) -> Option<BatteryCondition> {
-        Some(BatteryCondition {
-            cell_millivolts: vec![3_750; 4],
-            alarms: Vec::new(),
-            decicelsius: 301,
-        })
-    }
-}
-
-struct Ec {
-    limit: Mutex<u8>,
-}
-
-impl Charger for Ec {
-    fn charge_limit(&self) -> DeviceResult<u8> {
-        Ok(*self.limit.lock().unwrap())
-    }
-
-    fn set_charge_limit(&self, percent: u8) -> DeviceResult<()> {
-        *self.limit.lock().unwrap() = percent;
-        Ok(())
-    }
-
-    fn set_charge_current_limit(&self, _milliamps: u32) -> DeviceResult<()> {
-        Ok(())
-    }
-
-    fn charge_current_limit_supported(&self) -> bool {
-        true
-    }
-}
-
-struct Fp {
-    level: Mutex<(u8, PowerLedLevel)>,
-}
-
-impl PowerLedEc for Fp {
-    fn power_led_level(&self) -> DeviceResult<(u8, PowerLedLevel)> {
-        Ok(*self.level.lock().unwrap())
-    }
-
-    fn set_power_led_level(&self, level: PowerLedLevel) -> DeviceResult<()> {
-        self.level.lock().unwrap().1 = level;
-        Ok(())
-    }
-
-    fn set_power_led_percentage(&self, percent: u8) -> DeviceResult<()> {
-        *self.level.lock().unwrap() = (percent, PowerLedLevel::Custom);
-        Ok(())
-    }
-
-    fn custom_power_led_levels(&self) -> bool {
-        true
-    }
-}
-
-struct Leds {
-    dark: Mutex<bool>,
-}
-
-impl LedClass for Leds {
-    fn controllable(&self) -> Option<PathBuf> {
-        Some(PathBuf::from("/sys/class/leds/power"))
-    }
-
-    fn held_dark(&self) -> Option<PathBuf> {
-        self.dark
-            .lock()
-            .unwrap()
-            .then(|| self.controllable())
-            .flatten()
-    }
-
-    fn darken(&self, _dir: &Path) -> DeviceResult<()> {
-        *self.dark.lock().unwrap() = true;
-        Ok(())
-    }
-
-    fn release(&self, _dir: &Path) -> DeviceResult<()> {
-        *self.dark.lock().unwrap() = false;
-        Ok(())
-    }
-}
-
-struct Pad;
-
-impl HapticPad for Pad {
-    fn set_haptic_intensity(&self, _percent: u8) -> DeviceResult<()> {
-        Ok(())
-    }
-
-    fn set_click_force(&self, _force: ClickForce) -> DeviceResult<()> {
-        Ok(())
-    }
-}
-
-/// The pad route, whose reading is what lets a write already in place skip.
-struct Route {
-    enabled: Mutex<bool>,
-}
-
-impl TouchSwitch for Route {
-    fn reading(&self) -> DeviceResult<Option<bool>> {
-        Ok(Some(*self.enabled.lock().unwrap()))
-    }
-
-    fn set_enabled(&self, enabled: bool) -> DeviceResult<()> {
-        *self.enabled.lock().unwrap() = enabled;
-        Ok(())
-    }
-}
-
+/// Every device over a role that takes every write; the touch panel on the
+/// pad route, whose reading is what lets a write already in place skip.
 fn devices() -> Devices {
-    let store: Arc<dyn Store> = Arc::new(Memory::default());
+    let store = Arc::new(Memory::default());
     let ec_boot = EcBoot::from_clocks(500_000, 1_000_000);
-    let mirrors = Mirrors::new(store, Holders::new(Some(ec_boot), None));
-    let gauge = Arc::new(Gauge);
+    let mirrors = mirrors(&store, Some(ec_boot), None);
+    let gauge = Arc::new(Gauge { answering: true });
+    let log: Log = Arc::default();
     Devices {
         touchpad: Some(Touchpad::new(
-            Box::new(Pad),
+            Box::new(Pad { refusing: false }),
             &mirrors,
             part::hid(PartKind::Touchpad, 0x093a, 0x1343, "PixArt", "", ""),
         )),
         touchscreen: Some(Touchscreen::new(
             Box::new(Route {
-                enabled: Mutex::new(true),
+                level: Mutex::new(Some(true)),
+                refusing: false,
             }),
             &mirrors,
             part::hid(PartKind::Touchscreen, 0x2c68, 0x0100, "", "", ""),
@@ -219,15 +49,23 @@ fn devices() -> Devices {
         power_led: Some(PowerLed::new(
             Arc::new(Fp {
                 level: Mutex::new((55, PowerLedLevel::High)),
+                custom: true,
+                refusing: false,
+                log: log.clone(),
             }),
             Box::new(Leds {
+                node: Some(PathBuf::from("/sys/class/leds/power")),
                 dark: Mutex::new(false),
+                log,
             }),
         )),
         battery: Some(Battery::new(
             gauge.clone(),
-            Arc::new(Ec {
+            Arc::new(EcCharger {
                 limit: Mutex::new(100),
+                caps: true,
+                refusing: false,
+                written: Mutex::new(Vec::new()),
             }),
             &mirrors,
             gauge.identity().unwrap(),

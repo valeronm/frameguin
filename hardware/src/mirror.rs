@@ -117,8 +117,7 @@ mod tests {
     use super::evidence_key;
     use crate::lifetime::{EcBoot, Lifetime};
     use crate::state::Store;
-    use crate::state::tests::Memory;
-    use crate::testing::mirrors;
+    use crate::testing::{EC_BOOT, EC_RESTARTED, Memory, mirrors};
 
     const THREE: NonZeroU32 = NonZeroU32::new(3).unwrap();
 
@@ -135,7 +134,7 @@ mod tests {
     #[test]
     fn a_value_of_the_ecs_lifetime_outlives_a_reload_and_not_a_restart() {
         let store = Arc::new(Memory::default());
-        let written = EcBoot::from_clocks(500_000, 1_000_000);
+        let written = EC_BOOT;
         mirrors(&store, Some(written), None)
             .value::<NonZeroU32>("cap", Lifetime::Ec)
             .record(THREE, || Ok(()))
@@ -144,7 +143,7 @@ mod tests {
         let reloaded =
             mirrors(&store, Some(same_boot), None).value::<NonZeroU32>("cap", Lifetime::Ec);
         assert_eq!(reloaded.current(), Some(THREE));
-        let restarted = EcBoot::from_clocks(10, 1_003_600);
+        let restarted = EC_RESTARTED;
         let reloaded =
             mirrors(&store, Some(restarted), None).value::<NonZeroU32>("cap", Lifetime::Ec);
         assert_eq!(reloaded.current(), None);

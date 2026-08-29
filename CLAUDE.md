@@ -132,7 +132,9 @@ it and the non-obvious constraints.
   a sleep changes and one that outlives both, `state.rs`
   the keyed store for what cannot be read back, `mirror.rs` the mirror a
   device reads and writes such a value through, declared under its own key
-  and the `Lifetime` of whatever holds it. A module's own doc says what it is
+  and the `Lifetime` of whatever holds it, `testing.rs` the stub per role
+  and the store in memory, which the daemon's tests build the same devices
+  from under the `testing` feature. A module's own doc says what it is
   for; the reasoning is here. `ec.rs` is every EC call: `Ec` is the only
   holder of the `CrosEc`, one method per operation, each taking the lock and
   releasing it before returning and none reaching the handle through another —

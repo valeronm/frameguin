@@ -144,89 +144,12 @@ impl PowerLedControl for PowerLed {
 
 #[cfg(test)]
 mod tests {
-    use std::path::{Path, PathBuf};
-    use std::sync::{Arc, Mutex};
+    use std::sync::Arc;
 
-    use frameguin_wire::{DeviceError, DeviceResult, PowerLedControl, PowerLedLevel};
+    use frameguin_wire::{DeviceError, PowerLedControl, PowerLedLevel};
 
     use super::PowerLed;
-    use crate::ec::PowerLedEc;
-    use crate::led::LedClass;
-    use crate::testing::ready;
-
-    /// Every write the EC and the kernel took, in the order they took them.
-    type Log = Arc<Mutex<Vec<String>>>;
-
-    /// An EC holding one level, logging every write, and refusing them all
-    /// once told to.
-    struct Fp {
-        level: Mutex<(u8, PowerLedLevel)>,
-        custom: bool,
-        refusing: bool,
-        log: Log,
-    }
-
-    impl PowerLedEc for Fp {
-        fn power_led_level(&self) -> DeviceResult<(u8, PowerLedLevel)> {
-            Ok(*self.level.lock().unwrap())
-        }
-
-        fn set_power_led_level(&self, level: PowerLedLevel) -> DeviceResult<()> {
-            if self.refusing {
-                return Err(DeviceError::Failed("no EC".into()));
-            }
-            self.level.lock().unwrap().1 = level;
-            self.log.lock().unwrap().push(format!("level {level:?}"));
-            Ok(())
-        }
-
-        fn set_power_led_percentage(&self, percent: u8) -> DeviceResult<()> {
-            if self.refusing {
-                return Err(DeviceError::Failed("no EC".into()));
-            }
-            *self.level.lock().unwrap() = (percent, PowerLedLevel::Custom);
-            self.log.lock().unwrap().push(format!("percent {percent}"));
-            Ok(())
-        }
-
-        fn custom_power_led_levels(&self) -> bool {
-            self.custom
-        }
-    }
-
-    /// A LED class with one node, or none, keeping the kernel's account of
-    /// whether the LED is held dark.
-    struct Leds {
-        node: Option<PathBuf>,
-        dark: Mutex<bool>,
-        log: Log,
-    }
-
-    impl LedClass for Leds {
-        fn controllable(&self) -> Option<PathBuf> {
-            self.node.clone()
-        }
-
-        fn held_dark(&self) -> Option<PathBuf> {
-            self.dark
-                .lock()
-                .unwrap()
-                .then(|| self.node.clone())
-                .flatten()
-        }
-
-        fn darken(&self, _dir: &Path) -> DeviceResult<()> {
-            *self.dark.lock().unwrap() = true;
-            self.log.lock().unwrap().push("darken".into());
-            Ok(())
-        }
-
-        fn release(&self, _dir: &Path) -> DeviceResult<()> {
-            *self.dark.lock().unwrap() = false;
-            self.log.lock().unwrap().push("release".into());
-            Ok(())
-        }
-    }
+    use crate::testing::{Fp, Leds, Log, ready};
 
     struct Machine {
         custom: bool,
@@ -246,17 +169,17 @@ mod tests {
     }
 
     fn over(machine: &Machine) -> Bench {
-        let log: Log = Arc::default();
+        let log = Log::default();
         let ec = Arc::new(Fp {
-            level: Mutex::new((55, PowerLedLevel::High)),
             custom: machine.custom,
             refusing: machine.refusing,
             log: log.clone(),
+            ..Fp::default()
         });
         let leds = Box::new(Leds {
-            node: machine.node.then(|| PathBuf::from("/sys/class/leds/power")),
-            dark: Mutex::new(false),
+            node: machine.node.then(|| Leds::default().node).flatten(),
             log: log.clone(),
+            ..Leds::default()
         });
         Bench {
             led: PowerLed::new(ec, leds),

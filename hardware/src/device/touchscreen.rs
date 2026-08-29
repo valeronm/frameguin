@@ -86,41 +86,15 @@ impl TouchscreenControl for Touchscreen {
 mod tests {
     use std::sync::{Arc, Mutex};
 
-    use frameguin_wire::{DeviceError, DeviceResult, TouchscreenControl};
+    use frameguin_wire::TouchscreenControl;
 
     use super::{KEY_OFF, Touchscreen};
     use crate::mirror::evidence_key;
-    use crate::part::{self, PartKind};
     use crate::state::Store;
-    use crate::state::tests::Memory;
-    use crate::testing::{mirrors, ready};
-    use crate::touchscreen::TouchSwitch;
+    use crate::testing::{Memory, Route, mirrors, panel_identity, ready};
 
     const BOOT: &str = "00000000-0000-4000-8000-000000000001";
     const EARLIER: &str = "00000000-0000-4000-8000-000000000002";
-
-    /// A route holding a level it reports, or holding nothing, and refusing
-    /// every write once told to.
-    struct Route {
-        level: Mutex<Option<bool>>,
-        refusing: bool,
-    }
-
-    impl TouchSwitch for Route {
-        fn reading(&self) -> DeviceResult<Option<bool>> {
-            Ok(*self.level.lock().unwrap())
-        }
-
-        fn set_enabled(&self, enabled: bool) -> DeviceResult<()> {
-            if self.refusing {
-                return Err(DeviceError::Failed("no panel".into()));
-            }
-            if let Some(level) = self.level.lock().unwrap().as_mut() {
-                *level = enabled;
-            }
-            Ok(())
-        }
-    }
 
     struct Machine {
         level: Option<bool>,
@@ -142,8 +116,11 @@ mod tests {
             level: Mutex::new(machine.level),
             refusing: machine.refusing,
         };
-        let identity = part::hid(PartKind::Touchscreen, 0x2c68, 0x0100, "", "", "");
-        Touchscreen::new(Box::new(route), &mirrors(store, None, Some(BOOT)), identity)
+        Touchscreen::new(
+            Box::new(route),
+            &mirrors(store, None, Some(BOOT)),
+            panel_identity(),
+        )
     }
 
     #[test]

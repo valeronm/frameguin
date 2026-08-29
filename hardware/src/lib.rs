@@ -42,30 +42,5 @@ pub mod state;
 pub mod touchpad;
 pub mod touchscreen;
 
-#[cfg(test)]
-pub(crate) mod testing {
-    use std::sync::Arc;
-    use std::task::{Context, Poll, Waker};
-
-    use crate::lifetime::{EcBoot, Holders};
-    use crate::mirror::Mirrors;
-    use crate::state::tests::Memory;
-
-    /// Mirrors over a store in memory, on a machine whose holders answer as
-    /// named.
-    pub(crate) fn mirrors(store: &Arc<Memory>, ec: Option<EcBoot>, host: Option<&str>) -> Mirrors {
-        Mirrors::new(store.clone(), Holders::new(ec, host.map(str::to_owned)))
-    }
-
-    /// Polls once: the direct implementation never pends.
-    pub(crate) fn ready<T>(future: impl Future<Output = T>) -> T {
-        let mut future = Box::pin(future);
-        match future
-            .as_mut()
-            .poll(&mut Context::from_waker(Waker::noop()))
-        {
-            Poll::Ready(value) => value,
-            Poll::Pending => unreachable!("the direct implementation never pends"),
-        }
-    }
-}
+#[cfg(any(test, feature = "testing"))]
+pub mod testing;

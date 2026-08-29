@@ -51,7 +51,11 @@ fn parse(content: &str) -> BTreeMap<String, String> {
 
 /// What a `set` means to the map, spelled once for every store over one;
 /// answers whether the map moved.
-fn apply(entries: &mut BTreeMap<String, String>, key: &str, value: Option<String>) -> bool {
+pub(crate) fn apply(
+    entries: &mut BTreeMap<String, String>,
+    key: &str,
+    value: Option<String>,
+) -> bool {
     match (entries.get_mut(key), value) {
         (Some(held), Some(value)) if *held == value => false,
         (Some(held), Some(value)) => {
@@ -95,25 +99,8 @@ impl Store for StateFile {
 }
 
 #[cfg(test)]
-pub mod tests {
-    use std::collections::BTreeMap;
-    use std::sync::Mutex;
-
-    use super::{Store, apply, parse, render};
-
-    /// A store that never touches disk, for exercising a device's mirror.
-    #[derive(Default)]
-    pub struct Memory(Mutex<BTreeMap<String, String>>);
-
-    impl Store for Memory {
-        fn get(&self, key: &str) -> Option<String> {
-            self.0.lock().unwrap().get(key).cloned()
-        }
-
-        fn set(&self, key: &str, value: Option<String>) {
-            apply(&mut self.0.lock().unwrap(), key, value);
-        }
-    }
+mod tests {
+    use super::{parse, render};
 
     #[test]
     fn a_file_round_trips_with_its_unknown_keys() {
