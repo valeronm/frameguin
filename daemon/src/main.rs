@@ -124,6 +124,9 @@ fn main() -> zbus::Result<()> {
         // Claim the name only once the objects are served, so an activating
         // client can't call into a not-yet-registered interface.
         conn.request_name(wire::BUS_NAME).await?;
+        // The line a start that hung between detection and the bus lacks,
+        // which is what tells it apart from one that hung in detection.
+        eprintln!("serving {}", wire::BUS_NAME);
         Ok::<_, zbus::Error>(conn)
     })?;
     loop {

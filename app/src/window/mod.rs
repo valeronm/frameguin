@@ -818,7 +818,12 @@ impl Init {
         // report a detection of its own.
         let controls = match ui.feed.controls().await {
             Ok(controls) => controls,
-            Err(e) => return Some(Empty::DaemonUnavailable(e.to_string())),
+            Err(e) => {
+                // The page is replaced by the retry that succeeds, so the
+                // failure is also written where it stays.
+                eprintln!("frameguin-daemon unreachable: {e}");
+                return Some(Empty::DaemonUnavailable(e.to_string()));
+            }
         };
         ui.battery.gate(controls.battery.as_ref());
         ui.power_led.gate(controls.power_led.as_ref());
