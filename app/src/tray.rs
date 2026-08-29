@@ -325,10 +325,9 @@ impl TrayIcon {
 }
 
 /// What a caller knows about the tray's state. A field left None is one this
-/// caller cannot speak for, and the menu keeps what it already holds — which
-/// is what makes a write from a window that has not read the battery yet safe
-/// to apply: it knows the milliamps but not the capacity, and the menu's own
-/// copy is the better one.
+/// caller cannot speak for, and the menu keeps what it already holds — a
+/// write speaks for its own value and nothing else, and the capacity the
+/// speeds resolve against comes only from a reload or the tray's own read.
 #[derive(Clone, Default)]
 pub(crate) struct TrayValues {
     pub(crate) battery: Option<BatteryState>,
@@ -362,12 +361,9 @@ impl TrayValues {
         }
     }
 
-    /// `design_capacity` is None from a caller with none to teach, which
-    /// leaves the menu on the one it was drawn from.
-    pub(crate) fn charge_speed(milliamps: u32, design_capacity: Option<u32>) -> Self {
+    pub(crate) fn charge_speed(milliamps: u32) -> Self {
         Self {
             charge_current_limit: Some(milliamps),
-            design_capacity,
             ..Self::default()
         }
     }

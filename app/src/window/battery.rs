@@ -437,14 +437,7 @@ fn show_limit(sink: Sink<'_>, percent: u8, custom: Custom) {
 }
 
 fn show_speed(sink: Sink<'_>, milliamps: u32, custom: Custom) {
-    // Only a window holds a capacity to send. The capacity the tray already
-    // has is the one its menu was drawn from, so a tray write has nothing to
-    // teach it here.
-    let design_capacity = match sink {
-        Sink::Window(ui) => ui.battery.design_capacity.get(),
-        Sink::Tray(_) => None,
-    };
-    sink.push_tray(TrayValues::charge_speed(milliamps, design_capacity));
+    sink.push_tray(TrayValues::charge_speed(milliamps));
     if let Sink::Window(ui) = sink {
         ui.battery.show_charge_speed(ui, milliamps, custom);
     }
