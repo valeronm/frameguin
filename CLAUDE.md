@@ -139,7 +139,10 @@ it and the non-obvious constraints.
   holds those interfaces, and what stays inline in each is the *order* —
   validate, skip a write already in place, authorize, write. That order is
   the policy, and splitting the write out would leave it legible at neither
-  end.
+  end — and would not enforce it either, since `device()` hands out the
+  device to any body, so a setter that never authorizes compiles with or
+  without a helper. What holds the invariant is a test that every setter is
+  refused when polkit refuses, not a shape the bodies pass through.
 - A control the tray can also set gets an `apply_*` function owning the whole
   write: the daemon call, the toast, the tray's copy, and moving the widget to
   match. Both the window's handler and the tray item call it; neither writes
