@@ -36,7 +36,7 @@ re-shoot in its own commit, so this is the backstop rather than the step that
 does it:
 
 ```sh
-git diff "$(git describe --tags --abbrev=0)"..HEAD -- app/src/ui.rs app/src/tray.rs
+git diff "$(git describe --tags --abbrev=0)"..HEAD -- app/src/window/ app/src/tray.rs
 ```
 
 Those are the files that draw what the two screenshots show. A non-empty diff
