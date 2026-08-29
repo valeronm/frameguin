@@ -86,7 +86,7 @@ another column; what a layer must not link lives in another row.
 | Groups, tray | `app` | GTK, libadwaita, ksni, `model` | Widgets, toasts, the sync guard, timers, the tray thread's copy of each snapshot | Which daemon operation a command becomes; any preset's value | Kept thin; not tested |
 | Client controls | `model` | `wire` | A snapshot per control, its read, its commands, its presets and words | GTK, the bus, another control's trait | A stub of the control trait |
 | Control traits | `wire` | zbus, serde | One trait per device, one async fn per operation; `DeviceError` | How an operation is reached | — |
-| Bus | `wire`, `app`, `daemon` | zbus, polkit | One proxy per interface and the vocabularies (`wire`); `Bus` implementing the traits over them (`app`); `Served<Device>` with the validate → skip → authorize → write order (`daemon`) | Anything that touches hardware (`wire`, `app`); which EC command a role sends (`daemon`) | Round-trip tests |
+| Bus | `wire`, `app`, `daemon` | zbus, polkit | One proxy per interface and the vocabularies (`wire`); `Bus` implementing the traits over them (`app`); `Served<Device>` with the validate → skip → authorize → write order (`daemon`) | Anything that touches hardware (`wire`, `app`); which EC command a role sends (`daemon`) | Its own `wire` proxies over a socket pair, the devices on stub roles |
 | Devices | `hardware` | `wire` | `detect()`, the control impl with its argument checks, the `Part` impl, mirrors under a declared lifetime, arbitrations | The bus, polkit | Stub roles and a stub store |
 | Roles | `hardware` | — | One trait per hardware need: `Charger`, `Pack`, `PowerLedEc`, `LedClass`, `HapticPad`, `TouchSwitch`, `Store` | Who calls them | — |
 | Transports | `hardware` | `framework_lib`, hidapi, libc | `Ec` and its lock, the sysfs LED node, the GPIO pad, the panel and touchpad HID, the SMBIOS table, the state file | Devices, policy, the bus | The machine |
@@ -204,9 +204,10 @@ device keeps what detection saw, not the word.
 ## Adding a control
 
 One edit per row: a variant or method in `wire`; the device module in
-`hardware`, or a method in one that exists; its interface in the daemon;
-the client control in `model`; the group; the tray item. None is in a file
-another device shares. Adding a part with no control is one device module
+`hardware`, or a method in one that exists; its interface in the daemon,
+and its field in `interface::Devices`, which is what puts it on the bus and
+in front of the proxies in `interface/tests.rs`; the client control in
+`model`; the group; the tray item. None is in a file another device shares. Adding a part with no control is one device module
 implementing `Part`, and its line where the daemon collects the inventory
 at startup.
 

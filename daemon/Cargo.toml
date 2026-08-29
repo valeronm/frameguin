@@ -13,3 +13,10 @@ frameguin-wire = { workspace = true }
 hidapi = "2"
 zbus = { workspace = true }
 zbus_polkit = "5.0.0"
+
+# The interface tests serve the daemon's objects to their own proxies over a
+# socket pair, which is zbus's peer-to-peer mode; the pair is pre-authenticated
+# on both ends so neither build waits on the other.
+[dev-dependencies]
+async-io = "2"
+zbus = { workspace = true, features = ["p2p"] }

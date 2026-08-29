@@ -519,10 +519,26 @@ pub trait BatteryControl {
     async fn set_charge_current_limit(&self, milliamps: u32) -> DeviceResult<bool>;
 }
 
+/// Any of the proxies below, on the daemon's one name and path.
+///
+/// # Errors
+///
+/// Building does no I/O and the name and path are constants, so only a
+/// connection already closed fails here.
+pub async fn proxy<P: zbus::proxy::ProxyImpl<'static> + From<zbus::Proxy<'static>>>(
+    conn: &zbus::Connection,
+) -> zbus::Result<P> {
+    P::builder(conn)
+        .destination(BUS_NAME)?
+        .path(OBJECT_PATH)?
+        .build()
+        .await
+}
+
 // No default_service or default_path: they would restate BUS_NAME and
 // OBJECT_PATH as literals the attribute can't read a const into, leaving two
-// spellings of each with nothing checking they agree. Callers name them once,
-// through the proxy builder.
+// spellings of each with nothing checking they agree; [`proxy`] names them
+// once.
 #[zbus::proxy(interface = "io.github.valeronm.Frameguin1")]
 pub trait Frameguin {
     /// Every part detection found, mainboard first; fixed for the daemon's

@@ -27,7 +27,7 @@ use frameguin_wire as wire;
 use zbus::{Connection, fdo, interface};
 use zbus_polkit::policykit1::AuthorityProxy;
 
-use crate::served::Served;
+use crate::interface::Devices;
 use crate::service::Service;
 
 const IDLE_EXIT: Duration = Duration::from_mins(5);
@@ -102,6 +102,12 @@ fn main() -> zbus::Result<()> {
     for identity in &parts {
         eprintln!("detected {identity}");
     }
+    let devices = Devices {
+        touchpad,
+        touchscreen,
+        power_led,
+        battery,
+    };
     let _conn = zbus::block_on(async move {
         let conn = Connection::system().await?;
         let authority = AuthorityProxy::new(&conn)
@@ -114,28 +120,7 @@ fn main() -> zbus::Result<()> {
         };
         let server = conn.object_server();
         server.at(wire::OBJECT_PATH, daemon).await?;
-        // A device not detected is not on the bus: the interfaces present at
-        // the path are the inventory.
-        if let Some(touchpad) = touchpad {
-            server
-                .at(wire::OBJECT_PATH, Served::new(touchpad, service.clone()))
-                .await?;
-        }
-        if let Some(touchscreen) = touchscreen {
-            server
-                .at(wire::OBJECT_PATH, Served::new(touchscreen, service.clone()))
-                .await?;
-        }
-        if let Some(power_led) = power_led {
-            server
-                .at(wire::OBJECT_PATH, Served::new(power_led, service.clone()))
-                .await?;
-        }
-        if let Some(battery) = battery {
-            server
-                .at(wire::OBJECT_PATH, Served::new(battery, service))
-                .await?;
-        }
+        devices.serve(server, &service).await?;
         // Claim the name only once the objects are served, so an activating
         // client can't call into a not-yet-registered interface.
         conn.request_name(wire::BUS_NAME).await?;

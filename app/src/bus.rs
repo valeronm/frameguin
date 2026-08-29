@@ -5,11 +5,10 @@
 //! [`crate::reading::Feed`] for who holds it.
 
 use frameguin_wire::{
-    BUS_NAME, BatteryCondition, BatteryControl, BatteryFeature, BatteryInfo, BatteryProxy,
-    ClickForce, DeviceResult, FrameguinProxy, OBJECT_PATH, PowerLedControl, PowerLedLevel,
-    PowerLedProxy, TouchpadControl, TouchpadProxy, TouchscreenControl, TouchscreenProxy,
+    BatteryCondition, BatteryControl, BatteryFeature, BatteryInfo, BatteryProxy, ClickForce,
+    DeviceResult, FrameguinProxy, PowerLedControl, PowerLedLevel, PowerLedProxy, TouchpadControl,
+    TouchpadProxy, TouchscreenControl, TouchscreenProxy, proxy,
 };
-use zbus::proxy::ProxyImpl;
 
 pub(crate) struct Bus {
     /// The root interface, for what belongs to no device: the inventory and
@@ -34,17 +33,6 @@ impl Bus {
             power_led: proxy(&conn).await?,
         })
     }
-}
-
-/// Every proxy on the daemon's one name and path.
-async fn proxy<P: ProxyImpl<'static> + From<zbus::Proxy<'static>>>(
-    conn: &zbus::Connection,
-) -> zbus::Result<P> {
-    P::builder(conn)
-        .destination(BUS_NAME)?
-        .path(OBJECT_PATH)?
-        .build()
-        .await
 }
 
 impl BatteryControl for Bus {

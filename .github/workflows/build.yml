@@ -67,6 +67,8 @@ jobs:
           # Release so the dependency artifacts carry over to the packages
           # built below, which is the only sharing on offer: clippy's build
           # above is fingerprinted under its own wrapper and reuses nothing.
+          # The daemon's tests want zbus with its p2p feature, so zbus and
+          # what sits above it are built once more for the test targets.
           cargo test --workspace --release
 
       # Also runs lintian, appstreamcli and desktop-file-validate, and on a tag

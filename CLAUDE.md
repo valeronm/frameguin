@@ -30,14 +30,18 @@ it and the non-obvious constraints.
   feature is a free change needing no deprecation window. (`busctl` against
   it stays a fine way to inspect a running daemon; it is a debugging tool, not
   a client the interface holds still for.) None of this loosens what `wire/`
-  is for: the two ends still restate the interface separately and still meet
-  only at runtime, so within one version the vocabularies are what keep them
-  from drifting apart.
+  is for: the two ends still restate the interface separately, so within one
+  version the vocabularies are what keep them from drifting apart.
 - `wire/` holds the proxy the app calls through, the bus name and object
   path, and the vocabularies as enums serializing as `s`. The daemon's
   `#[interface]` impls cannot move there — each is an impl on a daemon-side
-  type — so the method set is still two declarations meeting only at
-  runtime, in the bus. What the enums buy is the other half: a feature,
+  type — so the method set is still two declarations, and they meet in
+  `daemon/src/interface/tests.rs`, which serves every device on stub roles
+  to the `wire` proxies over a socket pair: a method one end spells and the
+  other does not fails there rather than in an installed pair. The devices
+  it serves are `interface::Devices`, the one struct `main.rs` fills from
+  detection, so a device served by one and not the other is a missing
+  field. What the enums buy is the other half: a feature,
   level or click force the two ends spell differently used to be a
   well-formed string that meant nothing to the receiver, and is now a
   compile error. Adding a control is one edit per layer, which
@@ -141,8 +145,9 @@ it and the non-obvious constraints.
   the policy, and splitting the write out would leave it legible at neither
   end — and would not enforce it either, since `device()` hands out the
   device to any body, so a setter that never authorizes compiles with or
-  without a helper. What holds the invariant is a test that every setter is
-  refused when polkit refuses, not a shape the bodies pass through.
+  without a helper. What holds the invariant is `interface/tests.rs`, where
+  every setter is refused when polkit refuses and the device left untouched,
+  not a shape the bodies pass through.
 - A control the tray can also set gets an `apply_*` function owning the whole
   write: the daemon call, the toast, the tray's copy, and moving the widget to
   match. Both the window's handler and the tray item call it; neither writes
