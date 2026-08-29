@@ -19,5 +19,6 @@ zbus_polkit = "5.0.0"
 # on both ends so neither build waits on the other.
 [dev-dependencies]
 async-io = "2"
+futures-lite = "2"
 frameguin-hardware = { workspace = true, features = ["testing"] }
 zbus = { workspace = true, features = ["p2p"] }

@@ -42,11 +42,16 @@ it and the non-obvious constraints.
   it serves are `interface::Devices`, the one struct `main.rs` fills from
   detection, and the proxies it dials are `wire::Proxies`, the one struct
   the app dials too, so a device served or dialled by one end and not the
-  other is a missing field. A call over the pair is awaited on the client
-  connection's executor (`Peer::run`), never under `block_on` on the test
-  thread: async-io's `block_on`, parked behind the thread driving its
-  reactor, can miss the wakeup for a message just written, and under load
-  does. What the enums buy is the other half: a feature,
+  other is a missing field. Nothing in the harness runs under async-io's
+  `block_on`: two of them in one process contend for the reactor, and the
+  one parked behind the other misses the wakeup for a message just
+  written — rarely on an idle machine, on most runs under load — which is
+  what two zbus connections with their own executor threads are. So both
+  executors are ticked from one thread under `futures_lite`'s `block_on`,
+  which parks on nothing but its waker, and each call is awaited on the
+  client's executor (`Peer::run`) with a deadline — polled on the test
+  thread it goes unanswered. What the enums buy is the other half: a
+  feature,
   level or click force the two ends spell differently used to be a
   well-formed string that meant nothing to the receiver, and is now a
   compile error. Adding a control is one edit per layer, which

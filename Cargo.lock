@@ -632,6 +632,7 @@ dependencies = [
  "async-io",
  "frameguin-hardware",
  "frameguin-wire",
+ "futures-lite",
  "hidapi",
  "zbus",
  "zbus_polkit",

@@ -3,7 +3,9 @@
 
 use std::os::unix::net::UnixStream;
 use std::sync::{Arc, mpsc};
+use std::time::Duration;
 
+use async_io::Async;
 use frameguin_hardware::device::battery::Battery;
 use frameguin_hardware::device::power_led::PowerLed;
 use frameguin_hardware::device::touchpad::Touchpad;
@@ -16,7 +18,8 @@ use frameguin_hardware::testing::{
 use frameguin_wire::{
     BatteryFeature, ClickForce, DeviceError, NO_CHARGE_CURRENT_LIMIT, PowerLedLevel, Proxies,
 };
-use zbus::{Connection, Guid, block_on, connection};
+use futures_lite::future::{block_on, or};
+use zbus::{Connection, Guid, connection};
 
 use super::Devices;
 use crate::service::Service;
@@ -49,20 +52,18 @@ fn devices() -> Devices {
     }
 }
 
-/// One end of a socket pair serving every device, the other dialled as the
-/// app dials.
+/// The proxies dialled over one end of a socket pair, the other serving
+/// every device.
 struct Peer {
     proxies: Proxies,
-    server: Connection,
     client: Connection,
 }
 
 /// A call over the pair unanswered for this long fails its test.
-const CALL_DEADLINE: std::time::Duration = std::time::Duration::from_secs(10);
+const CALL_DEADLINE: Duration = Duration::from_secs(10);
 
 /// Runs `future` on `conn`'s own executor and waits for it over a channel:
-/// async-io's `block_on`, parked behind the thread driving its reactor,
-/// can miss the wakeup for a message just written, and under load does.
+/// a call polled on any other thread goes unanswered.
 fn on_executor<T: Send + 'static>(
     conn: &Connection,
     future: impl Future<Output = T> + Send + 'static,
@@ -96,25 +97,37 @@ fn serve(authorized: bool) -> Peer {
     let (server_end, client_end) = UnixStream::pair().unwrap();
     let guid = Guid::generate();
     let end = |stream| {
-        let stream = async_io::Async::new(stream).unwrap();
+        let stream = Async::new(stream).unwrap();
         connection::Builder::authenticated_socket(stream, guid.clone())
             .unwrap()
             .p2p()
+            .internal_executor(false)
     };
     let server = block_on(end(server_end).build()).unwrap();
     let client = block_on(end(client_end).build()).unwrap();
+    // zbus's own executor thread runs under async-io's `block_on`, which
+    // contending with a second for the reactor misses the wakeup for a
+    // message just written; this one parks on nothing but its waker.
+    let (driven_server, driven_client) = (server.clone(), client.clone());
+    std::thread::spawn(move || {
+        block_on(async {
+            loop {
+                or(
+                    driven_server.executor().tick(),
+                    driven_client.executor().tick(),
+                )
+                .await;
+            }
+        });
+    });
+    let service = Arc::new(Service::answering(authorized));
+    on_executor(&client, async move {
+        devices().serve(server.object_server(), &service).await
+    })
+    .unwrap();
     let dialling = client.clone();
     let proxies = on_executor(&client, async move { Proxies::dial(&dialling).await }).unwrap();
-    let peer = Peer {
-        proxies,
-        server,
-        client,
-    };
-    let server = peer.server.clone();
-    let service = Arc::new(Service::answering(authorized));
-    peer.run(|_| async move { devices().serve(server.object_server(), &service).await })
-        .unwrap();
-    peer
+    Peer { proxies, client }
 }
 
 fn denied<T>(reply: zbus::Result<T>) -> bool {
