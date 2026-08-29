@@ -590,6 +590,31 @@ pub trait Battery {
     async fn set_charge_current_limit(&self, milliamps: u32) -> zbus::Result<bool>;
 }
 
+/// Every device interface's proxy, dialled together: the one list of what
+/// the daemon can serve, so a caller at either end cannot hold a shorter
+/// one.
+#[derive(Clone)]
+pub struct Proxies {
+    pub battery: BatteryProxy<'static>,
+    pub touchpad: TouchpadProxy<'static>,
+    pub touchscreen: TouchscreenProxy<'static>,
+    pub power_led: PowerLedProxy<'static>,
+}
+
+impl Proxies {
+    /// # Errors
+    ///
+    /// Only for a connection already closed, as [`proxy`].
+    pub async fn dial(conn: &zbus::Connection) -> zbus::Result<Self> {
+        Ok(Self {
+            battery: proxy(conn).await?,
+            touchpad: proxy(conn).await?,
+            touchscreen: proxy(conn).await?,
+            power_led: proxy(conn).await?,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{OBJECT_PATH, cause};

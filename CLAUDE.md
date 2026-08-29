@@ -40,8 +40,13 @@ it and the non-obvious constraints.
   to the `wire` proxies over a socket pair: a method one end spells and the
   other does not fails there rather than in an installed pair. The devices
   it serves are `interface::Devices`, the one struct `main.rs` fills from
-  detection, so a device served by one and not the other is a missing
-  field. What the enums buy is the other half: a feature,
+  detection, and the proxies it dials are `wire::Proxies`, the one struct
+  the app dials too, so a device served or dialled by one end and not the
+  other is a missing field. A call over the pair is awaited on the client
+  connection's executor (`Peer::run`), never under `block_on` on the test
+  thread: async-io's `block_on`, parked behind the thread driving its
+  reactor, can miss the wakeup for a message just written, and under load
+  does. What the enums buy is the other half: a feature,
   level or click force the two ends spell differently used to be a
   well-formed string that meant nothing to the receiver, and is now a
   compile error. Adding a control is one edit per layer, which

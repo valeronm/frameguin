@@ -14,6 +14,8 @@ jobs:
     # present at build time, so the oldest release carrying the libadwaita 1.4
     # the app needs is also the widest install target.
     runs-on: ubuntu-24.04
+    # A hung test would otherwise hold the job for GitHub's six hours.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
 
