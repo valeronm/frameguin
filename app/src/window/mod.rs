@@ -32,7 +32,6 @@ use crate::reading::Feed;
 use crate::tray::{TrayIcon, TrayValues, tray_push};
 use crate::{APP_ID, about, autostart, board, parts};
 
-const SLIDER_DEBOUNCE: Duration = Duration::from_millis(200);
 /// How long the window waits before asking an unreachable daemon again, and
 /// the ceiling the wait doubles up to. Bounded rather than endless-fast: the
 /// service is bus-activated, so every attempt is a start attempt.
@@ -192,6 +191,87 @@ fn reveal_under(combo: &adw::ComboRow, row: &impl IsA<gtk::Widget>, index: usize
         .transform_to(move |_, selected: u32| Some(combo_position(selected) == Some(index)))
         .sync_create()
         .build();
+}
+
+/// When a slider's value reaches the hardware.
+#[derive(Clone, Copy)]
+enum SliderWrites {
+    /// When a drag ends, keys and the wheel settling on a longer debounce:
+    /// the control shows nothing while it changes, and every value passed
+    /// through would be one more authorized EC write.
+    OnRelease,
+    /// As it moves, on a short debounce: the control shows every value, so
+    /// the passes are the point.
+    Live,
+}
+
+impl SliderWrites {
+    fn delay(self) -> Duration {
+        match self {
+            Self::OnRelease => Duration::from_millis(700),
+            Self::Live => Duration::from_millis(200),
+        }
+    }
+}
+
+/// Wires a slider to `write`, under the `writes` policy. `read` turns the
+/// slider's position into the value that gets written, and is also what
+/// decides whether a drag moved at all — comparing positions would count a
+/// nudge that rounds back to where it started.
+fn connect_slider_writes<T: Copy + PartialEq + 'static>(
+    ui: &Rc<Ui>,
+    scale: &gtk::Scale,
+    read: impl Fn(f64) -> T + 'static,
+    write: impl Fn(T) + 'static,
+    writes: SliderWrites,
+) {
+    let read = Rc::new(read);
+    let write = Rc::new(write);
+    let dragging: Rc<Cell<Option<T>>> = Rc::default();
+
+    let slot = Rc::new(RefCell::new(None));
+    let keys_ui = ui.clone();
+    let keys_dragging = dragging.clone();
+    let (keys_read, keys_write) = (read.clone(), write.clone());
+    scale.connect_value_changed(move |scale| {
+        if keys_ui.syncing.get() || keys_dragging.get().is_some() {
+            return;
+        }
+        let value = keys_read(scale.value());
+        let write = keys_write.clone();
+        debounce(&slot, writes.delay(), move || write(value));
+    });
+    if matches!(writes, SliderWrites::Live) {
+        return;
+    }
+
+    // Raw events, not a gesture: the scale's own drag gesture claims the
+    // pointer sequence, which cancels any competing gesture instead of
+    // releasing it — so a GestureClick here would see the press and never the
+    // release, and the drag would never end.
+    let drag = gtk::EventControllerLegacy::new();
+    drag.set_propagation_phase(gtk::PropagationPhase::Capture);
+    let drag_scale = scale.clone();
+    drag.connect_event(move |_, event| {
+        match event.event_type() {
+            gdk::EventType::ButtonPress | gdk::EventType::TouchBegin => {
+                dragging.set(Some(read(drag_scale.value())));
+            }
+            gdk::EventType::ButtonRelease
+            | gdk::EventType::TouchEnd
+            | gdk::EventType::TouchCancel => {
+                let value = read(drag_scale.value());
+                // A press that lands where the handle already sat changes
+                // nothing, and writing it would announce a value nobody moved.
+                if dragging.replace(None) != Some(value) {
+                    write(value);
+                }
+            }
+            _ => {}
+        }
+        glib::Propagation::Proceed
+    });
+    scale.add_controller(drag);
 }
 
 /// (Re)arms a debounce slot: cancels any pending source and schedules `action`

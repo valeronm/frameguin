@@ -2,9 +2,8 @@
 //! presets with a slider its Custom row reveals — and the writes both
 //! front-ends make through them.
 
-use std::cell::{Cell, RefCell};
+use std::cell::Cell;
 use std::rc::Rc;
-use std::time::Duration;
 
 use adw::prelude::*;
 use frameguin_model::control::battery::{
@@ -21,17 +20,11 @@ use crate::bus::Bus;
 use crate::reading::{Wants, show_while_mapped};
 use crate::tray::TrayValues;
 use crate::window::{
-    Sink, Ui, build_scale, combo_index, combo_position, connect_combo, debounce, reveal_under,
-    scale_percent, string_list,
+    Sink, SliderWrites, Ui, build_scale, combo_index, combo_position, connect_combo,
+    connect_slider_writes, reveal_under, scale_percent, string_list,
 };
 
 pub(crate) type Battery = battery::Battery<Bus>;
-
-/// Keys and the wheel on a slider that otherwise writes only when a drag
-/// ends. Longer than the live sliders wait, for the same reason that one
-/// writes on release: nothing shows the values passed through, and each of
-/// them would be another authorized EC write.
-const SETTLE_DEBOUNCE: Duration = Duration::from_millis(700);
 
 /// What a value landing on a preset should do to a combo sitting on Custom.
 /// Only a slider write keeps it: the user is dialling a number in, and a
@@ -219,13 +212,19 @@ impl Group {
         // Slider: a raw ceiling, reachable only while the combo is on Custom.
         let scale_ui = ui.clone();
         let scale_control = control.clone();
-        connect_slider_writes(ui, &self.limit_scale, scale_percent, move |percent| {
-            let ui = scale_ui.clone();
-            let control = scale_control.clone();
-            glib::spawn_future_local(async move {
-                apply_charge_limit(Sink::Window(&ui), &control, percent, Custom::Keep).await;
-            });
-        });
+        connect_slider_writes(
+            ui,
+            &self.limit_scale,
+            scale_percent,
+            move |percent| {
+                let ui = scale_ui.clone();
+                let control = scale_control.clone();
+                glib::spawn_future_local(async move {
+                    apply_charge_limit(Sink::Window(&ui), &control, percent, Custom::Keep).await;
+                });
+            },
+            SliderWrites::OnRelease,
+        );
 
         let at_ui = ui.clone();
         let speed_control = control.clone();
@@ -246,13 +245,19 @@ impl Group {
         // Slider: a raw current, reachable only while the combo is on Custom.
         let scale_ui = ui.clone();
         let scale_control = control.clone();
-        connect_slider_writes(ui, &self.speed_scale, scale_milliamps, move |milliamps| {
-            let ui = scale_ui.clone();
-            let control = scale_control.clone();
-            glib::spawn_future_local(async move {
-                apply_charge_speed(Sink::Window(&ui), &control, milliamps, Custom::Keep).await;
-            });
-        });
+        connect_slider_writes(
+            ui,
+            &self.speed_scale,
+            scale_milliamps,
+            move |milliamps| {
+                let ui = scale_ui.clone();
+                let control = scale_control.clone();
+                glib::spawn_future_local(async move {
+                    apply_charge_speed(Sink::Window(&ui), &control, milliamps, Custom::Keep).await;
+                });
+            },
+            SliderWrites::OnRelease,
+        );
     }
 
     /// A pack's design capacity can't change under a running app, so it is
@@ -367,66 +372,6 @@ fn scale_milliamps(value: f64) -> u32 {
     let step = f64::from(CUSTOM_CHARGE_STEP_MA);
     let snapped = (value / step).round() * step;
     snapped.clamp(f64::from(MIN_CUSTOM_CHARGE_MA), f64::from(u32::MAX)) as u32
-}
-
-/// Wires a slider whose value reaches the hardware when a drag ends rather
-/// than as it moves: these controls show nothing while they change, and every
-/// value passed through would be one more authorized EC write. Keyboard and
-/// wheel changes raise no release, so they settle on a debounce instead.
-///
-/// `read` turns the slider's position into the value that gets written, and
-/// is also what decides whether a drag moved at all — comparing positions
-/// would count a nudge that rounds back to where it started.
-fn connect_slider_writes<T: Copy + PartialEq + 'static>(
-    ui: &Rc<Ui>,
-    scale: &gtk::Scale,
-    read: impl Fn(f64) -> T + 'static,
-    write: impl Fn(T) + 'static,
-) {
-    let read = Rc::new(read);
-    let write = Rc::new(write);
-    let dragging: Rc<Cell<Option<T>>> = Rc::new(Cell::new(None));
-
-    let slot = Rc::new(RefCell::new(None));
-    let keys_ui = ui.clone();
-    let keys_dragging = dragging.clone();
-    let (keys_read, keys_write) = (read.clone(), write.clone());
-    scale.connect_value_changed(move |scale| {
-        if keys_ui.syncing.get() || keys_dragging.get().is_some() {
-            return;
-        }
-        let value = keys_read(scale.value());
-        let write = keys_write.clone();
-        debounce(&slot, SETTLE_DEBOUNCE, move || write(value));
-    });
-
-    // Raw events, not a gesture: the scale's own drag gesture claims the
-    // pointer sequence, which cancels any competing gesture instead of
-    // releasing it — so a GestureClick here would see the press and never the
-    // release, and the drag would never end.
-    let drag = gtk::EventControllerLegacy::new();
-    drag.set_propagation_phase(gtk::PropagationPhase::Capture);
-    let drag_scale = scale.clone();
-    drag.connect_event(move |_, event| {
-        match event.event_type() {
-            gtk::gdk::EventType::ButtonPress | gtk::gdk::EventType::TouchBegin => {
-                dragging.set(Some(read(drag_scale.value())));
-            }
-            gtk::gdk::EventType::ButtonRelease
-            | gtk::gdk::EventType::TouchEnd
-            | gtk::gdk::EventType::TouchCancel => {
-                let value = read(drag_scale.value());
-                // A press that lands where the handle already sat changes
-                // nothing, and writing it would announce a value nobody moved.
-                if dragging.replace(None) != Some(value) {
-                    write(value);
-                }
-            }
-            _ => {}
-        }
-        glib::Propagation::Proceed
-    });
-    scale.add_controller(drag);
 }
 
 fn show_limit(sink: Sink<'_>, percent: u8, custom: Custom) {

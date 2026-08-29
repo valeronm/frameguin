@@ -1,7 +1,6 @@
 //! The Power button LED group: a combo over the levels the board has, the
 //! slider its Custom row reveals, and the one write both front-ends make.
 
-use std::cell::RefCell;
 use std::rc::Rc;
 
 use adw::prelude::*;
@@ -13,8 +12,8 @@ use gtk4::glib;
 use crate::bus::Bus;
 use crate::tray::TrayValues;
 use crate::window::{
-    SLIDER_DEBOUNCE, Sink, Ui, build_scale, combo_selection, connect_combo, debounce,
-    scale_percent, string_list,
+    Sink, SliderWrites, Ui, build_scale, combo_selection, connect_combo, connect_slider_writes,
+    reveal_under, scale_percent, string_list,
 };
 
 pub(crate) type PowerLed = power_led::PowerLed<Bus>;
@@ -23,7 +22,6 @@ pub(crate) struct Group {
     pub(crate) widget: adw::PreferencesGroup,
     combo: adw::ComboRow,
     scale: gtk::Scale,
-    /// The slider's row; shown only while the level is Custom.
     custom_row: adw::ActionRow,
 }
 
@@ -64,6 +62,9 @@ impl Group {
         if let Some(control) = control {
             self.combo
                 .set_model(Some(&string_list(&labels(control.rows()))));
+            if let Some(index) = control.row(PowerLedLevel::Custom) {
+                reveal_under(&self.combo, &self.custom_row, index);
+            }
         }
     }
 
@@ -89,33 +90,29 @@ impl Group {
         });
     }
 
-    /// Moves the combo onto a level. Custom is a state the EC reports, so
-    /// the slider's row is read off the level rather than remembered. Call
-    /// under [`Ui::sync`].
+    /// Call under [`Ui::sync`].
     fn show_level(&self, control: &PowerLed, level: PowerLedLevel) {
         self.combo.set_selected(combo_selection(control.row(level)));
-        self.custom_row.set_visible(level == PowerLedLevel::Custom);
     }
 
     pub(crate) fn connect(&self, ui: &Rc<Ui>, control: &Rc<PowerLed>) {
         // Slider: a raw percentage write; only reachable while the level is
         // Custom, so combo and tray already reflect it.
-        let slot = Rc::new(RefCell::new(None));
         let scale_ui = ui.clone();
         let scale_control = control.clone();
-        self.scale.connect_value_changed(move |scale| {
-            if scale_ui.syncing.get() {
-                return;
-            }
-            let percent = scale_percent(scale.value());
-            let ui = scale_ui.clone();
-            let control = scale_control.clone();
-            debounce(&slot, SLIDER_DEBOUNCE, move || {
+        connect_slider_writes(
+            ui,
+            &self.scale,
+            scale_percent,
+            move |percent| {
+                let ui = scale_ui.clone();
+                let control = scale_control.clone();
                 glib::spawn_future_local(async move {
                     apply_brightness(&ui, &control, percent).await;
                 });
-            });
-        });
+            },
+            SliderWrites::Live,
+        );
 
         // Combo: presets write the level and re-read so the slider carries
         // the percentage the preset resolved to; Custom reveals the slider
@@ -172,5 +169,4 @@ async fn apply_brightness(ui: &Ui, control: &PowerLed, percent: u8) {
         return;
     }
     ui.sync_tray(TrayValues::power_led_level(PowerLedLevel::Custom));
-    ui.sync(|| ui.power_led.custom_row.set_visible(true));
 }
