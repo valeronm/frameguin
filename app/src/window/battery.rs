@@ -66,7 +66,7 @@ impl Group {
         let state_row = adw::ActionRow::builder()
             .title("Status")
             .activatable(true)
-            .action_name(format!("app.{}", crate::battery::ACTION))
+            .action_name(format!("app.{}", crate::report::battery::ACTION))
             .build();
         let state_percent = gtk::Label::new(None);
         state_row.add_suffix(&state_percent);

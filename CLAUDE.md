@@ -72,14 +72,16 @@ it and the non-obvious constraints.
   fields are private, so `tray_push` is the only way that state moves.
   `window/` holds `Ui`, whose fields are private to that module tree — the
   groups under it read them, nothing outside it can — which is what `Sink`
-  and the `apply_*` writes living there buys. `battery.rs` is the battery report, the app's one window that only
-  reads — no sync guard, no debounce, no tray push — and every field it holds
-  is a descendant of the page its subscription hangs on, so nothing in it can
-  reach back up the widget tree and outlive the window. `parts.rs` is the
-  other read-only window, the inventory `GetDevices` answers, drawn once per
-  open since the list is fixed for the daemon's run; `report.rs` is the
-  shell the two share — found by name or built, destroyed on close — so the
-  single-instance rule is one function rather than one copy per window.
+  and the `apply_*` writes living there buys. `report/` holds the windows
+  that only read, and the shell they share in its `mod.rs` — found by name or
+  built, destroyed on close — so the single-instance rule is one private
+  function rather than one copy per window, and nothing outside the tree can
+  borrow it. `report/battery.rs` is the battery report: no sync guard, no
+  debounce, no tray push, and every field it holds is a descendant of the
+  page its subscription hangs on, so nothing in it can reach back up the
+  widget tree and outlive the window. `report/parts.rs` is the inventory
+  `GetDevices` answers, drawn once per open since the list is fixed for the
+  daemon's run.
   `reading.rs` is the
   pack's reading, taken once for however many views show it: the status row
   and the report render the same walk of the same block, and each polling for
@@ -119,8 +121,8 @@ it and the non-obvious constraints.
   window list, which GTK keeps accurate for free. Where a window is opened
   from more than one place, the module owning it owns the `ActionEntry` too
   and keeps its builder private, so the action is not merely the agreed way in
-  but the only one that compiles — `battery.rs` does this because both
-  front-ends reach the report. `about.rs` does not, and needs not: only the
+  but the only one that compiles — `report/battery.rs` does this because
+  both front-ends reach the report. `about.rs` does not, and needs not: only the
   window's menu opens it, so `main.rs` holding that entry leaves nothing able
   to drift.
 - Inside `hardware/`, the transport modules are drawn by how a control

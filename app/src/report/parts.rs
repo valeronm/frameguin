@@ -5,36 +5,24 @@ use std::rc::Rc;
 
 use adw::prelude::*;
 use frameguin_model::part::{catalogue, kind_label, maker, ordered};
-use frameguin_wire::{Identity, cause};
+use frameguin_wire::Identity;
 use gtk4 as gtk;
 use gtk4::gio;
 use gtk4::glib;
 
+use super::{Shell, value};
 use crate::daemon::Daemon;
-use crate::report::{self, Shell};
-
-const WINDOW_NAME: &str = "frameguin-parts";
 
 /// The application action that opens the window, and the only way in.
 pub(crate) const ACTION: &str = "parts";
 
 pub(crate) fn action(daemon: Rc<Daemon>) -> gio::ActionEntry<adw::Application> {
-    gio::ActionEntry::builder(ACTION)
-        .activate(move |app: &adw::Application, _, _| {
-            report::present(app, WINDOW_NAME, || build(app, &daemon));
-        })
-        .build()
+    super::action(ACTION, "Parts", 600, move |shell| build(shell, &daemon))
 }
 
-/// The window, built and left to fill itself: the inventory is fixed for
-/// the daemon's run and costs one call to fetch.
-fn build(app: &adw::Application, daemon: &Rc<Daemon>) -> adw::Window {
-    let Shell {
-        window,
-        page,
-        toasts,
-    } = report::shell(app, WINDOW_NAME, "Parts", 600);
-
+/// The rows, fetched once the window is up: the inventory is fixed for the
+/// daemon's run and costs one call.
+fn build(shell: Shell, daemon: &Rc<Daemon>) {
     let daemon = daemon.clone();
     glib::spawn_future_local(async move {
         let parts = match daemon.bus().await {
@@ -42,15 +30,10 @@ fn build(app: &adw::Application, daemon: &Rc<Daemon>) -> adw::Window {
             Err(e) => Err(e),
         };
         match parts {
-            Ok(parts) => fill(&page, &parts),
-            Err(e) => {
-                let message = format!("Reading the parts failed: {}", cause(&e));
-                toasts.add_toast(adw::Toast::new(&message));
-            }
+            Ok(parts) => fill(&shell.page, &parts),
+            Err(e) => shell.toast_error("Reading the parts", e),
         }
     });
-
-    window
 }
 
 fn fill(page: &adw::PreferencesPage, parts: &[Identity]) {
@@ -77,19 +60,19 @@ fn group(part: &Identity) -> adw::PreferencesGroup {
         .title(kind_label(part.kind))
         .build();
     if let Some(sold) = catalogue(part) {
-        value_row(&group, "Model", sold.model);
+        optional_value(&group, "Model", sold.model);
         if let Some((manufacturer, part_number)) = maker(part) {
-            value_row(&group, "Manufacturer", manufacturer);
-            value_row(&group, "Part number", part_number);
+            optional_value(&group, "Manufacturer", manufacturer);
+            optional_value(&group, "Part number", part_number);
         }
     } else {
-        value_row(&group, "Vendor", &part.vendor);
-        value_row(&group, "Model", &part.model);
+        optional_value(&group, "Vendor", &part.vendor);
+        optional_value(&group, "Model", &part.model);
     }
-    value_row(&group, "Serial", &part.serial);
-    value_row(&group, "Identifier", &part.id);
+    optional_value(&group, "Serial", &part.serial);
+    optional_value(&group, "Identifier", &part.id);
     for firmware in &part.firmware {
-        value_row(&group, &firmware.name, &firmware.version);
+        optional_value(&group, &firmware.name, &firmware.version);
     }
     if let Some(sold) = catalogue(part) {
         group.add(&link_row("Framework Marketplace", sold.url));
@@ -111,12 +94,9 @@ fn link_row(title: &str, url: &'static str) -> adw::ActionRow {
     row
 }
 
-/// None for an empty value, which gets no row.
-fn value_row(group: &adw::PreferencesGroup, title: &str, value: &str) -> Option<adw::ActionRow> {
-    if value.is_empty() {
-        return None;
+/// An empty value gets no row.
+fn optional_value(group: &adw::PreferencesGroup, title: &str, text: &str) {
+    if !text.is_empty() {
+        value(group, title).set_label(text);
     }
-    let (row, label) = report::value_row(group, title);
-    label.set_label(value);
-    Some(row)
 }

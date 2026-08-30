@@ -30,8 +30,9 @@ use gtk4::glib;
 use crate::bus::Bus;
 use crate::daemon::Daemon;
 use crate::reading::Feed;
+use crate::report::parts;
 use crate::tray::{TrayIcon, TrayValues, tray_push};
-use crate::{APP_ID, about, autostart, board, parts};
+use crate::{APP_ID, about, autostart, board};
 
 /// How long the window waits before asking an unreachable daemon again, and
 /// the ceiling the wait doubles up to. Bounded rather than endless-fast: the

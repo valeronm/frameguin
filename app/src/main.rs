@@ -5,12 +5,10 @@
 
 mod about;
 mod autostart;
-mod battery;
 mod board;
 mod bus;
 mod daemon;
 mod mapped;
-mod parts;
 mod reading;
 mod report;
 mod tray;
@@ -170,7 +168,7 @@ fn setup_tray(app: &adw::Application, state: Rc<AppState>) {
                 // Through the action, like the window's row: the report has
                 // one way in, and a caller reaching past it is how two front-
                 // ends come to open a window differently.
-                TrayEvent::ShowBatteryDetails => app.activate_action(battery::ACTION, None),
+                TrayEvent::ShowBatteryDetails => app.activate_action(report::battery::ACTION, None),
                 TrayEvent::Quit => app.quit(),
             }
         }
@@ -215,14 +213,8 @@ fn main() -> glib::ExitCode {
     // reports' actions need the daemon handle and the feed it holds.
     let state = Rc::new(AppState::new());
 
+    app.add_action_entries(report::actions(&state.daemon, &state.feed));
     app.add_action_entries([
-        // An action rather than a handler on either caller: the window's
-        // status row and the tray's reading both open the report, and only an
-        // action reaches it from the tray, which builds no widgets and holds
-        // no window. The entry is the report's own, so nothing here can reach
-        // past it to the window it opens.
-        battery::action(state.daemon.clone(), state.feed.clone()),
-        parts::action(state.daemon.clone()),
         gio::ActionEntry::builder("about")
             .activate(|app: &adw::Application, _, _| about::show(app.active_window().as_ref()))
             .build(),

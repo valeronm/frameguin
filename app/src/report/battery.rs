@@ -1,16 +1,12 @@
 //! The battery report: a window naming everything the EC says about the pack.
 //!
-//! Its own module because it is the app's one window that only reads. Nothing
-//! here writes, so none of [`crate::window`]'s machinery applies — no sync guard,
-//! no debounce, no tray push — and keeping it apart is what stops that
-//! machinery being reached for out of habit when a row is added.
+//! Nothing here writes, so none of [`crate::window`]'s machinery applies — no
+//! sync guard, no debounce, no tray push — and keeping it apart is what stops
+//! that machinery being reached for out of habit when a row is added.
 //!
 //! Both front-ends open it, the window's status row and the tray's reading,
 //! and neither builds it: they activate `app.battery-details`, which lands
-//! here. That is what lets the tray open the report with no window built, and
-//! what keeps a second click from putting a second report on screen — the one
-//! already open is found in the application's own window list rather than
-//! remembered in a slot that a closed window would leave stale.
+//! here. That is what lets the tray open the report with no window built.
 //!
 //! What each value is *called* is `frameguin_model::control::battery`'s, with
 //! the rest of the words; which rows there are and what fills them is this
@@ -28,14 +24,9 @@ use gtk4 as gtk;
 use gtk4::gio;
 use gtk4::glib;
 
+use super::{Shell, value, value_row};
 use crate::daemon::Daemon;
 use crate::reading::{Feed, Reading, Wants, show_while_mapped};
-use crate::report::{self, Shell, value_row};
-
-/// Names the report in the application's window list, which is how a second
-/// open finds the one already on screen. Spelled once, because a lookup and a
-/// name that disagreed would open reports without limit.
-const WINDOW_NAME: &str = "frameguin-battery-report";
 
 /// The application action that opens the report, and the only way in — see
 /// this module's own doc. Spelled once here: the window's row addresses it
@@ -146,13 +137,6 @@ impl Report {
     }
 }
 
-/// A row whose value is all anyone needs back — most of them. The row itself
-/// is worth keeping only where something moves it later, hence
-/// [`value_row`] beside this.
-fn value(group: &adw::PreferencesGroup, title: &str) -> gtk::Label {
-    value_row(group, title).1
-}
-
 /// A row whose title needs a second line to say what it measures against.
 fn described_value(group: &adw::PreferencesGroup, title: &str, subtitle: &str) -> gtk::Label {
     let (row, value) = value_row(group, title);
@@ -160,28 +144,15 @@ fn described_value(group: &adw::PreferencesGroup, title: &str, subtitle: &str) -
     value
 }
 
-/// The action that opens the report, for the application to register.
-///
-/// Built here rather than in `main.rs` so that [`build`] can stay private:
-/// with the action the only thing that reaches it, no caller can grow its own
-/// way in and leave the two front-ends opening the report differently.
 pub(crate) fn action(daemon: Rc<Daemon>, feed: Rc<Feed>) -> gio::ActionEntry<adw::Application> {
-    gio::ActionEntry::builder(ACTION)
-        .activate(move |app: &adw::Application, _, _| {
-            report::present(app, WINDOW_NAME, || build(app, &daemon, &feed));
-        })
-        .build()
+    super::action(ACTION, "Battery", 680, move |shell| {
+        build(shell, &daemon, &feed);
+    })
 }
 
-/// The report, built and left to fill itself.
-fn build(app: &adw::Application, daemon: &Rc<Daemon>, feed: &Rc<Feed>) -> adw::Window {
-    let Shell {
-        window,
-        page,
-        toasts,
-    } = report::shell(app, WINDOW_NAME, "Battery", 680);
-    let report = build_rows(&page);
-
+/// The rows, built and left to fill themselves.
+fn build(shell: Shell, daemon: &Rc<Daemon>, feed: &Rc<Feed>) {
+    let report = build_rows(&shell.page);
     let daemon = daemon.clone();
     let feed = feed.clone();
     glib::spawn_future_local(async move {
@@ -207,17 +178,15 @@ fn build(app: &adw::Application, daemon: &Rc<Daemon>, feed: &Rc<Feed>) -> adw::W
         // it grows a part. The subscription hangs on the page rather than the
         // window: it is the widget that unmaps with the report, and every row
         // fed from here is inside it.
-        show_while_mapped(&feed, &page, wants, move |reading| report.show(reading));
+        let page = &shell.page;
+        show_while_mapped(&feed, page, wants, move |reading| report.show(reading));
         // The one read here that announces a failure. From now on the feed
         // reads on its own schedule, silently, as every repeating read in this
         // app does.
         if let Err(e) = feed.read().await {
-            let message = format!("Reading the battery failed: {e}");
-            toasts.add_toast(adw::Toast::new(&message));
+            shell.toast_error("Reading the battery", e);
         }
     });
-
-    window
 }
 
 /// Every row of the report, added to `page` in the order they are read in.
