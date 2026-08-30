@@ -17,7 +17,7 @@ mod touchpad;
 pub(crate) mod touchscreen;
 mod widgets;
 
-use std::cell::{Cell, RefCell};
+use std::cell::Cell;
 use std::rc::Rc;
 use std::time::Duration;
 
@@ -26,10 +26,10 @@ use frameguin_model::control::Controls;
 use frameguin_wire::DeviceError;
 use gtk4 as gtk;
 use gtk4::gio;
-use gtk4::glib;
 
 use crate::bus::Bus;
 use crate::daemon::Daemon;
+use crate::mapped::Once;
 use crate::reading::Feed;
 use crate::report::parts;
 use crate::tray::{TrayIcon, TrayValues, tray_push};
@@ -150,7 +150,7 @@ pub(crate) enum Sink<'a> {
         app: &'a adw::Application,
         /// The pending withdrawal of the last refusal, which the next one
         /// re-arms.
-        withdraw: &'a Rc<RefCell<Option<glib::SourceId>>>,
+        withdraw: &'a Cell<Option<Once>>,
     },
 }
 
@@ -166,7 +166,7 @@ const WITHDRAW_REFUSAL_AFTER: Duration = Duration::from_secs(5);
 /// channel a session with no window has.
 fn notify_refusal(
     app: &adw::Application,
-    withdraw: &Rc<RefCell<Option<glib::SourceId>>>,
+    withdraw: &Cell<Option<Once>>,
     attempt: &str,
     error: &DeviceError,
 ) {

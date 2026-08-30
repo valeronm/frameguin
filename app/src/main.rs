@@ -14,7 +14,7 @@ mod report;
 mod tray;
 mod window;
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::ops::ControlFlow;
 use std::rc::Rc;
 
@@ -91,7 +91,7 @@ fn setup_tray(app: &adw::Application, state: Rc<AppState>) {
     let app = app.clone();
     glib::spawn_future_local(async move {
         let _hold = hold;
-        let withdraw = Rc::default();
+        let withdraw = Cell::new(None);
         // Populate the menu right away: in tray-only mode (autostart) nothing
         // else detects the controls until the window is first opened, which
         // would leave the menu at Open/Quit.

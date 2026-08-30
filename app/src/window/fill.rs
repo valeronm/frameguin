@@ -2,6 +2,7 @@
 
 use std::cell::Cell;
 use std::rc::Rc;
+use std::time::Duration;
 
 use adw::prelude::*;
 use gtk4 as gtk;
@@ -9,6 +10,7 @@ use gtk4::gdk;
 use gtk4::glib;
 
 use super::{NO_HARDWARE, Ui};
+use crate::mapped::{Once, while_mapped};
 use crate::{about, board};
 
 /// How long the window waits before asking an unreachable daemon again, and
@@ -274,7 +276,7 @@ struct Init {
     next_attempt: Cell<u32>,
     /// The pending tick, held so that arming replaces a countdown rather than
     /// racing it.
-    retry: Cell<Option<glib::SourceId>>,
+    retry: Cell<Option<Once>>,
 }
 
 impl Init {
@@ -349,28 +351,22 @@ impl Init {
             if remaining == 1 { "second" } else { "seconds" }
         ));
         let init = self.clone();
-        let tick = glib::timeout_add_seconds_local_once(1, move || {
-            // Finished the moment it fires: forget it before anything here
-            // arms its replacement, so nothing removes a dead source.
-            init.retry.set(None);
-            if remaining > 1 {
-                init.count_down(remaining - 1);
-                return;
-            }
-            init.empty.show_progress("Trying again…");
-            glib::spawn_future_local(async move { init.fill().await });
-        });
-        self.stop_retrying();
-        self.retry.set(Some(tick));
+        self.retry
+            .set(Some(Once::after(Duration::from_secs(1), move || {
+                if remaining > 1 {
+                    init.count_down(remaining - 1);
+                    return;
+                }
+                init.empty.show_progress("Trying again…");
+                glib::spawn_future_local(async move { init.fill().await });
+            })));
     }
 
     /// Drops the pending tick, if there is one. Called where the wait has
     /// stopped mattering: the window leaving the screen, and the daemon
     /// answering.
     fn stop_retrying(&self) {
-        if let Some(tick) = self.retry.take() {
-            tick.remove();
-        }
+        self.retry.set(None);
     }
 
     /// Gates each group on its control, loads the values, then connects the
@@ -444,14 +440,21 @@ pub(super) fn attach(window: &adw::ApplicationWindow, ui: &Rc<Ui>, empty: EmptyP
         next_attempt: Cell::new(FIRST_RETRY_SECONDS),
         retry: Cell::default(),
     });
-    let map_init = init.clone();
-    window.connect_map(move |_| {
-        let init = map_init.clone();
-        glib::spawn_future_local(async move { init.refresh().await });
+    // Nothing is lost by the countdown stopping with the window off screen:
+    // the map asks again the moment anyone looks, which is also when an
+    // answer could change what is on screen.
+    while_mapped(window, move || {
+        let refreshing = init.clone();
+        glib::spawn_future_local(async move { refreshing.refresh().await });
+        Retrying(init.clone())
     });
-    // A window hidden to the tray does no periodic work, the rule every other
-    // timer here follows. Nothing is lost by stopping: the map above asks
-    // again the moment anyone looks, which is also when an answer could
-    // change what is on screen.
-    window.connect_unmap(move |_| init.stop_retrying());
+}
+
+/// Stops the countdown when it falls.
+struct Retrying(Rc<Init>);
+
+impl Drop for Retrying {
+    fn drop(&mut self) {
+        self.0.stop_retrying();
+    }
 }

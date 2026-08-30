@@ -2,12 +2,13 @@
 //!
 //! A resident app whose window is hidden to the tray does no periodic work,
 //! and neither does one whose board lacks the row — an unsupported widget is
-//! never mapped. Every repeating thing in this app obeys that rule, and the
-//! rule is written here once: what is held is the caller's, when it is taken
-//! and when it is let go is not.
+//! never mapped. Every timer and subscription in this app obeys that rule,
+//! and the rule is written here once: what is held is the caller's, when it
+//! is taken and when it is let go is not.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
+use std::time::Duration;
 
 use gtk4 as gtk;
 use gtk4::glib;
@@ -60,6 +61,33 @@ impl Timer {
 }
 
 impl Drop for Timer {
+    fn drop(&mut self) {
+        if let Some(source) = self.0.take() {
+            source.remove();
+        }
+    }
+}
+
+/// A one-shot timer that stops when it is dropped before firing. The
+/// callback forgets the id before it runs, so a source that has fired is
+/// never removed — removing one is a panic, and a holder cannot tell a
+/// fired source from a pending one.
+pub(crate) struct Once(Rc<Cell<Option<glib::SourceId>>>);
+
+impl Once {
+    pub(crate) fn after(delay: Duration, fire: impl FnOnce() + 'static) -> Self {
+        let pending: Rc<Cell<Option<glib::SourceId>>> = Rc::default();
+        let fired = pending.clone();
+        let source = glib::timeout_add_local_once(delay, move || {
+            fired.set(None);
+            fire();
+        });
+        pending.set(Some(source));
+        Once(pending)
+    }
+}
+
+impl Drop for Once {
     fn drop(&mut self) {
         if let Some(source) = self.0.take() {
             source.remove();

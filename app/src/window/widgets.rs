@@ -2,7 +2,7 @@
 //! debounce and spawn their writes go through — a handler answers with the
 //! write as a future and spawns nothing for itself.
 
-use std::cell::{Cell, RefCell};
+use std::cell::Cell;
 use std::rc::Rc;
 use std::time::Duration;
 
@@ -12,6 +12,7 @@ use gtk4::gdk;
 use gtk4::glib;
 
 use super::Ui;
+use crate::mapped::Once;
 
 /// GTK carries adjustment values as f64. The cast alone saturates at 255, so
 /// the clamp is what holds the result inside the range the daemon accepts;
@@ -163,7 +164,7 @@ pub(super) fn connect_slider_writes<
     };
     let dragging: Rc<Cell<Option<T>>> = Rc::default();
 
-    let slot = Rc::new(RefCell::new(None));
+    let slot: Rc<Cell<Option<Once>>> = Rc::default();
     let keys_ui = ui.clone();
     let keys_dragging = dragging.clone();
     let (keys_read, keys_write) = (read.clone(), write.clone());
@@ -208,20 +209,12 @@ pub(super) fn connect_slider_writes<
     scale.add_controller(drag);
 }
 
-/// (Re)arms a debounce slot: cancels any pending source and schedules `action`
-/// after `delay`.
+/// (Re)arms a debounce slot: whatever was pending is dropped, and with it
+/// stopped, and `action` runs after `delay` instead.
 pub(super) fn debounce(
-    slot: &Rc<RefCell<Option<glib::SourceId>>>,
+    slot: &Cell<Option<Once>>,
     delay: Duration,
     action: impl FnOnce() + 'static,
 ) {
-    if let Some(source) = slot.borrow_mut().take() {
-        source.remove();
-    }
-    let cleared = slot.clone();
-    let id = glib::timeout_add_local_once(delay, move || {
-        cleared.replace(None);
-        action();
-    });
-    slot.replace(Some(id));
+    slot.set(Some(Once::after(delay, action)));
 }
