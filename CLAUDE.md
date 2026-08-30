@@ -190,7 +190,10 @@ it and the non-obvious constraints.
   took. Correct it where both hold: the prior value is recoverable without a
   read, and the wrong assertion is one a reader acts on rather than merely
   looks at. The touchscreen is the case that meets them, its prior value
-  being the negation and its wrong claim being "touch is off"; everything
+  being the negation and its wrong claim being "touch is off". The power LED
+  meets the second and not the first — a level the kernel would not hand
+  the LED back for reads as Off, and "lit" is a claim of the same kind — so
+  it re-reads after every write rather than capturing anything. Everything
   else here would have to capture a value before the write or re-read after
   it, for a stale row that outlives nothing worse than the next reload.
 - The tray offers one menu item per control, not per value, and every control

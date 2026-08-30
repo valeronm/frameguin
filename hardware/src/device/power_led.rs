@@ -96,13 +96,17 @@ impl PowerLed {
     /// Waits [`LEVEL_SETTLE`] out first: the EC applies a level late, and
     /// lighting the LED before it lands shows the previous level — a flash of
     /// the old brightness on the way out of Off.
-    async fn release(&self) {
+    ///
+    /// The EC has the level by then, so a swallowed refusal would report a
+    /// brightness the dark LED never shows.
+    async fn release(&self) -> DeviceResult<()> {
         let Some(dir) = self.leds.held_dark() else {
-            return;
+            return Ok(());
         };
         Timer::after(LEVEL_SETTLE).await;
-        // A release the kernel refused shows as the LED still reading Off.
-        let _ = self.leds.release(&dir);
+        self.leds.release(&dir).map_err(|e| {
+            DeviceError::Failed(format!("the EC took the write but the LED stays off: {e}"))
+        })
     }
 }
 
@@ -128,8 +132,7 @@ impl PowerLedControl for PowerLed {
             Write::Dark(dir) => self.leds.darken(&dir),
             Write::Level(level) => {
                 self.ec.set_power_led_level(level)?;
-                self.release().await;
-                Ok(())
+                self.release().await
             }
         }
     }
@@ -137,8 +140,7 @@ impl PowerLedControl for PowerLed {
     async fn set_brightness(&self, percent: u8) -> DeviceResult<()> {
         Self::check_brightness(percent)?;
         self.ec.set_power_led_percentage(percent)?;
-        self.release().await;
-        Ok(())
+        self.release().await
     }
 }
 
@@ -151,16 +153,22 @@ mod tests {
     use super::PowerLed;
     use crate::testing::{LedEc, Leds, Log, ready};
 
+    enum Refusing {
+        Neither,
+        Ec,
+        Kernel,
+    }
+
     struct Machine {
         custom: bool,
         node: bool,
-        refusing: bool,
+        refusing: Refusing,
     }
 
     const FULL: Machine = Machine {
         custom: true,
         node: true,
-        refusing: false,
+        refusing: Refusing::Neither,
     };
 
     struct Bench {
@@ -172,12 +180,13 @@ mod tests {
         let log = Log::default();
         let ec = Arc::new(LedEc {
             custom: machine.custom,
-            refusing: machine.refusing,
+            refusing: matches!(machine.refusing, Refusing::Ec),
             log: log.clone(),
             ..LedEc::default()
         });
         let leds = Box::new(Leds {
             node: machine.node.then(|| Leds::default().node).flatten(),
+            refusing_release: matches!(machine.refusing, Refusing::Kernel),
             log: log.clone(),
             ..Leds::default()
         });
@@ -250,12 +259,29 @@ mod tests {
     #[test]
     fn a_write_the_ec_refuses_leaves_the_led_held() {
         let Bench { led, log } = over(&Machine {
-            refusing: true,
+            refusing: Refusing::Ec,
             ..FULL
         });
         ready(led.set_level(PowerLedLevel::Off)).unwrap();
         assert!(ready(led.set_level(PowerLedLevel::High)).is_err());
         assert_eq!(writes(&log), ["darken"]);
+        assert_eq!(ready(led.brightness()), Ok((55, PowerLedLevel::Off)));
+    }
+
+    #[test]
+    fn a_release_the_kernel_refuses_is_reported_with_the_level_written() {
+        let Bench { led, log } = over(&Machine {
+            refusing: Refusing::Kernel,
+            ..FULL
+        });
+        ready(led.set_level(PowerLedLevel::Off)).unwrap();
+        assert_eq!(
+            async_io::block_on(led.set_level(PowerLedLevel::Low)),
+            Err(DeviceError::Failed(
+                "the EC took the write but the LED stays off: trigger: permission denied".into()
+            ))
+        );
+        assert_eq!(writes(&log), ["darken", "level Low"]);
         assert_eq!(ready(led.brightness()), Ok((55, PowerLedLevel::Off)));
     }
 

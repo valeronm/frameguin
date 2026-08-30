@@ -229,6 +229,7 @@ impl PowerLedEc for LedEc {
 pub struct Leds {
     pub node: Option<PathBuf>,
     pub dark: Mutex<bool>,
+    pub refusing_release: bool,
     pub log: Log,
 }
 
@@ -237,6 +238,7 @@ impl Default for Leds {
         Self {
             node: Some(PathBuf::from("/sys/class/leds/power")),
             dark: Mutex::new(false),
+            refusing_release: false,
             log: Log::default(),
         }
     }
@@ -262,6 +264,9 @@ impl LedClass for Leds {
     }
 
     fn release(&self, _dir: &Path) -> DeviceResult<()> {
+        if self.refusing_release {
+            return Err(DeviceError::Failed("trigger: permission denied".into()));
+        }
         *self.dark.lock().unwrap() = false;
         self.log.lock().unwrap().push("release".into());
         Ok(())

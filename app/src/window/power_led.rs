@@ -95,6 +95,18 @@ impl Group {
         self.combo.set_selected(combo_selection(control.row(level)));
     }
 
+    /// Shown from a read after every write, taken or refused: a preset
+    /// resolves to a percentage only the EC knows, and a refused write can
+    /// leave a level the window never picked — Off, where the kernel would
+    /// not hand the LED back — which the combo would otherwise go on
+    /// asserting as lit. Silent on a read that fails, the next reload asking
+    /// again.
+    async fn reload(&self, ui: &Ui, control: &PowerLed) {
+        if let Ok(snapshot) = control.read().await {
+            self.show(ui, control, snapshot);
+        }
+    }
+
     pub(crate) fn connect(&self, ui: &Rc<Ui>, control: &Rc<PowerLed>) {
         // Slider: a raw percentage write; only reachable while the level is
         // Custom, so combo and tray already reflect it.
@@ -135,19 +147,12 @@ impl Group {
 /// it tells the tray. Custom is not a preset: the EC reports it after a raw
 /// percentage write, which goes through [`apply_brightness`] instead.
 pub(crate) async fn apply(sink: Sink<'_>, control: &PowerLed, level: PowerLedLevel) {
-    if let Err(e) = control.set_level(level).await {
-        sink.toast_error("Setting the power button LED level", e);
-        return;
+    match control.set_level(level).await {
+        Ok(()) => sink.push_tray(TrayValues::power_led_level(level)),
+        Err(e) => sink.toast_error("Setting the power button LED level", e),
     }
-    sink.push_tray(TrayValues::power_led_level(level));
-    let Sink::Window(ui) = sink else {
-        return;
-    };
-    ui.sync(|| ui.power_led.show_level(control, level));
-    // The preset resolves to a percentage only the EC knows, and only the
-    // window has anywhere to put it.
-    if let Ok(snapshot) = control.read().await {
-        ui.sync(|| ui.power_led.scale.set_value(f64::from(snapshot.percent)));
+    if let Sink::Window(ui) = sink {
+        ui.power_led.reload(ui, control).await;
     }
 }
 
@@ -155,9 +160,9 @@ pub(crate) async fn apply(sink: Sink<'_>, control: &PowerLed, level: PowerLedLev
 /// reporting "custom", so this owns that consequence rather than leaving
 /// each caller to remember it.
 async fn apply_brightness(ui: &Ui, control: &PowerLed, percent: u8) {
-    if let Err(e) = control.set_brightness(percent).await {
-        ui.toast_error("Setting the power button LED brightness", e);
-        return;
+    match control.set_brightness(percent).await {
+        Ok(()) => ui.sync_tray(TrayValues::power_led_level(PowerLedLevel::Custom)),
+        Err(e) => ui.toast_error("Setting the power button LED brightness", e),
     }
-    ui.sync_tray(TrayValues::power_led_level(PowerLedLevel::Custom));
+    ui.power_led.reload(ui, control).await;
 }
