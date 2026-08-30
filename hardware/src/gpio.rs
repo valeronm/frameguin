@@ -254,6 +254,16 @@ impl Pad {
         self.request(Some(level))?;
         Ok(())
     }
+
+    /// Opening the chip is where every operation begins, so a pad naming
+    /// one that does not exist fails exactly where a real pad would.
+    #[cfg(test)]
+    pub(crate) fn unopenable() -> Self {
+        Self {
+            chip: PathBuf::from("/dev/frameguin-no-such-gpiochip"),
+            line: 0,
+        }
+    }
 }
 
 /// Whether a pad's pinctrl listing describes one this daemon may take.

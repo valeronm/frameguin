@@ -114,3 +114,30 @@ impl TouchSwitch for Route {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{GATED_CONTROLLERS, Route, TouchSwitch};
+    use crate::gpio::Pad;
+    use crate::panel::COMMANDED_CONTROLLER;
+
+    #[test]
+    fn a_panel_route_holds_nothing_to_read() {
+        assert_eq!(Route::Panel.reading(), Ok(None));
+    }
+
+    /// A pad that cannot be read must not answer as a route holding nothing:
+    /// the device reads its own mirror on that answer, where the pad is the
+    /// account it should be failing on.
+    #[test]
+    fn a_pad_that_cannot_be_read_fails_rather_than_holding_nothing() {
+        assert!(Route::Pad(Pad::unopenable()).reading().is_err());
+    }
+
+    /// A controller in both tables would be switched by the pad on a board
+    /// that has one, though its own command works.
+    #[test]
+    fn the_two_routes_never_claim_the_same_controller() {
+        assert!(!GATED_CONTROLLERS.contains(&COMMANDED_CONTROLLER));
+    }
+}

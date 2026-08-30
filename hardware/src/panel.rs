@@ -41,11 +41,14 @@ const VENDOR_USAGE_PAGE: u16 = 0xFF00;
 /// daemon cannot identify.
 pub fn controller(hid: &hidapi::HidApi) -> Option<&hidapi::DeviceInfo> {
     hid.device_list().find(|dev| {
-        dev.vendor_id() == touchscreen::ILI_VID
-            && dev.product_id() == touchscreen::ILI_PID
+        (dev.vendor_id(), dev.product_id()) == COMMANDED_CONTROLLER
             && dev.usage_page() == VENDOR_USAGE_PAGE
     })
 }
+
+/// The controller that takes the enable command, by the identity it
+/// announces on the bus.
+pub(crate) const COMMANDED_CONTROLLER: (u16, u16) = (touchscreen::ILI_VID, touchscreen::ILI_PID);
 
 /// The Ilitek's vendor protocol: a feature report carrying a message id,
 /// its argument and how many bytes to read back, answered on the input
