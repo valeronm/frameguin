@@ -8,14 +8,13 @@
 //! and neither builds it: they activate `app.battery-details`, which lands
 //! here. That is what lets the tray open the report with no window built.
 //!
-//! What each value is *called* is `frameguin_model::control::battery`'s, with
-//! the rest of the words; which rows there are and what fills them is this
-//! module's.
+//! What each value is *called* is `frameguin_model::control::battery::reading`'s;
+//! which rows there are and what fills them is this module's.
 
 use std::rc::Rc;
 
 use adw::prelude::*;
-use frameguin_model::control::battery::{
+use frameguin_model::control::battery::reading::{
     alarms_label, capacity, cell_spread, cell_voltages, charge_direction, charger_label, milliamps,
     percent_label, power_label, retention_label, temperature, text_or_unknown, volts,
 };

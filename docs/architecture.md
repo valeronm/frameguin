@@ -117,7 +117,8 @@ snapshot's movement under a refused write on the app's.
   order around it.
 - **`wire`** — `<Name>Control`, `<Name>Proxy` for that interface, and the
   vocabulary its values travel in.
-- **`model/src/control/<name>.rs`** — `<Name><H: <Name>Control>` holding an
+- **`model/src/control/<name>.rs`**, or `<name>/` where the words outgrow
+  one file — `<Name><H: <Name>Control>` holding an
   `Rc<H>`; `detect()` by its own first read; a `read()` answering what the
   device reports — a `Snapshot` (`Copy`, `Send`, so the tray can hold one)
   where that is several values, the `wire` type itself where it is one;

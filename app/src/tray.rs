@@ -8,8 +8,9 @@ use std::rc::Rc;
 
 use frameguin_model::control::Controls;
 use frameguin_model::control::battery::{
-    amps, battery_summary, charge_limit_at, charge_limit_labels, charge_limit_row, charge_speed_at,
-    charge_speed_names, charge_speed_row, percent_label,
+    charge_limit_at, charge_limit_labels, charge_limit_row, charge_speed_at, charge_speed_names,
+    charge_speed_row,
+    reading::{amps, battery_summary, percent_label},
 };
 use frameguin_model::control::power_led;
 use frameguin_model::control::touchscreen::{state_at, state_labels, state_row};

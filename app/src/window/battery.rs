@@ -8,9 +8,10 @@ use std::rc::Rc;
 use adw::prelude::*;
 use frameguin_model::control::battery::{
     self, CHARGE_LIMIT_CUSTOM, CHARGE_SPEED_CUSTOM, CUSTOM_CHARGE_STEP_MA, MIN_CUSTOM_CHARGE_MA,
-    NO_CHARGE_LIMIT, amps, charge_flow_label, charge_limit_at, charge_limit_labels,
-    charge_limit_row, charge_speed_at, charge_speed_labels, charge_speed_names, charge_speed_row,
-    percent_label, with_custom_row,
+    NO_CHARGE_LIMIT, charge_limit_at, charge_limit_labels, charge_limit_row, charge_speed_at,
+    charge_speed_labels, charge_speed_names, charge_speed_row,
+    reading::{amps, charge_flow_label, percent_label},
+    with_custom_row,
 };
 use frameguin_wire::{BatteryFeature, BatteryState, MIN_CHARGE_LIMIT, NO_CHARGE_CURRENT_LIMIT};
 use gtk4 as gtk;
