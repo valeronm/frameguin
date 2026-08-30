@@ -15,7 +15,6 @@ use frameguin_model::control::battery::{
 };
 use frameguin_wire::{BatteryFeature, BatteryState, MIN_CHARGE_LIMIT, NO_CHARGE_CURRENT_LIMIT};
 use gtk4 as gtk;
-use gtk4::glib;
 
 use crate::bus::Bus;
 use crate::reading::{Wants, show_while_mapped};
@@ -196,67 +195,47 @@ impl Group {
             },
         );
 
-        let limit_control = control.clone();
         connect_combo(
             ui,
+            control,
             &self.limit_combo,
             charge_limit_at,
-            move |ui, percent| {
-                let ui = ui.clone();
-                let control = limit_control.clone();
-                glib::spawn_future_local(async move {
-                    apply_charge_limit(Sink::Window(&ui), &control, percent, Custom::Rederive)
-                        .await;
-                });
+            |ui, control, percent| async move {
+                apply_charge_limit(Sink::Window(&ui), &control, percent, Custom::Rederive).await;
             },
         );
 
         // Slider: a raw ceiling, reachable only while the combo is on Custom.
-        let scale_ui = ui.clone();
-        let scale_control = control.clone();
         connect_slider_writes(
             ui,
+            control,
             &self.limit_scale,
             scale_percent,
-            move |percent| {
-                let ui = scale_ui.clone();
-                let control = scale_control.clone();
-                glib::spawn_future_local(async move {
-                    apply_charge_limit(Sink::Window(&ui), &control, percent, Custom::Keep).await;
-                });
+            |ui, control, percent| async move {
+                apply_charge_limit(Sink::Window(&ui), &control, percent, Custom::Keep).await;
             },
             SliderWrites::OnRelease,
         );
 
         let at_ui = ui.clone();
-        let speed_control = control.clone();
         connect_combo(
             ui,
+            control,
             &self.speed_combo,
             move |index| charge_speed_at(at_ui.battery.design_capacity.get()?, index),
-            move |ui, milliamps| {
-                let ui = ui.clone();
-                let control = speed_control.clone();
-                glib::spawn_future_local(async move {
-                    apply_charge_speed(Sink::Window(&ui), &control, milliamps, Custom::Rederive)
-                        .await;
-                });
+            |ui, control, milliamps| async move {
+                apply_charge_speed(Sink::Window(&ui), &control, milliamps, Custom::Rederive).await;
             },
         );
 
         // Slider: a raw current, reachable only while the combo is on Custom.
-        let scale_ui = ui.clone();
-        let scale_control = control.clone();
         connect_slider_writes(
             ui,
+            control,
             &self.speed_scale,
             scale_milliamps,
-            move |milliamps| {
-                let ui = scale_ui.clone();
-                let control = scale_control.clone();
-                glib::spawn_future_local(async move {
-                    apply_charge_speed(Sink::Window(&ui), &control, milliamps, Custom::Keep).await;
-                });
+            |ui, control, milliamps| async move {
+                apply_charge_speed(Sink::Window(&ui), &control, milliamps, Custom::Keep).await;
             },
             SliderWrites::OnRelease,
         );

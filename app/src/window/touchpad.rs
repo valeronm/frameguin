@@ -7,7 +7,6 @@ use frameguin_model::control::touchpad::{
     self, Snapshot, click_force_at, click_force_labels, click_force_row, haptic_at, haptic_labels,
     haptic_row,
 };
-use gtk4::glib;
 
 use crate::bus::Bus;
 use crate::window::Ui;
@@ -76,26 +75,28 @@ impl Group {
     /// it. A refusal is toasted and the row left where the click put it — a
     /// stale row here outlives nothing worse than the next reload.
     pub(crate) fn connect(&self, ui: &Rc<Ui>, control: &Rc<Touchpad>) {
-        let haptic_control = control.clone();
-        connect_combo(ui, &self.haptic_combo, haptic_at, move |ui, percent| {
-            let ui = ui.clone();
-            let control = haptic_control.clone();
-            glib::spawn_future_local(async move {
+        connect_combo(
+            ui,
+            control,
+            &self.haptic_combo,
+            haptic_at,
+            |ui, control, percent| async move {
                 if let Err(e) = control.set_haptic_intensity(percent).await {
                     ui.toast_error("Setting the haptic intensity", e);
                 }
-            });
-        });
+            },
+        );
 
-        let force_control = control.clone();
-        connect_combo(ui, &self.force_combo, click_force_at, move |ui, force| {
-            let ui = ui.clone();
-            let control = force_control.clone();
-            glib::spawn_future_local(async move {
+        connect_combo(
+            ui,
+            control,
+            &self.force_combo,
+            click_force_at,
+            |ui, control, force| async move {
                 if let Err(e) = control.set_click_force(force).await {
                     ui.toast_error("Setting the click force", e);
                 }
-            });
-        });
+            },
+        );
     }
 }

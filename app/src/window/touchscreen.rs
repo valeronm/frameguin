@@ -5,10 +5,10 @@ use std::rc::Rc;
 
 use adw::prelude::*;
 use frameguin_model::control::touchscreen;
-use gtk4::glib;
 
 use crate::bus::Bus;
 use crate::tray::TrayValues;
+use crate::window::widgets::connect_switch;
 use crate::window::{Sink, Ui};
 
 pub(crate) type Touchscreen = touchscreen::Touchscreen<Bus>;
@@ -56,19 +56,14 @@ impl Group {
     }
 
     pub(crate) fn connect(&self, ui: &Rc<Ui>, control: &Rc<Touchscreen>) {
-        let switch_ui = ui.clone();
-        let switch_control = control.clone();
-        self.switch.connect_active_notify(move |row| {
-            if switch_ui.syncing.get() {
-                return;
-            }
-            let enabled = row.is_active();
-            let ui = switch_ui.clone();
-            let control = switch_control.clone();
-            glib::spawn_future_local(async move {
+        connect_switch(
+            ui,
+            control,
+            &self.switch,
+            |ui, control, enabled| async move {
                 apply(Sink::Window(&ui), &control, enabled).await;
-            });
-        });
+            },
+        );
     }
 }
 

@@ -1,5 +1,6 @@
-//! The chrome the groups share: sliders, combos, and the debounce their
-//! writes go through.
+//! The chrome the groups share: sliders, combos, and the sync guard,
+//! debounce and spawn their writes go through — a handler answers with the
+//! write as a future and spawns nothing for itself.
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -70,20 +71,38 @@ pub(super) fn combo_position(selected: u32) -> Option<usize> {
 
 /// A row a sync moved the combo to must not be written back, and a combo
 /// wired here cannot forget that.
-pub(super) fn connect_combo<T>(
+pub(super) fn connect_combo<C: 'static, T, Fut: Future<Output = ()> + 'static>(
     ui: &Rc<Ui>,
+    control: &Rc<C>,
     combo: &adw::ComboRow,
     at: impl Fn(usize) -> Option<T> + 'static,
-    write: impl Fn(&Rc<Ui>, T) + 'static,
+    write: impl Fn(Rc<Ui>, Rc<C>, T) -> Fut + 'static,
 ) {
-    let ui = ui.clone();
+    let (ui, control) = (ui.clone(), control.clone());
     combo.connect_selected_notify(move |row| {
         if ui.syncing.get() {
             return;
         }
         if let Some(value) = combo_position(row.selected()).and_then(&at) {
-            write(&ui, value);
+            glib::spawn_future_local(write(ui.clone(), control.clone(), value));
         }
+    });
+}
+
+/// A switch a sync moved must not be written back, and a switch wired here
+/// cannot forget that.
+pub(super) fn connect_switch<C: 'static, Fut: Future<Output = ()> + 'static>(
+    ui: &Rc<Ui>,
+    control: &Rc<C>,
+    switch: &adw::SwitchRow,
+    write: impl Fn(Rc<Ui>, Rc<C>, bool) -> Fut + 'static,
+) {
+    let (ui, control) = (ui.clone(), control.clone());
+    switch.connect_active_notify(move |row| {
+        if ui.syncing.get() {
+            return;
+        }
+        glib::spawn_future_local(write(ui.clone(), control.clone(), row.is_active()));
     });
 }
 
@@ -123,15 +142,25 @@ impl SliderWrites {
 /// slider's position into the value that gets written, and is also what
 /// decides whether a drag moved at all — comparing positions would count a
 /// nudge that rounds back to where it started.
-pub(super) fn connect_slider_writes<T: Copy + PartialEq + 'static>(
+pub(super) fn connect_slider_writes<
+    C: 'static,
+    T: Copy + PartialEq + 'static,
+    Fut: Future<Output = ()> + 'static,
+>(
     ui: &Rc<Ui>,
+    control: &Rc<C>,
     scale: &gtk::Scale,
     read: impl Fn(f64) -> T + 'static,
-    write: impl Fn(T) + 'static,
+    write: impl Fn(Rc<Ui>, Rc<C>, T) -> Fut + 'static,
     writes: SliderWrites,
 ) {
     let read = Rc::new(read);
-    let write = Rc::new(write);
+    let write = {
+        let (ui, control) = (ui.clone(), control.clone());
+        Rc::new(move |value: T| {
+            glib::spawn_future_local(write(ui.clone(), control.clone(), value));
+        })
+    };
     let dragging: Rc<Cell<Option<T>>> = Rc::default();
 
     let slot = Rc::new(RefCell::new(None));

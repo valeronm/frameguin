@@ -176,7 +176,10 @@ it and the non-obvious constraints.
   match. Both the window's handler and the tray item call it; neither writes
   around it. Controls only the window sets (the touchpad) write inline
   in their handler — one caller needs no shared function, and giving it one
-  would be ceremony. Writing *by* moving the widget, which the tray used to
+  would be ceremony. Either way a handler answers `window/widgets.rs` with
+  its write as a future: the helper owns the sync guard and the spawn, and a
+  handler spawning for itself is caught by nothing but the `glib` import it
+  would need. Writing *by* moving the widget, which the tray used to
   do, makes state the command channel: a widget already showing the requested
   value emits no change, so the write is silently dropped — which is what a
   tray click on a stale window hits. Debouncing stays with the widget that
