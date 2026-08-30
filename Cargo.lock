@@ -616,6 +616,7 @@ name = "frameguin"
 version = "0.2.0"
 dependencies = [
  "async-channel",
+ "async-lock",
  "frameguin-model",
  "frameguin-wire",
  "gtk4",

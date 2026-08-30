@@ -26,6 +26,7 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
+use async_lock::OnceCell;
 use frameguin_model::control::Controls;
 use frameguin_wire::{BatteryCondition, BatteryInfo, DeviceError, DeviceResult, FrameguinProxy};
 use gtk4 as gtk;
@@ -117,11 +118,11 @@ pub(crate) struct Feed {
     /// Built on demand and kept: the feed outlives any one window, so a report
     /// opened, closed and opened again costs one connection rather than one
     /// apiece — and a session that only ever shows the tray opens none.
-    bus: RefCell<Option<Rc<Bus>>>,
+    bus: OnceCell<Rc<Bus>>,
     /// The controls detected, asked once. Fixed for the daemon's run, and
     /// the cold call — so the report reopening pays for one, not one per
-    /// open. None until asked; a failed ask is not remembered.
-    controls: RefCell<Option<Rc<Controls<Bus>>>>,
+    /// open. Empty until asked; a failed ask is not remembered.
+    controls: OnceCell<Rc<Controls<Bus>>>,
     views: RefCell<Vec<(u64, View)>>,
     next_id: Cell<u64>,
     /// The pending tick. Armed as the first view arrives and dropped as the
@@ -188,16 +189,11 @@ impl Feed {
 
     /// The bus as every control reaches it, on the one connection.
     pub(crate) async fn bus(&self) -> zbus::Result<Rc<Bus>> {
-        let held = self.bus.borrow().clone();
-        if let Some(bus) = held {
-            return Ok(bus);
-        }
-        let bus = Rc::new(Bus::connect().await?);
-        // Whatever landed in the slot while this one was dialling wins, rather
-        // than being overwritten: two first callers racing would otherwise
-        // leave the loser's connection held by whoever it was handed to, and
-        // the app would keep both sockets for the rest of the run.
-        Ok(self.bus.borrow_mut().get_or_insert(bus).clone())
+        // The tray and the window both ask at startup.
+        self.bus
+            .get_or_try_init(async || Ok(Rc::new(Bus::connect().await?)))
+            .await
+            .cloned()
     }
 
     /// The controls whose devices detected themselves, asked once for the
@@ -206,17 +202,13 @@ impl Feed {
     /// is the cold call, and caching one unlucky answer would hold the app
     /// to it for the session.
     pub(crate) async fn controls(&self) -> DeviceResult<Rc<Controls<Bus>>> {
-        let held = self.controls.borrow().clone();
-        if let Some(controls) = held {
-            return Ok(controls);
-        }
-        let bus = self.bus().await?;
-        // No re-check for a racing asker, unlike `bus`: two of them compute
-        // the same answer from the same detection, and a control holds
-        // nothing a second copy would be left owning.
-        let controls = Rc::new(Controls::detect(&bus).await?);
-        self.controls.replace(Some(controls.clone()));
-        Ok(controls)
+        self.controls
+            .get_or_try_init(async || {
+                let bus = self.bus().await?;
+                Ok(Rc::new(Controls::detect(&bus).await?))
+            })
+            .await
+            .cloned()
     }
 
     fn arm(self: &Rc<Self>) {
