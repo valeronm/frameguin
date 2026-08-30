@@ -145,7 +145,9 @@ it and the non-obvious constraints.
   The rest divide by job: `dmi.rs`
   the SMBIOS reads — the vendor deciding whether there is an EC to open, the
   product name deciding which board's pads are which, the raw entries a
-  part's identity comes from — `lifetime.rs` what
+  part's identity comes from — `sbs.rs` the pack's own registers and what
+  their words mean, apart from `ec.rs` so the decoding is testable without
+  an EC and `ec.rs` stays every EC call and nothing else — `lifetime.rs` what
   holds a mirrored value and whether it still holds it, where `dmi.rs`
   answers for the machine, which is the difference between a fact a reboot or
   a sleep changes and one that outlives both, `state.rs`
@@ -255,7 +257,7 @@ implement it is the point sharpened: the read said nothing either way.
 
 Write-only controls have no same-path probe to run, and take one of two other
 forms. Asking the firmware whether it implements the exact command the setter
-sends (`Ec::command_supported`) is a probe about that command and nothing
+sends (`Ec::offers`) is a probe about that command and nothing
 else, which is what separates it from the touchscreen trap — there a read
 answered for a command the panel turned out not to have. Where even that isn't
 available, the condition is hardcoded with a comment explaining why. A probe

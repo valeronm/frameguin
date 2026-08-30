@@ -1,5 +1,5 @@
 //! The embedded controller: one method per operation the daemon performs on
-//! it, and the vocabulary the two ends spell those operations in.
+//! it.
 //!
 //! [`Ec`] is the only thing in the daemon holding a `CrosEc`. Every method
 //! takes the lock and releases it before returning, and none calls another
@@ -24,58 +24,11 @@ use framework_lib::power;
 use crate::dmi;
 use crate::lifetime::EcBoot;
 use crate::part::{self, Identity};
+use crate::sbs;
 
-/// Reaching the pack directly, past the EC's own copy of what it says. The
-/// port and address are the same on every Framework board — one Nuvoton EC,
-/// one gauge IC — and the address is the 7-bit form of the 8-bit 0x16 the
-/// datasheet names.
+/// The EC's I2C port the pack hangs off, the same on every Framework board
+/// — one Nuvoton EC.
 const BATTERY_I2C_PORT: u8 = 3;
-const BATTERY_I2C_ADDR: u16 = 0x0b;
-/// `SB_CYCLE_COUNT` in the Smart Battery spec, and the register the EC itself
-/// reads for the value it publishes.
-const SB_CYCLE_COUNT: u16 = 0x17;
-/// `SB_MANUFACTURE_DATE`, packed into one word — see [`manufactured_iso`].
-const SB_MANUFACTURE_DATE: u16 = 0x1b;
-/// The per-cell voltages, in the order the pack numbers its cells. The
-/// registers run backwards against that numbering, which is the datasheet's
-/// doing rather than a mistake here: 0x3F is cell 1 and 0x3C is cell 4.
-const SB_CELL_VOLTAGES: [u16; 4] = [0x3f, 0x3e, 0x3d, 0x3c];
-/// `SB_BATTERY_STATUS`, whose alarm bits are decoded by [`alarms`]. The EC
-/// reads this register too, but publishes only the two direction flags out of
-/// it — the alarms have nowhere in the memmap to go.
-const SB_BATTERY_STATUS: u16 = 0x16;
-/// `SB_TEMPERATURE`, in tenths of a Kelvin.
-///
-/// The EC polls this same register and republishes it into its thermal sensor
-/// array — its devicetree node is `cros-ec,temp-sensor-battery` at the pack's
-/// own I2C address, described as "the last polled battery temperature". So
-/// this is not a second opinion but the same sensor read first-hand: at the
-/// tenth of a degree it measures in rather than the whole degree the array
-/// carries, as freshly as the ask, and on every board rather than only those
-/// that wire the relay.
-const SB_TEMPERATURE: u16 = 0x08;
-
-/// Tenths of a Kelvin between absolute zero and freezing, for turning the
-/// pack's reading into tenths of a degree Celsius. The true offset is 2731.5;
-/// rounding it costs at most a twentieth of a degree, which is half of what
-/// the sensor resolves, and matches what `framework_tool` prints.
-const FREEZING_DECIKELVIN: i32 = 2732;
-
-/// Which bit of the status word raises which alarm. Only the two that mean a
-/// fault — [`wire::BatteryAlarm`] carries why the word's other set bits do
-/// not, and every one of them is raised by a pack working exactly as it
-/// should.
-const SB_ALARM_BITS: [(u16, wire::BatteryAlarm); 2] = [
-    (1 << 15, wire::BatteryAlarm::OverCharged),
-    (1 << 12, wire::BatteryAlarm::OverTemperature),
-];
-
-/// The pack asking that charging stop, and that discharging stop. Absent from
-/// the table above because neither means anything alone — the gauge raises
-/// each at the ordinary end of its direction — and present here because
-/// together they cannot be ordinary at all. See [`wire::BatteryAlarm`].
-const SB_TERMINATE_CHARGE: u16 = 1 << 14;
-const SB_TERMINATE_DISCHARGE: u16 = 1 << 11;
 
 /// What the power LED's device needs of the EC: the level it holds, the two
 /// writes that move it, and whether the firmware has the levels that came
@@ -207,7 +160,7 @@ impl Ec {
     /// the held value is never older than the session asking for it.
     fn cycle_count(&self) -> Option<u32> {
         remembered(&self.memo.cycle_count, || {
-            Some(u32::from(self.sb_word(SB_CYCLE_COUNT)?))
+            Some(u32::from(self.sb_word(sbs::CYCLE_COUNT)?))
         })
     }
 
@@ -215,7 +168,7 @@ impl Ec {
     /// the EC's block has no room for a date and publishes none.
     fn manufacture_date(&self) -> Option<String> {
         remembered(&self.memo.manufacture_date, || {
-            manufactured_iso(self.sb_word(SB_MANUFACTURE_DATE)?)
+            sbs::manufactured_iso(self.sb_word(sbs::MANUFACTURE_DATE)?)
         })
     }
 
@@ -224,8 +177,7 @@ impl Ec {
     /// read is a transfer to a device the EC is also driving, so callers ask
     /// for one only where the EC's own copy is absent or known stale.
     fn sb_word(&self, register: u16) -> Option<u16> {
-        let response =
-            i2c_read(&self.ec(), BATTERY_I2C_PORT, BATTERY_I2C_ADDR, register, 2).ok()?;
+        let response = i2c_read(&self.ec(), BATTERY_I2C_PORT, sbs::I2C_ADDR, register, 2).ok()?;
         response.is_successful().ok()?;
         Some(u16::from_le_bytes([
             *response.data.first()?,
@@ -233,15 +185,22 @@ impl Ec {
         ]))
     }
 
-    pub fn version(&self) -> EcResult<String> {
-        self.ec().version_info()
+    /// A version is never worth a failed detection, so a silent EC reads as
+    /// none.
+    pub fn version(&self) -> Option<String> {
+        self.ec().version_info().ok()
     }
 
-    /// Whether the firmware implements a command at the given version — and
-    /// `Err` when the EC would not say, which is not the same answer. What to
-    /// make of a silent EC is the caller's to decide.
-    pub fn command_supported(&self, command: EcCommands, version: u8) -> EcResult<bool> {
-        self.ec().cmd_version_supported(command as u32, version)
+    /// Whether a write-only command can be offered, asked of the firmware by
+    /// `GET_CMD_VERSIONS`, which is side-effect-free and about the exact
+    /// command a setter sends. An EC that won't answer is read as "no": a
+    /// device settles its offer once per run, so offering on a silent read
+    /// would keep offering a control that may not be there for the whole of
+    /// it.
+    fn offers(&self, command: EcCommands, version: u8) -> bool {
+        self.ec()
+            .cmd_version_supported(command as u32, version)
+            .unwrap_or(false)
     }
 
     /// When the EC booted, from its uptime and the wall clock read together.
@@ -279,18 +238,6 @@ impl PowerLedEc for Ec {
     /// them.
     fn custom_power_led_levels(&self) -> bool {
         self.offers(EcCommands::FpLedLevelControl, 1)
-    }
-}
-
-impl Ec {
-    /// Whether a write-only command can be offered, asked of the firmware by
-    /// `GET_CMD_VERSIONS`, which is side-effect-free and about the exact
-    /// command a setter sends. An EC that won't answer is read as "no": a
-    /// device settles its offer once per run, so offering on a silent read
-    /// would keep offering a control that may not be there for the whole of
-    /// it.
-    fn offers(&self, command: EcCommands, version: u8) -> bool {
-        self.command_supported(command, version).unwrap_or(false)
     }
 }
 
@@ -336,14 +283,14 @@ impl Pack for Ec {
     /// transfer per cell plus two, which is why only a caller showing them
     /// asks.
     fn condition(&self) -> Option<wire::BatteryCondition> {
-        let cell_millivolts: Vec<u32> = SB_CELL_VOLTAGES
+        let cell_millivolts: Vec<u32> = sbs::CELL_VOLTAGES
             .iter()
             .map(|register| self.sb_word(*register).map(u32::from))
             .collect::<Option<_>>()?;
         Some(wire::BatteryCondition {
             cell_millivolts,
-            alarms: alarms(self.sb_word(SB_BATTERY_STATUS)?),
-            decicelsius: decicelsius(self.sb_word(SB_TEMPERATURE)?),
+            alarms: sbs::alarms(self.sb_word(sbs::BATTERY_STATUS)?),
+            decicelsius: sbs::decicelsius(self.sb_word(sbs::TEMPERATURE)?),
         })
     }
 }
@@ -418,42 +365,6 @@ fn wire_power_led_level(level: Option<&FpLedBrightnessLevel>) -> wire::PowerLedL
     }
 }
 
-/// The alarms a status word is raising, by name. A word raising none — the
-/// ordinary case — gives an empty list rather than a state of its own.
-fn alarms(status: u16) -> Vec<wire::BatteryAlarm> {
-    let mut raised: Vec<wire::BatteryAlarm> = SB_ALARM_BITS
-        .iter()
-        .filter(|(bit, _)| status & bit != 0)
-        .map(|(_, alarm)| *alarm)
-        .collect();
-    if status & SB_TERMINATE_CHARGE != 0 && status & SB_TERMINATE_DISCHARGE != 0 {
-        raised.push(wire::BatteryAlarm::SafetyFault);
-    }
-    raised
-}
-
-/// The pack's packed manufacturing date as the ISO-8601 the wire carries: day
-/// in the low five bits, month in the next four, years since 1980 in the rest.
-///
-/// None on a word that decodes to no real date, which is what an uninitialized
-/// register reads as — a pack that was never given a date reports zeros, and
-/// "1980-00-00" is worse than saying nothing.
-fn manufactured_iso(packed: u16) -> Option<String> {
-    let day = packed & 0x1f;
-    let month = (packed >> 5) & 0x0f;
-    if day == 0 || month == 0 || month > 12 {
-        return None;
-    }
-    Some(format!("{:04}-{month:02}-{day:02}", 1980 + (packed >> 9)))
-}
-
-/// The pack's reading as tenths of a degree Celsius. Signed, because a machine
-/// left in the cold reads below freezing; saturating, because the arithmetic
-/// is only unbounded in a word the pack could not have produced.
-fn decicelsius(decikelvin: u16) -> i16 {
-    i16::try_from(i32::from(decikelvin) - FREEZING_DECIKELVIN).unwrap_or(i16::MAX)
-}
-
 /// The moving part of the battery block in the wire's terms, taken from a
 /// block the caller already holds rather than read for itself — so a report
 /// and the reading inside it come from one walk.
@@ -524,90 +435,7 @@ fn charge_flow(
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        ChargeSignals, SB_TERMINATE_CHARGE, SB_TERMINATE_DISCHARGE, alarms, charge_flow,
-        decicelsius, ec_power_led_level, manufactured_iso, wire, wire_power_led_level,
-    };
-
-    /// The reading `framework_tool` prints as 34.2 C for the same word.
-    #[test]
-    fn the_packs_decikelvin_reads_as_tenths_of_a_degree() {
-        assert_eq!(decicelsius(3074), 342);
-    }
-
-    /// The offset puts freezing at 2732, so a pack below it is a temperature
-    /// rather than an underflow.
-    #[test]
-    fn a_cold_pack_reads_below_zero() {
-        assert_eq!(decicelsius(2732), 0);
-        assert_eq!(decicelsius(2632), -100);
-    }
-
-    /// The pack's own packed form, taken from a real label: 2026-05-14.
-    #[test]
-    fn a_packed_date_unpacks_to_the_day_the_pack_was_built() {
-        let packed = ((2026 - 1980) << 9) | (5 << 5) | 0x0e;
-        assert_eq!(manufactured_iso(packed).as_deref(), Some("2026-05-14"));
-    }
-
-    /// A register nobody wrote reads as zeros, which is not the first of
-    /// January 1980.
-    #[test]
-    fn an_unwritten_date_register_is_no_date_at_all() {
-        assert_eq!(manufactured_iso(0), None);
-        // A year with a day but no month, and a month past December.
-        assert_eq!(manufactured_iso(1), None);
-        assert_eq!(manufactured_iso((13 << 5) | 1), None);
-    }
-
-    /// The ordinary reading: initialized and discharging, both states rather
-    /// than alarms.
-    #[test]
-    fn a_pack_running_normally_raises_no_alarm() {
-        assert!(alarms(0x00c0).is_empty());
-    }
-
-    #[test]
-    fn each_alarm_bit_is_named() {
-        assert_eq!(alarms(1 << 15), vec![wire::BatteryAlarm::OverCharged]);
-        assert_eq!(alarms(1 << 12), vec![wire::BatteryAlarm::OverTemperature]);
-    }
-
-    /// The bits a healthy pack sets in the course of its work: full, empty,
-    /// asking that charging or discharging end. Reading any of them as a fault
-    /// would put a red row on a battery that had merely finished charging.
-    #[test]
-    fn the_states_a_working_pack_sets_are_not_faults() {
-        for bit in [1 << 14, 1 << 11, 1 << 9, 1 << 8, 1 << 5, 1 << 4] {
-            assert!(alarms(bit).is_empty(), "bit {bit:#x} read as an alarm");
-        }
-    }
-
-    /// Neither terminate alarm means anything alone, and the gauge raises each
-    /// only in the direction it applies to — one while charging, the other
-    /// while discharging. Both at once is the safety alert or permanent
-    /// failure that is the only other way either is set.
-    #[test]
-    fn asking_to_stop_both_ways_at_once_is_a_fault() {
-        let both = SB_TERMINATE_CHARGE | SB_TERMINATE_DISCHARGE;
-        assert_eq!(alarms(both), vec![wire::BatteryAlarm::SafetyFault]);
-        // And still a fault beside the state bits a pack sets while it holds.
-        assert_eq!(alarms(both | 0x00c0), vec![wire::BatteryAlarm::SafetyFault]);
-    }
-
-    /// Alarms are a set, not a state: a pack in trouble raises several at
-    /// once, and reporting only the first would hide the rest.
-    #[test]
-    fn a_pack_in_trouble_raises_every_alarm_it_has() {
-        let status = (1 << 15) | (1 << 12) | 0x00c0;
-        assert_eq!(
-            alarms(status),
-            vec![
-                wire::BatteryAlarm::OverCharged,
-                wire::BatteryAlarm::OverTemperature
-            ]
-        );
-    }
+    use super::{ChargeSignals, charge_flow, ec_power_led_level, wire, wire_power_led_level};
 
     /// A charger attached and the pack held at its ceiling: the EC claiming
     /// no direction, nothing moving. Each case below names only what it

@@ -15,8 +15,9 @@
 //! class, [`touchpad`] the pad's own HID transport, [`panel`] the touch
 //! panel's, [`gpio`] a pad on the processor through the GPIO character
 //! device, [`dmi`] the firmware's SMBIOS table. [`touchscreen`] settles
-//! which of two routes a machine has, and is the role over either.
-//! [`state`] is the store for what cannot be read back, [`lifetime`] what
+//! which of two routes a machine has, and is the role over either. `sbs` is
+//! the pack's own registers and what their words mean,
+//! [`state`] the store for what cannot be read back, [`lifetime`] what
 //! holds a mirrored value and how to tell it still does, [`mirror`] the
 //! mirror a device reads and writes such a value through, [`part`] what a
 //! device is as a part of the machine, and [`device`] the devices
@@ -38,6 +39,7 @@ pub mod lifetime;
 pub mod mirror;
 pub mod panel;
 pub mod part;
+pub(crate) mod sbs;
 pub mod state;
 pub mod touchpad;
 pub mod touchscreen;
