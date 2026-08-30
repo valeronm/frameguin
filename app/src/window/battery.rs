@@ -19,10 +19,11 @@ use gtk4::glib;
 use crate::bus::Bus;
 use crate::reading::{Wants, show_while_mapped};
 use crate::tray::TrayValues;
-use crate::window::{
-    Sink, SliderWrites, Ui, build_scale, combo_index, combo_position, connect_combo,
+use crate::window::widgets::{
+    SliderWrites, build_scale, combo_index, combo_position, combo_selection, connect_combo,
     connect_slider_writes, reveal_under, scale_percent, string_list,
 };
+use crate::window::{Sink, Ui};
 
 pub(crate) type Battery = battery::Battery<Bus>;
 
@@ -160,7 +161,7 @@ impl Group {
     /// disagree about which one is in effect.
     fn show_charge_speed(&self, ui: &Ui, milliamps: u32, custom: Custom) {
         let Some(capacity) = self.design_capacity.get() else {
-            ui.sync(|| self.speed_combo.set_selected(gtk::INVALID_LIST_POSITION));
+            ui.sync(|| self.speed_combo.set_selected(combo_selection(None)));
             return;
         };
         let preset = charge_speed_row(capacity, milliamps);

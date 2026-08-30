@@ -72,7 +72,11 @@ it and the non-obvious constraints.
   fields are private, so `tray_push` is the only way that state moves.
   `window/` holds `Ui`, whose fields are private to that module tree — the
   groups under it read them, nothing outside it can — which is what `Sink`
-  and the `apply_*` writes living there buys. `report/` holds the windows
+  and the `apply_*` writes living there buys. `window/fill.rs` drives `Ui`
+  from outside it — the ask, the empty page, the retry — so the fan-outs
+  over the groups (`gate`, `load_values`, `connect_handlers`) stay on `Ui`
+  where its fields are, and a fill cannot reach a widget any other way;
+  `window/widgets.rs` is the chrome no one group owns. `report/` holds the windows
   that only read, and the shell they share in its `mod.rs` — found by name or
   built, destroyed on close — so the single-instance rule is one private
   function rather than one copy per window, and nothing outside the tree can

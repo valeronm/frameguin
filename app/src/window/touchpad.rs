@@ -10,7 +10,8 @@ use frameguin_model::control::touchpad::{
 use gtk4::glib;
 
 use crate::bus::Bus;
-use crate::window::{Ui, combo_selection, connect_combo, string_list};
+use crate::window::Ui;
+use crate::window::widgets::{combo_selection, connect_combo, string_list};
 
 pub(crate) type Touchpad = touchpad::Touchpad<Bus>;
 

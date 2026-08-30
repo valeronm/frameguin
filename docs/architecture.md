@@ -212,7 +212,9 @@ in one that exists, with a stub in `hardware::testing` for any role it
 adds; its interface in the daemon, and its field in `interface::Devices`,
 which is what puts it on the bus and in front of the proxies in
 `interface/tests.rs`; the client control in `model`; the group; the tray
-item. None is in a file another device shares. Adding a part with no control is one device module
+item. What another device shares is a line in a struct or a fan-out — the
+`Devices`, `Proxies` and `Controls` fields, the window's `gate`,
+`load_values` and `connect_handlers` arms — never a body. Adding a part with no control is one device module
 implementing `Part`, and its line where the daemon collects the inventory
 at startup.
 

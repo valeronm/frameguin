@@ -11,10 +11,11 @@ use gtk4::glib;
 
 use crate::bus::Bus;
 use crate::tray::TrayValues;
-use crate::window::{
-    Sink, SliderWrites, Ui, build_scale, combo_selection, connect_combo, connect_slider_writes,
-    reveal_under, scale_percent, string_list,
+use crate::window::widgets::{
+    SliderWrites, build_scale, combo_selection, connect_combo, connect_slider_writes, reveal_under,
+    scale_percent, string_list,
 };
+use crate::window::{Sink, Ui};
 
 pub(crate) type PowerLed = power_led::PowerLed<Bus>;
 
