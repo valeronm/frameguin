@@ -83,8 +83,8 @@ another column; what a layer must not link lives in another row.
 
 | Layer | Crate | Links | Owns | Must not know | Tested against |
 |---|---|---|---|---|---|
-| Groups, tray | `app` | GTK, libadwaita, ksni, `model` | Widgets, toasts, the sync guard, timers, the tray thread's copy of each snapshot | Which daemon operation a command becomes; any preset's value | Kept thin; not tested |
-| Client controls | `model` | `wire` | A snapshot per control, its read, its commands, its presets and words | GTK, the bus, another control's trait | A stub of the control trait |
+| Groups, tray | `app` | GTK, libadwaita, ksni, `model` | Widgets, toasts, the sync guard, timers, the tray thread's copy of each value | Which daemon operation a command becomes; any preset's value | Kept thin; not tested |
+| Client controls | `model` | `wire` | One object per control: its read, its commands, its presets and words | GTK, the bus, another control's trait | A stub of the control trait |
 | Control traits | `wire` | zbus, serde | One trait per device, one async fn per operation; `DeviceError` | How an operation is reached | — |
 | Bus | `wire`, `app`, `daemon` | zbus, polkit | One proxy per interface and the vocabularies (`wire`); `Bus` implementing the traits over them (`app`); `Served<Device>` with the validate → skip → authorize → write order (`daemon`) | Anything that touches hardware (`wire`, `app`); which EC command a role sends (`daemon`) | Its own `wire` proxies over a socket pair, the devices on the same stubs |
 | Devices | `hardware` | `wire` | `detect()`, the control impl with its argument checks, the `Part` impl, mirrors under a declared lifetime, arbitrations | The bus, polkit | The stub per role and the store in memory, in `hardware::testing` |
@@ -115,11 +115,11 @@ snapshot's movement under a refused write on the app's.
 - **`wire`** — `<Name>Control`, `<Name>Proxy` for that interface, and the
   vocabulary its values travel in.
 - **`model/src/control/<name>.rs`** — `<Name><H: <Name>Control>` holding an
-  `Rc<H>`; `detect()` by its own first read; a `read()` answering its
-  `Snapshot` (`Copy`, `Send`, so the tray can hold one); commands that call
-  the hardware; the presets, rows and labels both front-ends draw from; its
-  defaults. A control the tray shows also keeps the last snapshot, so the
-  two front-ends draw one value.
+  `Rc<H>`; `detect()` by its own first read; a `read()` answering what the
+  device reports — a `Snapshot` (`Copy`, `Send`, so the tray can hold one)
+  where that is several values, the `wire` type itself where it is one;
+  commands that call the hardware; the presets, rows and labels both
+  front-ends draw from; its defaults.
 - **`app/src/window/<name>.rs`** — the `PreferencesGroup`, `gate(control)`
   showing it where the device is, `show(snapshot)` moving the widgets under
   the sync guard, and handlers dispatching to the control's commands.
@@ -151,13 +151,13 @@ place is the daemon's, because what it protects is the polkit prompt.
 ### The app's side
 
 The app implements every control trait once, over the bus, on one
-connection dialled once per run. A client control holds the snapshot the
-last read or write left, shared by every window and the tray — a window and
-a report showing one pack must show one reading. A command returns what
-happened, and one place in the window turns that into a toast, a push to the
-tray and a move of the group; the tray holds `Option<Snapshot>` per control
-and merges control-wise, so a partial push cannot leave two settings of one
-device from two moments.
+connection dialled once per run. A client control is one object shared by
+every window and the tray, and the pack's reading is taken once and fed to
+every view showing it — a window and a report showing one pack must show one
+reading. A command returns what happened, and one place in the window turns
+that into a toast, a push to the tray and a move of the group; the tray
+holds an `Option` per value in `TrayValues` and merges value-wise, a push
+carrying only what the write moved.
 
 `model` links neither GTK nor a bus connection, and Cargo enforces it — the
 tray draws from it on ksni's own thread, and it is the one no-GTK rule here

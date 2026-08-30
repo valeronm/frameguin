@@ -70,9 +70,9 @@ it and the non-obvious constraints.
   this end. `tray.rs` links no GTK
   either, which matters because its menu runs on ksni's own thread; its
   fields are private, so `tray_push` is the only way that state moves.
-  `ui.rs` is the largest and stays that way on purpose: `Ui`'s fields are
-  private to it, which is what `Sink` and the `apply_*` writes living there
-  buys. `battery.rs` is the battery report, the app's one window that only
+  `window/` holds `Ui`, whose fields are private to that module tree — the
+  groups under it read them, nothing outside it can — which is what `Sink`
+  and the `apply_*` writes living there buys. `battery.rs` is the battery report, the app's one window that only
   reads — no sync guard, no debounce, no tray push — and every field it holds
   is a descendant of the page its subscription hangs on, so nothing in it can
   reach back up the widget tree and outlive the window. `parts.rs` is the

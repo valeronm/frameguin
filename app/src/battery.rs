@@ -1,7 +1,7 @@
 //! The battery report: a window naming everything the EC says about the pack.
 //!
 //! Its own module because it is the app's one window that only reads. Nothing
-//! here writes, so none of [`crate::ui`]'s machinery applies — no sync guard,
+//! here writes, so none of [`crate::window`]'s machinery applies — no sync guard,
 //! no debounce, no tray push — and keeping it apart is what stops that
 //! machinery being reached for out of habit when a row is added.
 //!
