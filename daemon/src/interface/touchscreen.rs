@@ -21,10 +21,11 @@ impl Served<Touchscreen> {
     ) -> fdo::Result<()> {
         // Skipped only where a reading can say the value is already there;
         // the route with none never skips.
-        if self.device().reading()? == Some(enabled) {
+        let device = self.device();
+        if device.reading()? == Some(enabled) {
             return Ok(());
         }
         self.authorize(&header).await?;
-        Ok(self.device().set_enabled(enabled).await?)
+        Ok(device.set_enabled(enabled).await?)
     }
 }

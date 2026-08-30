@@ -12,7 +12,7 @@ use frameguin_hardware::device::touchpad::Touchpad;
 use frameguin_hardware::device::touchscreen::Touchscreen;
 use frameguin_hardware::ec::Pack;
 use frameguin_hardware::testing::{
-    EC_BOOT, EcCharger, Fp, Gauge, Leds, Memory, Pad, Route, block, mirrors, panel_identity,
+    EC_BOOT, EcCharger, Gauge, Haptic, LedEc, Leds, Memory, Route, block, mirrors, panel_identity,
     touchpad_identity,
 };
 use frameguin_wire::{
@@ -29,8 +29,14 @@ fn devices() -> Devices {
     let mirrors = mirrors(&store, Some(EC_BOOT), None);
     let gauge = Arc::new(Gauge::default());
     Devices {
+        battery: Some(Battery::new(
+            gauge.clone(),
+            Arc::new(EcCharger::default()),
+            &mirrors,
+            gauge.identity().unwrap(),
+        )),
         touchpad: Some(Touchpad::new(
-            Box::new(Pad::default()),
+            Box::new(Haptic::default()),
             &mirrors,
             touchpad_identity(),
         )),
@@ -40,14 +46,8 @@ fn devices() -> Devices {
             panel_identity(),
         )),
         power_led: Some(PowerLed::new(
-            Arc::new(Fp::default()),
+            Arc::new(LedEc::default()),
             Box::new(Leds::default()),
-        )),
-        battery: Some(Battery::new(
-            gauge.clone(),
-            Arc::new(EcCharger::default()),
-            &mirrors,
-            gauge.identity().unwrap(),
         )),
     }
 }
@@ -121,8 +121,9 @@ fn serve(authorized: bool) -> Peer {
         });
     });
     let service = Arc::new(Service::answering(authorized));
-    on_executor(&client, async move {
-        devices().serve(server.object_server(), &service).await
+    let serving = server.clone();
+    on_executor(&server, async move {
+        devices().serve(serving.object_server(), &service).await
     })
     .unwrap();
     let dialling = client.clone();

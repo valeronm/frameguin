@@ -24,7 +24,7 @@ use frameguin_hardware::mirror::Mirrors;
 use frameguin_hardware::part::{Identity, Part};
 use frameguin_hardware::state::{StateFile, Store};
 use frameguin_wire as wire;
-use zbus::{Connection, fdo, interface};
+use zbus::{Connection, interface};
 use zbus_polkit::policykit1::AuthorityProxy;
 
 use crate::interface::Devices;
@@ -36,10 +36,6 @@ struct Daemon {
     service: Arc<Service>,
     /// Every part detection found at startup, which is the one time it looks.
     parts: Vec<Identity>,
-}
-
-fn internal_err(e: impl std::fmt::Display) -> fdo::Error {
-    fdo::Error::Failed(e.to_string())
 }
 
 #[interface(name = "io.github.valeronm.Frameguin1")]
@@ -103,10 +99,10 @@ fn main() -> zbus::Result<()> {
         eprintln!("detected {identity}");
     }
     let devices = Devices {
+        battery,
         touchpad,
         touchscreen,
         power_led,
-        battery,
     };
     let _conn = zbus::block_on(async move {
         let conn = Connection::system().await?;

@@ -35,11 +35,12 @@ impl Served<Battery> {
         #[zbus(header)] header: Header<'_>,
     ) -> fdo::Result<bool> {
         Battery::check_charge_limit(percent)?;
-        if self.device().charge_limit().await? == percent {
+        let device = self.device();
+        if device.charge_limit().await? == percent {
             return Ok(false);
         }
         self.authorize(&header).await?;
-        Ok(self.device().set_charge_limit(percent).await?)
+        Ok(device.set_charge_limit(percent).await?)
     }
 
     async fn get_charge_current_limit(&self) -> fdo::Result<u32> {
@@ -54,10 +55,11 @@ impl Served<Battery> {
         #[zbus(header)] header: Header<'_>,
     ) -> fdo::Result<bool> {
         Battery::check_charge_current_limit(milliamps)?;
-        if self.device().charge_current_limit().await? == milliamps {
+        let device = self.device();
+        if device.charge_current_limit().await? == milliamps {
             return Ok(false);
         }
         self.authorize(&header).await?;
-        Ok(self.device().set_charge_current_limit(milliamps).await?)
+        Ok(device.set_charge_current_limit(milliamps).await?)
     }
 }

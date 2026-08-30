@@ -67,7 +67,7 @@ pub fn mirrors(store: &Arc<Memory>, ec: Option<EcBoot>, host: Option<&str>) -> M
 
 /// Polls once: the direct implementation never pends.
 pub fn ready<T>(future: impl Future<Output = T>) -> T {
-    let mut future = Box::pin(future);
+    let mut future = std::pin::pin!(future);
     match future
         .as_mut()
         .poll(&mut Context::from_waker(Waker::noop()))
@@ -114,14 +114,7 @@ impl Default for Gauge {
 
 impl Pack for Gauge {
     fn identity(&self) -> Option<Identity> {
-        Some(Identity {
-            kind: PartKind::Battery,
-            vendor: "NVT".into(),
-            model: "FRANGWA".into(),
-            serial: "0001".into(),
-            id: "sbs:FRANGWA".into(),
-            firmware: Vec::new(),
-        })
+        Some(part::sbs("NVT", "FRANGWA", "0001"))
     }
 
     fn info(&self) -> Option<BatteryInfo> {
@@ -185,14 +178,14 @@ pub type Log = Arc<Mutex<Vec<String>>>;
 
 /// An EC holding one level, logging every write, and refusing them all
 /// once told to.
-pub struct Fp {
+pub struct LedEc {
     pub level: Mutex<(u8, PowerLedLevel)>,
     pub custom: bool,
     pub refusing: bool,
     pub log: Log,
 }
 
-impl Default for Fp {
+impl Default for LedEc {
     fn default() -> Self {
         Self {
             level: Mutex::new((55, PowerLedLevel::High)),
@@ -203,7 +196,7 @@ impl Default for Fp {
     }
 }
 
-impl PowerLedEc for Fp {
+impl PowerLedEc for LedEc {
     fn power_led_level(&self) -> DeviceResult<(u8, PowerLedLevel)> {
         Ok(*self.level.lock().unwrap())
     }
@@ -277,11 +270,11 @@ impl LedClass for Leds {
 
 /// A pad that takes every write, or refuses every one.
 #[derive(Default)]
-pub struct Pad {
+pub struct Haptic {
     pub refusing: bool,
 }
 
-impl Pad {
+impl Haptic {
     fn answer(&self) -> DeviceResult<()> {
         if self.refusing {
             Err(DeviceError::Failed("no pad".into()))
@@ -291,7 +284,7 @@ impl Pad {
     }
 }
 
-impl HapticPad for Pad {
+impl HapticPad for Haptic {
     fn set_haptic_intensity(&self, _percent: u8) -> DeviceResult<()> {
         self.answer()
     }

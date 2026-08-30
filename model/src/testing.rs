@@ -38,7 +38,7 @@ impl Fault {
 
 /// Polls once: a stub answers on the spot, so a future here never pends.
 pub(crate) fn ready<T>(future: impl Future<Output = T>) -> T {
-    let mut future = Box::pin(future);
+    let mut future = std::pin::pin!(future);
     match future
         .as_mut()
         .poll(&mut Context::from_waker(Waker::noop()))

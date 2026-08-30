@@ -23,7 +23,7 @@ use frameguin_hardware::device::power_led::PowerLed;
 use frameguin_hardware::device::touchpad::Touchpad;
 use frameguin_hardware::device::touchscreen::Touchscreen;
 use frameguin_wire::OBJECT_PATH;
-use zbus::object_server::ObjectServer;
+use zbus::object_server::{Interface, ObjectServer};
 
 use crate::served::Served;
 use crate::service::Service;
@@ -32,10 +32,10 @@ use crate::service::Service;
 /// struct for the daemon and its tests both, so a device served by one and
 /// not the other is a missing field rather than a missing line.
 pub(crate) struct Devices {
+    pub(crate) battery: Option<Battery>,
     pub(crate) touchpad: Option<Touchpad>,
     pub(crate) touchscreen: Option<Touchscreen>,
     pub(crate) power_led: Option<PowerLed>,
-    pub(crate) battery: Option<Battery>,
 }
 
 impl Devices {
@@ -46,26 +46,31 @@ impl Devices {
         server: &ObjectServer,
         service: &Arc<Service>,
     ) -> zbus::Result<()> {
-        if let Some(touchpad) = self.touchpad {
-            server
-                .at(OBJECT_PATH, Served::new(touchpad, service.clone()))
-                .await?;
-        }
-        if let Some(touchscreen) = self.touchscreen {
-            server
-                .at(OBJECT_PATH, Served::new(touchscreen, service.clone()))
-                .await?;
-        }
-        if let Some(power_led) = self.power_led {
-            server
-                .at(OBJECT_PATH, Served::new(power_led, service.clone()))
-                .await?;
-        }
-        if let Some(battery) = self.battery {
-            server
-                .at(OBJECT_PATH, Served::new(battery, service.clone()))
-                .await?;
-        }
-        Ok(())
+        let Self {
+            battery,
+            touchpad,
+            touchscreen,
+            power_led,
+        } = self;
+        serve_one(server, service, battery).await?;
+        serve_one(server, service, touchpad).await?;
+        serve_one(server, service, touchscreen).await?;
+        serve_one(server, service, power_led).await
     }
+}
+
+async fn serve_one<D>(
+    server: &ObjectServer,
+    service: &Arc<Service>,
+    device: Option<D>,
+) -> zbus::Result<()>
+where
+    Served<D>: Interface,
+{
+    if let Some(device) = device {
+        server
+            .at(OBJECT_PATH, Served::new(device, service.clone()))
+            .await?;
+    }
+    Ok(())
 }

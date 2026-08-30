@@ -23,9 +23,10 @@ impl Served<PowerLed> {
         level: wire::PowerLedLevel,
         #[zbus(header)] header: Header<'_>,
     ) -> fdo::Result<()> {
-        self.device().check_level(level)?;
+        let device = self.device();
+        device.check_level(level)?;
         self.authorize(&header).await?;
-        Ok(self.device().set_level(level).await?)
+        Ok(device.set_level(level).await?)
     }
 
     async fn set_brightness(

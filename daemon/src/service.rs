@@ -9,9 +9,11 @@ use zbus::fdo;
 use zbus::message::Header;
 use zbus_polkit::policykit1::{AuthorityProxy, CheckAuthorizationFlags, Subject};
 
-use crate::internal_err;
-
 const POLKIT_ACTION: &str = "io.github.valeronm.frameguin.manage";
+
+fn internal_err(e: impl std::fmt::Display) -> fdo::Error {
+    fdo::Error::Failed(e.to_string())
+}
 
 /// Who answers whether a caller may write: polkit, or in a test a fixed
 /// answer that needs no sender to ask about.

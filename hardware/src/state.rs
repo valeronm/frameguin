@@ -66,7 +66,7 @@ pub(crate) fn apply(
             entries.insert(key.to_owned(), value);
             true
         }
-        (held, None) => held.is_some() && entries.remove(key).is_some(),
+        (_, None) => entries.remove(key).is_some(),
     }
 }
 

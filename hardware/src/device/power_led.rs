@@ -149,7 +149,7 @@ mod tests {
     use frameguin_wire::{DeviceError, PowerLedControl, PowerLedLevel};
 
     use super::PowerLed;
-    use crate::testing::{Fp, Leds, Log, ready};
+    use crate::testing::{LedEc, Leds, Log, ready};
 
     struct Machine {
         custom: bool,
@@ -170,11 +170,11 @@ mod tests {
 
     fn over(machine: &Machine) -> Bench {
         let log = Log::default();
-        let ec = Arc::new(Fp {
+        let ec = Arc::new(LedEc {
             custom: machine.custom,
             refusing: machine.refusing,
             log: log.clone(),
-            ..Fp::default()
+            ..LedEc::default()
         });
         let leds = Box::new(Leds {
             node: machine.node.then(|| Leds::default().node).flatten(),

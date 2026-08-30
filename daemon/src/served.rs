@@ -4,7 +4,8 @@
 //! child module sees its parent's private fields: here the fields are
 //! private to this file, so an interface impl reaches the device and the
 //! polkit check only through the two methods below, and both stamp the idle
-//! clock on the way.
+//! clock on the way — the check on both sides of its prompt, so a body is
+//! free to take the device once and hold it across the prompt.
 
 use std::sync::Arc;
 
@@ -32,6 +33,8 @@ impl<D> Served<D> {
     /// [`Service::authorize`].
     pub(crate) async fn authorize(&self, header: &Header<'_>) -> fdo::Result<()> {
         self.service.touch();
-        self.service.authorize(header).await
+        let authorized = self.service.authorize(header).await;
+        self.service.touch();
+        authorized
     }
 }

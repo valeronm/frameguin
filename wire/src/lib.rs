@@ -12,6 +12,11 @@
 //! Every enum here serializes as `s`, so the wire format is the plain string
 //! the variant is named after.
 
+#![allow(
+    async_fn_in_trait,
+    reason = "every trait here is a control: the app's implementor and its callers share one thread, and the daemon's is checked as a concrete type"
+)]
+
 use std::fmt;
 
 use serde::{Deserialize, Serialize};
@@ -438,10 +443,6 @@ pub type DeviceResult<T> = Result<T, DeviceError>;
 /// pends. No `Send` bound — the app's implementor lives on one thread — and
 /// a server awaiting the direct one checks its future's `Send` from the
 /// concrete type.
-#[allow(
-    async_fn_in_trait,
-    reason = "the app's implementor and its callers share one thread; the daemon's is checked as a concrete type"
-)]
 pub trait TouchpadControl {
     async fn haptic_intensity(&self) -> DeviceResult<u8>;
     async fn set_haptic_intensity(&self, percent: u8) -> DeviceResult<()>;
@@ -452,10 +453,6 @@ pub trait TouchpadControl {
 /// The touch panel, named for the panel rather than for the way it is
 /// reached, which differs by machine and is the device's business alone:
 /// this end asks whether touch is on, never how it is switched.
-#[allow(
-    async_fn_in_trait,
-    reason = "the app's implementor and its callers share one thread; the daemon's is checked as a concrete type"
-)]
 pub trait TouchscreenControl {
     /// Whether the panel is reporting: the hardware's own account where the
     /// route keeps one, the device's record of its last write where not — so
@@ -465,10 +462,6 @@ pub trait TouchscreenControl {
 }
 
 /// The power button LED: a level, and behind every level a percentage.
-#[allow(
-    async_fn_in_trait,
-    reason = "the app's implementor and its callers share one thread; the daemon's is checked as a concrete type"
-)]
 pub trait PowerLedControl {
     /// The percentage and the level it belongs to. The level can be `Custom`,
     /// which the EC reports after any raw percentage write, or `Off`, which
@@ -485,10 +478,6 @@ pub trait PowerLedControl {
 
 /// The battery: the pack the EC's block answers for, and the charger that
 /// shapes what goes into it.
-#[allow(
-    async_fn_in_trait,
-    reason = "the app's implementor and its callers share one thread; the daemon's is checked as a concrete type"
-)]
 pub trait BatteryControl {
     /// One walk of the EC's block. The charge is the one value here that
     /// changes without anyone setting it, so a caller showing it re-reads.

@@ -129,9 +129,9 @@ mod tests {
     use super::{KEY_CLICK_FORCE, KEY_HAPTIC_INTENSITY, Touchpad};
     use crate::part::Part;
     use crate::state::Store;
-    use crate::testing::{Memory, Pad, mirrors, ready, touchpad_identity};
+    use crate::testing::{Haptic, Memory, mirrors, ready, touchpad_identity};
 
-    fn over(pad: Pad, store: &Arc<Memory>) -> Touchpad {
+    fn over(pad: Haptic, store: &Arc<Memory>) -> Touchpad {
         Touchpad::new(
             Box::new(pad),
             &mirrors(store, None, None),
@@ -139,8 +139,8 @@ mod tests {
         )
     }
 
-    const TAKING: Pad = Pad { refusing: false };
-    const REFUSING: Pad = Pad { refusing: true };
+    const TAKING: Haptic = Haptic { refusing: false };
+    const REFUSING: Haptic = Haptic { refusing: true };
 
     #[test]
     fn a_descriptor_without_a_serial_is_a_part_without_one() {
