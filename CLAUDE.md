@@ -174,7 +174,9 @@ it and the non-obvious constraints.
 - A control the tray can also set gets an `apply_*` function owning the whole
   write: the daemon call, the toast, the tray's copy, and moving the widget to
   match. Both the window's handler and the tray item call it; neither writes
-  around it. Controls only the window sets (the touchpad) write inline
+  around it. The `Sink` it reports into decides the report's form: a toast
+  where a window is built, a desktop notification for a refusal where none
+  is. Controls only the window sets (the touchpad) write inline
   in their handler — one caller needs no shared function, and giving it one
   would be ceremony. Either way a handler answers `window/widgets.rs` with
   its write as a future: the helper owns the sync guard and the spawn, and a

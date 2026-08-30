@@ -210,7 +210,7 @@ pub(super) fn connect_slider_writes<
 
 /// (Re)arms a debounce slot: cancels any pending source and schedules `action`
 /// after `delay`.
-fn debounce(
+pub(super) fn debounce(
     slot: &Rc<RefCell<Option<glib::SourceId>>>,
     delay: Duration,
     action: impl FnOnce() + 'static,

@@ -17,20 +17,23 @@ mod touchpad;
 pub(crate) mod touchscreen;
 mod widgets;
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
+use std::time::Duration;
 
 use adw::prelude::*;
 use frameguin_model::control::Controls;
 use frameguin_wire::DeviceError;
 use gtk4 as gtk;
 use gtk4::gio;
+use gtk4::glib;
 
 use crate::bus::Bus;
 use crate::daemon::Daemon;
 use crate::reading::Feed;
 use crate::report::parts;
 use crate::tray::{TrayIcon, TrayValues, tray_push};
+use crate::window::widgets::debounce;
 use crate::{APP_ID, autostart, board};
 
 /// The one sentence the header and the empty page both say, so a reword
@@ -136,11 +139,46 @@ impl Ui {
 /// Where a write reports back to. A tray preset can arrive in a session whose
 /// window has never been built, and building a widget tree to hold a toast
 /// nobody will see is not worth it — so the tray answers for itself, and only
-/// the window carries the parts a window has.
+/// the window carries the parts a window has. What the tray has is the
+/// desktop's notifications, and only a refusal earns one — the menu
+/// retitling itself is the success.
 #[derive(Clone, Copy)]
 pub(crate) enum Sink<'a> {
     Window(&'a Ui),
-    Tray(&'a ksni::blocking::Handle<TrayIcon>),
+    Tray {
+        handle: &'a ksni::blocking::Handle<TrayIcon>,
+        app: &'a adw::Application,
+        /// The pending withdrawal of the last refusal, which the next one
+        /// re-arms.
+        withdraw: &'a Rc<RefCell<Option<glib::SourceId>>>,
+    },
+}
+
+/// One id for every refusal, so a second replaces the first on the shell
+/// rather than stacking beside it.
+const REFUSAL_NOTIFICATION: &str = "write-refused";
+
+/// The shell keeps a notification until it is dismissed, and a refusal is
+/// not worth dismissing by hand.
+const WITHDRAW_REFUSAL_AFTER: Duration = Duration::from_secs(5);
+
+/// A refused write, told from the tray: the desktop's notification, the one
+/// channel a session with no window has.
+fn notify_refusal(
+    app: &adw::Application,
+    withdraw: &Rc<RefCell<Option<glib::SourceId>>>,
+    attempt: &str,
+    error: &DeviceError,
+) {
+    // An uninstalled build sends this into nothing: the shell delivers a
+    // notification only for an app whose desktop file it can find.
+    let notification = gio::Notification::new(&format!("{attempt} failed"));
+    notification.set_body(Some(&error.to_string()));
+    app.send_notification(Some(REFUSAL_NOTIFICATION), &notification);
+    let app = app.clone();
+    debounce(withdraw, WITHDRAW_REFUSAL_AFTER, move || {
+        app.withdraw_notification(REFUSAL_NOTIFICATION);
+    });
 }
 
 impl Sink<'_> {
@@ -151,8 +189,11 @@ impl Sink<'_> {
     }
 
     fn toast_error(&self, attempt: &str, error: impl Into<DeviceError>) {
-        if let Sink::Window(ui) = self {
-            ui.toast_error(attempt, error);
+        match self {
+            Sink::Window(ui) => ui.toast_error(attempt, error),
+            Sink::Tray { app, withdraw, .. } => {
+                notify_refusal(app, withdraw, attempt, &error.into());
+            }
         }
     }
 
@@ -160,7 +201,7 @@ impl Sink<'_> {
     fn push_tray(&self, values: TrayValues) {
         match self {
             Sink::Window(ui) => ui.sync_tray(values),
-            Sink::Tray(handle) => tray_push(handle, values),
+            Sink::Tray { handle, .. } => tray_push(handle, values),
         }
     }
 }

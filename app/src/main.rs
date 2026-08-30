@@ -91,6 +91,7 @@ fn setup_tray(app: &adw::Application, state: Rc<AppState>) {
     let app = app.clone();
     glib::spawn_future_local(async move {
         let _hold = hold;
+        let withdraw = Rc::default();
         // Populate the menu right away: in tray-only mode (autostart) nothing
         // else detects the controls until the window is first opened, which
         // would leave the menu at Open/Quit.
@@ -100,7 +101,14 @@ fn setup_tray(app: &adw::Application, state: Rc<AppState>) {
             // tray itself otherwise. Resolved once, so the fallback is stated
             // in one place however many presets the menu grows.
             let built = state.built_ui();
-            let sink = built.as_deref().map_or(Sink::Tray(&handle), Sink::Window);
+            let sink = built.as_deref().map_or(
+                Sink::Tray {
+                    handle: &handle,
+                    app: &app,
+                    withdraw: &withdraw,
+                },
+                Sink::Window,
+            );
             // The controls are asked for per write rather than held from
             // startup, and only by the arms that write: `Daemon` keeps them
             // once it has them, so a write costs a borrow and no handshake —
