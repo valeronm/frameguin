@@ -464,9 +464,7 @@ pub(crate) fn build_window(
     // timer here follows. Nothing is lost by stopping: the map above asks
     // again the moment anyone looks, which is also when an answer could
     // change what is on screen.
-    let unmap_init = init.clone();
-    window.connect_unmap(move |_| unmap_init.stop_retrying());
-    glib::spawn_future_local(async move { init.fill().await });
+    window.connect_unmap(move |_| init.stop_retrying());
 
     (window, ui)
 }
@@ -694,7 +692,9 @@ struct Init {
     /// there.
     answered: Cell<bool>,
     /// Set while a fill is in flight, so the two things that start one — the
-    /// window mapping and the countdown reaching zero — cannot both be in it.
+    /// window mapping and the countdown reaching zero — cannot both be in it:
+    /// two runs finishing would connect every setter twice, which is two
+    /// writes and two prompts per change.
     filling: Cell<bool>,
     /// How long until the next unprompted attempt, doubling per failure.
     next_attempt: Cell<u32>,
@@ -736,9 +736,6 @@ impl Init {
     /// only an unreachable service is worth another, and the waiting between
     /// them is this function's to arrange.
     async fn fill(self: &Rc<Self>) {
-        // Guarded because two things start a fill — the window mapping and
-        // the countdown reaching zero — and two runs finishing would connect
-        // every setter twice, which is two writes and two prompts per change.
         if self.filling.replace(true) {
             return;
         }
