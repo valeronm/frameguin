@@ -10,7 +10,7 @@ use gtk4 as gtk;
 use gtk4::gio;
 use gtk4::glib;
 
-use crate::reading::Feed;
+use crate::daemon::Daemon;
 use crate::report::{self, Shell};
 
 const WINDOW_NAME: &str = "frameguin-parts";
@@ -18,27 +18,27 @@ const WINDOW_NAME: &str = "frameguin-parts";
 /// The application action that opens the window, and the only way in.
 pub(crate) const ACTION: &str = "parts";
 
-pub(crate) fn action(feed: Rc<Feed>) -> gio::ActionEntry<adw::Application> {
+pub(crate) fn action(daemon: Rc<Daemon>) -> gio::ActionEntry<adw::Application> {
     gio::ActionEntry::builder(ACTION)
         .activate(move |app: &adw::Application, _, _| {
-            report::present(app, WINDOW_NAME, || build(app, &feed));
+            report::present(app, WINDOW_NAME, || build(app, &daemon));
         })
         .build()
 }
 
 /// The window, built and left to fill itself: the inventory is fixed for
 /// the daemon's run and costs one call to fetch.
-fn build(app: &adw::Application, feed: &Rc<Feed>) -> adw::Window {
+fn build(app: &adw::Application, daemon: &Rc<Daemon>) -> adw::Window {
     let Shell {
         window,
         page,
         toasts,
     } = report::shell(app, WINDOW_NAME, "Parts", 600);
 
-    let feed = feed.clone();
+    let daemon = daemon.clone();
     glib::spawn_future_local(async move {
-        let parts = match feed.proxy().await {
-            Ok(proxy) => proxy.get_devices().await,
+        let parts = match daemon.bus().await {
+            Ok(bus) => bus.frameguin.get_devices().await,
             Err(e) => Err(e),
         };
         match parts {

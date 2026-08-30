@@ -84,10 +84,13 @@ it and the non-obvious constraints.
   pack's reading, taken once for however many views show it: the status row
   and the report render the same walk of the same block, and each polling for
   itself made the EC answer twice and let the two windows sit a tick apart, so
-  a view subscribes and the feed does the reading; it also holds the two facts
-  fixed for a daemon's run that every window wants — the bus connection and
-  the detected controls — so the window, the report and the tray share one
-  of each. (`about.rs` dials for itself, deliberately: its report also runs from
+  a view subscribes and the feed does the reading. `daemon.rs` is the app's
+  end of the daemon — the bus connection and the detected controls, the two
+  facts fixed for its run that every window wants — dialled and asked once,
+  so the window, the report and the tray share one of each, and two asking
+  at once wait on one answer. It is named for the real thing the way
+  `device` is, and holds no state of its own: what it caches is the daemon's
+  answer. (`about.rs` dials for itself, deliberately: its report also runs from
   `--debug-info` where no app state exists, and a bug report wants a fresh
   answer rather than one the app is already holding.) `mapped.rs` is
   the rule both timers and subscriptions obey, that nothing repeats while its

@@ -17,7 +17,7 @@ use frameguin_wire::{BatteryFeature, BatteryState, PowerLedLevel};
 
 use crate::APP_ID;
 use crate::bus::Bus;
-use crate::reading::Feed;
+use crate::daemon::Daemon;
 
 pub(crate) enum TrayEvent {
     Show,
@@ -403,15 +403,15 @@ pub(crate) fn tray_push(handle: &ksni::blocking::Handle<TrayIcon>, values: TrayV
 /// Reads the values the menu renders from. The tray keeps its own copies
 /// because it has to draw with no window open, so they are pulled from the
 /// daemon rather than from the window's widgets.
-pub(crate) async fn refresh_tray(handle: &ksni::blocking::Handle<TrayIcon>, feed: &Rc<Feed>) {
+pub(crate) async fn refresh_tray(handle: &ksni::blocking::Handle<TrayIcon>, daemon: &Rc<Daemon>) {
     // One write at the end. Every `update` blocks this thread on the tray's
     // own, and makes it rebuild the entire menu and signal it over D-Bus, so
     // a field-at-a-time refresh would do that once per field.
-    // The feed's answer rather than a detection of the tray's own, and asked
+    // `Daemon`'s answer rather than a detection of the tray's own, and asked
     // unconditionally: it is a cached value after the first ask, where reading
     // the menu's copy would cost a hop onto ksni's thread to save nothing. The
     // menu keeps a copy because it draws over there, not because it caches.
-    let Ok(controls) = feed.controls().await else {
+    let Ok(controls) = daemon.controls().await else {
         return;
     };
     let mut values = TrayValues::offered(&controls);

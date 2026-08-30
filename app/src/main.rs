@@ -8,6 +8,7 @@ mod autostart;
 mod battery;
 mod board;
 mod bus;
+mod daemon;
 mod mapped;
 mod parts;
 mod reading;
@@ -23,6 +24,7 @@ use adw::prelude::*;
 use gtk4::gio;
 use gtk4::glib;
 
+use crate::daemon::Daemon;
 use crate::reading::Feed;
 use crate::tray::{TrayEvent, TrayIcon, refresh_tray};
 use crate::window::battery::Custom;
@@ -33,10 +35,10 @@ const APP_ID: &str = "io.github.valeronm.Frameguin";
 /// Window and tray state shared between activation and tray events. The
 /// window is built on first use, so a service-mode start (autostart) costs
 /// only the tray icon.
-#[derive(Default)]
 struct AppState {
     window: RefCell<Option<(adw::ApplicationWindow, Rc<Ui>)>>,
     tray: RefCell<Option<ksni::blocking::Handle<TrayIcon>>>,
+    daemon: Rc<Daemon>,
     /// The pack's reading, taken once for however many windows show it. Here
     /// because it belongs to neither of them: the report can be open with no
     /// window built, and the window outlives any report.
@@ -44,10 +46,27 @@ struct AppState {
 }
 
 impl AppState {
+    fn new() -> Self {
+        let daemon = Rc::new(Daemon::default());
+        Self {
+            window: RefCell::default(),
+            tray: RefCell::default(),
+            feed: Rc::new(Feed::new(daemon.clone())),
+            daemon,
+        }
+    }
+
     fn window_for(&self, app: &adw::Application) -> (adw::ApplicationWindow, Rc<Ui>) {
         let mut slot = self.window.borrow_mut();
-        slot.get_or_insert_with(|| build_window(app, self.tray.borrow().clone(), self.feed.clone()))
-            .clone()
+        slot.get_or_insert_with(|| {
+            build_window(
+                app,
+                self.tray.borrow().clone(),
+                self.daemon.clone(),
+                self.feed.clone(),
+            )
+        })
+        .clone()
     }
 
     /// The window's widgets if one has been built, without building one. A
@@ -77,7 +96,7 @@ fn setup_tray(app: &adw::Application, state: Rc<AppState>) {
         // Populate the menu right away: in tray-only mode (autostart) nothing
         // else detects the controls until the window is first opened, which
         // would leave the menu at Open/Quit.
-        refresh_tray(&handle, &state.feed).await;
+        refresh_tray(&handle, &state.daemon).await;
         while let Ok(event) = rx.recv().await {
             // Where a preset reports: the window when one has been built, the
             // tray itself otherwise. Resolved once, so the fallback is stated
@@ -85,7 +104,7 @@ fn setup_tray(app: &adw::Application, state: Rc<AppState>) {
             let built = state.built_ui();
             let sink = built.as_deref().map_or(Sink::Tray(&handle), Sink::Window);
             // The controls are asked for per write rather than held from
-            // startup, and only by the arms that write: the feed keeps them
+            // startup, and only by the arms that write: `Daemon` keeps them
             // once it has them, so a write costs a borrow and no handshake —
             // and a session whose first dial failed pays the dial again only
             // for a click that needs it, never for Show or Quit.
@@ -108,7 +127,7 @@ fn setup_tray(app: &adw::Application, state: Rc<AppState>) {
                 // moving the widget: a widget already showing the requested
                 // value emits no change, and the click would be swallowed.
                 TrayEvent::SetChargeLimit(percent) => {
-                    if let Ok(controls) = state.feed.controls().await
+                    if let Ok(controls) = state.daemon.controls().await
                         && let Some(control) = &controls.battery
                     {
                         window::battery::apply_charge_limit(
@@ -120,9 +139,9 @@ fn setup_tray(app: &adw::Application, state: Rc<AppState>) {
                         .await;
                     }
                 }
-                TrayEvent::Refresh => refresh_tray(&handle, &state.feed).await,
+                TrayEvent::Refresh => refresh_tray(&handle, &state.daemon).await,
                 TrayEvent::SetChargeSpeed(milliamps) => {
-                    if let Ok(controls) = state.feed.controls().await
+                    if let Ok(controls) = state.daemon.controls().await
                         && let Some(control) = &controls.battery
                     {
                         window::battery::apply_charge_speed(
@@ -135,14 +154,14 @@ fn setup_tray(app: &adw::Application, state: Rc<AppState>) {
                     }
                 }
                 TrayEvent::SetPowerLedLevel(level) => {
-                    if let Ok(controls) = state.feed.controls().await
+                    if let Ok(controls) = state.daemon.controls().await
                         && let Some(control) = &controls.power_led
                     {
                         window::power_led::apply(sink, control, level).await;
                     }
                 }
                 TrayEvent::SetTouchscreen(enabled) => {
-                    if let Ok(controls) = state.feed.controls().await
+                    if let Ok(controls) = state.daemon.controls().await
                         && let Some(control) = &controls.touchscreen
                     {
                         window::touchscreen::apply(sink, control, enabled).await;
@@ -193,8 +212,8 @@ fn main() -> glib::ExitCode {
     });
 
     // Built before the actions rather than beside the handlers below: the
-    // report's action needs the feed it holds.
-    let state = Rc::new(AppState::default());
+    // reports' actions need the daemon handle and the feed it holds.
+    let state = Rc::new(AppState::new());
 
     app.add_action_entries([
         // An action rather than a handler on either caller: the window's
@@ -202,8 +221,8 @@ fn main() -> glib::ExitCode {
         // action reaches it from the tray, which builds no widgets and holds
         // no window. The entry is the report's own, so nothing here can reach
         // past it to the window it opens.
-        battery::action(state.feed.clone()),
-        parts::action(state.feed.clone()),
+        battery::action(state.daemon.clone(), state.feed.clone()),
+        parts::action(state.daemon.clone()),
         gio::ActionEntry::builder("about")
             .activate(|app: &adw::Application, _, _| about::show(app.active_window().as_ref()))
             .build(),

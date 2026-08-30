@@ -28,6 +28,7 @@ use gtk4 as gtk;
 use gtk4::gio;
 use gtk4::glib;
 
+use crate::daemon::Daemon;
 use crate::reading::{Feed, Reading, Wants, show_while_mapped};
 use crate::report::{self, Shell, value_row};
 
@@ -161,21 +162,19 @@ fn described_value(group: &adw::PreferencesGroup, title: &str, subtitle: &str) -
 
 /// The action that opens the report, for the application to register.
 ///
-/// Built here rather than in `main.rs` so that [`present`] can stay private:
+/// Built here rather than in `main.rs` so that [`build`] can stay private:
 /// with the action the only thing that reaches it, no caller can grow its own
 /// way in and leave the two front-ends opening the report differently.
-pub(crate) fn action(feed: Rc<Feed>) -> gio::ActionEntry<adw::Application> {
+pub(crate) fn action(daemon: Rc<Daemon>, feed: Rc<Feed>) -> gio::ActionEntry<adw::Application> {
     gio::ActionEntry::builder(ACTION)
-        .activate(move |app: &adw::Application, _, _| present(app, &feed))
+        .activate(move |app: &adw::Application, _, _| {
+            report::present(app, WINDOW_NAME, || build(app, &daemon, &feed));
+        })
         .build()
 }
 
-fn present(app: &adw::Application, feed: &Rc<Feed>) {
-    report::present(app, WINDOW_NAME, || build(app, feed));
-}
-
 /// The report, built and left to fill itself.
-fn build(app: &adw::Application, feed: &Rc<Feed>) -> adw::Window {
+fn build(app: &adw::Application, daemon: &Rc<Daemon>, feed: &Rc<Feed>) -> adw::Window {
     let Shell {
         window,
         page,
@@ -183,6 +182,7 @@ fn build(app: &adw::Application, feed: &Rc<Feed>) -> adw::Window {
     } = report::shell(app, WINDOW_NAME, "Battery", 680);
     let report = build_rows(&page);
 
+    let daemon = daemon.clone();
     let feed = feed.clone();
     glib::spawn_future_local(async move {
         // Asked only for the rows that a pack can lack. The report is
@@ -190,7 +190,7 @@ fn build(app: &adw::Application, feed: &Rc<Feed>) -> adw::Window {
         // here is in question by the time this window exists — and an ask that
         // fails leaves those rows out, which is the same as a pack without
         // them.
-        let condition = feed.controls().await.is_ok_and(|controls| {
+        let condition = daemon.controls().await.is_ok_and(|controls| {
             controls
                 .battery
                 .as_ref()

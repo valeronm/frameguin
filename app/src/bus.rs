@@ -2,7 +2,7 @@
 //! operation a call on the daemon's interface for that device.
 //!
 //! One connection carries every proxy, dialled once per app run — see
-//! [`crate::reading::Feed`] for who holds it.
+//! [`crate::daemon::Daemon`] for who holds it.
 
 use frameguin_wire::{
     BatteryCondition, BatteryControl, BatteryFeature, BatteryInfo, ClickForce, DeviceResult,

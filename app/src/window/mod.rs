@@ -28,6 +28,7 @@ use gtk4::gio;
 use gtk4::glib;
 
 use crate::bus::Bus;
+use crate::daemon::Daemon;
 use crate::reading::Feed;
 use crate::tray::{TrayIcon, TrayValues, tray_push};
 use crate::{APP_ID, about, autostart, board, parts};
@@ -127,6 +128,7 @@ pub(crate) struct Ui {
     touchpad: touchpad::Group,
     touchscreen: touchscreen::Group,
     tray: Option<ksni::blocking::Handle<TrayIcon>>,
+    daemon: Rc<Daemon>,
     /// Where the status row's reading comes from, shared with the battery
     /// report so the two windows cost the EC one walk between them rather than
     /// one apiece.
@@ -344,6 +346,7 @@ impl Sink<'_> {
 pub(crate) fn build_window(
     app: &adw::Application,
     tray: Option<ksni::blocking::Handle<TrayIcon>>,
+    daemon: Rc<Daemon>,
     feed: Rc<Feed>,
 ) -> (adw::ApplicationWindow, Rc<Ui>) {
     let page = adw::PreferencesPage::new();
@@ -417,6 +420,7 @@ pub(crate) fn build_window(
         touchpad,
         touchscreen,
         tray,
+        daemon,
         feed,
     });
 
@@ -687,7 +691,7 @@ struct Init {
     /// Whether an ask has reached the daemon, which is the answer to whether
     /// asking again could tell us anything new: one that answered will answer
     /// the same way for as long as it runs. A flag rather than the connection
-    /// it used to be kept as — the feed holds the connection, and a handle
+    /// it used to be kept as — `Daemon` holds the connection, and a handle
     /// stored to be tested for presence says the wrong thing about why it is
     /// there.
     answered: Cell<bool>,
@@ -719,7 +723,7 @@ impl Init {
         }
         // Cached since detection, so this cannot realistically fail; nothing
         // to say if it does, the next map asking again.
-        let Ok(controls) = self.ui.feed.controls().await else {
+        let Ok(controls) = self.ui.daemon.controls().await else {
             return;
         };
         // Answered, with nothing to reload: a board that supports none of
@@ -799,7 +803,7 @@ impl Init {
         }
     }
 
-    /// Takes the detected controls from the feed, gates each group on its
+    /// Takes the detected controls from the daemon, gates each group on its
     /// control, loads current values, then connects the setters — last, so
     /// the programmatic `set_value` calls during init can't echo back into
     /// the daemon. Returns the state the window is left in, or None where it
@@ -808,12 +812,12 @@ impl Init {
         let ui = &self.ui;
         // The page rather than a toast: a toast is gone in seconds and leaves
         // a window whose emptiness has no explanation on it.
-        // Through the feed rather than dialled and asked here: a fresh
+        // Through `Daemon` rather than dialled and asked here: a fresh
         // handshake per window and a second cold detection per session are
-        // what a window answering for itself costs, and the feed outlives
+        // what a window answering for itself costs, and that handle outlives
         // any of them. The answer reaching it here is also what spares the
         // report a detection of its own.
-        let controls = match ui.feed.controls().await {
+        let controls = match ui.daemon.controls().await {
             Ok(controls) => controls,
             Err(e) => {
                 // The page is replaced by the retry that succeeds, so the

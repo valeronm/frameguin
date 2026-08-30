@@ -34,6 +34,9 @@ One meaning per word, and each word names one place in the tree.
   for what belongs to no device, is `Daemon`'s own.
 - **Bus** — the app's implementation of every control trait, each operation
   a call on the daemon. `app/src/bus.rs`, `Bus`.
+- **Daemon**, on the app side — its end of the daemon: the connection and
+  the controls detection registered, dialled and asked once for the run.
+  `app/src/daemon.rs`, `Daemon`.
 - **Client control** — the app's side of one control: its read as a
   `Snapshot`, its commands, its presets and words. `model/src/control/`,
   registered in `Controls`.

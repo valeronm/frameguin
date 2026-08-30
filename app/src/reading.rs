@@ -26,14 +26,12 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
-use async_lock::OnceCell;
-use frameguin_model::control::Controls;
-use frameguin_wire::{BatteryCondition, BatteryInfo, DeviceError, DeviceResult, FrameguinProxy};
+use frameguin_wire::{BatteryCondition, BatteryInfo, DeviceError, DeviceResult};
 use gtk4 as gtk;
 use gtk4::glib;
 use gtk4::prelude::*;
 
-use crate::bus::Bus;
+use crate::daemon::Daemon;
 use crate::mapped::{Timer, while_mapped};
 
 /// How often the block is read while anything is showing it. One rate for
@@ -113,16 +111,8 @@ impl Drop for Subscription {
     }
 }
 
-#[derive(Default)]
 pub(crate) struct Feed {
-    /// Built on demand and kept: the feed outlives any one window, so a report
-    /// opened, closed and opened again costs one connection rather than one
-    /// apiece — and a session that only ever shows the tray opens none.
-    bus: OnceCell<Rc<Bus>>,
-    /// The controls detected, asked once. Fixed for the daemon's run, and
-    /// the cold call — so the report reopening pays for one, not one per
-    /// open. Empty until asked; a failed ask is not remembered.
-    controls: OnceCell<Rc<Controls<Bus>>>,
+    daemon: Rc<Daemon>,
     views: RefCell<Vec<(u64, View)>>,
     next_id: Cell<u64>,
     /// The pending tick. Armed as the first view arrives and dropped as the
@@ -141,6 +131,17 @@ pub(crate) struct Feed {
 }
 
 impl Feed {
+    pub(crate) fn new(daemon: Rc<Daemon>) -> Self {
+        Self {
+            daemon,
+            views: RefCell::default(),
+            next_id: Cell::default(),
+            timer: Cell::default(),
+            reading: Cell::default(),
+            ticks: Cell::default(),
+        }
+    }
+
     /// Registers a view, and starts the timer where this is the first.
     ///
     /// Takes no reading of its own: whoever subscribes has just filled itself,
@@ -180,37 +181,6 @@ impl Feed {
         }
     }
 
-    /// The daemon's root interface, on the app's one connection: dialling the
-    /// bus runs a fresh handshake each time, and the feed outlives any one
-    /// window, so a report opened, closed and opened again costs none.
-    pub(crate) async fn proxy(&self) -> zbus::Result<FrameguinProxy<'static>> {
-        Ok(self.bus().await?.frameguin.clone())
-    }
-
-    /// The bus as every control reaches it, on the one connection.
-    pub(crate) async fn bus(&self) -> zbus::Result<Rc<Bus>> {
-        // The tray and the window both ask at startup.
-        self.bus
-            .get_or_try_init(async || Ok(Rc::new(Bus::connect().await?)))
-            .await
-            .cloned()
-    }
-
-    /// The controls whose devices detected themselves, asked once for the
-    /// daemon's run and shared by every window so a control is one object
-    /// however many views reach it. A failure is not remembered — detection
-    /// is the cold call, and caching one unlucky answer would hold the app
-    /// to it for the session.
-    pub(crate) async fn controls(&self) -> DeviceResult<Rc<Controls<Bus>>> {
-        self.controls
-            .get_or_try_init(async || {
-                let bus = self.bus().await?;
-                Ok(Rc::new(Controls::detect(&bus).await?))
-            })
-            .await
-            .cloned()
-    }
-
     fn arm(self: &Rc<Self>) {
         let feed = self.clone();
         self.timer
@@ -244,7 +214,7 @@ impl Feed {
     /// an extra that fails arrives as None, and the row keeps what it last
     /// showed rather than emptying over a single miss.
     pub(crate) async fn read(&self) -> DeviceResult<BatteryInfo> {
-        let controls = self.controls().await?;
+        let controls = self.daemon.controls().await?;
         let battery = controls
             .battery
             .as_ref()
