@@ -126,7 +126,6 @@ mod tests {
         assert_eq!(Route::Panel.reading(), Ok(None));
     }
 
-    /// A pad that cannot be read must not answer as a route holding nothing.
     #[test]
     fn a_pad_that_cannot_be_read_fails_rather_than_holding_nothing() {
         assert!(Route::Pad(Pad::unopenable()).reading().is_err());

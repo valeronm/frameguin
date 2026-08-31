@@ -75,7 +75,9 @@ it and the non-obvious constraints.
   and the `apply_*` writes living there buys. `window/fill.rs` drives `Ui`
   from outside it — the ask, the empty page, the retry — so the fan-outs
   over the groups (`gate`, `load_values`, `connect_handlers`) stay on `Ui`
-  where its fields are, and a fill cannot reach a widget any other way;
+  where its fields are, and a fill asks for one rather than walking the
+  groups itself — convention rather than a compiler check, `fill` being a
+  child of `window` and so inside `Ui`'s privacy;
   `window/widgets.rs` is the chrome no one group owns. `report/` holds the windows
   that only read, and the shell they share in its `mod.rs` — found by name or
   built, destroyed on close — so the single-instance rule is one private
@@ -105,7 +107,13 @@ it and the non-obvious constraints.
   remembers. `board.rs` is the one read
   that bypasses the bus, `about.rs` the report and the dialog that renders it,
   `autostart.rs` the desktop entry whose path and content cannot be written
-  apart. `main.rs` keeps what has to know both front-ends — the app id, the
+  apart, `failure.rs` how a failed daemon call is told — the sentence both
+  tellings open with, the toast a window shows, and the notification a
+  session with no window sends instead, along with the withdrawal pending
+  against it. A failure with no device behind it words itself where it
+  happens, the `DeviceError` those take being what drops the D-Bus error
+  name and there being none to drop. `main.rs` keeps what has to know both
+  front-ends — the app id, the
   bus attachment, the lazily built window, the shared reading, and the tray
   event loop, exhaustive over `TrayEvent` so a new variant fails to build
   until it is handled there — along with the application-wide odds and ends

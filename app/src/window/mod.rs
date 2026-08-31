@@ -19,7 +19,6 @@ mod widgets;
 
 use std::cell::Cell;
 use std::rc::Rc;
-use std::time::Duration;
 
 use adw::prelude::*;
 use frameguin_model::control::Controls;
@@ -29,11 +28,10 @@ use gtk4::gio;
 
 use crate::bus::Bus;
 use crate::daemon::Daemon;
-use crate::mapped::Once;
+use crate::failure::{self, Notifier};
 use crate::reading::Feed;
 use crate::report::parts;
 use crate::tray::{TrayIcon, TrayValues, tray_push};
-use crate::window::widgets::debounce;
 use crate::{APP_ID, autostart, board};
 
 /// The one sentence the header and the empty page both say, so a reword
@@ -62,14 +60,8 @@ impl Ui {
         self.toasts.add_toast(adw::Toast::new(message));
     }
 
-    /// A call that failed, named by what was being attempted — "Setting the
-    /// charge limit", "Reading the battery". The sentence is built here rather
-    /// than at each site so that every failure loses the D-Bus error name and
-    /// none has to remember to; what each site still spells is its own half,
-    /// which is the half no other site could supply. Takes a bus error or a
-    /// device's `DeviceError` alike, the conversion being what drops the name.
     fn toast_error(&self, attempt: &str, error: impl Into<DeviceError>) {
-        self.toast(&format!("{attempt} failed: {}", error.into()));
+        failure::toast(&self.toasts, attempt, error);
     }
 
     /// Moves widgets to match the hardware without their handlers writing the
@@ -147,38 +139,8 @@ pub(crate) enum Sink<'a> {
     Window(&'a Ui),
     Tray {
         handle: &'a ksni::blocking::Handle<TrayIcon>,
-        app: &'a adw::Application,
-        /// The pending withdrawal of the last refusal, which the next one
-        /// re-arms.
-        withdraw: &'a Cell<Option<Once>>,
+        notifier: &'a Notifier,
     },
-}
-
-/// One id for every refusal, so a second replaces the first on the shell
-/// rather than stacking beside it.
-const REFUSAL_NOTIFICATION: &str = "write-refused";
-
-/// The shell keeps a notification until it is dismissed, and a refusal is
-/// not worth dismissing by hand.
-const WITHDRAW_REFUSAL_AFTER: Duration = Duration::from_secs(5);
-
-/// A refused write, told from the tray: the desktop's notification, the one
-/// channel a session with no window has.
-fn notify_refusal(
-    app: &adw::Application,
-    withdraw: &Cell<Option<Once>>,
-    attempt: &str,
-    error: &DeviceError,
-) {
-    // An uninstalled build sends this into nothing: the shell delivers a
-    // notification only for an app whose desktop file it can find.
-    let notification = gio::Notification::new(&format!("{attempt} failed"));
-    notification.set_body(Some(&error.to_string()));
-    app.send_notification(Some(REFUSAL_NOTIFICATION), &notification);
-    let app = app.clone();
-    debounce(withdraw, WITHDRAW_REFUSAL_AFTER, move || {
-        app.withdraw_notification(REFUSAL_NOTIFICATION);
-    });
 }
 
 impl Sink<'_> {
@@ -191,9 +153,7 @@ impl Sink<'_> {
     fn toast_error(&self, attempt: &str, error: impl Into<DeviceError>) {
         match self {
             Sink::Window(ui) => ui.toast_error(attempt, error),
-            Sink::Tray { app, withdraw, .. } => {
-                notify_refusal(app, withdraw, attempt, &error.into());
-            }
+            Sink::Tray { notifier, .. } => notifier.refused(attempt, &error.into()),
         }
     }
 
@@ -292,7 +252,7 @@ pub(crate) fn build_window(
             // Quoted off the row rather than spelled again: a message naming
             // a row by a title the row no longer has is worse than a vaguer
             // one.
-            autostart_ui.toast(&format!("Setting “{}” failed: {e}", row.title()));
+            autostart_ui.toast_error(&format!("Setting “{}”", row.title()), e);
         }
     });
 

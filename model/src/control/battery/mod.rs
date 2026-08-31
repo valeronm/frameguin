@@ -190,107 +190,37 @@ pub fn with_custom_row(mut labels: Vec<String>) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use std::cell::Cell;
-    use std::rc::Rc;
-
-    use frameguin_wire::{
-        BatteryCondition, BatteryControl, BatteryFeature, BatteryInfo, DeviceError,
-        DeviceResult as Result, NO_CHARGE_CURRENT_LIMIT,
-    };
+    use frameguin_wire::{BatteryFeature, DeviceError, NO_CHARGE_CURRENT_LIMIT};
 
     use super::{
         Battery, CHARGE_SPEEDS, NO_CHARGE_LIMIT, charge_limit_at, charge_limit_labels,
         charge_limit_row, charge_speed_at, charge_speed_labels, charge_speed_row, with_custom_row,
     };
-    use crate::testing::{CAPACITY, Fault, absent, block, ready};
-
-    /// A pack answering what it was built with.
-    struct Stub {
-        limit: Cell<u8>,
-        cap: Cell<u32>,
-        fault: Fault,
-    }
-
-    impl Stub {
-        fn new() -> Rc<Self> {
-            Self::with(Fault::default())
-        }
-
-        fn failing(error: DeviceError) -> Rc<Self> {
-            Self::with(Fault::failing(error))
-        }
-
-        fn with(fault: Fault) -> Rc<Self> {
-            Rc::new(Self {
-                limit: Cell::new(100),
-                cap: Cell::new(NO_CHARGE_CURRENT_LIMIT),
-                fault,
-            })
-        }
-    }
-
-    impl BatteryControl for Stub {
-        async fn info(&self) -> Result<BatteryInfo> {
-            self.fault.read(block())
-        }
-
-        async fn condition(&self) -> Result<BatteryCondition> {
-            Ok(BatteryCondition {
-                cell_millivolts: vec![3_850; 4],
-                alarms: Vec::new(),
-                decicelsius: 300,
-            })
-        }
-
-        async fn features(&self) -> Result<Vec<BatteryFeature>> {
-            self.fault.read(vec![BatteryFeature::ChargeLimit])
-        }
-
-        async fn charge_limit(&self) -> Result<u8> {
-            Ok(self.limit.get())
-        }
-
-        async fn set_charge_limit(&self, percent: u8) -> Result<bool> {
-            self.fault.write()?;
-            self.limit.set(percent);
-            Ok(true)
-        }
-
-        async fn charge_current_limit(&self) -> Result<u32> {
-            Ok(self.cap.get())
-        }
-
-        async fn set_charge_current_limit(&self, milliamps: u32) -> Result<bool> {
-            self.fault.write()?;
-            self.cap.set(milliamps);
-            Ok(true)
-        }
-    }
+    use crate::testing::{Board, CAPACITY, absent, ready};
 
     #[test]
     fn a_pack_the_hardware_answers_for_is_detected_with_its_features() {
-        let battery = ready(Battery::detect(&Stub::new())).unwrap().unwrap();
+        let battery = ready(Battery::detect(&Board::new())).unwrap().unwrap();
         assert!(battery.has(BatteryFeature::ChargeLimit));
         assert!(!battery.has(BatteryFeature::Condition));
     }
 
     #[test]
     fn a_pack_the_hardware_does_not_serve_is_absent() {
-        let stub = Stub::failing(absent());
-        assert!(ready(Battery::detect(&stub)).unwrap().is_none());
+        let board = Board::failing(absent());
+        assert!(ready(Battery::detect(&board)).unwrap().is_none());
     }
 
     #[test]
     fn hardware_that_cannot_be_asked_is_not_an_absent_pack() {
         let error = DeviceError::Failed("no reply".into());
-        let stub = Stub::failing(error.clone());
-        assert_eq!(ready(Battery::detect(&stub)).err(), Some(error));
+        let board = Board::failing(error.clone());
+        assert_eq!(ready(Battery::detect(&board)).err(), Some(error));
     }
 
     #[test]
     fn a_write_reaches_the_hardware_and_a_read_sees_it() {
-        let stub = Stub::new();
-        let battery = Battery::new(stub.clone(), Vec::new());
+        let battery = Battery::new(Board::new(), Vec::new());
         assert_eq!(ready(battery.set_charge_limit(80)), Ok(true));
         assert_eq!(ready(battery.charge_limit()), Ok(80));
         assert_eq!(ready(battery.set_charge_current_limit(1_160)), Ok(true));
@@ -299,14 +229,14 @@ mod tests {
 
     #[test]
     fn a_refused_write_carries_the_refusal() {
-        let stub = Stub::new();
-        let battery = Battery::new(stub.clone(), Vec::new());
-        stub.fault.refuse();
+        let board = Board::new();
+        let battery = Battery::new(board.clone(), Vec::new());
+        board.battery.refuse();
         assert_eq!(
             ready(battery.set_charge_limit(80)),
             Err(DeviceError::AccessDenied("not authorized".into()))
         );
-        assert_eq!(stub.limit.get(), 100);
+        assert_eq!(board.limit.get(), 100);
     }
 
     /// One row is the off row, and it is the one that sends the ceiling that

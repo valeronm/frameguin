@@ -21,6 +21,7 @@ use gtk4::gio;
 use frameguin_wire::DeviceError;
 
 use crate::daemon::Daemon;
+use crate::failure;
 use crate::reading::Feed;
 
 /// Every report's action, for the application to register together. An
@@ -45,12 +46,8 @@ struct Shell {
 }
 
 impl Shell {
-    /// A read that failed, named by what was being attempted — "Reading the
-    /// battery". Built here so every report loses the D-Bus error name the
-    /// same way, whether it holds a bus error or a `DeviceError`.
     fn toast_error(&self, attempt: &str, error: impl Into<DeviceError>) {
-        let message = format!("{attempt} failed: {}", error.into());
-        self.toasts.add_toast(adw::Toast::new(&message));
+        failure::toast(&self.toasts, attempt, error);
     }
 }
 

@@ -22,7 +22,10 @@ impl Mainboard {
     pub fn detect(ec: Option<&Ec>) -> Option<Self> {
         let firmware = [
             dmi::field("bios_version").map(|v| Firmware::new("BIOS", &v)),
-            ec.and_then(Ec::version).map(|v| Firmware::new("EC", &v)),
+            // A version is never worth a failed detection, so a silent EC
+            // costs the board that field alone.
+            ec.and_then(|ec| ec.version().ok())
+                .map(|v| Firmware::new("EC", &v)),
         ]
         .into_iter()
         .flatten()

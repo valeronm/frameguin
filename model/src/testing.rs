@@ -1,4 +1,5 @@
 use std::cell::Cell;
+use std::rc::Rc;
 use std::task::{Context, Poll, Waker};
 
 use frameguin_wire::{
@@ -83,29 +84,55 @@ pub(crate) fn absent() -> DeviceError {
     DeviceError::Absent("no such interface".into())
 }
 
-/// A board of four columns, each answering as its own fault says — the one
-/// stub implementing all four traits, which is what detecting the set at
-/// once asks for.
-#[derive(Default)]
+/// A board of four columns, each answering as its own fault says and
+/// remembering what it was written. The one stub implementing all four
+/// traits: detecting the set at once asks for that, and a control asks only
+/// its own column.
 pub(crate) struct Board {
     pub(crate) battery: Fault,
     pub(crate) touchpad: Fault,
     pub(crate) touchscreen: Fault,
     pub(crate) power_led: Fault,
+    pub(crate) limit: Cell<u8>,
+    pub(crate) cap: Cell<u32>,
+    pub(crate) haptic_intensity: Cell<u8>,
+    pub(crate) click_force: Cell<ClickForce>,
+    pub(crate) enabled: Cell<bool>,
+    pub(crate) percent: Cell<u8>,
+    pub(crate) level: Cell<PowerLedLevel>,
+}
+
+impl Default for Board {
+    fn default() -> Self {
+        Self {
+            battery: Fault::default(),
+            touchpad: Fault::default(),
+            touchscreen: Fault::default(),
+            power_led: Fault::default(),
+            limit: Cell::new(100),
+            cap: Cell::new(NO_CHARGE_CURRENT_LIMIT),
+            haptic_intensity: Cell::new(50),
+            click_force: Cell::new(ClickForce::Low),
+            enabled: Cell::new(true),
+            percent: Cell::new(55),
+            level: Cell::new(PowerLedLevel::High),
+        }
+    }
 }
 
 impl Board {
-    pub(crate) fn bare() -> Self {
-        Self::failing(absent())
+    pub(crate) fn new() -> Rc<Self> {
+        Rc::new(Self::default())
     }
 
-    pub(crate) fn failing(error: DeviceError) -> Self {
-        Self {
+    pub(crate) fn failing(error: DeviceError) -> Rc<Self> {
+        Rc::new(Self {
             battery: Fault::failing(error.clone()),
             touchpad: Fault::failing(error.clone()),
             touchscreen: Fault::failing(error.clone()),
             power_led: Fault::failing(error),
-        }
+            ..Self::default()
+        })
     }
 }
 
@@ -127,65 +154,80 @@ impl BatteryControl for Board {
     }
 
     async fn charge_limit(&self) -> DeviceResult<u8> {
-        self.battery.read(100)
+        self.battery.read(self.limit.get())
     }
 
-    async fn set_charge_limit(&self, _percent: u8) -> DeviceResult<bool> {
-        self.battery.write().map(|()| true)
+    async fn set_charge_limit(&self, percent: u8) -> DeviceResult<bool> {
+        self.battery.write()?;
+        self.limit.set(percent);
+        Ok(true)
     }
 
     async fn charge_current_limit(&self) -> DeviceResult<u32> {
-        self.battery.read(NO_CHARGE_CURRENT_LIMIT)
+        self.battery.read(self.cap.get())
     }
 
-    async fn set_charge_current_limit(&self, _milliamps: u32) -> DeviceResult<bool> {
-        self.battery.write().map(|()| true)
+    async fn set_charge_current_limit(&self, milliamps: u32) -> DeviceResult<bool> {
+        self.battery.write()?;
+        self.cap.set(milliamps);
+        Ok(true)
     }
 }
 
 impl TouchpadControl for Board {
     async fn haptic_intensity(&self) -> DeviceResult<u8> {
-        self.touchpad.read(50)
+        self.touchpad.read(self.haptic_intensity.get())
     }
 
-    async fn set_haptic_intensity(&self, _percent: u8) -> DeviceResult<()> {
-        self.touchpad.write()
+    async fn set_haptic_intensity(&self, percent: u8) -> DeviceResult<()> {
+        self.touchpad.write()?;
+        self.haptic_intensity.set(percent);
+        Ok(())
     }
 
     async fn click_force(&self) -> DeviceResult<ClickForce> {
-        self.touchpad.read(ClickForce::Medium)
+        self.touchpad.read(self.click_force.get())
     }
 
-    async fn set_click_force(&self, _force: ClickForce) -> DeviceResult<()> {
-        self.touchpad.write()
+    async fn set_click_force(&self, force: ClickForce) -> DeviceResult<()> {
+        self.touchpad.write()?;
+        self.click_force.set(force);
+        Ok(())
     }
 }
 
 impl TouchscreenControl for Board {
     async fn enabled(&self) -> DeviceResult<bool> {
-        self.touchscreen.read(true)
+        self.touchscreen.read(self.enabled.get())
     }
 
-    async fn set_enabled(&self, _enabled: bool) -> DeviceResult<()> {
-        self.touchscreen.write()
+    async fn set_enabled(&self, enabled: bool) -> DeviceResult<()> {
+        self.touchscreen.write()?;
+        self.enabled.set(enabled);
+        Ok(())
     }
 }
 
 impl PowerLedControl for Board {
     async fn brightness(&self) -> DeviceResult<(u8, PowerLedLevel)> {
-        self.power_led.read((55, PowerLedLevel::High))
+        self.power_led.read((self.percent.get(), self.level.get()))
     }
 
     async fn levels(&self) -> DeviceResult<Vec<PowerLedLevel>> {
         self.power_led.read(PowerLedLevel::ALL.to_vec())
     }
 
-    async fn set_level(&self, _level: PowerLedLevel) -> DeviceResult<()> {
-        self.power_led.write()
+    async fn set_level(&self, level: PowerLedLevel) -> DeviceResult<()> {
+        self.power_led.write()?;
+        self.level.set(level);
+        Ok(())
     }
 
-    async fn set_brightness(&self, _percent: u8) -> DeviceResult<()> {
-        self.power_led.write()
+    async fn set_brightness(&self, percent: u8) -> DeviceResult<()> {
+        self.power_led.write()?;
+        self.percent.set(percent);
+        self.level.set(PowerLedLevel::Custom);
+        Ok(())
     }
 }
 

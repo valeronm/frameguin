@@ -68,10 +68,12 @@ impl Drop for Timer {
     }
 }
 
-/// A one-shot timer that stops when it is dropped before firing. The
-/// callback forgets the id before it runs, so a source that has fired is
-/// never removed — removing one is a panic, and a holder cannot tell a
-/// fired source from a pending one.
+/// A one-shot timer that stops when it is dropped before firing, which is
+/// what makes a `Cell<Option<Once>>` a debounce slot: arming it drops
+/// whatever was pending, and with it stops. The callback forgets the id
+/// before it runs, so a source that has fired is never removed — removing
+/// one is a panic, and a holder cannot tell a fired source from a pending
+/// one.
 pub(crate) struct Once(Rc<Cell<Option<glib::SourceId>>>);
 
 impl Once {

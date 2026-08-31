@@ -73,7 +73,7 @@ mod tests {
 
     #[test]
     fn every_control_its_device_answered_for_is_there() {
-        let controls = ready(Controls::detect(&Rc::new(Board::default()))).unwrap();
+        let controls = ready(Controls::detect(&Board::new())).unwrap();
         assert!(controls.battery.is_some());
         assert!(controls.touchpad.is_some());
         assert!(controls.touchscreen.is_some());
@@ -83,7 +83,7 @@ mod tests {
 
     #[test]
     fn a_board_whose_devices_all_answer_absent_has_no_controls() {
-        let controls = ready(Controls::detect(&Rc::new(Board::bare()))).unwrap();
+        let controls = ready(Controls::detect(&Board::failing(absent()))).unwrap();
         assert!(controls.is_empty());
     }
 
@@ -104,6 +104,6 @@ mod tests {
     fn hardware_that_cannot_be_asked_fails_the_whole_detection() {
         let error = DeviceError::Failed("no reply".into());
         let board = Board::failing(error.clone());
-        assert_eq!(ready(Controls::detect(&Rc::new(board))).err(), Some(error));
+        assert_eq!(ready(Controls::detect(&board)).err(), Some(error));
     }
 }

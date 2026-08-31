@@ -46,8 +46,6 @@ pub fn controller(hid: &hidapi::HidApi) -> Option<&hidapi::DeviceInfo> {
     })
 }
 
-/// The controller that takes the enable command, by the identity it
-/// announces on the bus.
 pub(crate) const COMMANDED_CONTROLLER: (u16, u16) = (touchscreen::ILI_VID, touchscreen::ILI_PID);
 
 /// The Ilitek's vendor protocol: a feature report carrying a message id,

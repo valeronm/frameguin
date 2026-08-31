@@ -104,73 +104,20 @@ pub fn click_force_at(row: usize) -> Option<ClickForce> {
 
 #[cfg(test)]
 mod tests {
-    use std::cell::Cell;
-    use std::rc::Rc;
-
-    use frameguin_wire::{
-        ClickForce, DeviceError, DeviceResult as Result, HAPTIC_INTENSITY_LEVELS, TouchpadControl,
-    };
+    use frameguin_wire::{ClickForce, DeviceError, HAPTIC_INTENSITY_LEVELS};
 
     use super::{Snapshot, Touchpad, haptic_at, haptic_row};
-    use crate::testing::{Fault, absent, ready};
-
-    /// A pad that answers what it was built with.
-    struct Stub {
-        haptic_intensity: Cell<u8>,
-        click_force: Cell<ClickForce>,
-        fault: Fault,
-    }
-
-    impl Stub {
-        fn new() -> Rc<Self> {
-            Self::with(Fault::default())
-        }
-
-        fn failing(error: DeviceError) -> Rc<Self> {
-            Self::with(Fault::failing(error))
-        }
-
-        fn with(fault: Fault) -> Rc<Self> {
-            Rc::new(Self {
-                haptic_intensity: Cell::new(50),
-                click_force: Cell::new(ClickForce::Low),
-                fault,
-            })
-        }
-    }
-
-    impl TouchpadControl for Stub {
-        async fn haptic_intensity(&self) -> Result<u8> {
-            self.fault.read(self.haptic_intensity.get())
-        }
-
-        async fn set_haptic_intensity(&self, percent: u8) -> Result<()> {
-            self.fault.write()?;
-            self.haptic_intensity.set(percent);
-            Ok(())
-        }
-
-        async fn click_force(&self) -> Result<ClickForce> {
-            self.fault.read(self.click_force.get())
-        }
-
-        async fn set_click_force(&self, force: ClickForce) -> Result<()> {
-            self.fault.write()?;
-            self.click_force.set(force);
-            Ok(())
-        }
-    }
+    use crate::testing::{Board, absent, ready};
 
     #[test]
     fn a_pad_the_hardware_answers_for_is_detected() {
-        let stub = Stub::new();
-        assert!(ready(Touchpad::detect(&stub)).unwrap().is_some());
+        assert!(ready(Touchpad::detect(&Board::new())).unwrap().is_some());
     }
 
     #[test]
     fn a_pad_the_hardware_does_not_serve_is_absent() {
-        let stub = Stub::failing(absent());
-        assert!(ready(Touchpad::detect(&stub)).unwrap().is_none());
+        let board = Board::failing(absent());
+        assert!(ready(Touchpad::detect(&board)).unwrap().is_none());
     }
 
     /// A refusal from a device that is there — the hardware cannot do this,
@@ -181,14 +128,14 @@ mod tests {
             DeviceError::Failed("no reply".into()),
             DeviceError::NotSupported("no pad on this board".into()),
         ] {
-            let stub = Stub::failing(error.clone());
-            assert_eq!(ready(Touchpad::detect(&stub)).err(), Some(error));
+            let board = Board::failing(error.clone());
+            assert_eq!(ready(Touchpad::detect(&board)).err(), Some(error));
         }
     }
 
     #[test]
     fn a_read_takes_both_settings_from_the_hardware() {
-        let touchpad = Touchpad::new(Stub::new());
+        let touchpad = Touchpad::new(Board::new());
         assert_eq!(
             ready(touchpad.read()),
             Ok(Snapshot {
@@ -200,22 +147,22 @@ mod tests {
 
     #[test]
     fn a_write_reaches_the_hardware() {
-        let stub = Stub::new();
-        let touchpad = Touchpad::new(stub.clone());
+        let board = Board::new();
+        let touchpad = Touchpad::new(board.clone());
         ready(touchpad.set_click_force(ClickForce::High)).unwrap();
-        assert_eq!(stub.click_force.get(), ClickForce::High);
+        assert_eq!(board.click_force.get(), ClickForce::High);
     }
 
     #[test]
     fn a_refused_write_carries_the_refusal() {
-        let stub = Stub::new();
-        let touchpad = Touchpad::new(stub.clone());
-        stub.fault.refuse();
+        let board = Board::new();
+        let touchpad = Touchpad::new(board.clone());
+        board.touchpad.refuse();
         assert_eq!(
             ready(touchpad.set_haptic_intensity(100)),
             Err(DeviceError::AccessDenied("not authorized".into()))
         );
-        assert_eq!(stub.haptic_intensity.get(), 50);
+        assert_eq!(board.haptic_intensity.get(), 50);
     }
 
     /// The steps are the touchpad's list, not this module's, and the rows are

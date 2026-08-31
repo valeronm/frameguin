@@ -117,86 +117,33 @@ pub fn labels(levels: &[PowerLedLevel]) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use std::cell::Cell;
-    use std::rc::Rc;
-
-    use frameguin_wire::{DeviceError, DeviceResult as Result, PowerLedControl, PowerLedLevel};
+    use frameguin_wire::{DeviceError, PowerLedLevel};
 
     use super::{PowerLed, Snapshot, rank};
-    use crate::testing::{Fault, absent, ready};
-
-    /// An LED answering what it was built with.
-    struct Stub {
-        percent: Cell<u8>,
-        level: Cell<PowerLedLevel>,
-        offered: Vec<PowerLedLevel>,
-        fault: Fault,
-    }
-
-    impl Stub {
-        fn new() -> Rc<Self> {
-            Self::with(Fault::default())
-        }
-
-        fn failing(error: DeviceError) -> Rc<Self> {
-            Self::with(Fault::failing(error))
-        }
-
-        fn with(fault: Fault) -> Rc<Self> {
-            Rc::new(Self {
-                percent: Cell::new(55),
-                level: Cell::new(PowerLedLevel::High),
-                offered: PowerLedLevel::ALL.to_vec(),
-                fault,
-            })
-        }
-    }
-
-    impl PowerLedControl for Stub {
-        async fn brightness(&self) -> Result<(u8, PowerLedLevel)> {
-            self.fault.read((self.percent.get(), self.level.get()))
-        }
-
-        async fn levels(&self) -> Result<Vec<PowerLedLevel>> {
-            Ok(self.offered.clone())
-        }
-
-        async fn set_level(&self, level: PowerLedLevel) -> Result<()> {
-            self.fault.write()?;
-            self.level.set(level);
-            Ok(())
-        }
-
-        async fn set_brightness(&self, percent: u8) -> Result<()> {
-            self.fault.write()?;
-            self.percent.set(percent);
-            self.level.set(PowerLedLevel::Custom);
-            Ok(())
-        }
-    }
+    use crate::testing::{Board, absent, ready};
 
     #[test]
     fn an_led_the_hardware_answers_for_is_detected_with_its_levels() {
-        let led = ready(PowerLed::detect(&Stub::new())).unwrap().unwrap();
+        let led = ready(PowerLed::detect(&Board::new())).unwrap().unwrap();
         assert_eq!(led.rows().len(), PowerLedLevel::ALL.len());
     }
 
     #[test]
     fn an_led_the_hardware_does_not_serve_is_absent() {
-        let stub = Stub::failing(absent());
-        assert!(ready(PowerLed::detect(&stub)).unwrap().is_none());
+        let board = Board::failing(absent());
+        assert!(ready(PowerLed::detect(&board)).unwrap().is_none());
     }
 
     #[test]
     fn hardware_that_cannot_be_asked_is_not_an_absent_led() {
         let error = DeviceError::Failed("no reply".into());
-        let stub = Stub::failing(error.clone());
-        assert_eq!(ready(PowerLed::detect(&stub)).err(), Some(error));
+        let board = Board::failing(error.clone());
+        assert_eq!(ready(PowerLed::detect(&board)).err(), Some(error));
     }
 
     #[test]
     fn a_read_takes_both_halves_from_the_hardware() {
-        let led = PowerLed::new(Stub::new(), PowerLedLevel::ALL.to_vec());
+        let led = PowerLed::new(Board::new(), PowerLedLevel::ALL.to_vec());
         assert_eq!(
             ready(led.read()),
             Ok(Snapshot {
@@ -208,14 +155,14 @@ mod tests {
 
     #[test]
     fn a_refused_write_carries_the_refusal() {
-        let stub = Stub::new();
-        let led = PowerLed::new(stub.clone(), PowerLedLevel::ALL.to_vec());
-        stub.fault.refuse();
+        let board = Board::new();
+        let led = PowerLed::new(board.clone(), PowerLedLevel::ALL.to_vec());
+        board.power_led.refuse();
         assert_eq!(
             ready(led.set_level(PowerLedLevel::Low)),
             Err(DeviceError::AccessDenied("not authorized".into()))
         );
-        assert_eq!(stub.level.get(), PowerLedLevel::High);
+        assert_eq!(board.level.get(), PowerLedLevel::High);
     }
 
     /// The rows are the board's levels in display order, whatever order the
@@ -223,7 +170,7 @@ mod tests {
     #[test]
     fn the_rows_are_the_offered_levels_in_display_order() {
         let led = PowerLed::new(
-            Stub::new(),
+            Board::new(),
             vec![PowerLedLevel::High, PowerLedLevel::Off, PowerLedLevel::Low],
         );
         assert_eq!(
@@ -236,14 +183,14 @@ mod tests {
 
     #[test]
     fn the_presets_are_the_rows_less_custom() {
-        let led = PowerLed::new(Stub::new(), PowerLedLevel::ALL.to_vec());
+        let led = PowerLed::new(Board::new(), PowerLedLevel::ALL.to_vec());
         assert!(!led.presets().contains(&PowerLedLevel::Custom));
         assert_eq!(led.presets().len(), PowerLedLevel::ALL.len() - 1);
     }
 
     #[test]
     fn a_row_sends_the_level_it_is_marked_for() {
-        let led = PowerLed::new(Stub::new(), PowerLedLevel::ALL.to_vec());
+        let led = PowerLed::new(Board::new(), PowerLedLevel::ALL.to_vec());
         for level in PowerLedLevel::ALL {
             let row = led.row(level).expect("every level is listed");
             assert_eq!(led.at(row), Some(level));

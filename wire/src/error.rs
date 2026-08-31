@@ -12,8 +12,7 @@ use std::fmt;
 /// vocabulary in front of it. Taking the detail alone is what makes writing
 /// that half worth the daemon's trouble. Anything but a method error renders
 /// whole, having no better half to show.
-#[must_use]
-pub fn cause(error: &zbus::Error) -> String {
+fn cause(error: &zbus::Error) -> String {
     match error {
         zbus::Error::MethodError(_, Some(detail), _) => detail.clone(),
         other => other.to_string(),

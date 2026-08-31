@@ -8,13 +8,14 @@ mod autostart;
 mod board;
 mod bus;
 mod daemon;
+mod failure;
 mod mapped;
 mod reading;
 mod report;
 mod tray;
 mod window;
 
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::ops::ControlFlow;
 use std::rc::Rc;
 
@@ -23,6 +24,7 @@ use gtk4::gio;
 use gtk4::glib;
 
 use crate::daemon::Daemon;
+use crate::failure::Notifier;
 use crate::reading::Feed;
 use crate::tray::{TrayEvent, TrayIcon, refresh_tray};
 use crate::window::battery::Custom;
@@ -91,7 +93,7 @@ fn setup_tray(app: &adw::Application, state: Rc<AppState>) {
     let app = app.clone();
     glib::spawn_future_local(async move {
         let _hold = hold;
-        let withdraw = Cell::new(None);
+        let notifier = Notifier::new(app.clone());
         // Populate the menu right away: in tray-only mode (autostart) nothing
         // else detects the controls until the window is first opened, which
         // would leave the menu at Open/Quit.
@@ -104,8 +106,7 @@ fn setup_tray(app: &adw::Application, state: Rc<AppState>) {
             let sink = built.as_deref().map_or(
                 Sink::Tray {
                     handle: &handle,
-                    app: &app,
-                    withdraw: &withdraw,
+                    notifier: &notifier,
                 },
                 Sink::Window,
             );

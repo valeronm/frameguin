@@ -185,10 +185,8 @@ impl Ec {
         ]))
     }
 
-    /// A version is never worth a failed detection, so a silent EC reads as
-    /// none.
-    pub fn version(&self) -> Option<String> {
-        self.ec().version_info().ok()
+    pub(crate) fn version(&self) -> EcResult<String> {
+        self.ec().version_info()
     }
 
     /// Whether a write-only command can be offered, asked of the firmware by

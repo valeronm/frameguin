@@ -174,7 +174,7 @@ pub(super) fn connect_slider_writes<
         }
         let value = keys_read(scale.value());
         let write = keys_write.clone();
-        debounce(&slot, writes.delay(), move || write(value));
+        slot.set(Some(Once::after(writes.delay(), move || write(value))));
     });
     if matches!(writes, SliderWrites::Live) {
         return;
@@ -207,14 +207,4 @@ pub(super) fn connect_slider_writes<
         glib::Propagation::Proceed
     });
     scale.add_controller(drag);
-}
-
-/// (Re)arms a debounce slot: whatever was pending is dropped, and with it
-/// stopped, and `action` runs after `delay` instead.
-pub(super) fn debounce(
-    slot: &Cell<Option<Once>>,
-    delay: Duration,
-    action: impl FnOnce() + 'static,
-) {
-    slot.set(Some(Once::after(delay, action)));
 }

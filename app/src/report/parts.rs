@@ -16,7 +16,7 @@ use crate::daemon::Daemon;
 /// The application action that opens the window, and the only way in.
 pub(crate) const ACTION: &str = "parts";
 
-pub(crate) fn action(daemon: Rc<Daemon>) -> gio::ActionEntry<adw::Application> {
+pub(super) fn action(daemon: Rc<Daemon>) -> gio::ActionEntry<adw::Application> {
     super::action(ACTION, "Parts", 600, move |shell| build(shell, &daemon))
 }
 

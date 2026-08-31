@@ -143,7 +143,7 @@ fn described_value(group: &adw::PreferencesGroup, title: &str, subtitle: &str) -
     value
 }
 
-pub(crate) fn action(daemon: Rc<Daemon>, feed: Rc<Feed>) -> gio::ActionEntry<adw::Application> {
+pub(super) fn action(daemon: Rc<Daemon>, feed: Rc<Feed>) -> gio::ActionEntry<adw::Application> {
     super::action(ACTION, "Battery", 680, move |shell| {
         build(shell, &daemon, &feed);
     })

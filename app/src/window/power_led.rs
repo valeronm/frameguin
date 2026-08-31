@@ -86,13 +86,9 @@ impl Group {
             self.scale.set_value(f64::from(snapshot.percent));
             self.scale.set_sensitive(true);
             self.combo.set_sensitive(true);
-            self.show_level(control, snapshot.level);
+            self.combo
+                .set_selected(combo_selection(control.row(snapshot.level)));
         });
-    }
-
-    /// Call under [`Ui::sync`].
-    fn show_level(&self, control: &PowerLed, level: PowerLedLevel) {
-        self.combo.set_selected(combo_selection(control.row(level)));
     }
 
     /// Shown from a read after every write, taken or refused: a preset

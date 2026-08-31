@@ -56,87 +56,49 @@ pub fn state_at(row: usize) -> Option<bool> {
 
 #[cfg(test)]
 mod tests {
-    use std::cell::Cell;
-    use std::rc::Rc;
-
-    use frameguin_wire::{DeviceError, DeviceResult as Result, TouchscreenControl};
+    use frameguin_wire::DeviceError;
 
     use super::{Touchscreen, state_at, state_labels, state_row};
-    use crate::testing::{Fault, absent, ready};
-
-    /// A panel that answers what it was built with.
-    struct Stub {
-        enabled: Cell<bool>,
-        fault: Fault,
-    }
-
-    impl Stub {
-        fn new() -> Rc<Self> {
-            Self::with(Fault::default())
-        }
-
-        fn failing(error: DeviceError) -> Rc<Self> {
-            Self::with(Fault::failing(error))
-        }
-
-        fn with(fault: Fault) -> Rc<Self> {
-            Rc::new(Self {
-                enabled: Cell::new(true),
-                fault,
-            })
-        }
-    }
-
-    impl TouchscreenControl for Stub {
-        async fn enabled(&self) -> Result<bool> {
-            self.fault.read(self.enabled.get())
-        }
-
-        async fn set_enabled(&self, enabled: bool) -> Result<()> {
-            self.fault.write()?;
-            self.enabled.set(enabled);
-            Ok(())
-        }
-    }
+    use crate::testing::{Board, absent, ready};
 
     #[test]
     fn a_panel_the_hardware_answers_for_is_detected() {
-        assert!(ready(Touchscreen::detect(&Stub::new())).unwrap().is_some());
+        assert!(ready(Touchscreen::detect(&Board::new())).unwrap().is_some());
     }
 
     #[test]
     fn a_panel_the_hardware_does_not_serve_is_absent() {
-        let stub = Stub::failing(absent());
-        assert!(ready(Touchscreen::detect(&stub)).unwrap().is_none());
+        let board = Board::failing(absent());
+        assert!(ready(Touchscreen::detect(&board)).unwrap().is_none());
     }
 
     /// A refusal from a device that is there says nothing about presence.
     #[test]
     fn hardware_that_cannot_be_asked_is_not_an_absent_panel() {
         let error = DeviceError::Failed("no reply".into());
-        let stub = Stub::failing(error.clone());
-        assert_eq!(ready(Touchscreen::detect(&stub)).err(), Some(error));
+        let board = Board::failing(error.clone());
+        assert_eq!(ready(Touchscreen::detect(&board)).err(), Some(error));
     }
 
     #[test]
     fn a_write_reaches_the_hardware_and_a_read_sees_it() {
-        let stub = Stub::new();
-        let touchscreen = Touchscreen::new(stub.clone());
+        let board = Board::new();
+        let touchscreen = Touchscreen::new(board.clone());
         ready(touchscreen.set_enabled(false)).unwrap();
-        assert!(!stub.enabled.get());
+        assert!(!board.enabled.get());
         assert_eq!(ready(touchscreen.read()), Ok(false));
     }
 
     #[test]
     fn a_refused_write_carries_the_refusal() {
-        let stub = Stub::new();
-        let touchscreen = Touchscreen::new(stub.clone());
-        stub.fault.refuse();
+        let board = Board::new();
+        let touchscreen = Touchscreen::new(board.clone());
+        board.touchscreen.refuse();
         assert_eq!(
             ready(touchscreen.set_enabled(false)),
             Err(DeviceError::AccessDenied("not authorized".into()))
         );
-        assert!(stub.enabled.get());
+        assert!(board.enabled.get());
     }
 
     /// The row a state marks is the row that sends it back. A menu picks by
