@@ -126,9 +126,7 @@ mod tests {
         assert_eq!(Route::Panel.reading(), Ok(None));
     }
 
-    /// A pad that cannot be read must not answer as a route holding nothing:
-    /// the device reads its own mirror on that answer, where the pad is the
-    /// account it should be failing on.
+    /// A pad that cannot be read must not answer as a route holding nothing.
     #[test]
     fn a_pad_that_cannot_be_read_fails_rather_than_holding_nothing() {
         assert!(Route::Pad(Pad::unopenable()).reading().is_err());

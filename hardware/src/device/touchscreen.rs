@@ -96,26 +96,32 @@ mod tests {
     const BOOT: &str = "00000000-0000-4000-8000-000000000001";
     const EARLIER: &str = "00000000-0000-4000-8000-000000000002";
 
-    struct Machine {
-        level: Option<bool>,
-        refusing: bool,
+    fn pad() -> Route {
+        Route::default()
     }
 
-    const PAD: Machine = Machine {
-        level: Some(true),
-        refusing: false,
-    };
+    fn panel() -> Route {
+        Route {
+            level: Mutex::new(None),
+            ..Route::default()
+        }
+    }
 
-    const PANEL: Machine = Machine {
-        level: None,
-        refusing: false,
-    };
+    fn unreadable_pad() -> Route {
+        Route {
+            unreadable: true,
+            ..pad()
+        }
+    }
 
-    fn over(machine: &Machine, store: &Arc<Memory>) -> Touchscreen {
-        let route = Route {
-            level: Mutex::new(machine.level),
-            refusing: machine.refusing,
-        };
+    fn refusing_panel() -> Route {
+        Route {
+            refusing: true,
+            ..panel()
+        }
+    }
+
+    fn over(route: Route, store: &Arc<Memory>) -> Touchscreen {
         Touchscreen::new(
             Box::new(route),
             &mirrors(store, None, Some(BOOT)),
@@ -126,7 +132,7 @@ mod tests {
     #[test]
     fn a_route_with_a_reading_answers_from_the_hardware_and_keeps_no_record() {
         let store = Arc::new(Memory::default());
-        let touchscreen = over(&PAD, &store);
+        let touchscreen = over(pad(), &store);
         assert_eq!(ready(touchscreen.enabled()), Ok(true));
         ready(touchscreen.set_enabled(false)).unwrap();
         assert_eq!(touchscreen.reading(), Ok(Some(false)));
@@ -137,13 +143,13 @@ mod tests {
     #[test]
     fn a_route_with_no_reading_answers_from_the_mirror() {
         let store = Arc::new(Memory::default());
-        let touchscreen = over(&PANEL, &store);
+        let touchscreen = over(panel(), &store);
         assert_eq!(touchscreen.reading(), Ok(None));
         assert_eq!(ready(touchscreen.enabled()), Ok(true));
         ready(touchscreen.set_enabled(false)).unwrap();
         assert_eq!(ready(touchscreen.enabled()), Ok(false));
         assert!(store.get(KEY_OFF).is_some());
-        let reloaded = over(&PANEL, &store);
+        let reloaded = over(panel(), &store);
         assert_eq!(ready(reloaded.enabled()), Ok(false));
         ready(touchscreen.set_enabled(true)).unwrap();
         assert_eq!(ready(touchscreen.enabled()), Ok(true));
@@ -153,13 +159,7 @@ mod tests {
     #[test]
     fn a_write_the_route_refuses_leaves_the_mirror_standing() {
         let store = Arc::new(Memory::default());
-        let touchscreen = over(
-            &Machine {
-                refusing: true,
-                ..PANEL
-            },
-            &store,
-        );
+        let touchscreen = over(refusing_panel(), &store);
         assert!(ready(touchscreen.set_enabled(false)).is_err());
         assert_eq!(ready(touchscreen.enabled()), Ok(true));
         assert_eq!(store.get(KEY_OFF), None);
@@ -172,15 +172,27 @@ mod tests {
         let store = Arc::new(Memory::default());
         store.set(KEY_OFF, Some("true".into()));
         store.set(&evidence_key(KEY_OFF), Some(format!("{EARLIER}:0")));
-        let touchscreen = over(&PANEL, &store);
+        let touchscreen = over(panel(), &store);
         assert_eq!(ready(touchscreen.enabled()), Ok(true));
     }
 
     #[test]
     fn the_hardware_outranks_the_mirror_where_it_answers() {
         let store = Arc::new(Memory::default());
-        ready(over(&PANEL, &store).set_enabled(false)).unwrap();
-        let touchscreen = over(&PAD, &store);
+        ready(over(panel(), &store).set_enabled(false)).unwrap();
+        let touchscreen = over(pad(), &store);
         assert_eq!(ready(touchscreen.enabled()), Ok(true));
+    }
+
+    /// A route with an account of its own is one the mirror never records,
+    /// so a read failing into no account would start one on the very
+    /// machine that must not keep it.
+    #[test]
+    fn a_read_the_route_fails_reaches_neither_the_mirror_nor_a_record() {
+        let store = Arc::new(Memory::default());
+        let touchscreen = over(unreadable_pad(), &store);
+        assert!(ready(touchscreen.enabled()).is_err());
+        assert!(ready(touchscreen.set_enabled(false)).is_err());
+        assert_eq!(store.get(KEY_OFF), None);
     }
 }

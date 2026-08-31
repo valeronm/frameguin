@@ -300,9 +300,11 @@ impl HapticPad for Haptic {
 }
 
 /// A route holding a level it reports — the pad's, on by default — or
-/// holding nothing, and refusing every write once told to.
+/// holding nothing, and failing every read or refusing every write once
+/// told to.
 pub struct Route {
     pub level: Mutex<Option<bool>>,
+    pub unreadable: bool,
     pub refusing: bool,
 }
 
@@ -310,6 +312,7 @@ impl Default for Route {
     fn default() -> Self {
         Self {
             level: Mutex::new(Some(true)),
+            unreadable: false,
             refusing: false,
         }
     }
@@ -317,6 +320,9 @@ impl Default for Route {
 
 impl TouchSwitch for Route {
     fn reading(&self) -> DeviceResult<Option<bool>> {
+        if self.unreadable {
+            return Err(DeviceError::Failed("no line".into()));
+        }
         Ok(*self.level.lock().unwrap())
     }
 
