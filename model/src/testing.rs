@@ -1,7 +1,11 @@
 use std::cell::Cell;
 use std::task::{Context, Poll, Waker};
 
-use frameguin_wire::{BatteryInfo, BatteryState, ChargeFlow, DeviceError, DeviceResult};
+use frameguin_wire::{
+    BatteryCondition, BatteryControl, BatteryFeature, BatteryInfo, BatteryState, ChargeFlow,
+    ClickForce, DeviceError, DeviceResult, NO_CHARGE_CURRENT_LIMIT, PowerLedControl, PowerLedLevel,
+    TouchpadControl, TouchscreenControl,
+};
 
 /// A 4640 mAh pack, the Laptop 13's.
 pub(crate) const CAPACITY: u32 = 4640;
@@ -71,6 +75,117 @@ impl Fault {
 
     pub(crate) fn read<T>(&self, value: T) -> DeviceResult<T> {
         self.failing.clone().map_or(Ok(value), Err)
+    }
+}
+
+/// What a device answers where the hardware does not serve it at all.
+pub(crate) fn absent() -> DeviceError {
+    DeviceError::Absent("no such interface".into())
+}
+
+/// A board of four columns, each answering as its own fault says — the one
+/// stub implementing all four traits, which is what detecting the set at
+/// once asks for.
+#[derive(Default)]
+pub(crate) struct Board {
+    pub(crate) battery: Fault,
+    pub(crate) touchpad: Fault,
+    pub(crate) touchscreen: Fault,
+    pub(crate) power_led: Fault,
+}
+
+impl Board {
+    pub(crate) fn bare() -> Self {
+        Self::failing(absent())
+    }
+
+    pub(crate) fn failing(error: DeviceError) -> Self {
+        Self {
+            battery: Fault::failing(error.clone()),
+            touchpad: Fault::failing(error.clone()),
+            touchscreen: Fault::failing(error.clone()),
+            power_led: Fault::failing(error),
+        }
+    }
+}
+
+impl BatteryControl for Board {
+    async fn info(&self) -> DeviceResult<BatteryInfo> {
+        self.battery.read(block())
+    }
+
+    async fn condition(&self) -> DeviceResult<BatteryCondition> {
+        self.battery.read(BatteryCondition {
+            cell_millivolts: vec![3_850; 4],
+            alarms: Vec::new(),
+            decicelsius: 300,
+        })
+    }
+
+    async fn features(&self) -> DeviceResult<Vec<BatteryFeature>> {
+        self.battery.read(vec![BatteryFeature::ChargeLimit])
+    }
+
+    async fn charge_limit(&self) -> DeviceResult<u8> {
+        self.battery.read(100)
+    }
+
+    async fn set_charge_limit(&self, _percent: u8) -> DeviceResult<bool> {
+        self.battery.write().map(|()| true)
+    }
+
+    async fn charge_current_limit(&self) -> DeviceResult<u32> {
+        self.battery.read(NO_CHARGE_CURRENT_LIMIT)
+    }
+
+    async fn set_charge_current_limit(&self, _milliamps: u32) -> DeviceResult<bool> {
+        self.battery.write().map(|()| true)
+    }
+}
+
+impl TouchpadControl for Board {
+    async fn haptic_intensity(&self) -> DeviceResult<u8> {
+        self.touchpad.read(50)
+    }
+
+    async fn set_haptic_intensity(&self, _percent: u8) -> DeviceResult<()> {
+        self.touchpad.write()
+    }
+
+    async fn click_force(&self) -> DeviceResult<ClickForce> {
+        self.touchpad.read(ClickForce::Medium)
+    }
+
+    async fn set_click_force(&self, _force: ClickForce) -> DeviceResult<()> {
+        self.touchpad.write()
+    }
+}
+
+impl TouchscreenControl for Board {
+    async fn enabled(&self) -> DeviceResult<bool> {
+        self.touchscreen.read(true)
+    }
+
+    async fn set_enabled(&self, _enabled: bool) -> DeviceResult<()> {
+        self.touchscreen.write()
+    }
+}
+
+impl PowerLedControl for Board {
+    async fn brightness(&self) -> DeviceResult<(u8, PowerLedLevel)> {
+        self.power_led.read((55, PowerLedLevel::High))
+    }
+
+    async fn levels(&self) -> DeviceResult<Vec<PowerLedLevel>> {
+        self.power_led.read(PowerLedLevel::ALL.to_vec())
+    }
+
+    async fn set_level(&self, _level: PowerLedLevel) -> DeviceResult<()> {
+        self.power_led.write()
+    }
+
+    async fn set_brightness(&self, _percent: u8) -> DeviceResult<()> {
+        self.power_led.write()
     }
 }
 

@@ -11,17 +11,20 @@ use frameguin_hardware::device::power_led::PowerLed;
 use frameguin_hardware::device::touchpad::Touchpad;
 use frameguin_hardware::device::touchscreen::Touchscreen;
 use frameguin_hardware::ec::Pack;
+use frameguin_hardware::part::Identity;
 use frameguin_hardware::testing::{
-    EC_BOOT, EcCharger, Gauge, Haptic, LedEc, Leds, Memory, Route, block, mirrors, panel_identity,
-    touchpad_identity,
+    EC_BOOT, EcCharger, Gauge, Haptic, LedEc, Leds, Memory, Route, battery_identity, block,
+    mirrors, panel_identity, touchpad_identity,
 };
 use frameguin_wire::{
-    BatteryFeature, ClickForce, DeviceError, NO_CHARGE_CURRENT_LIMIT, PowerLedLevel, Proxies,
+    BatteryFeature, ClickForce, DeviceError, FrameguinProxy, NO_CHARGE_CURRENT_LIMIT,
+    PowerLedLevel, Proxies, proxy,
 };
 use futures_lite::future::{block_on, or};
 use zbus::{Connection, Guid, connection};
 
 use super::Devices;
+use crate::Daemon;
 use crate::service::Service;
 
 fn devices() -> Devices {
@@ -50,6 +53,11 @@ fn devices() -> Devices {
             Box::new(Leds::default()),
         )),
     }
+}
+
+/// An inventory for the root interface to answer, which it holds verbatim.
+fn parts() -> Vec<Identity> {
+    vec![battery_identity(), touchpad_identity(), panel_identity()]
 }
 
 /// The proxies dialled over one end of a socket pair, the other serving
@@ -94,6 +102,10 @@ impl Peer {
 }
 
 fn serve(authorized: bool) -> Peer {
+    serve_devices(authorized, devices())
+}
+
+fn serve_devices(authorized: bool, devices: Devices) -> Peer {
     let (server_end, client_end) = UnixStream::pair().unwrap();
     let guid = Guid::generate();
     let end = |stream| {
@@ -122,8 +134,12 @@ fn serve(authorized: bool) -> Peer {
     });
     let service = Arc::new(Service::answering(authorized));
     let serving = server.clone();
+    let root = Daemon {
+        service: service.clone(),
+        parts: parts(),
+    };
     on_executor(&server, async move {
-        devices().serve(serving.object_server(), &service).await
+        super::serve_all(serving.object_server(), root, devices).await
     })
     .unwrap();
     let dialling = client.clone();
@@ -137,6 +153,10 @@ fn denied<T>(reply: zbus::Result<T>) -> bool {
 
 fn invalid<T>(reply: zbus::Result<T>) -> bool {
     reply.is_err_and(|e| matches!(DeviceError::from(e), DeviceError::InvalidArgs(_)))
+}
+
+fn absent<T>(reply: zbus::Result<T>) -> bool {
+    reply.is_err_and(|e| matches!(DeviceError::from(e), DeviceError::Absent(_)))
 }
 
 #[test]
@@ -255,5 +275,36 @@ fn a_bad_argument_and_a_write_in_place_never_reach_polkit() {
         assert!(invalid(p.power_led.set_level(PowerLedLevel::Custom).await));
         assert!(invalid(p.touchpad.set_haptic_intensity(33).await));
         p.touchscreen.set_enabled(true).await.unwrap();
+    });
+}
+
+#[test]
+fn the_root_interface_answers_the_inventory_and_the_build() {
+    let peer = serve(true);
+    let conn = peer.client.clone();
+    on_executor(&peer.client, async move {
+        let daemon: FrameguinProxy = proxy(&conn).await.unwrap();
+        assert_eq!(daemon.get_devices().await.unwrap(), parts());
+        assert_eq!(
+            daemon.get_build().await.unwrap().0,
+            env!("CARGO_PKG_VERSION")
+        );
+    });
+}
+
+#[test]
+fn a_device_detection_did_not_find_is_not_on_the_bus() {
+    let peer = serve_devices(
+        true,
+        Devices {
+            battery: None,
+            ..devices()
+        },
+    );
+    peer.run(|p| async move {
+        assert!(absent(p.battery.get_charge_limit().await));
+        assert!(p.touchscreen.get_enabled().await.is_ok());
+        assert!(p.touchpad.get_click_force().await.is_ok());
+        assert!(p.power_led.get_brightness().await.is_ok());
     });
 }

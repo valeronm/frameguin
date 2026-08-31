@@ -112,7 +112,7 @@ mod tests {
     };
 
     use super::{Snapshot, Touchpad, haptic_at, haptic_row};
-    use crate::testing::{Fault, ready};
+    use crate::testing::{Fault, absent, ready};
 
     /// A pad that answers what it was built with.
     struct Stub {
@@ -169,7 +169,7 @@ mod tests {
 
     #[test]
     fn a_pad_the_hardware_does_not_serve_is_absent() {
-        let stub = Stub::failing(DeviceError::Absent("no such interface".into()));
+        let stub = Stub::failing(absent());
         assert!(ready(Touchpad::detect(&stub)).unwrap().is_none());
     }
 

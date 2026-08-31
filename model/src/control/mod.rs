@@ -61,3 +61,49 @@ impl<C: BatteryControl + TouchpadControl + TouchscreenControl + PowerLedControl>
             && self.power_led.is_none()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::rc::Rc;
+
+    use frameguin_wire::DeviceError;
+
+    use super::Controls;
+    use crate::testing::{Board, Fault, absent, ready};
+
+    #[test]
+    fn every_control_its_device_answered_for_is_there() {
+        let controls = ready(Controls::detect(&Rc::new(Board::default()))).unwrap();
+        assert!(controls.battery.is_some());
+        assert!(controls.touchpad.is_some());
+        assert!(controls.touchscreen.is_some());
+        assert!(controls.power_led.is_some());
+        assert!(!controls.is_empty());
+    }
+
+    #[test]
+    fn a_board_whose_devices_all_answer_absent_has_no_controls() {
+        let controls = ready(Controls::detect(&Rc::new(Board::bare()))).unwrap();
+        assert!(controls.is_empty());
+    }
+
+    #[test]
+    fn an_absent_device_takes_only_its_own_control() {
+        let board = Board {
+            touchpad: Fault::failing(absent()),
+            ..Board::default()
+        };
+        let controls = ready(Controls::detect(&Rc::new(board))).unwrap();
+        assert!(controls.touchpad.is_none());
+        assert!(controls.battery.is_some());
+        assert!(controls.touchscreen.is_some());
+        assert!(controls.power_led.is_some());
+    }
+
+    #[test]
+    fn hardware_that_cannot_be_asked_fails_the_whole_detection() {
+        let error = DeviceError::Failed("no reply".into());
+        let board = Board::failing(error.clone());
+        assert_eq!(ready(Controls::detect(&Rc::new(board))).err(), Some(error));
+    }
+}

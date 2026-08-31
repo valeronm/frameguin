@@ -62,7 +62,7 @@ mod tests {
     use frameguin_wire::{DeviceError, DeviceResult as Result, TouchscreenControl};
 
     use super::{Touchscreen, state_at, state_labels, state_row};
-    use crate::testing::{Fault, ready};
+    use crate::testing::{Fault, absent, ready};
 
     /// A panel that answers what it was built with.
     struct Stub {
@@ -106,7 +106,7 @@ mod tests {
 
     #[test]
     fn a_panel_the_hardware_does_not_serve_is_absent() {
-        let stub = Stub::failing(DeviceError::Absent("no such interface".into()));
+        let stub = Stub::failing(absent());
         assert!(ready(Touchscreen::detect(&stub)).unwrap().is_none());
     }
 

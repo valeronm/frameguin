@@ -123,7 +123,7 @@ mod tests {
     use frameguin_wire::{DeviceError, DeviceResult as Result, PowerLedControl, PowerLedLevel};
 
     use super::{PowerLed, Snapshot, rank};
-    use crate::testing::{Fault, ready};
+    use crate::testing::{Fault, absent, ready};
 
     /// An LED answering what it was built with.
     struct Stub {
@@ -183,7 +183,7 @@ mod tests {
 
     #[test]
     fn an_led_the_hardware_does_not_serve_is_absent() {
-        let stub = Stub::failing(DeviceError::Absent("no such interface".into()));
+        let stub = Stub::failing(absent());
         assert!(ready(PowerLed::detect(&stub)).unwrap().is_none());
     }
 

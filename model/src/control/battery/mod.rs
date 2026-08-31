@@ -202,7 +202,7 @@ mod tests {
         Battery, CHARGE_SPEEDS, NO_CHARGE_LIMIT, charge_limit_at, charge_limit_labels,
         charge_limit_row, charge_speed_at, charge_speed_labels, charge_speed_row, with_custom_row,
     };
-    use crate::testing::{CAPACITY, Fault, block, ready};
+    use crate::testing::{CAPACITY, Fault, absent, block, ready};
 
     /// A pack answering what it was built with.
     struct Stub {
@@ -276,7 +276,7 @@ mod tests {
 
     #[test]
     fn a_pack_the_hardware_does_not_serve_is_absent() {
-        let stub = Stub::failing(DeviceError::Absent("no such interface".into()));
+        let stub = Stub::failing(absent());
         assert!(ready(Battery::detect(&stub)).unwrap().is_none());
     }
 

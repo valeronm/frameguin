@@ -45,6 +45,11 @@ pub fn panel_identity() -> Identity {
     part::hid(PartKind::Touchscreen, 0x2c68, 0x0100, "", "", "")
 }
 
+/// The pack as its own registers identify it.
+pub fn battery_identity() -> Identity {
+    part::sbs("NVT", "FRANGWA", "0001")
+}
+
 /// A store that never touches disk.
 #[derive(Default)]
 pub struct Memory(Mutex<BTreeMap<String, String>>);
@@ -79,6 +84,7 @@ pub fn ready<T>(future: impl Future<Output = T>) -> T {
 
 /// The block [`Gauge`] answers with.
 pub fn block() -> BatteryInfo {
+    let pack = battery_identity();
     BatteryInfo {
         state: BatteryState {
             percent: 80,
@@ -93,9 +99,9 @@ pub fn block() -> BatteryInfo {
         cycle_count: 12,
         charger_connected: true,
         critical: false,
-        manufacturer: "NVT".into(),
-        model: "FRANGWA".into(),
-        serial: "0001".into(),
+        manufacturer: pack.vendor,
+        model: pack.model,
+        serial: pack.serial,
         chemistry: "LION".into(),
         manufactured: "2026-01-01".into(),
     }
@@ -114,7 +120,7 @@ impl Default for Gauge {
 
 impl Pack for Gauge {
     fn identity(&self) -> Option<Identity> {
-        Some(part::sbs("NVT", "FRANGWA", "0001"))
+        Some(battery_identity())
     }
 
     fn info(&self) -> Option<BatteryInfo> {

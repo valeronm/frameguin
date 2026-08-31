@@ -114,9 +114,7 @@ fn main() -> zbus::Result<()> {
             service: service.clone(),
             parts,
         };
-        let server = conn.object_server();
-        server.at(wire::OBJECT_PATH, daemon).await?;
-        devices.serve(server, &service).await?;
+        interface::serve_all(conn.object_server(), daemon, devices).await?;
         // Claim the name only once the objects are served, so an activating
         // client can't call into a not-yet-registered interface.
         conn.request_name(wire::BUS_NAME).await?;
