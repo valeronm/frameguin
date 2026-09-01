@@ -74,10 +74,17 @@ it and the non-obvious constraints.
   groups under it read them, nothing outside it can — which is what `Sink`
   and the `apply_*` writes living there buys. `window/fill.rs` drives `Ui`
   from outside it — the ask, the empty page, the retry — so the fan-outs
-  over the groups (`gate`, `load_values`, `connect_handlers`) stay on `Ui`
-  where its fields are, and a fill asks for one rather than walking the
-  groups itself — convention rather than a compiler check, `fill` being a
-  child of `window` and so inside `Ui`'s privacy;
+  over the groups (`gate`, `watch`, `load_values`, `connect_handlers`) stay
+  on `Ui` where its fields are, and a fill asks for one rather than walking
+  the groups itself — convention rather than a compiler check, `fill` being a
+  child of `window` and so inside `Ui`'s privacy. Their order matters:
+  `gate` first so a row this board lacks is not on screen to subscribe,
+  `watch` before `load_values` so a fill reads what the fed rows want, and
+  `connect_handlers` last so a loaded value cannot echo back as a write. The
+  middle one is necessary and not sufficient — a subscription is taken when
+  its widget is mapped, so what completes it is that the fill runs from the
+  window's own map, and a row that is somehow unmapped waits a tick rather
+  than failing;
   `window/widgets.rs` is the chrome no one group owns. `report/` holds the windows
   that only read, and the shell they share in its `mod.rs` — found by name or
   built, destroyed on close — so the single-instance rule is one private
@@ -90,7 +97,7 @@ it and the non-obvious constraints.
   daemon's run. `report/ports.rs` is what is plugged into each USB-C port,
   redrawn whole on every reading because a port's rows come and go with what
   is attached, and fed rather than polled like everything else that repeats:
-  the Battery group's charger row shows the same read, which is what makes
+  the Power group's charger row shows the same read, which is what makes
   the ports an extra on the feed below rather than this window's own timer.
   Where a socket is on the machine is
   `model::port`'s, curated per board and answering nothing for a board nobody
@@ -104,10 +111,11 @@ it and the non-obvious constraints.
   pack's block, its condition, the USB-C ports — is a field in `Wants` rather
   than a parameter, so a view showing none of them costs none of them, and
   each arrives as None where nothing asked, where the ask failed, and where
-  the board has no such device alike. A window fills itself through the feed's
-  own read rather than beside it, passing what it wants as `also` because its
-  own subscription does not exist yet: the fill is broadcast like a tick, so
-  opening one window cannot leave another showing what it saw before.
+  the board has no such device alike. A window subscribes before it fills and
+  fills through the feed's own read rather than beside it — the feed serves
+  what its subscribers want, so a row that has not subscribed is one the fill
+  reads nothing for, and the fill is broadcast like a tick, so opening one
+  window cannot leave another showing what it saw before.
   `daemon.rs` is the app's
   end of the daemon — the bus connection and the detected controls, the two
   facts fixed for its run that every window wants — dialled and asked once,

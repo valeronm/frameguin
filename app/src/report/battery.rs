@@ -190,7 +190,7 @@ fn build(shell: Shell, daemon: &Rc<Daemon>, feed: &Rc<Feed>) {
         // The one read here that announces a failure. From now on the feed
         // reads on its own schedule, silently, as every repeating read in this
         // app does.
-        if let Err(e) = feed.read(Wants::default()).await {
+        if let Err(e) = feed.read().await {
             shell.toast_error("Reading the battery", e);
         }
     });

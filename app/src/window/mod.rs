@@ -81,10 +81,21 @@ impl Ui {
     /// Shows each group where its control is.
     fn gate(&self, controls: &Controls<Bus>) {
         self.battery
-            .gate(controls.battery.as_ref(), controls.ports.is_some());
+            .gate(controls.battery.as_ref(), controls.ports.as_ref());
         self.power_led.gate(controls.power_led.as_ref());
         self.touchpad.gate(controls.touchpad.as_ref());
         self.touchscreen.gate(controls.touchscreen.as_ref());
+    }
+
+    /// Subscribes every group's fed rows to the reading. Its own fan-out
+    /// rather than part of `connect_handlers`, which runs last so a loaded
+    /// value cannot echo back as a write — nothing here writes.
+    ///
+    /// Takes no controls: a subscription is held only while its widget is
+    /// mapped, so `gate` having left an unsupported row off the screen is
+    /// already the gate.
+    fn watch(self: &Rc<Self>) {
+        self.battery.watch(self);
     }
 
     /// Re-reads every detected control and moves the widgets to match,
@@ -96,6 +107,11 @@ impl Ui {
     /// menu nobody has opened.
     async fn load_values(&self, controls: &Controls<Bus>) {
         let mut values = TrayValues::offered(controls);
+        // Read through the feed rather than from a control, so it fills on a
+        // board that has either of the two devices its rows show.
+        if battery::shown(controls.battery.as_ref(), controls.ports.as_ref()) {
+            self.battery.load_fed(self, &mut values).await;
+        }
         if let Some(battery) = &controls.battery {
             self.battery.load(self, battery, &mut values).await;
         }

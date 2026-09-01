@@ -130,6 +130,22 @@ impl Drop for Subscription {
     }
 }
 
+/// One read's place in [`Feed::reading`], counted for as long as it is held.
+struct InFlight<'a>(&'a Cell<u32>);
+
+impl<'a> InFlight<'a> {
+    fn enter(count: &'a Cell<u32>) -> Self {
+        count.set(count.get() + 1);
+        Self(count)
+    }
+}
+
+impl Drop for InFlight<'_> {
+    fn drop(&mut self) {
+        self.0.set(self.0.get() - 1);
+    }
+}
+
 pub(crate) struct Feed {
     daemon: Rc<Daemon>,
     views: RefCell<Vec<(u64, View)>>,
@@ -139,10 +155,14 @@ pub(crate) struct Feed {
     /// stopping is what dropping it does rather than something the code
     /// removing it has to remember.
     timer: Cell<Option<Timer>>,
-    /// Set while a read is in flight. The daemon runs these blocking against
-    /// one executor thread, so a tick arriving behind a slow one would queue
-    /// rather than overtake it, and the two would land as a burst.
-    reading: Cell<bool>,
+    /// How many reads are in flight. The daemon runs these blocking against
+    /// one executor thread, so a tick arriving behind one would queue rather
+    /// than overtake it, and the two would land as a burst.
+    ///
+    /// A count rather than a flag because reads nest: a fill never skips, so
+    /// one can start while a tick is still going, and a flag the first to
+    /// finish cleared would unlock the tick behind it.
+    reading: Cell<u32>,
     /// Reads taken, for spacing the ones that cost more than a memmap walk —
     /// see [`CONDITION_EVERY`]. Rewound whenever a view arrives, so what it
     /// spaces is repetition and never a window's first sight of anything.
@@ -204,29 +224,25 @@ impl Feed {
         let feed = self.clone();
         self.timer
             .set(Some(Timer::every_seconds(READING_SECONDS, move || {
+                // Skipped while any read is going, a window's fill included.
+                // Tested before the task is spawned rather than inside it:
+                // `read` takes its place in the count before its first
+                // suspension, so there is nothing an async context would see
+                // that this does not.
+                if feed.reading.get() > 0 {
+                    return;
+                }
                 let feed = feed.clone();
                 glib::spawn_future_local(async move {
-                    // The guard is the tick's, not the read's: the daemon runs
-                    // these blocking against one executor thread, so a tick
-                    // arriving behind a slow one would queue rather than overtake
-                    // it and the two would land as a burst. A window filling
-                    // itself is a one-off and waits for nothing.
-                    if feed.reading.replace(true) {
-                        return;
-                    }
-                    let _ = feed.read(Wants::default()).await;
-                    feed.reading.set(false);
+                    let _ = feed.read().await;
                 });
             })));
     }
 
     /// Takes one reading, shows it on every view, and hands it back.
     ///
-    /// `also` is what the caller wants read on top of what the subscribed
-    /// views do — for a window filling itself before its own subscription
-    /// exists, which is the order `Ui::load_values` runs in. Without it such
-    /// a fill reads only what something else had already asked for, and the
-    /// caller's own rows wait for the first tick.
+    /// Reads what the subscribed views want and nothing else, so a window
+    /// filling itself subscribes first.
     ///
     /// Returned as well as broadcast, so a fill is the feed's own read rather
     /// than a second assembly beside it — and so any fill refreshes every
@@ -238,13 +254,18 @@ impl Feed {
     /// drops it, silence being the rule for a read with a successor seconds
     /// behind it. A device the board does not have is not a failure: its
     /// field arrives as None, as one nobody asked for does.
-    pub(crate) async fn read(&self, also: Wants) -> DeviceResult<Reading> {
+    pub(crate) async fn read(&self) -> DeviceResult<Reading> {
+        // Counted for the length of the read, however it leaves: the `?`s
+        // below are why this is a guard rather than a pair of writes, a read
+        // that returned early having otherwise locked the tick out for the
+        // rest of the process.
+        let _in_flight = InFlight::enter(&self.reading);
         let controls = self.daemon.controls().await?;
         let wants = self
             .views
             .borrow()
             .iter()
-            .fold(also, |wants, (_, view)| wants.with(view.wants));
+            .fold(Wants::default(), |wants, (_, view)| wants.with(view.wants));
         let battery = controls.battery.as_ref();
         let info = match battery.filter(|_| wants.battery) {
             Some(battery) => Some(battery.read().await?),

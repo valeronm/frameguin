@@ -90,9 +90,10 @@ another row.
 A column need not reach every row: the USB-C ports are read and never set,
 so they have no group of their own, no tray item and no words for a command —
 a control trait with only getters is still a column, and stops where it runs
-out of things to be. The one row they put in a window sits in the Battery
+out of things to be. The one row they put in a window sits in the Power
 group, that being the question it answers: what is coming in, beside what the
-pack is doing about it.
+pack is doing about it — which is why that group is named for the subject
+rather than for the battery whose control it otherwise holds.
 
 | Layer | Crate | Links | Owns | Must not know | Tested against |
 |---|---|---|---|---|---|
@@ -226,8 +227,9 @@ adds; its interface in the daemon, and its field in `interface::Devices`,
 which is what puts it on the bus and in front of the proxies in
 `interface/tests.rs`; the client control in `model`; the group; the tray
 item. What another device shares is a line in a struct or a fan-out — the
-`Devices`, `Proxies` and `Controls` fields, the window's `gate`,
-`load_values` and `connect_handlers` arms — never a body. Adding a part with no control is one device module
+`Devices`, `Proxies` and `Controls` fields, the window's `gate`, `watch`,
+`load_values` and `connect_handlers` arms — never a body. Adding a part with
+no control is one device module
 implementing `Part`, and its line where the daemon collects the inventory
 at startup.
 

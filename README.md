@@ -15,8 +15,10 @@ Computer Inc. Licensed under the [MIT License](LICENSE).
 
 ## What it does
 
-- **Battery** — the current flowing in or out, a ceiling on how full it
-  charges, and a cap on the charging rate.
+- **Power** — what the charger is supplying, the current flowing in or out,
+  a ceiling on how full the battery charges, and a cap on the charging rate.
+- **USB-C ports** — what is attached to each, what it negotiated, and which
+  one is powering the machine.
 - **Power button LED** — brightness as a level or a percentage.
 - **Touchpad** — haptic click intensity and click force.
 - **Display** — switching the touchscreen off.

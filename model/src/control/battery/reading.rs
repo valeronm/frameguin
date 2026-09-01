@@ -150,12 +150,15 @@ pub fn temperature(decicelsius: i16) -> String {
     format!("{:.1} °C", f64::from(decicelsius) / 10.0)
 }
 
+/// Whether the EC sees a supply at all, which is a different question from
+/// what one is negotiating — `control::ports` answers that, from the ports
+/// rather than from this flag.
 #[must_use]
 pub fn charger_label(connected: bool) -> &'static str {
     if connected {
         "Connected"
     } else {
-        "Not connected"
+        crate::control::NO_SUPPLY
     }
 }
 

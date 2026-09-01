@@ -6,7 +6,7 @@
 //! applies, as in [`super::battery`].
 //!
 //! Fed rather than polled, for the reason [`crate::reading`] exists: the
-//! Battery group's charger row shows the same read, and a window polling for
+//! Power group's charger row shows the same read, and a window polling for
 //! itself would have the two asking the daemon separately for one answer and
 //! sitting a tick apart on it.
 //!
@@ -66,10 +66,9 @@ fn build(shell: Shell, feed: &Rc<Feed>) {
     });
     let feed = feed.clone();
     glib::spawn_future_local(async move {
-        // Asks for nothing of its own: the subscription above is registered
-        // by the time this runs, so the fold already carries what this window
-        // wants.
-        if let Err(e) = feed.read(Wants::default()).await {
+        // The subscription above is registered by the time this runs, so the
+        // fold already carries what this window wants.
+        if let Err(e) = feed.read().await {
             shell.toast_error("Reading the ports", e);
         }
     });

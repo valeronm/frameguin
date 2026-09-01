@@ -78,11 +78,11 @@ pub fn powering(ports: &[PortState]) -> Option<&PortState> {
 /// Named for the supply rather than the charger, `battery::reading` having
 /// its own `charger_label` for whether the EC sees one attached at all — two
 /// answers about a charger, and a shared name would leave which one a row
-/// shows decided by its import.
+/// shows decided by its import. The word for the absence they do share.
 #[must_use]
 pub fn supply_label(ports: &[PortState]) -> String {
     powering(ports).map_or_else(
-        || "Disconnected".to_owned(),
+        || super::NO_SUPPLY.to_owned(),
         |port| format!("{:.0} W", watts(port)),
     )
 }

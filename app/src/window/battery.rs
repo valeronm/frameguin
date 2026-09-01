@@ -1,6 +1,11 @@
-//! The Battery group: the pack's reading, the two limits — each a combo of
-//! presets with a slider its Custom row reveals — and the writes both
-//! front-ends make through them.
+//! The Power group: what is coming in, the pack's reading, the two limits —
+//! each a combo of presets with a slider its Custom row reveals — and the
+//! writes both front-ends make through them.
+//!
+//! Titled for the subject rather than for the battery whose control it
+//! otherwise holds: the charger row at its head reads the USB-C ports, which
+//! have no group of their own, and a mainboard running standalone has that
+//! row and no pack at all.
 
 use std::cell::Cell;
 use std::rc::Rc;
@@ -13,7 +18,7 @@ use frameguin_model::control::battery::{
     reading::{amps, charge_flow_label, percent_label},
     with_custom_row,
 };
-use frameguin_model::control::ports::{supply_label, supply_port};
+use frameguin_model::control::ports::{self, supply_label, supply_port};
 use frameguin_wire::{
     BatteryFeature, BatteryState, MIN_CHARGE_LIMIT, NO_CHARGE_CURRENT_LIMIT, PortState,
 };
@@ -30,6 +35,8 @@ use crate::window::widgets::{
 use crate::window::{Sink, Ui};
 
 pub(crate) type Battery = battery::Battery<Bus>;
+/// The other device this group draws a row for.
+pub(crate) type Ports = ports::Ports<Bus>;
 
 /// What a value landing on a preset should do to a combo sitting on Custom.
 /// Only a slider write keeps it: the user is dialling a number in, and a
@@ -42,15 +49,14 @@ pub(crate) enum Custom {
     Rederive,
 }
 
-/// What this group's two fed rows want read. Spelled once because the
-/// subscription and the fill that precedes it both ask for it, and a row
-/// filled from one and fed by the other would show a field it never asked
-/// for — or wait a tick for one it did.
-const FED_ROWS: Wants = Wants {
-    battery: true,
-    condition: false,
-    ports: true,
-};
+/// Whether this group has anything to draw, which either of its two devices
+/// is enough for.
+///
+/// Named because the arms that gate on it would otherwise each spell it and
+/// nothing would catch them drifting apart.
+pub(crate) fn shown(battery: Option<&Rc<Battery>>, ports: Option<&Rc<Ports>>) -> bool {
+    battery.is_some() || ports.is_some()
+}
 
 pub(crate) struct Group {
     pub(crate) widget: adw::PreferencesGroup,
@@ -80,7 +86,7 @@ pub(crate) struct Group {
 
 impl Group {
     pub(crate) fn build() -> Self {
-        let widget = adw::PreferencesGroup::builder().title("Battery").build();
+        let widget = adw::PreferencesGroup::builder().title("Power").build();
         // The two rows here that open something rather than setting
         // something.
         let (state_row, state_percent) = report_row("Status", crate::report::battery::ACTION);
@@ -143,15 +149,15 @@ impl Group {
         }
     }
 
-    /// Shows the group where the board has a pack, and within it only the
-    /// limits the charger takes.
+    /// Shows the group where the board has either of its devices, and within
+    /// it only the rows that device answers for.
     ///
-    /// `has_ports` is its own answer rather than one drawn from the pack:
-    /// the charger row reads a different device, and a board can have either
-    /// without the other.
-    pub(crate) fn gate(&self, control: Option<&Rc<Battery>>, has_ports: bool) {
-        self.widget.set_visible(control.is_some());
-        self.charger_row.set_visible(has_ports);
+    /// Two controls where every sibling group takes one: this group draws
+    /// two devices' rows. Narrower than the whole set, which would let it
+    /// gate on a device that is not its own.
+    pub(crate) fn gate(&self, control: Option<&Rc<Battery>>, ports: Option<&Rc<Ports>>) {
+        self.widget.set_visible(shown(control, ports));
+        self.charger_row.set_visible(ports.is_some());
         let has = |feature| control.is_some_and(|battery| battery.has(feature));
         self.limit_combo
             .set_visible(has(BatteryFeature::ChargeLimit));
@@ -209,26 +215,42 @@ impl Group {
         });
     }
 
-    pub(crate) fn connect(&self, ui: &Rc<Ui>, control: &Rc<Battery>) {
-        // The one row nothing writes to: it follows the pack, which moves
-        // whether or not anyone touches the app. Fed rather than polled — the
-        // report shows the same walk of the same block, and a row that read
-        // it for itself would have the two windows asking the EC separately
-        // for one answer (see `crate::reading`). The charger row beside it is
-        // fed from the same tick, which is why the two cannot disagree about
-        // whether a charger is attached. The feed deliberately tells the tray nothing:
-        // every push rebuilds and re-signals the whole menu, and the tray
-        // asks for its own reading when its menu is about to show.
+    /// Subscribes the two rows nothing writes to: they follow devices that
+    /// move whether or not anyone touches the app. Fed rather than polled —
+    /// the report shows the same walk of the same block and the ports report
+    /// the same walk of the same ports, and a row reading for itself would
+    /// have two windows asking the EC separately for one answer (see
+    /// [`crate::reading`]).
+    ///
+    /// The feed deliberately tells the tray nothing: every push rebuilds and
+    /// re-signals the whole menu, and the tray asks for its own reading when
+    /// its menu is about to show.
+    pub(crate) fn watch(&self, ui: &Rc<Ui>) {
         let row_ui = ui.clone();
-        show_while_mapped(&ui.feed, &self.state_row, FED_ROWS, move |reading| {
+        let wants = Wants {
+            battery: true,
+            ports: true,
+            ..Wants::default()
+        };
+        show_while_mapped(&ui.feed, &self.state_row, wants, move |reading| {
+            let group = &row_ui.battery;
             if let Some(info) = &reading.info {
-                row_ui.battery.show_state(info.state);
+                group.show_state(info.state);
+                // Learned from whichever reading arrives first rather than
+                // from the fill alone: the speed slider has no range without
+                // it, and a fill that read nothing would otherwise leave the
+                // combo insensitive until the next time the window is mapped.
+                if group.design_capacity.get().is_none() {
+                    group.learn_capacity(&row_ui, info.design_capacity);
+                }
             }
             if let Some(ports) = &reading.ports {
-                row_ui.battery.show_charger(ports);
+                group.show_charger(ports);
             }
         });
+    }
 
+    pub(crate) fn connect(&self, ui: &Rc<Ui>, control: &Rc<Battery>) {
         connect_combo(
             ui,
             control,
@@ -299,37 +321,32 @@ impl Group {
         });
     }
 
-    /// The group's half of a reload: the reading at the top, then the
-    /// ceiling and the speed with their combos and sliders. What the tray
-    /// should be told goes into `values`, for the one push the window makes
-    /// at the end.
-    pub(crate) async fn load(&self, ui: &Ui, control: &Battery, values: &mut TrayValues) {
-        // Read here as well as fed: the feed's first tick is a couple of
-        // seconds after the window appears, and an empty row until then reads
-        // as a control that failed rather than one still filling. Through the
-        // feed rather than around it, so the row and whatever else is showing
-        // the pack are painted from one walk of the block — and so the tray is
-        // pushed the same reading the row got rather than a second one taken a
-        // moment later.
-        // Asks for the ports itself: this runs before the group's own
-        // subscription exists, so nothing else has asked for them, and the
-        // charger row would otherwise stay empty until the first tick.
-        match ui.feed.read(FED_ROWS).await {
+    /// Fills the two fed rows, and pushes what they show to the tray.
+    ///
+    /// Read here as well as fed: the feed's first tick is a couple of seconds
+    /// after the window appears, and an empty row until then reads as a
+    /// control that failed rather than one still filling. It paints nothing
+    /// itself — the read is broadcast before it returns, so the subscription
+    /// [`Group::watch`] took has already shown it — and what is left is the
+    /// tray's copies and the capacity, which the rows cannot carry.
+    ///
+    /// Apart from [`Group::load`] because it reads no control: a board with
+    /// ports and no pack has a charger row and nothing else here, and the row
+    /// would otherwise fill only where a pack answered.
+    pub(crate) async fn load_fed(&self, ui: &Ui, values: &mut TrayValues) {
+        match ui.feed.read().await {
             Ok(reading) => {
-                if let Some(info) = reading.info {
-                    self.show_state(info.state);
-                    values.battery = Some(info.state);
-                    if self.design_capacity.get().is_none() {
-                        self.learn_capacity(ui, info.design_capacity);
-                    }
-                }
-                if let Some(ports) = reading.ports {
-                    self.show_charger(&ports);
-                    values.ports = Some(ports);
-                }
+                values.battery = reading.info.map(|info| info.state);
+                values.ports = reading.ports;
             }
             Err(e) => ui.toast_error("Reading the battery", e),
         }
+    }
+
+    /// The rest of the group's reload: the ceiling and the speed with their
+    /// combos and sliders, which only a pack has. What the tray should be
+    /// told goes into `values`, for the one push the window makes at the end.
+    pub(crate) async fn load(&self, ui: &Ui, control: &Battery, values: &mut TrayValues) {
         if control.has(BatteryFeature::ChargeLimit) {
             match control.charge_limit().await {
                 Ok(limit) => {
@@ -359,7 +376,7 @@ impl Group {
                 Err(e) => ui.toast_error("Reading the charge speed", e),
             }
         }
-        // Read once per run, above.
+        // Learned from the first reading that carried one, and kept.
         values.design_capacity = self.design_capacity.get();
     }
 }

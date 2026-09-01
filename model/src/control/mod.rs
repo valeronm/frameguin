@@ -25,6 +25,11 @@ fn present<T>(probe: DeviceResult<T>) -> DeviceResult<Option<T>> {
     }
 }
 
+/// Nothing is powering the machine — a state two controls reach from
+/// different devices, the EC's own flag and the USB-C ports, and one neither
+/// of them owns.
+pub(crate) const NO_SUPPLY: &str = "Disconnected";
+
 /// The names off a table of rows kept as (name, value) pairs, in row order.
 fn names<T>(rows: &[(&str, T)]) -> Vec<String> {
     rows.iter().map(|(name, _)| (*name).to_string()).collect()

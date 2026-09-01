@@ -405,6 +405,9 @@ impl Init {
         // Back to the controls, for a run that got here after an earlier one
         // put the empty page up.
         self.empty.show_controls();
+        // After `gate`, so a row this board lacks is not on screen to
+        // subscribe.
+        ui.watch();
         ui.load_values(&controls).await;
         ui.connect_handlers(&controls);
         None
