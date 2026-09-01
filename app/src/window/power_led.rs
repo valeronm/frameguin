@@ -4,6 +4,7 @@
 use std::rc::Rc;
 
 use adw::prelude::*;
+use frameguin_model::control::Custom;
 use frameguin_model::control::power_led::{self, Snapshot, labels};
 use frameguin_wire::PowerLedLevel;
 use gtk4 as gtk;
@@ -11,8 +12,8 @@ use gtk4 as gtk;
 use crate::bus::Bus;
 use crate::tray::TrayValues;
 use crate::window::widgets::{
-    SliderWrites, build_scale, combo_selection, connect_combo, connect_slider_writes, reveal_under,
-    scale_percent, string_list,
+    SliderWrites, build_scale, connect_combo, connect_slider_writes, reveal_under, scale_percent,
+    select_row, string_list,
 };
 use crate::window::{Sink, Ui};
 
@@ -62,7 +63,7 @@ impl Group {
         if let Some(control) = control {
             self.combo
                 .set_model(Some(&string_list(&labels(control.rows()))));
-            if let Some(index) = control.row(PowerLedLevel::Custom) {
+            if let Some(index) = control.custom_row() {
                 reveal_under(&self.combo, &self.custom_row, index);
             }
         }
@@ -71,7 +72,7 @@ impl Group {
     pub(crate) async fn load(&self, ui: &Ui, control: &PowerLed, values: &mut TrayValues) {
         match control.read().await {
             Ok(snapshot) => {
-                self.show(ui, control, snapshot);
+                self.show(ui, control, snapshot, Custom::Rederive);
                 values.power_led_level = Some(snapshot.level);
             }
             Err(e) => ui.toast_error("Reading the power button LED", e),
@@ -81,13 +82,14 @@ impl Group {
     /// Moves the widgets onto the snapshot without their handlers writing it
     /// back, and makes them usable — a row is only ever filled from a read
     /// that succeeded.
-    fn show(&self, ui: &Ui, control: &PowerLed, snapshot: Snapshot) {
+    fn show(&self, ui: &Ui, control: &PowerLed, snapshot: Snapshot, custom: Custom) {
         ui.sync(|| {
             self.scale.set_value(f64::from(snapshot.percent));
             self.scale.set_sensitive(true);
             self.combo.set_sensitive(true);
-            self.combo
-                .set_selected(combo_selection(control.row(snapshot.level)));
+            select_row(&self.combo, |selected| {
+                control.row_for(snapshot.level, selected, custom)
+            });
         });
     }
 
@@ -97,9 +99,9 @@ impl Group {
     /// not hand the LED back — which the combo would otherwise go on
     /// asserting as lit. Silent on a read that fails, the next reload asking
     /// again.
-    async fn reload(&self, ui: &Ui, control: &PowerLed) {
+    async fn reload(&self, ui: &Ui, control: &PowerLed, custom: Custom) {
         if let Ok(snapshot) = control.read().await {
-            self.show(ui, control, snapshot);
+            self.show(ui, control, snapshot, custom);
         }
     }
 
@@ -148,7 +150,7 @@ pub(crate) async fn apply(sink: Sink<'_>, control: &PowerLed, level: PowerLedLev
         Err(e) => sink.toast_error("Setting the power button LED level", e),
     }
     if let Sink::Window(ui) = sink {
-        ui.power_led.reload(ui, control).await;
+        ui.power_led.reload(ui, control, Custom::Rederive).await;
     }
 }
 
@@ -156,9 +158,15 @@ pub(crate) async fn apply(sink: Sink<'_>, control: &PowerLed, level: PowerLedLev
 /// reporting "custom", so this owns that consequence rather than leaving
 /// each caller to remember it.
 async fn apply_brightness(ui: &Ui, control: &PowerLed, percent: u8) {
-    match control.set_brightness(percent).await {
-        Ok(()) => ui.sync_tray(TrayValues::power_led_level(PowerLedLevel::Custom)),
-        Err(e) => ui.toast_error("Setting the power button LED brightness", e),
-    }
-    ui.power_led.reload(ui, control).await;
+    let custom = match control.set_brightness(percent).await {
+        Ok(()) => {
+            ui.sync_tray(TrayValues::power_led_level(PowerLedLevel::Custom));
+            Custom::Keep
+        }
+        Err(e) => {
+            ui.toast_error("Setting the power button LED brightness", e);
+            Custom::Rederive
+        }
+    };
+    ui.power_led.reload(ui, control, custom).await;
 }

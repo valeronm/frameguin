@@ -20,6 +20,7 @@ use std::ops::ControlFlow;
 use std::rc::Rc;
 
 use adw::prelude::*;
+use frameguin_model::control::Custom;
 use gtk4::gio;
 use gtk4::glib;
 
@@ -27,7 +28,6 @@ use crate::daemon::Daemon;
 use crate::failure::Notifier;
 use crate::reading::Feed;
 use crate::tray::{TrayEvent, TrayIcon, refresh_tray};
-use crate::window::battery::Custom;
 use crate::window::{Sink, Ui, build_window};
 
 const APP_ID: &str = "io.github.valeronm.Frameguin";

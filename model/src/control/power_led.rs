@@ -5,7 +5,7 @@ use std::rc::Rc;
 
 use frameguin_wire::{DeviceResult as Result, PowerLedControl, PowerLedLevel};
 
-use super::present;
+use super::{Custom, present};
 
 /// What the LED is set to: the level in force, and the percentage the EC
 /// lights it at — the one a preset resolved to, or the one dialled in.
@@ -67,9 +67,31 @@ impl<C: PowerLedControl> PowerLed<C> {
     }
 
     /// Which row a level sits on; None for one this board does not list.
-    #[must_use]
-    pub fn row(&self, level: PowerLedLevel) -> Option<usize> {
+    /// Private because a level is not on its own an answer to which row to
+    /// show: the EC names the level by deducing it from the percentage it
+    /// holds, so one dialled in that equals a named level's comes back under
+    /// that name. [`PowerLed::row_for`] is the answer.
+    fn row(&self, level: PowerLedLevel) -> Option<usize> {
         self.rows.iter().position(|&l| l == level)
+    }
+
+    /// Where the row that reveals the slider sits, and None on a board whose
+    /// firmware takes no raw percentage.
+    #[must_use]
+    pub fn custom_row(&self) -> Option<usize> {
+        self.row(PowerLedLevel::Custom)
+    }
+
+    /// Which row the window's combo shows for a level, given where it sits
+    /// now.
+    #[must_use]
+    pub fn row_for(
+        &self,
+        level: PowerLedLevel,
+        selected: Option<usize>,
+        custom: Custom,
+    ) -> Option<usize> {
+        super::row_for(self.row(level), self.custom_row(), selected, custom)
     }
 
     /// The level a row sends; None for a row nothing is listed at.
@@ -119,7 +141,7 @@ pub fn labels(levels: &[PowerLedLevel]) -> Vec<String> {
 mod tests {
     use frameguin_wire::{DeviceError, PowerLedLevel};
 
-    use super::{PowerLed, Snapshot, rank};
+    use super::{Custom, PowerLed, Snapshot, rank};
     use crate::testing::{Board, absent, ready};
 
     #[test]
@@ -195,6 +217,37 @@ mod tests {
             let row = led.row(level).expect("every level is listed");
             assert_eq!(led.at(row), Some(level));
         }
+    }
+
+    /// Every level the EC can name is one a dialled-in percentage can be
+    /// stored as, so the rule is asked about all of them rather than about
+    /// the one a fixture happened to pick.
+    #[test]
+    fn a_level_the_ec_named_never_moves_a_combo_off_its_custom_row() {
+        let led = PowerLed::new(Board::new(), PowerLedLevel::ALL.to_vec());
+        let custom = Some(PowerLedLevel::ALL.len() - 1);
+        assert_eq!(led.custom_row(), custom);
+        for row in 0..PowerLedLevel::ALL.len() {
+            let level = led.at(row).expect("every level is listed");
+            assert_eq!(led.row_for(level, custom, Custom::Keep), custom);
+            assert_eq!(led.row_for(level, custom, Custom::Rederive), Some(row));
+        }
+    }
+
+    /// Firmware that takes no raw percentage lists no Custom row, and reports
+    /// `Custom` for every level it holds — leaving the combo on no row at
+    /// all, which is what it showed before there was a question to ask.
+    #[test]
+    fn a_board_without_a_custom_row_keeps_nothing() {
+        let rows = vec![
+            PowerLedLevel::High,
+            PowerLedLevel::Medium,
+            PowerLedLevel::Low,
+        ];
+        let led = PowerLed::new(Board::new(), rows);
+        assert_eq!(led.custom_row(), None);
+        assert_eq!(led.row_for(PowerLedLevel::Custom, None, Custom::Keep), None);
+        assert_eq!(led.row_for(PowerLedLevel::Low, None, Custom::Keep), Some(0));
     }
 
     /// The match is exhaustive, so being ranked at all is the compiler's

@@ -71,7 +71,7 @@ pub(super) fn string_list(labels: &[String]) -> gtk::StringList {
 /// Names a combo row for GTK, which addresses rows by u32. Positions come
 /// from fixed arrays of a handful of entries, so the fallback is unreachable
 /// — it is what keeps the conversion total without a cast.
-pub(super) fn combo_index(position: usize) -> u32 {
+fn combo_index(position: usize) -> u32 {
     u32::try_from(position).unwrap_or(gtk::INVALID_LIST_POSITION)
 }
 
@@ -84,8 +84,19 @@ pub(super) fn combo_selection(position: Option<usize>) -> u32 {
 
 /// The inverse of [`combo_selection`]: the row a combo reports, and None for
 /// the sentinel GTK uses where it sits on none.
-pub(super) fn combo_position(selected: u32) -> Option<usize> {
+fn combo_position(selected: u32) -> Option<usize> {
     (selected != gtk::INVALID_LIST_POSITION).then_some(selected as usize)
+}
+
+/// Moves a combo to the row `row_for` names. The model's answer weighs where
+/// the combo sits against what moved it, so the read has to happen before the
+/// move — which is why both ends are here rather than at each call site.
+pub(super) fn select_row(
+    combo: &adw::ComboRow,
+    row_for: impl FnOnce(Option<usize>) -> Option<usize>,
+) {
+    let row = row_for(combo_position(combo.selected()));
+    combo.set_selected(combo_selection(row));
 }
 
 /// A row a sync moved the combo to must not be written back, and a combo

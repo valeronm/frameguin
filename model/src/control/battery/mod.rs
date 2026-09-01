@@ -15,7 +15,7 @@ use frameguin_wire::{
     NO_CHARGE_CURRENT_LIMIT,
 };
 
-use super::{names, present};
+use super::{Custom, names, present};
 
 pub struct Battery<C> {
     control: Rc<C>,
@@ -118,12 +118,24 @@ pub fn charge_speed_at(design_capacity: u32, row: usize) -> Option<u32> {
     Some(divisor.map_or(NO_CHARGE_CURRENT_LIMIT, |divisor| design_capacity / divisor))
 }
 
-/// Which row a limit sits on, and `None` when it matches no preset —
+/// Which preset row a limit sits on, and `None` when it matches no preset —
 /// `framework_tool` can set any value, and guessing the nearest would
-/// misreport it.
+/// misreport it. The tray's answer, its menu having no Custom row.
 #[must_use]
-pub fn charge_speed_row(design_capacity: u32, milliamps: u32) -> Option<usize> {
+pub fn charge_speed_preset_row(design_capacity: u32, milliamps: u32) -> Option<usize> {
     (0..CHARGE_SPEEDS.len()).find(|&row| charge_speed_at(design_capacity, row) == Some(milliamps))
+}
+
+/// Which row the window's combo shows for a limit, Custom included.
+#[must_use]
+pub fn charge_speed_row(
+    design_capacity: u32,
+    milliamps: u32,
+    selected: Option<usize>,
+    custom: Custom,
+) -> Option<usize> {
+    let preset = charge_speed_preset_row(design_capacity, milliamps);
+    super::row_for(preset, Some(CHARGE_SPEED_CUSTOM), selected, custom)
 }
 
 /// The bare preset names, for a menu whose title already brackets a rate.
@@ -152,12 +164,20 @@ pub fn charge_limit_at(row: usize) -> Option<u8> {
     CHARGE_PRESETS.get(row).copied()
 }
 
-/// Which row a ceiling sits on, and `None` when it matches none — the EC's
-/// own battery extender lowers the limit unasked, and guessing the nearest
-/// preset would misreport it.
+/// Which preset row a ceiling sits on, and `None` when it matches none — the
+/// EC's own battery extender lowers the limit unasked, and guessing the
+/// nearest preset would misreport it. The tray's answer, its menu having no
+/// Custom row.
 #[must_use]
-pub fn charge_limit_row(percent: u8) -> Option<usize> {
+pub fn charge_limit_preset_row(percent: u8) -> Option<usize> {
     CHARGE_PRESETS.iter().position(|preset| *preset == percent)
+}
+
+/// Which row the window's combo shows for a ceiling, Custom included.
+#[must_use]
+pub fn charge_limit_row(percent: u8, selected: Option<usize>, custom: Custom) -> Option<usize> {
+    let preset = charge_limit_preset_row(percent);
+    super::row_for(preset, Some(CHARGE_LIMIT_CUSTOM), selected, custom)
 }
 
 /// Preset names, shared so the window's combo and the tray's menu can't
@@ -193,8 +213,10 @@ mod tests {
     use frameguin_wire::{BatteryFeature, DeviceError, NO_CHARGE_CURRENT_LIMIT};
 
     use super::{
-        Battery, CHARGE_SPEEDS, NO_CHARGE_LIMIT, charge_limit_at, charge_limit_labels,
-        charge_limit_row, charge_speed_at, charge_speed_labels, charge_speed_row, with_custom_row,
+        Battery, CHARGE_LIMIT_CUSTOM, CHARGE_SPEED_CUSTOM, CHARGE_SPEEDS, Custom, NO_CHARGE_LIMIT,
+        charge_limit_at, charge_limit_labels, charge_limit_preset_row, charge_limit_row,
+        charge_speed_at, charge_speed_labels, charge_speed_preset_row, charge_speed_row,
+        with_custom_row,
     };
     use crate::testing::{Board, CAPACITY, absent, ready};
 
@@ -246,7 +268,7 @@ mod tests {
     /// screen.
     #[test]
     fn the_off_row_is_the_one_that_sends_no_limit() {
-        let row = charge_limit_row(NO_CHARGE_LIMIT).expect("the off row is a preset");
+        let row = charge_limit_preset_row(NO_CHARGE_LIMIT).expect("the off row is a preset");
         assert_eq!(charge_limit_at(row), Some(NO_CHARGE_LIMIT));
         assert_eq!(charge_limit_labels()[row], "Off");
     }
@@ -268,14 +290,38 @@ mod tests {
     fn a_preset_round_trips_to_its_own_row() {
         for row in 0..CHARGE_SPEEDS.len() {
             let milliamps = charge_speed_at(CAPACITY, row).expect("every preset has a row");
-            assert_eq!(charge_speed_row(CAPACITY, milliamps), Some(row));
+            assert_eq!(charge_speed_preset_row(CAPACITY, milliamps), Some(row));
         }
         assert_eq!(charge_speed_at(CAPACITY, CHARGE_SPEEDS.len()), None);
     }
 
     #[test]
     fn a_dialled_in_value_matches_no_preset() {
-        assert_eq!(charge_speed_row(CAPACITY, 1500), None);
+        assert_eq!(charge_speed_preset_row(CAPACITY, 1500), None);
+    }
+
+    /// Each combo asks the shared rule about its own Custom row; the other's
+    /// would hold a row this one does not have.
+    #[test]
+    fn each_combo_holds_its_own_custom_row() {
+        let preset = charge_limit_at(1).expect("the second row is a preset");
+        let on_custom = Some(CHARGE_LIMIT_CUSTOM);
+        assert_eq!(charge_limit_row(preset, on_custom, Custom::Keep), on_custom);
+        assert_eq!(
+            charge_limit_row(preset, on_custom, Custom::Rederive),
+            Some(1)
+        );
+
+        let half = charge_speed_at(CAPACITY, 1).expect("half is a preset");
+        let on_custom = Some(CHARGE_SPEED_CUSTOM);
+        assert_eq!(
+            charge_speed_row(CAPACITY, half, on_custom, Custom::Keep),
+            on_custom
+        );
+        assert_eq!(
+            charge_speed_row(CAPACITY, half, on_custom, Custom::Rederive),
+            Some(1)
+        );
     }
 
     #[test]

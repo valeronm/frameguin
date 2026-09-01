@@ -8,8 +8,8 @@ use std::rc::Rc;
 
 use frameguin_model::control::Controls;
 use frameguin_model::control::battery::{
-    charge_limit_at, charge_limit_labels, charge_limit_row, charge_speed_at, charge_speed_names,
-    charge_speed_row,
+    charge_limit_at, charge_limit_labels, charge_limit_preset_row, charge_speed_at,
+    charge_speed_names, charge_speed_preset_row,
     reading::{amps, battery_summary, percent_label},
 };
 use frameguin_model::control::ports::supply_summary;
@@ -280,7 +280,7 @@ impl TrayIcon {
             return None;
         }
         let labels = charge_limit_labels();
-        let selected = self.charge_limit.and_then(charge_limit_row);
+        let selected = self.charge_limit.and_then(charge_limit_preset_row);
         // A ceiling dialled in from the window sits on no row; the raw value
         // is named rather than dropped, as for the speed below.
         let unlisted = self.charge_limit.map(percent_label);
@@ -310,7 +310,7 @@ impl TrayIcon {
         let labels = charge_speed_names();
         let selected = self
             .charge_current_limit
-            .and_then(|milliamps| charge_speed_row(design_capacity, milliamps));
+            .and_then(|milliamps| charge_speed_preset_row(design_capacity, milliamps));
         // Named by its preset where there is one, and by the current itself
         // where there isn't — a menu that can only show presets would say
         // nothing at all about a limit dialled in from the window.

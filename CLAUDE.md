@@ -63,7 +63,12 @@ it and the non-obvious constraints.
   impossible, not where a file got long. A control's presets, the values
   behind them and the words those values carry are its `model` control's —
   the chrome around them, group and row titles and the sentences a toast
-  makes, stays with the widget that is its only site. `model` links neither
+  makes, stays with the widget that is its only site. Which row a reading
+  shows is theirs too: a value dialled in that happens to equal a preset is
+  indistinguishable from it — the app derives one over the value, the EC's
+  firmware hands back a name it deduced the same way — so the answer weighs
+  where the combo sits and what moved it, and only the tray, whose menu has
+  no Custom row, takes the bare preset lookup. `model` links neither
   GTK nor the bus, so the window and the tray cannot disagree about what a
   preset sends or what it is called, and a control exists in the app only
   where its device answered — the probe rule, held up by the compiler at

@@ -11,6 +11,7 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use adw::prelude::*;
+use frameguin_model::control::Custom;
 use frameguin_model::control::battery::{
     self, CHARGE_LIMIT_CUSTOM, CHARGE_SPEED_CUSTOM, CUSTOM_CHARGE_STEP_MA, MIN_CUSTOM_CHARGE_MA,
     NO_CHARGE_LIMIT, charge_limit_at, charge_limit_labels, charge_limit_row, charge_speed_at,
@@ -29,25 +30,14 @@ use crate::bus::Bus;
 use crate::reading::{Wants, show_while_mapped};
 use crate::tray::TrayValues;
 use crate::window::widgets::{
-    SliderWrites, build_scale, combo_index, combo_position, combo_selection, connect_combo,
-    connect_slider_writes, report_row, reveal_under, scale_percent, string_list,
+    SliderWrites, build_scale, combo_selection, connect_combo, connect_slider_writes, report_row,
+    reveal_under, scale_percent, select_row, string_list,
 };
 use crate::window::{Sink, Ui};
 
 pub(crate) type Battery = battery::Battery<Bus>;
 /// The other device this group draws a row for.
 pub(crate) type Ports = ports::Ports<Bus>;
-
-/// What a value landing on a preset should do to a combo sitting on Custom.
-/// Only a slider write keeps it: the user is dialling a number in, and a
-/// number that happens to equal a preset shouldn't fold the slider away
-/// under them. Everything else — a preset picked here or in the tray, a
-/// reload of what the hardware actually holds — re-derives the row.
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Custom {
-    Keep,
-    Rederive,
-}
 
 /// Whether this group has anything to draw, which either of its two devices
 /// is enough for.
@@ -187,10 +177,10 @@ impl Group {
     /// the counterpart of [`Group::show_charge_speed`] — change one and read
     /// the other.
     fn show_charge_limit(&self, ui: &Ui, percent: u8, custom: Custom) {
-        let preset = charge_limit_row(percent);
-        let index = custom_or(&self.limit_combo, CHARGE_LIMIT_CUSTOM, preset, custom);
         ui.sync(|| {
-            self.limit_combo.set_selected(combo_index(index));
+            select_row(&self.limit_combo, |selected| {
+                charge_limit_row(percent, selected, custom)
+            });
             self.limit_scale.set_value(f64::from(percent));
         });
     }
@@ -203,10 +193,10 @@ impl Group {
             ui.sync(|| self.speed_combo.set_selected(combo_selection(None)));
             return;
         };
-        let preset = charge_speed_row(capacity, milliamps);
-        let index = custom_or(&self.speed_combo, CHARGE_SPEED_CUSTOM, preset, custom);
         ui.sync(|| {
-            self.speed_combo.set_selected(combo_index(index));
+            select_row(&self.speed_combo, |selected| {
+                charge_speed_row(capacity, milliamps, selected, custom)
+            });
             // Full speed is the absence of a limit, not a position on a
             // slider that can only express one.
             if milliamps != NO_CHARGE_CURRENT_LIMIT {
@@ -378,27 +368,6 @@ impl Group {
         }
         // Learned from the first reading that carried one, and kept.
         values.design_capacity = self.design_capacity.get();
-    }
-}
-
-/// Which row a value belongs on. A value matching no preset can only be shown
-/// by the slider, so it lands on Custom whatever the caller asked for.
-/// Otherwise `Custom::Keep` leaves a combo that is already on Custom there, so
-/// dialling in a number that happens to equal a preset doesn't fold the slider
-/// away mid-drag.
-fn custom_or(
-    combo: &adw::ComboRow,
-    custom_index: usize,
-    preset: Option<usize>,
-    custom: Custom,
-) -> usize {
-    let Some(preset) = preset else {
-        return custom_index;
-    };
-    if custom == Custom::Keep && combo_position(combo.selected()) == Some(custom_index) {
-        custom_index
-    } else {
-        preset
     }
 }
 
