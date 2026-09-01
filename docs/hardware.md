@@ -38,6 +38,7 @@ Every heading in the file appears here.
 - [What survives what](#what-survives-what)
 - [Reaching the EC](#reaching-the-ec)
   - [The EC's uptime clock](#the-ecs-uptime-clock)
+  - [Which board the EC tree calls this machine](#which-board-the-ec-tree-calls-this-machine)
 - [Battery](#battery)
   - [The EC's battery block](#the-ecs-battery-block)
   - [What the flag byte means, and does not](#what-the-flag-byte-means-and-does-not)
@@ -49,6 +50,7 @@ Every heading in the file appears here.
 - [Charging](#charging)
   - [Charge limit](#charge-limit)
   - [Charge current limit](#charge-current-limit)
+  - [The charger itself](#the-charger-itself)
   - [Charging persistence](#charging-persistence)
 - [Power button LED](#power-button-led)
   - [Power button LED persistence](#power-button-led-persistence)
@@ -64,6 +66,7 @@ Every heading in the file appears here.
   - [One controller to a pair of ports](#one-controller-to-a-pair-of-ports)
   - [The port index is electrical, not positional](#the-port-index-is-electrical-not-positional)
   - [The Laptop 13 Pro's ports](#the-laptop-13-pros-ports)
+  - [A port's voltage is measured, its current is not reported](#a-ports-voltage-is-measured-its-current-is-not-reported)
   - [A disabled controller keeps reporting what it last saw](#a-disabled-controller-keeps-reporting-what-it-last-saw)
   - [Disabling a controller's ports](#disabling-a-controllers-ports)
   - [USB-C port persistence](#usb-c-port-persistence)
@@ -134,6 +137,16 @@ or worse frequency error against the host clock, so the two disagree by
 minutes over a week of uptime even with nothing wrong. Any comparison needs
 slack on that order, which is what stops a long-standing write from reading
 as expired.
+
+### Which board the EC tree calls this machine
+
+**The EC's firmware version string opens with the name of its board's project
+in the tree** — `sakura-3.0.2-…` on the Laptop 13 Pro. Nothing in the tree
+maps a board name to the DMI strings a machine reports, so this is the only
+thing that says which of the tree's boards a machine runs, and it decides
+which directory answers for it: the connector maps, the controller count, the
+pack, the LED colours and the charger part are all per board, and boards
+differ in which drivers they compile at all.
 
 ## Battery
 
@@ -316,6 +329,20 @@ A charge rate expressed in C is converted against **design capacity** — the
 design capacity in mAh is numerically the 1C current in mA.
 `framework_lib::set_charge_rate_limit` does exactly this and prints the result
 as "Design Current".
+
+### The charger itself
+
+Which part it is decides what can be asked about the power coming in, and the
+Laptop 13 Pro's is an **RAA489108**, where the AMD boards carry an ISL9241 and
+its board disables that driver outright. What the two have in common is that
+neither answers with a measured input current here: for this part the driver
+reads the charger's AMON pin through an EC ADC channel, and the board declares
+no such channel, its only named one being the speaker's identity resistor.
+
+So the current arriving from the wall is a limit the EC set and never a
+reading, which is a separate absence from the ports having no current of their
+own — the charger sees one node behind all four of them, so even a reading
+here would not say which port carried it.
 
 ### Charging persistence
 
@@ -801,6 +828,47 @@ slot at a time and seeing which index reported the contract; port 0 is what is
 left once the other three are placed. None of it transfers to another board,
 which is the whole point of the section above.
 
+### A port's voltage is measured, its current is not reported
+
+Everything the EC serves about a port is the contract — the PDO the source
+offers and the RDO the machine requested — and none of it is a measurement: a
+port under a 20 V 5 A contract reports 5 A whether it is carrying that or a
+tenth of it. The controllers hold registers that would be measurements, a
+connector's register block being `0x1000` for a controller's first and
+`0x2000` for its second:
+
+| Register | Offset | Units |
+|---|---|---|
+| `BUS_VOLTAGE` | `0x0D` | 100 mV |
+| `BUS_CURRENT` | `0x58` | 50 mA |
+
+Those are Infineon's names and Infineon's units, from the HPI register map its
+open-source host library publishes; the EC's own name for the second register
+— `CCG_PORT_CURRENT_REG`, printed as `TYPE_C_CURRENT` — is its own wording
+rather than the vendor's. The EC reads neither outside a console dump.
+
+What each answers was read on a Laptop 13 Pro and on its CCG8 controllers; a
+board driving its ports with a CCG5 or a CCG6 may answer differently.
+
+**The voltage is a live reading.** A port under a 20 V contract reads between
+19.7 V and 20.1 V and drifts between samples, where the negotiated value
+beside it is exactly 20000 mV; a port sourcing to a peripheral reads 4.9 V to
+5.1 V; an empty port reads zero, and a few hundred millivolts appear on it
+during an attach. So it is an ADC and not the contract restated.
+
+**The current reads `0xFF`** — on both controllers, on a port sinking 20 V and
+a port sourcing 5 V, attached and detached alike. The neighbouring registers
+answer with data (`PORT_HOST_CAP` at `0x5C`, the sink PDO EPR mask at `0x65`,
+with the block ending in a NAK from `0x6C`), so `0xFF` is the register's own
+answer and not a read that failed or an offset past the end. That the controller protects the provider path against
+over-current is no argument against it: protection is a comparator against a
+threshold, which fires without ever producing a number.
+
+Nothing else on the machine holds the quantity either. The four ports pass
+through load switches into one adapter node before the charger, so no
+charger-side reading can be attributed to a port even in principle — and
+[the charger](#the-charger-itself) answers for none anyway.
+
 ### A disabled controller keeps reporting what it last saw
 
 `pd_port_states` is the EC's cache, filled from the controllers' interrupts,
@@ -853,12 +921,11 @@ controller's firmware with its ports enabled; on every other board nothing in
 the EC touches the register at all, and the mask should stand for as long as
 the controller keeps its supply.
 
-Which board the Laptop 13 Pro is has not been established. Nothing in the EC
-tree maps board names to the DMI strings a machine reports, so the match is
-inference from what each board configures — and that inference lands on the
-single board setting the option, which is also the single case where a reboot
-recovers. Too thin a thread to hang a recovery on: a disabled controller is
-best treated as recoverable only by writing the mask back.
+[The Laptop 13 Pro is that board](#which-board-the-ec-tree-calls-this-machine):
+`sakura` is the one setting the option. The hook's own path has not been
+walked on the machine, though, so the reboot column is an expectation and the
+mask [written back](#disabling-a-controllers-ports) is still the only recovery
+anything has demonstrated.
 
 ## Sources
 
@@ -876,9 +943,11 @@ best treated as recoverable only by writing the mask back.
   port-enable write and the reset path; `board_host_command.c` the port-state
   host command; the `ucsi_port_*.c` files the per-board connector maps; and
   each board's `project.conf` its controller count and whether the controllers
-  are reset before an EC reboot. The default branch carries a README mapping
-  each system and CPU to its EC codename and the branch holding that board's
-  code, which is where all of the above is. `hx20` and `hx30` predate the
+  are reset before an EC reboot. `driver/charger/` holds each charger part's
+  driver, where a measured input current is read off the AMON pin against the
+  ADC channels a board's devicetree declares. The default branch carries a
+  README mapping each system and CPU to its EC codename and the branch holding
+  that board's code, which is where all of the above is. `hx20` and `hx30` predate the
   Zephyr port and keep their board code under `board/` instead.
 - [FrameworkComputer/Framework-Laptop-13](https://github.com/FrameworkComputer/Framework-Laptop-13)
   — the mainboard connector pinouts and a partial schematic per generation,
@@ -893,6 +962,10 @@ best treated as recoverable only by writing the mask back.
   where the touchscreen enable pad was first named; the pairing recorded
   above was confirmed on the machine rather than taken from it, since a topic
   branch is not something a reader can rely on finding.
+- [Infineon/hpi](https://github.com/Infineon/hpi) — the vendor's own host-side
+  HPI library, whose `cy_hpi_defines_default.h` publishes the register map in
+  the clear: every port register's offset, name and units, including those the
+  EC only prints. The specification the register map belongs to is under NDA.
 - TI **bq40z50** technical reference manual — the register map and the set
   conditions for every status bit. SLUUA43A covers the R2 revision and
   SLUUBU5A the R3, which differ in their ManufacturerAccess status bits.
