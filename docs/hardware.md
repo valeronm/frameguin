@@ -367,13 +367,16 @@ sharing the button; the EC's own id for it is `EC_LED_ID_POWER_LED`.
 Levels are 1–100. **Zero is rejected**: the EC will not let the host
 extinguish the machine's power indicator.
 
-The **percentage write** needs command **v1**, which older EC firmware lacks
-([framework-system #211](https://github.com/FrameworkComputer/framework-system/issues/211)).
-The ultra-low and auto levels do not need it — the v0 handler takes them on any
-firmware that has them — but they arrived with the same firmware generation, so
-asking whether v1 exists is a serviceable stand-in for asking whether they do.
-It is a proxy, not a requirement: worth knowing if you are deciding what to
-*refuse* rather than what to offer.
+The **percentage write** needs command **v1**, which the `hx20` and `hx30`
+boards lack — the Laptop 13 on 11th, 12th and 13th Gen Intel Core. Both declare
+the command `EC_VER_MASK(0)` alone, and their handler takes high, medium and
+low, answering `EC_RES_INVALID_PARAM` to anything else. That refusal is what
+[framework-system #211](https://github.com/FrameworkComputer/framework-system/issues/211)
+reports. The ultra-low and auto levels do not need v1 — the v0 handler takes
+them on any firmware that has them — but they arrived with the same firmware
+generation, so asking whether v1 exists is a serviceable stand-in for asking
+whether they do. It is a proxy, not a requirement: worth knowing if you are
+deciding what to *refuse* rather than what to offer.
 
 **Auto is the ambient light sensor**, not a policy the EC runs on its own.
 Setting it raises a bit in the BIOS-function BBRAM slot, and the LED's duty
@@ -386,6 +389,10 @@ answering custom for anything unmapped. A custom percentage that happens to
 equal a named level's therefore reads back as that level, with nothing to tell
 the two apart. Auto is the exception, being a flag of its own, and it replaces
 the deduced answer rather than being read out of the percentage.
+
+Firmware answering only v0 does not even deduce: the read hands back the stored
+percentage with no level beside it. High, medium and low are 55, 40 and 15 on
+both firmware lines, so the deduction v1 does is reproducible from a v0 read.
 
 **A level is acknowledged at once and applied 100 ms later.** The EC's
 `fp_led_level_control` stores the level in BBRAM and defers
@@ -869,7 +876,10 @@ best treated as recoverable only by writing the mask back.
   port-enable write and the reset path; `board_host_command.c` the port-state
   host command; the `ucsi_port_*.c` files the per-board connector maps; and
   each board's `project.conf` its controller count and whether the controllers
-  are reset before an EC reboot.
+  are reset before an EC reboot. The default branch carries a README mapping
+  each system and CPU to its EC codename and the branch holding that board's
+  code, which is where all of the above is. `hx20` and `hx30` predate the
+  Zephyr port and keep their board code under `board/` instead.
 - [FrameworkComputer/Framework-Laptop-13](https://github.com/FrameworkComputer/Framework-Laptop-13)
   — the mainboard connector pinouts and a partial schematic per generation,
   which is where the display connector's touch group and the circuits around

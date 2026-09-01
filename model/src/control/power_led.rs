@@ -234,9 +234,9 @@ mod tests {
         }
     }
 
-    /// Firmware that takes no raw percentage lists no Custom row, and reports
-    /// `Custom` for every level it holds — leaving the combo on no row at
-    /// all, which is what it showed before there was a question to ask.
+    /// Firmware that takes no raw percentage lists no Custom row, and can
+    /// still report `Custom` — for a brightness no level of its own stands
+    /// for — which is a row such a board does not have.
     #[test]
     fn a_board_without_a_custom_row_keeps_nothing() {
         let rows = vec![

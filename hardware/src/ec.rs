@@ -39,7 +39,8 @@ const BATTERY_I2C_PORT: u8 = 3;
 /// with command v1.
 pub trait PowerLedEc: Send + Sync {
     /// The brightness percentage and the level the EC reports it as.
-    /// `Custom` is what it answers after any raw percentage write.
+    /// `Custom` is what it answers after any raw percentage write, and on
+    /// firmware that names no level, for a percentage no level stands for.
     fn power_led_level(&self) -> DeviceResult<(u8, wire::PowerLedLevel)>;
     /// Refuses `Custom` and `Off`, the two levels the EC has no setting for.
     fn set_power_led_level(&self, level: wire::PowerLedLevel) -> DeviceResult<()>;
@@ -274,7 +275,7 @@ impl Ec {
 impl PowerLedEc for Ec {
     fn power_led_level(&self) -> DeviceResult<(u8, wire::PowerLedLevel)> {
         let (percent, level) = self.ec().get_fp_led_level().map_err(device_error)?;
-        Ok((percent, wire_power_led_level(level.as_ref())))
+        Ok((percent, wire_power_led_level(level.as_ref(), percent)))
     }
 
     fn set_power_led_level(&self, level: wire::PowerLedLevel) -> DeviceResult<()> {
@@ -428,16 +429,29 @@ fn ec_power_led_level(level: wire::PowerLedLevel) -> Option<FpLedBrightnessLevel
     })
 }
 
-/// A level the EC does not name is custom: that is what it reports after a
-/// raw percentage write.
-fn wire_power_led_level(level: Option<&FpLedBrightnessLevel>) -> wire::PowerLedLevel {
+/// The percentages the three levels every firmware has stand for.
+const POWER_LED_HIGH: u8 = 55;
+const POWER_LED_MEDIUM: u8 = 40;
+const POWER_LED_LOW: u8 = 15;
+
+/// The level the EC named, or the one its percentage stands for where it
+/// named none. Firmware that names none stores only these three or a zero
+/// meaning the level was never set, so the deduction is exhaustive over what
+/// such a board holds and the zero is the one reading left custom.
+fn wire_power_led_level(level: Option<&FpLedBrightnessLevel>, percent: u8) -> wire::PowerLedLevel {
     match level {
         Some(FpLedBrightnessLevel::High) => wire::PowerLedLevel::High,
         Some(FpLedBrightnessLevel::Medium) => wire::PowerLedLevel::Medium,
         Some(FpLedBrightnessLevel::Low) => wire::PowerLedLevel::Low,
         Some(FpLedBrightnessLevel::UltraLow) => wire::PowerLedLevel::UltraLow,
         Some(FpLedBrightnessLevel::Auto) => wire::PowerLedLevel::Auto,
-        Some(FpLedBrightnessLevel::Custom) | None => wire::PowerLedLevel::Custom,
+        Some(FpLedBrightnessLevel::Custom) => wire::PowerLedLevel::Custom,
+        None => match percent {
+            POWER_LED_HIGH => wire::PowerLedLevel::High,
+            POWER_LED_MEDIUM => wire::PowerLedLevel::Medium,
+            POWER_LED_LOW => wire::PowerLedLevel::Low,
+            _ => wire::PowerLedLevel::Custom,
+        },
     }
 }
 
@@ -531,9 +545,22 @@ mod tests {
     fn every_level_the_ec_has_a_setting_for_comes_back_as_itself() {
         for level in wire::PowerLedLevel::ALL {
             if let Some(ec_level) = ec_power_led_level(level) {
-                assert_eq!(wire_power_led_level(Some(&ec_level)), level);
+                assert_eq!(wire_power_led_level(Some(&ec_level), 0), level);
             }
         }
+    }
+
+    /// Written out rather than taken from the constants the deduction reads,
+    /// which would move both sides of the assertion together. Zero is the
+    /// only other reading such a board has: never set, or cleared for
+    /// shipping.
+    #[test]
+    fn only_the_three_percentages_a_level_stands_for_are_named() {
+        let named = |percent| wire_power_led_level(None, percent);
+        assert_eq!(named(55), wire::PowerLedLevel::High);
+        assert_eq!(named(40), wire::PowerLedLevel::Medium);
+        assert_eq!(named(15), wire::PowerLedLevel::Low);
+        assert_eq!(named(0), wire::PowerLedLevel::Custom);
     }
 
     /// The state a full laptop sits in all day, and the one the EC's own
