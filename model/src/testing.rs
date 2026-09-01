@@ -3,8 +3,9 @@ use std::rc::Rc;
 use std::task::{Context, Poll, Waker};
 
 use frameguin_wire::{
-    BatteryCondition, BatteryControl, BatteryFeature, BatteryInfo, BatteryState, ChargeFlow,
-    ClickForce, DeviceError, DeviceResult, NO_CHARGE_CURRENT_LIMIT, PowerLedControl, PowerLedLevel,
+    BatteryCondition, BatteryControl, BatteryFeature, BatteryInfo, BatteryState, CcPolarity,
+    ChargeFlow, ClickForce, DataRole, DeviceError, DeviceResult, Epr, NO_CHARGE_CURRENT_LIMIT,
+    PortPartner, PortState, PortsControl, PowerLedControl, PowerLedLevel, PowerRole,
     TouchpadControl, TouchscreenControl,
 };
 
@@ -93,6 +94,7 @@ pub(crate) struct Board {
     pub(crate) touchpad: Fault,
     pub(crate) touchscreen: Fault,
     pub(crate) power_led: Fault,
+    pub(crate) ports: Fault,
     pub(crate) limit: Cell<u8>,
     pub(crate) cap: Cell<u32>,
     pub(crate) haptic_intensity: Cell<u8>,
@@ -109,6 +111,7 @@ impl Default for Board {
             touchpad: Fault::default(),
             touchscreen: Fault::default(),
             power_led: Fault::default(),
+            ports: Fault::default(),
             limit: Cell::new(100),
             cap: Cell::new(NO_CHARGE_CURRENT_LIMIT),
             haptic_intensity: Cell::new(50),
@@ -130,7 +133,8 @@ impl Board {
             battery: Fault::failing(error.clone()),
             touchpad: Fault::failing(error.clone()),
             touchscreen: Fault::failing(error.clone()),
-            power_led: Fault::failing(error),
+            power_led: Fault::failing(error.clone()),
+            ports: Fault::failing(error),
             ..Self::default()
         })
     }
@@ -193,6 +197,40 @@ impl TouchpadControl for Board {
         self.touchpad.write()?;
         self.click_force.set(force);
         Ok(())
+    }
+}
+
+/// One port as a stub answers for it: the first charging under a 100 W
+/// contract, every other empty.
+pub(crate) fn port(index: u8) -> PortState {
+    let charging = index == 0;
+    PortState {
+        index,
+        partner: if charging {
+            PortPartner::Source
+        } else {
+            PortPartner::Nothing
+        },
+        contract: charging,
+        power_role: PowerRole::Sink,
+        data_role: if charging {
+            DataRole::DownstreamFacing
+        } else {
+            DataRole::UpstreamFacing
+        },
+        millivolts: if charging { 20_000 } else { 0 },
+        milliamps: if charging { 5000 } else { 0 },
+        charging,
+        video: false,
+        vconn: charging,
+        cc: CcPolarity::Cc1,
+        epr: Epr::Unsupported,
+    }
+}
+
+impl PortsControl for Board {
+    async fn ports(&self) -> DeviceResult<Vec<PortState>> {
+        self.ports.read((0..4).map(port).collect())
     }
 }
 

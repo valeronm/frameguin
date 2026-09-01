@@ -3,7 +3,7 @@
 
 use crate::vocabulary::{
     BUS_NAME, BatteryCondition, BatteryFeature, BatteryInfo, ClickForce, Identity, OBJECT_PATH,
-    PowerLedLevel,
+    PortState, PowerLedLevel,
 };
 
 /// Any of the proxies below, on the daemon's one name and path.
@@ -89,6 +89,16 @@ pub trait Battery {
     async fn set_charge_current_limit(&self, milliamps: u32) -> zbus::Result<bool>;
 }
 
+/// The USB-C ports, on their own interface at the same path and absent from
+/// the bus where the EC answers for no port.
+#[zbus::proxy(
+    interface = "io.github.valeronm.Frameguin1.Ports",
+    gen_blocking = false
+)]
+pub trait Ports {
+    async fn get_ports(&self) -> zbus::Result<Vec<PortState>>;
+}
+
 /// Every device interface's proxy, dialled together: the one list of what
 /// the daemon can serve, so a caller at either end cannot hold a shorter
 /// one.
@@ -98,6 +108,7 @@ pub struct Proxies {
     pub touchpad: TouchpadProxy<'static>,
     pub touchscreen: TouchscreenProxy<'static>,
     pub power_led: PowerLedProxy<'static>,
+    pub ports: PortsProxy<'static>,
 }
 
 impl Proxies {
@@ -110,6 +121,7 @@ impl Proxies {
             touchpad: proxy(conn).await?,
             touchscreen: proxy(conn).await?,
             power_led: proxy(conn).await?,
+            ports: proxy(conn).await?,
         })
     }
 }

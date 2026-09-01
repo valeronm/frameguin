@@ -60,6 +60,13 @@ Every heading in the file appears here.
   - [Haptic touchpad persistence](#haptic-touchpad-persistence)
 - [Touchscreen](#touchscreen)
   - [Touchscreen persistence](#touchscreen-persistence)
+- [USB-C ports and PD controllers](#usb-c-ports-and-pd-controllers)
+  - [One controller to a pair of ports](#one-controller-to-a-pair-of-ports)
+  - [The port index is electrical, not positional](#the-port-index-is-electrical-not-positional)
+  - [The Laptop 13 Pro's ports](#the-laptop-13-pros-ports)
+  - [A disabled controller keeps reporting what it last saw](#a-disabled-controller-keeps-reporting-what-it-last-saw)
+  - [Disabling a controller's ports](#disabling-a-controllers-ports)
+  - [USB-C port persistence](#usb-c-port-persistence)
 - [Sources](#sources)
 
 ## What survives what
@@ -80,6 +87,7 @@ section marks its finding untested, means exactly that.
 | [Haptic touchpad](#haptic-touchpad-persistence) | Kept | Kept | Kept |
 | [Touchscreen, pad route](#touchscreen-persistence) | **Lost** | **Lost** | not a case |
 | [Touchscreen, panel route](#touchscreen-persistence) | Unknown | Unknown | Unknown |
+| [USB-C port enable](#usb-c-port-persistence) | Unknown | Unknown | Unknown |
 
 The pad route loses its setting to a fourth event the columns cannot carry —
 the lid opening — and the panel route is the Laptop 12's, where none of the
@@ -698,6 +706,153 @@ controller that loses its supply cannot be keeping anything, and the supply is
 switched on boards designed for touch, so a boot is the likeliest of the three
 to clear it. That is an expectation and not a finding.
 
+## USB-C ports and PD controllers
+
+Every USB-C port is driven by a Cypress CCG controller — CCG5, CCG6 or CCG8
+by board — that the EC reaches over I²C and the host reaches through the EC:
+by [I²C passthrough](#reaching-the-ec) for the controller's own registers, and
+by host command for what the EC has already collected. Two things shape
+everything below. The controller rather than the port is the unit the hardware
+is organized around, and what the host reads about a port is the EC's copy of
+it rather than the port.
+
+### One controller to a pair of ports
+
+`CONFIG_PLATFORM_EC_PD_CHIP_MAX_COUNT` defaults to two, and the four-port
+laptops take the default: two controllers, two ports each, one to a side.
+Nothing addresses a port on its own — a controller answers at its own I²C
+address on its own EC bus, and both its ports come with it.
+
+The Laptop 16 carries three, and the third is unlike the other two. `lotus`
+raises the count and maps five ports across them, the first two controllers
+taking two each and the third taking one. That third controller is on the
+expansion bay module rather than the mainboard: it is declared with a
+placeholder I²C address and a `CCG_STATE_NO_POWER` initial state, and
+`ccg8s_init` fills its address in when the module powers up. So how many
+controllers a Laptop 16 has is a fact about what is installed in it rather
+than about the machine.
+
+How many a machine has is a question the EC answers for itself.
+`EC_CMD_READ_PD_VERSION` caches a version per controller while bringing them
+up, and its version 1 reports a count and that many blobs, stopping at the
+first controller it has nothing for. That costs no I²C transfer and needs no
+table of controller addresses, which is what makes it the cheap way to ask —
+against reading silicon IDs, which is the way that also says what each one
+is.
+
+### The port index is electrical, not positional
+
+`EC_CMD_GET_PD_PORT_STATE` takes a port number, and that number indexes the
+EC's `pd_port_states` array directly. The array is controller-major — the
+charge-port code writes `[(controller * 2) + 0]` and `+ 1` — so the index
+decomposes as controller × 2 + connector and says exactly two things: which
+controller, and which of its two connectors. Nothing about where the socket
+is on the chassis.
+
+**Asking for a port past the last one is not safe.** The handler guards on
+the board's port count and should refuse a number past it, and the Linux
+driver reports that refusal faithfully. A Laptop 13 Pro does neither: asked
+for port 4 on a four-port board it answers success, with every field of the
+reading set — a negotiated 65535 mV at 65535 mA, which is nothing USB-C can
+carry — having read past the end of its own array. So the count of ports
+cannot be discovered by walking until the EC objects. What bounds it instead
+is the controllers: each drives at most two ports, and how many answered is
+something the EC will say ([`EC_CMD_READ_PD_VERSION`](#one-controller-to-a-pair-of-ports)).
+That over-counts by one on a Laptop 16, whose third controller drives a
+single port, and there the refusal is the only thing under the ceiling — on
+a board that refuses.
+
+Which socket a connector reaches is a separate table, and it is per board. The
+UCSI maps hold that translation, and the Laptop 12's and the Laptop 13's
+differ in precisely the pair they assign to the second controller, agreeing on
+the first. The shared Laptop 13 map says as much itself: it is the mapping for
+most Laptop 13 mainboards, and any that differ carry their own file. At least
+one does.
+
+So no index-to-position table can be right for a whole family, and a tool
+shipping one is wrong on some boards with no way to notice. `framework_lib`
+ships one — a hardcoded match on the index with a single Laptop 16 special
+case — and on the Laptop 13 Pro it places every port on the correct side and
+reverses front against rear on both of them.
+
+### The Laptop 13 Pro's ports
+
+Measured on a Laptop 13 Pro (Intel Core Ultra Series 3), which carries two
+CCG8 controllers, both reporting silicon ID `0x3E81`. Positions are as seen
+from the keyboard with the lid open; the machine turned over to read its
+underside gives the mirror image of every one of them.
+
+| Port | Controller | Slot |
+|---|---|---|
+| 0 | first, I²C `0x42` | right front |
+| 1 | first, I²C `0x42` | right rear |
+| 2 | second, I²C `0x40` | left rear |
+| 3 | second, I²C `0x40` | left front |
+
+Ports 1, 2 and 3 were each read off the machine, by attaching a source to one
+slot at a time and seeing which index reported the contract; port 0 is what is
+left once the other three are placed. None of it transfers to another board,
+which is the whole point of the section above.
+
+### A disabled controller keeps reporting what it last saw
+
+`pd_port_states` is the EC's cache, filled from the controllers' interrupts,
+and a controller whose ports are disabled stops raising them. The EC neither
+clears the entry nor marks it stale: it goes on serving the last state it had.
+A port disabled while a 90 W display was attached kept reporting that
+contract, its negotiated voltage and current, and its DisplayPort alternate
+mode, for as long as it stayed disabled — with the display dark throughout. A
+second source attached during that window did not appear at all, and appeared
+on the re-enable.
+
+So a port reading means nothing without its controller's port mask beside it.
+Anything reporting port state has to read the mask too and treat a disabled
+controller's ports as unreported, because what it otherwise shows is not a
+stale number but a confident account of a cable that is not there.
+
+### Disabling a controller's ports
+
+The controller's `PDPORT_ENABLE` register, at HPI address `0x2C`, holds a
+bitmask with a bit per port. Writing zero disables them in earnest — power,
+data and alternate mode all stop, and an attached display goes dark — and the
+register reads back, which is the only readback anything here has.
+
+**The mask is per port and nothing writes it that way.** `framework_lib`
+writes `0b11` or `0b00` behind a boolean, and the EC writes only zero, so both
+ends treat a two-bit field as a switch. Whether a controller honours `0b01` is
+untested. The EC defines a per-port `PDPORT_DISABLE`/`PDPORT_ENABLE` pair of
+values and uses neither.
+
+**The EC disables but never enables.** Its one write to the register is the
+zero that begins resetting a controller, after which it waits up to 650 ms —
+the register's own cost, the time a port takes to discharge — and then resets
+the chip, which brings the ports back by restarting the controller's firmware
+rather than by writing the mask again. Re-enabling by writing `0b11` is
+therefore a path the EC's own code never takes. It works: the mask reads back,
+alternate mode returns, and a source attached while the ports were off is
+negotiated without being unplugged.
+
+### USB-C port persistence
+
+**Untested in all three columns**, and the answer is per board — unusual
+enough here to be worth stating on its own.
+
+Nothing in the EC writes the register except the zero that begins a controller
+reset, and that reset has one caller: a hook on the EC's way into a reboot,
+which compiles to nothing unless `CONFIG_PLATFORM_EC_PD_RESET_BEFORE_EC_REBOOT`
+is set. Exactly one board in the tree sets it. On that board a reboot taking
+the EC with it should clear a disabled mask, the reset restarting the
+controller's firmware with its ports enabled; on every other board nothing in
+the EC touches the register at all, and the mask should stand for as long as
+the controller keeps its supply.
+
+Which board the Laptop 13 Pro is has not been established. Nothing in the EC
+tree maps board names to the DMI strings a machine reports, so the match is
+inference from what each board configures — and that inference lands on the
+single board setting the option, which is also the single case where a reboot
+recovers. Too thin a thread to hang a recovery on: a disabled controller is
+best treated as recoverable only by writing the mask back.
+
 ## Sources
 
 - [FrameworkComputer/EmbeddedController](https://github.com/FrameworkComputer/EmbeddedController)
@@ -709,7 +864,12 @@ to clear it. That is an expectation and not a finding.
   `zephyr/program/framework/src/`. The per-board devicetree under
   `zephyr/program/framework/` names each pack, the battery temperature sensor
   node and each LED's colours — often by including a sibling board's file
-  rather than carrying its own.
+  rather than carrying its own. On the same tree's PD side,
+  `cypress_pd_common.c` and its header carry the controller registers, the
+  port-enable write and the reset path; `board_host_command.c` the port-state
+  host command; the `ucsi_port_*.c` files the per-board connector maps; and
+  each board's `project.conf` its controller count and whether the controllers
+  are reset before an EC reboot.
 - [FrameworkComputer/Framework-Laptop-13](https://github.com/FrameworkComputer/Framework-Laptop-13)
   — the mainboard connector pinouts and a partial schematic per generation,
   which is where the display connector's touch group and the circuits around

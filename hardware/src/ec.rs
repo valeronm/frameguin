@@ -16,14 +16,18 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use frameguin_wire::{self as wire, DeviceError, DeviceResult};
 use framework_lib::chromium_ec::command::{EcCommands, EcRequestRaw};
-use framework_lib::chromium_ec::commands::{EcRequestGetUptimeInfo, FpLedBrightnessLevel};
+use framework_lib::chromium_ec::commands::{
+    EcRequestGetPdPortState, EcRequestGetUptimeInfo, EcRequestReadPdVersionV0,
+    EcRequestReadPdVersionV1, FpLedBrightnessLevel,
+};
 use framework_lib::chromium_ec::i2c_passthrough::i2c_read;
-use framework_lib::chromium_ec::{CrosEc, EcResult};
+use framework_lib::chromium_ec::{CrosEc, EcError, EcResponseStatus, EcResult};
 use framework_lib::power;
 
 use crate::dmi;
 use crate::lifetime::EcBoot;
 use crate::part::{self, Identity};
+use crate::pd;
 use crate::sbs;
 
 /// The EC's I2C port the pack hangs off, the same on every Framework board
@@ -58,6 +62,20 @@ pub trait Pack: Send + Sync {
     fn identity(&self) -> Option<Identity>;
     fn info(&self) -> Option<wire::BatteryInfo>;
     fn condition(&self) -> Option<wire::BatteryCondition>;
+}
+
+/// What the ports' device needs of the EC: how many PD controllers answered,
+/// and one port's state.
+pub trait PdPorts: Send + Sync {
+    /// How many controllers the EC reports a version for. Each drives at
+    /// most two ports, which is what bounds the walk — the EC cannot be
+    /// asked how many ports a board has, and asking it past the last one is
+    /// not safe (see `docs/hardware.md`).
+    fn pd_controllers(&self) -> u8;
+    /// None where the EC refuses the number as out of range. A second bound
+    /// rather than the only one, since a board has been seen to answer past
+    /// its last port instead of refusing.
+    fn port_state(&self, port: u8) -> DeviceResult<Option<wire::PortState>>;
 }
 
 /// What the battery's device needs of the charger: the ceiling, and the
@@ -103,6 +121,11 @@ struct Memo {
     /// When the pack was built, which the EC publishes nowhere and which
     /// cannot change at all.
     manufacture_date: OnceLock<Option<String>>,
+    /// The PD controllers' versions, which the EC caches at controller
+    /// bring-up and which two devices ask for at detection — the mainboard
+    /// for the firmware it runs, the ports for how many controllers there
+    /// are to bound their walk.
+    pd_versions: OnceLock<Option<Vec<[u8; pd::VERSION_LEN]>>>,
 }
 
 /// Remembers what a read answered, absence included, and asks only once.
@@ -189,6 +212,46 @@ impl Ec {
         self.ec().version_info()
     }
 
+    /// The version the EC holds for each PD controller, in the EC's own
+    /// controller order, and empty where it will not answer.
+    ///
+    /// The EC caches these while bringing the controllers up, so this asks
+    /// the EC rather than the controllers and needs neither an I2C transfer
+    /// nor the per-board table of controller addresses one would be sent to.
+    /// What it costs is the detail that table buys: the silicon id, which
+    /// image is running, and the versions of the two that are not — this is
+    /// the main firmware's version whichever image the controller booted.
+    ///
+    /// Command version 1 answers with a count and that many blobs, stopping
+    /// at the first controller it has nothing for; version 0 answers for two
+    /// and pads an absent one with zeros. Either way the blobs are chunked
+    /// rather than counted, so a short answer costs the entries it truncated
+    /// and not a misread of the ones before them.
+    pub(crate) fn pd_versions(&self) -> Vec<[u8; pd::VERSION_LEN]> {
+        remembered(&self.memo.pd_versions, || {
+            let counted = self.offers(EcCommands::ReadPdVersion, 1);
+            let ec = self.ec();
+            let raw = if counted {
+                EcRequestReadPdVersionV1 {}.send_command_vec(&ec)
+            } else {
+                EcRequestReadPdVersionV0 {}.send_command_vec(&ec)
+            }
+            .ok()?;
+            // Version 1 leads with the count, which the chunking below makes
+            // nothing of; version 0 leads with the first blob.
+            let blobs = raw.get(usize::from(counted)..).unwrap_or_default();
+            Some(
+                blobs
+                    .chunks_exact(pd::VERSION_LEN)
+                    // Every chunk is exactly this long; the conversion is
+                    // what gives the array its type, not a filter.
+                    .map(|blob| <[u8; pd::VERSION_LEN]>::try_from(blob).unwrap_or_default())
+                    .collect(),
+            )
+        })
+        .unwrap_or_default()
+    }
+
     /// Whether a write-only command can be offered, asked of the firmware by
     /// `GET_CMD_VERSIONS`, which is side-effect-free and about the exact
     /// command a setter sends. An EC that won't answer is read as "no": a
@@ -236,6 +299,21 @@ impl PowerLedEc for Ec {
     /// them.
     fn custom_power_led_levels(&self) -> bool {
         self.offers(EcCommands::FpLedLevelControl, 1)
+    }
+}
+
+impl PdPorts for Ec {
+    fn pd_controllers(&self) -> u8 {
+        u8::try_from(self.pd_versions().len()).unwrap_or(u8::MAX)
+    }
+
+    fn port_state(&self, port: u8) -> DeviceResult<Option<wire::PortState>> {
+        let request = EcRequestGetPdPortState { port };
+        match request.send_command(&self.ec()) {
+            Ok(raw) => Ok(Some(pd::port_state(port, &raw))),
+            Err(EcError::Response(EcResponseStatus::InvalidParameter)) => Ok(None),
+            Err(e) => Err(device_error(e)),
+        }
     }
 }
 

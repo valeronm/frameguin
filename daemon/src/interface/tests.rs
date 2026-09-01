@@ -7,17 +7,18 @@ use std::time::Duration;
 
 use async_io::Async;
 use frameguin_hardware::device::battery::Battery;
+use frameguin_hardware::device::ports::Ports;
 use frameguin_hardware::device::power_led::PowerLed;
 use frameguin_hardware::device::touchpad::Touchpad;
 use frameguin_hardware::device::touchscreen::Touchscreen;
 use frameguin_hardware::ec::Pack;
 use frameguin_hardware::part::Identity;
 use frameguin_hardware::testing::{
-    EC_BOOT, EcCharger, Gauge, Haptic, LedEc, Leds, Memory, Route, battery_identity, block,
-    mirrors, panel_identity, touchpad_identity,
+    Connectors, EC_BOOT, EcCharger, Gauge, Haptic, LedEc, Leds, Memory, Route, battery_identity,
+    block, mirrors, panel_identity, touchpad_identity,
 };
 use frameguin_wire::{
-    BatteryFeature, ClickForce, DeviceError, FrameguinProxy, NO_CHARGE_CURRENT_LIMIT,
+    BatteryFeature, ClickForce, DeviceError, FrameguinProxy, NO_CHARGE_CURRENT_LIMIT, PortPartner,
     PowerLedLevel, Proxies, proxy,
 };
 use futures_lite::future::{block_on, or};
@@ -52,6 +53,7 @@ fn devices() -> Devices {
             Arc::new(LedEc::default()),
             Box::new(Leds::default()),
         )),
+        ports: Ports::new(Arc::new(Connectors::default())),
     }
 }
 
@@ -189,6 +191,13 @@ fn every_getter_answers_through_its_proxy() {
             ClickForce::Medium
         );
         assert!(p.touchscreen.get_enabled().await.unwrap());
+        let ports = p.ports.get_ports().await.unwrap();
+        assert_eq!(ports.len(), 4);
+        assert_eq!(ports[0].index, 0);
+        assert!(ports[0].charging);
+        assert_eq!(ports[0].partner, PortPartner::Source);
+        assert!(!ports[1].charging);
+        assert_eq!(ports[1].partner, PortPartner::Nothing);
     });
 }
 
@@ -306,5 +315,23 @@ fn a_device_detection_did_not_find_is_not_on_the_bus() {
         assert!(p.touchscreen.get_enabled().await.is_ok());
         assert!(p.touchpad.get_click_force().await.is_ok());
         assert!(p.power_led.get_brightness().await.is_ok());
+        assert!(p.ports.get_ports().await.is_ok());
+    });
+}
+
+/// A board whose EC answers for no port serves no ports interface, which is
+/// the same absence a machine without the command has.
+#[test]
+fn a_board_with_no_ports_serves_no_ports_interface() {
+    let peer = serve_devices(
+        true,
+        Devices {
+            ports: None,
+            ..devices()
+        },
+    );
+    peer.run(|p| async move {
+        assert!(absent(p.ports.get_ports().await));
+        assert!(p.battery.get_charge_limit().await.is_ok());
     });
 }

@@ -10,6 +10,7 @@
 //! directly gets the same refusals without this layer.
 
 pub(crate) mod battery;
+pub(crate) mod ports;
 pub(crate) mod power_led;
 pub(crate) mod touchpad;
 pub(crate) mod touchscreen;
@@ -20,6 +21,7 @@ mod tests;
 use std::sync::Arc;
 
 use frameguin_hardware::device::battery::Battery;
+use frameguin_hardware::device::ports::Ports;
 use frameguin_hardware::device::power_led::PowerLed;
 use frameguin_hardware::device::touchpad::Touchpad;
 use frameguin_hardware::device::touchscreen::Touchscreen;
@@ -38,6 +40,7 @@ pub(crate) struct Devices {
     pub(crate) touchpad: Option<Touchpad>,
     pub(crate) touchscreen: Option<Touchscreen>,
     pub(crate) power_led: Option<PowerLed>,
+    pub(crate) ports: Option<Ports>,
 }
 
 /// Everything the daemon puts at [`OBJECT_PATH`]: the root interface, then
@@ -56,12 +59,14 @@ pub(crate) async fn serve_all(
         touchpad,
         touchscreen,
         power_led,
+        ports,
     } = devices;
     server.at(OBJECT_PATH, root).await?;
     serve_one(server, &service, battery).await?;
     serve_one(server, &service, touchpad).await?;
     serve_one(server, &service, touchscreen).await?;
-    serve_one(server, &service, power_led).await
+    serve_one(server, &service, power_led).await?;
+    serve_one(server, &service, ports).await
 }
 
 async fn serve_one<D>(

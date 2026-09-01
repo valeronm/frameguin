@@ -23,11 +23,13 @@ One meaning per word, and each word names one place in the tree.
   unit": `hardware::part::Part`, answering an `Identity`. The inventory is
   a `Vec<Identity>`. A device that is a part and no control detects into a
   list, memory being one per slot.
-- **Control** — the facet "something that can be read and set": one trait
-  per device in `wire` — `BatteryControl`, `TouchpadControl`,
-  `TouchscreenControl`, `PowerLedControl` — with one
+- **Control** — the facet "something that can be read, and usually set": one
+  trait per device in `wire` — `BatteryControl`, `TouchpadControl`,
+  `TouchscreenControl`, `PowerLedControl`, `PortsControl` — with one
   async fn per operation and three implementations, the device itself, the
-  bus, and a stub. `DeviceError` is the one error every control and every
+  bus, and a stub. A trait with only getters is a control all the same:
+  `PortsControl` sets nothing, what a USB-C port does being settled between
+  its controller and whatever is plugged in. `DeviceError` is the one error every control and every
   detection raises.
 - **Interface** — the D-Bus surface for one device's control, on
   `Served<Device>`. `daemon/src/interface/<name>.rs`. The root interface,
@@ -80,9 +82,17 @@ came straight to it.
 ## Rows are layers, columns are devices
 
 A device — the battery, the power button LED, the haptic touchpad, the
-touch panel — is one column that crosses every layer the same way. A layer
-is one row that every device crosses. What a device must not know lives in
-another column; what a layer must not link lives in another row.
+touch panel, the USB-C ports — is one column that crosses every layer the
+same way. A layer is one row that every device crosses. What a device must
+not know lives in another column; what a layer must not link lives in
+another row.
+
+A column need not reach every row: the USB-C ports are read and never set,
+so they have no group of their own, no tray item and no words for a command —
+a control trait with only getters is still a column, and stops where it runs
+out of things to be. The one row they put in a window sits in the Battery
+group, that being the question it answers: what is coming in, beside what the
+pack is doing about it.
 
 | Layer | Crate | Links | Owns | Must not know | Tested against |
 |---|---|---|---|---|---|
@@ -91,7 +101,7 @@ another column; what a layer must not link lives in another row.
 | Control traits | `wire` | zbus, serde | One trait per device, one async fn per operation; `DeviceError` | How an operation is reached | — |
 | Bus | `wire`, `app`, `daemon` | zbus, polkit | One proxy per interface and the vocabularies (`wire`); `Bus` implementing the traits over them (`app`); `Served<Device>` with the validate → skip → authorize → write order (`daemon`) | Anything that touches hardware (`wire`, `app`); which EC command a role sends (`daemon`) | Its own `wire` proxies over a socket pair, the devices on the same stubs |
 | Devices | `hardware` | `wire` | `detect()`, the control impl with its argument checks, the `Part` impl, mirrors under a declared lifetime, arbitrations | The bus, polkit | The stub per role and the store in memory, in `hardware::testing` |
-| Roles | `hardware` | — | One trait per hardware need: `Charger`, `Pack`, `PowerLedEc`, `LedClass`, `HapticPad`, `TouchSwitch`, `Store` | Who calls them | — |
+| Roles | `hardware` | — | One trait per hardware need: `Charger`, `Pack`, `PowerLedEc`, `LedClass`, `HapticPad`, `TouchSwitch`, `PdPorts`, `Store` | Who calls them | — |
 | Transports | `hardware` | `framework_lib`, hidapi, libc | `Ec` and its lock, the sysfs LED node, the GPIO pad, the panel and touchpad HID, the SMBIOS table, the state file | Devices, policy, the bus | The machine |
 
 The two trait rows are the seams. A stub replaces the real thing at either,
@@ -194,8 +204,10 @@ device all the same.
 
 The two facets are not one list. A memory module or an expansion card is a
 part with no control; the power button LED is a control that is no part; the
-mainboard is a part the daemon reads and never sets, and its BIOS and EC are
-firmware it runs rather than parts of their own. So the inventory is its own
+mainboard is a part the daemon reads and never sets, and its BIOS, its EC and
+its USB-C power delivery controllers are firmware it runs rather than parts of
+their own — what is soldered to the board is not a part, there being no such
+thing to order. So the inventory is its own
 list, a control's device is on it only where it happens to be a part, and
 the bus carries it as one method on the root interface —
 `GetDevices -> Vec<Identity>` — beside the per-device control interfaces. Where a part maps to

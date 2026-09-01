@@ -80,7 +80,8 @@ impl Ui {
 
     /// Shows each group where its control is.
     fn gate(&self, controls: &Controls<Bus>) {
-        self.battery.gate(controls.battery.as_ref());
+        self.battery
+            .gate(controls.battery.as_ref(), controls.ports.is_some());
         self.power_led.gate(controls.power_led.as_ref());
         self.touchpad.gate(controls.touchpad.as_ref());
         self.touchscreen.gate(controls.touchscreen.as_ref());
@@ -198,14 +199,18 @@ pub(crate) fn build_window(
     page.add(&application);
 
     // Detected hardware as the header subtitle: one line, no key/value rows.
-    let detected = board::detected().unwrap_or_else(|| NO_HARDWARE.to_string());
+    let detected = board::detected().unwrap_or(NO_HARDWARE);
 
     let view = adw::ToolbarView::new();
     let header = adw::HeaderBar::new();
-    header.set_title_widget(Some(&adw::WindowTitle::new("Frameguin", &detected)));
+    header.set_title_widget(Some(&adw::WindowTitle::new("Frameguin", detected)));
 
     let menu = gio::Menu::new();
     menu.append(Some("_Parts"), Some(&format!("app.{}", parts::ACTION)));
+    menu.append(
+        Some("_USB-C Ports"),
+        Some(&format!("app.{}", crate::report::ports::ACTION)),
+    );
     menu.append(Some("_About Frameguin"), Some("app.about"));
     menu.append(Some("_Quit"), Some("app.quit"));
     let menu_button = gtk::MenuButton::builder()

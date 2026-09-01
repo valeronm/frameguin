@@ -12,6 +12,24 @@ use gtk4::gdk;
 use gtk4::glib;
 
 use super::Ui;
+
+/// A row that shows one value and opens a report, with the label carrying
+/// the value and the chevron saying it leads somewhere.
+///
+/// Named as an action rather than wired to a handler, so a row here and the
+/// tray's line reach the same report the same way and neither has to hold a
+/// bus connection to offer it.
+pub(crate) fn report_row(title: &str, action: &str) -> (adw::ActionRow, gtk::Label) {
+    let row = adw::ActionRow::builder()
+        .title(title)
+        .activatable(true)
+        .action_name(format!("app.{action}"))
+        .build();
+    let value = gtk::Label::new(None);
+    row.add_suffix(&value);
+    row.add_suffix(&gtk::Image::from_icon_name("go-next-symbolic"));
+    (row, value)
+}
 use crate::mapped::Once;
 
 /// GTK carries adjustment values as f64. The cast alone saturates at 255, so

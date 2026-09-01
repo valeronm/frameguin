@@ -12,20 +12,29 @@ use frameguin_model::control::battery::{
     charge_speed_row,
     reading::{amps, battery_summary, percent_label},
 };
+use frameguin_model::control::ports::supply_summary;
 use frameguin_model::control::power_led;
 use frameguin_model::control::touchscreen::{state_at, state_labels, state_row};
-use frameguin_wire::{BatteryFeature, BatteryState, PowerLedLevel};
+use frameguin_wire::{BatteryFeature, BatteryState, PortState, PowerLedLevel};
 
 use crate::APP_ID;
+use crate::board;
 use crate::bus::Bus;
 use crate::daemon::Daemon;
 
+/// `Copy` so a menu item can be built from the event it sends: the boxed
+/// handler runs more than once, and every variant here is a value rather
+/// than something owned.
+#[derive(Clone, Copy)]
 pub(crate) enum TrayEvent {
     Show,
     /// The battery report, which the menu's own reading heads. Carries
     /// nothing: the report reads for itself rather than being handed the
     /// summary the menu happens to hold.
     ShowBatteryDetails,
+    /// The USB-C ports report, which the menu's supply line heads. Carries
+    /// nothing, as [`TrayEvent::ShowBatteryDetails`] does.
+    ShowPorts,
     Refresh,
     SetChargeLimit(u8),
     /// Already resolved to milliamps against the capacity the menu was drawn
@@ -51,6 +60,9 @@ pub(crate) struct TrayIcon {
     /// Which limits the charger takes, pushed in with the detected controls;
     /// None until then, which a machine with no pack never changes.
     battery_features: Option<Vec<BatteryFeature>>,
+    /// The USB-C ports as the daemon last reported them, pushed in from the
+    /// app like the pack above and moving on their own for the same reason.
+    ports: Option<Vec<PortState>>,
     /// Currently applied charge limit, pushed in from the app so the radio
     /// group can mark it; None until the first daemon read.
     charge_limit: Option<u8>,
@@ -78,6 +90,7 @@ impl TrayIcon {
             tx,
             battery: None,
             battery_features: None,
+            ports: None,
             charge_limit: None,
             charge_current_limit: None,
             design_capacity: None,
@@ -122,8 +135,9 @@ impl ksni::Tray for TrayIcon {
     }
 
     /// The menu, grouped by subsystem, in the order the window's own page
-    /// puts them — the battery leads with its reading above the controls that
-    /// shape it, and the way in and the way out bracket the lot. The array
+    /// puts them — what is coming in, then the pack's own reading, then the
+    /// controls that shape it, with the way in and the way out bracketing the
+    /// lot. The array
     /// below is the list; naming the groups here as well would be a second
     /// place to update every time one is added.
     ///
@@ -144,6 +158,7 @@ impl ksni::Tray for TrayIcon {
                 .into(),
             ],
             [
+                self.supply_item(),
                 self.battery_item(),
                 self.charge_limit_item(),
                 self.charge_speed_item(),
@@ -178,6 +193,18 @@ impl ksni::Tray for TrayIcon {
 /// when the hardware sits on no preset, which leaves the group unmarked and
 /// the title naming `unlisted` — the value's own spelling, where the control
 /// has one, and nothing where it hasn't or nothing has been read yet.
+/// One shape for every line that shows a reading and opens the report behind
+/// it, beside [`radio_submenu`] for the same reason: the convention is that
+/// such a line carries no state of its own and the report reads for itself.
+fn report_item(label: String, open: TrayEvent) -> ksni::MenuItem<TrayIcon> {
+    ksni::menu::StandardItem {
+        label,
+        activate: Box::new(move |tray: &mut TrayIcon| tray.send(open)),
+        ..Default::default()
+    }
+    .into()
+}
+
 fn radio_submenu(
     name: &str,
     selected: Option<usize>,
@@ -212,16 +239,34 @@ impl TrayIcon {
     /// The reading heading the battery group, and the way into the full
     /// report. Gated on the reading itself: a board that has a pack still has
     /// nothing to show until the first one arrives.
+    ///
+    /// Unnamed, unlike the supply below it: a percentage and a direction say
+    /// what they are, where a bare "Disconnected" would not.
     fn battery_item(&self) -> Option<ksni::MenuItem<Self>> {
-        use ksni::menu::StandardItem;
-        Some(
-            StandardItem {
-                label: battery_summary(self.battery?),
-                activate: Box::new(|tray: &mut Self| tray.send(TrayEvent::ShowBatteryDetails)),
-                ..Default::default()
-            }
-            .into(),
-        )
+        Some(report_item(
+            battery_summary(self.battery?),
+            TrayEvent::ShowBatteryDetails,
+        ))
+    }
+
+    /// What is powering the machine, and the way into the ports report.
+    /// Gated on a reading, as the battery's line is: a board with ports still
+    /// has nothing to say about them until one arrives.
+    ///
+    /// Above the pack's own line, as the window's row is above its Status,
+    /// and reading the board rather than being pushed it: the product name is
+    /// settled once for the process and answers on any thread, where pushing
+    /// it would be a field that never changes travelling the push protocol.
+    ///
+    /// Named here, as the window names its row and as `radio_submenu`'s
+    /// callers name theirs: what the line is about is the menu's to say, and
+    /// a menu row has no title of its own to say it in.
+    fn supply_item(&self) -> Option<ksni::MenuItem<Self>> {
+        let supply = supply_summary(self.ports.as_ref()?, board::product());
+        Some(report_item(
+            format!("Charger: {supply}"),
+            TrayEvent::ShowPorts,
+        ))
     }
 
     fn offers(&self, feature: BatteryFeature) -> bool {
@@ -333,6 +378,7 @@ impl TrayIcon {
 pub(crate) struct TrayValues {
     pub(crate) battery: Option<BatteryState>,
     pub(crate) battery_features: Option<Vec<BatteryFeature>>,
+    pub(crate) ports: Option<Vec<PortState>>,
     pub(crate) charge_limit: Option<u8>,
     pub(crate) design_capacity: Option<u32>,
     pub(crate) charge_current_limit: Option<u32>,
@@ -392,6 +438,7 @@ pub(crate) fn tray_push(handle: &ksni::blocking::Handle<TrayIcon>, values: TrayV
     handle.update(move |tray| {
         tray.battery = values.battery.or(tray.battery);
         tray.battery_features = values.battery_features.or(tray.battery_features.take());
+        tray.ports = values.ports.or(tray.ports.take());
         tray.charge_limit = values.charge_limit.or(tray.charge_limit);
         tray.design_capacity = values.design_capacity.or(tray.design_capacity);
         tray.charge_current_limit = values.charge_current_limit.or(tray.charge_current_limit);
@@ -432,6 +479,9 @@ pub(crate) async fn refresh_tray(handle: &ksni::blocking::Handle<TrayIcon>, daem
         if pack.has(BatteryFeature::ChargeCurrentLimit) && values.design_capacity.is_some() {
             values.charge_current_limit = pack.charge_current_limit().await.ok();
         }
+    }
+    if let Some(ports) = &controls.ports {
+        values.ports = ports.read().await.ok();
     }
     if let Some(led) = &controls.power_led {
         values.power_led_level = led.read().await.ok().map(|snapshot| snapshot.level);

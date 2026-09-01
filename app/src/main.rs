@@ -178,6 +178,7 @@ fn setup_tray(app: &adw::Application, state: Rc<AppState>) {
                 // one way in, and a caller reaching past it is how two front-
                 // ends come to open a window differently.
                 TrayEvent::ShowBatteryDetails => app.activate_action(report::battery::ACTION, None),
+                TrayEvent::ShowPorts => app.activate_action(report::ports::ACTION, None),
                 TrayEvent::Quit => app.quit(),
             }
         }

@@ -248,6 +248,109 @@ impl PowerLedLevel {
     }
 }
 
+/// What is on the other end of a USB-C port, as the controller's Type-C
+/// state machine has it. `Nothing` is an empty port, and the only value that
+/// says so — a port with nothing in it still reports roles, which mean
+/// nothing until something is attached.
+#[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug)]
+#[zvariant(crate = "zbus::zvariant", signature = "s")]
+#[serde(rename_all = "kebab-case")]
+pub enum PortPartner {
+    Nothing,
+    Sink,
+    Source,
+    Debug,
+    Audio,
+    PoweredAccessory,
+    Unsupported,
+    Invalid,
+}
+
+/// Which end supplies the power. The machine reads `Sink` on a port it is
+/// charging from and `Source` on one feeding a peripheral.
+#[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug)]
+#[zvariant(crate = "zbus::zvariant", signature = "s")]
+#[serde(rename_all = "kebab-case")]
+pub enum PowerRole {
+    Sink,
+    Source,
+    Unknown,
+}
+
+/// Which end drives the data link — upstream-facing is the machine being
+/// the peripheral.
+#[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug)]
+#[zvariant(crate = "zbus::zvariant", signature = "s")]
+#[serde(rename_all = "kebab-case")]
+pub enum DataRole {
+    UpstreamFacing,
+    DownstreamFacing,
+    Disconnected,
+    Unknown,
+}
+
+/// Which configuration channel the cable settled on, which is the plug's
+/// orientation.
+#[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug)]
+#[zvariant(crate = "zbus::zvariant", signature = "s")]
+#[serde(rename_all = "kebab-case")]
+pub enum CcPolarity {
+    Cc1,
+    Cc2,
+    Cc1Debug,
+    Cc2Debug,
+    Unknown,
+}
+
+/// Extended power range, which is what carries a supply past 100 W. One
+/// value rather than a supported flag and an active one, active implying
+/// supported and the pair having no other order.
+#[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug)]
+#[zvariant(crate = "zbus::zvariant", signature = "s")]
+#[serde(rename_all = "kebab-case")]
+pub enum Epr {
+    Unsupported,
+    Supported,
+    Active,
+}
+
+/// One USB-C port, as the EC's copy of its controller's state has it.
+///
+/// Every field is the EC's cache rather than the port itself, which matters
+/// in one case: a controller whose ports have been disabled stops updating
+/// it, and the entry then stands at whatever it last saw. Nothing in this
+/// app disables one — see `docs/hardware.md`.
+#[derive(Serialize, Deserialize, Type, Clone, PartialEq, Eq, Debug)]
+#[zvariant(crate = "zbus::zvariant")]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "each is an independent thing the EC reports about a port; the one pair with an impossible combination is Epr"
+)]
+pub struct PortState {
+    /// The EC's own port number: which controller, and which of its two
+    /// connectors. It says nothing about where the socket is on the
+    /// chassis, that mapping being per board — `model::port` is what puts a
+    /// position to it, and only for a board it was measured on.
+    pub index: u8,
+    pub partner: PortPartner,
+    /// Whether a power delivery contract stands. False on a Type-C
+    /// connection that negotiated none, which still carries power.
+    pub contract: bool,
+    pub power_role: PowerRole,
+    pub data_role: DataRole,
+    /// What was negotiated, in mV and mA; both zero where nothing was.
+    pub millivolts: u16,
+    pub milliamps: u16,
+    /// Whether this is the port the machine is drawing its power through.
+    /// At most one port answers true, the EC picking among those offering.
+    pub charging: bool,
+    /// Whether the port is carrying `DisplayPort`.
+    pub video: bool,
+    pub vconn: bool,
+    pub cc: CcPolarity,
+    pub epr: Epr,
+}
+
 /// What kind of part a device is, named for the thing a person would buy.
 #[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug)]
 #[zvariant(crate = "zbus::zvariant", signature = "s")]

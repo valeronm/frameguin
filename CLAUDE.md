@@ -87,12 +87,28 @@ it and the non-obvious constraints.
   page its subscription hangs on, so nothing in it can reach back up the
   widget tree and outlive the window. `report/parts.rs` is the inventory
   `GetDevices` answers, drawn once per open since the list is fixed for the
-  daemon's run.
+  daemon's run. `report/ports.rs` is what is plugged into each USB-C port,
+  redrawn whole on every reading because a port's rows come and go with what
+  is attached, and fed rather than polled like everything else that repeats:
+  the Battery group's charger row shows the same read, which is what makes
+  the ports an extra on the feed below rather than this window's own timer.
+  Where a socket is on the machine is
+  `model::port`'s, curated per board and answering nothing for a board nobody
+  measured: the EC's port number says which controller drives a port and not
+  where it is, and a wrong position reads exactly like a right one.
   `reading.rs` is the
   pack's reading, taken once for however many views show it: the status row
   and the report render the same walk of the same block, and each polling for
   itself made the EC answer twice and let the two windows sit a tick apart, so
-  a view subscribes and the feed does the reading. `daemon.rs` is the app's
+  a view subscribes and the feed does the reading. What a view wants — the
+  pack's block, its condition, the USB-C ports — is a field in `Wants` rather
+  than a parameter, so a view showing none of them costs none of them, and
+  each arrives as None where nothing asked, where the ask failed, and where
+  the board has no such device alike. A window fills itself through the feed's
+  own read rather than beside it, passing what it wants as `also` because its
+  own subscription does not exist yet: the fill is broadcast like a tick, so
+  opening one window cannot leave another showing what it saw before.
+  `daemon.rs` is the app's
   end of the daemon — the bus connection and the detected controls, the two
   facts fixed for its run that every window wants — dialled and asked once,
   so the window, the report and the tray share one of each, and two asking

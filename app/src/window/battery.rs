@@ -13,15 +13,19 @@ use frameguin_model::control::battery::{
     reading::{amps, charge_flow_label, percent_label},
     with_custom_row,
 };
-use frameguin_wire::{BatteryFeature, BatteryState, MIN_CHARGE_LIMIT, NO_CHARGE_CURRENT_LIMIT};
+use frameguin_model::control::ports::{supply_label, supply_port};
+use frameguin_wire::{
+    BatteryFeature, BatteryState, MIN_CHARGE_LIMIT, NO_CHARGE_CURRENT_LIMIT, PortState,
+};
 use gtk4 as gtk;
 
+use crate::board;
 use crate::bus::Bus;
 use crate::reading::{Wants, show_while_mapped};
 use crate::tray::TrayValues;
 use crate::window::widgets::{
     SliderWrites, build_scale, combo_index, combo_position, combo_selection, connect_combo,
-    connect_slider_writes, reveal_under, scale_percent, string_list,
+    connect_slider_writes, report_row, reveal_under, scale_percent, string_list,
 };
 use crate::window::{Sink, Ui};
 
@@ -38,6 +42,16 @@ pub(crate) enum Custom {
     Rederive,
 }
 
+/// What this group's two fed rows want read. Spelled once because the
+/// subscription and the fill that precedes it both ask for it, and a row
+/// filled from one and fed by the other would show a field it never asked
+/// for — or wait a tick for one it did.
+const FED_ROWS: Wants = Wants {
+    battery: true,
+    condition: false,
+    ports: true,
+};
+
 pub(crate) struct Group {
     pub(crate) widget: adw::PreferencesGroup,
     /// The battery reading: the row carries the direction as its subtitle,
@@ -47,6 +61,13 @@ pub(crate) struct Group {
     /// the answer to why nothing is charging.
     state_row: adw::ActionRow,
     state_percent: gtk::Label,
+    /// What is powering the machine, and which port it comes in on. Beside
+    /// the pack's own row because the two answer one question between them —
+    /// a pack discharging with a charger attached is a supply too weak to
+    /// cover the machine, and neither row says that alone. Hidden on a board
+    /// with no ports device, the row having nothing to read.
+    charger_row: adw::ActionRow,
+    charger: gtk::Label,
     limit_combo: adw::ComboRow,
     limit_scale: gtk::Scale,
     speed_combo: adw::ComboRow,
@@ -60,18 +81,13 @@ pub(crate) struct Group {
 impl Group {
     pub(crate) fn build() -> Self {
         let widget = adw::PreferencesGroup::builder().title("Battery").build();
-        // The one row here that opens something rather than setting
-        // something. Named as an action rather than wired to a handler, so
-        // the row and the tray's reading reach the report the same way and
-        // neither has to hold a bus connection to offer it.
-        let state_row = adw::ActionRow::builder()
-            .title("Status")
-            .activatable(true)
-            .action_name(format!("app.{}", crate::report::battery::ACTION))
-            .build();
-        let state_percent = gtk::Label::new(None);
-        state_row.add_suffix(&state_percent);
-        state_row.add_suffix(&gtk::Image::from_icon_name("go-next-symbolic"));
+        // The two rows here that open something rather than setting
+        // something.
+        let (state_row, state_percent) = report_row("Status", crate::report::battery::ACTION);
+        // Above the pack's own row: what is coming in is what decides what
+        // the pack is doing, so it reads in the order the power arrives.
+        let (charger_row, charger) = report_row("Charger", crate::report::ports::ACTION);
+        widget.add(&charger_row);
         widget.add(&state_row);
         let limit_labels = with_custom_row(charge_limit_labels());
         let limit_combo = adw::ComboRow::builder()
@@ -117,6 +133,8 @@ impl Group {
             widget,
             state_row,
             state_percent,
+            charger_row,
+            charger,
             limit_combo,
             limit_scale,
             speed_combo,
@@ -127,8 +145,13 @@ impl Group {
 
     /// Shows the group where the board has a pack, and within it only the
     /// limits the charger takes.
-    pub(crate) fn gate(&self, control: Option<&Rc<Battery>>) {
+    ///
+    /// `has_ports` is its own answer rather than one drawn from the pack:
+    /// the charger row reads a different device, and a board can have either
+    /// without the other.
+    pub(crate) fn gate(&self, control: Option<&Rc<Battery>>, has_ports: bool) {
         self.widget.set_visible(control.is_some());
+        self.charger_row.set_visible(has_ports);
         let has = |feature| control.is_some_and(|battery| battery.has(feature));
         self.limit_combo
             .set_visible(has(BatteryFeature::ChargeLimit));
@@ -142,6 +165,16 @@ impl Group {
     fn show_state(&self, state: BatteryState) {
         self.state_percent.set_label(&percent_label(state.percent));
         self.state_row.set_subtitle(&charge_flow_label(state));
+    }
+
+    /// Shows what is powering the machine. The subtitle names the port it
+    /// comes in on, and is cleared where nothing does — a port number left
+    /// standing under "Disconnected" would name the port that stopped.
+    fn show_charger(&self, ports: &[PortState]) {
+        let product = board::product();
+        self.charger.set_label(&supply_label(ports));
+        self.charger_row
+            .set_subtitle(&supply_port(ports, product).unwrap_or_default());
     }
 
     /// Moves the charge-limit widgets onto a ceiling without writing it back,
@@ -181,19 +214,20 @@ impl Group {
         // whether or not anyone touches the app. Fed rather than polled — the
         // report shows the same walk of the same block, and a row that read
         // it for itself would have the two windows asking the EC separately
-        // for one answer (see `crate::reading`). It wants none of the extras,
-        // so it asks for none. The feed deliberately tells the tray nothing:
+        // for one answer (see `crate::reading`). The charger row beside it is
+        // fed from the same tick, which is why the two cannot disagree about
+        // whether a charger is attached. The feed deliberately tells the tray nothing:
         // every push rebuilds and re-signals the whole menu, and the tray
         // asks for its own reading when its menu is about to show.
         let row_ui = ui.clone();
-        show_while_mapped(
-            &ui.feed,
-            &self.state_row,
-            Wants::default(),
-            move |reading| {
-                row_ui.battery.show_state(reading.info.state);
-            },
-        );
+        show_while_mapped(&ui.feed, &self.state_row, FED_ROWS, move |reading| {
+            if let Some(info) = &reading.info {
+                row_ui.battery.show_state(info.state);
+            }
+            if let Some(ports) = &reading.ports {
+                row_ui.battery.show_charger(ports);
+            }
+        });
 
         connect_combo(
             ui,
@@ -277,12 +311,21 @@ impl Group {
         // the pack are painted from one walk of the block — and so the tray is
         // pushed the same reading the row got rather than a second one taken a
         // moment later.
-        match ui.feed.read().await {
-            Ok(info) => {
-                self.show_state(info.state);
-                values.battery = Some(info.state);
-                if self.design_capacity.get().is_none() {
-                    self.learn_capacity(ui, info.design_capacity);
+        // Asks for the ports itself: this runs before the group's own
+        // subscription exists, so nothing else has asked for them, and the
+        // charger row would otherwise stay empty until the first tick.
+        match ui.feed.read(FED_ROWS).await {
+            Ok(reading) => {
+                if let Some(info) = reading.info {
+                    self.show_state(info.state);
+                    values.battery = Some(info.state);
+                    if self.design_capacity.get().is_none() {
+                        self.learn_capacity(ui, info.design_capacity);
+                    }
+                }
+                if let Some(ports) = reading.ports {
+                    self.show_charger(&ports);
+                    values.ports = Some(ports);
                 }
             }
             Err(e) => ui.toast_error("Reading the battery", e),

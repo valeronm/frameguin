@@ -15,6 +15,7 @@ use std::time::{Duration, Instant};
 use frameguin_hardware::device::battery::Battery;
 use frameguin_hardware::device::mainboard::Mainboard;
 use frameguin_hardware::device::memory::Module;
+use frameguin_hardware::device::ports::Ports;
 use frameguin_hardware::device::power_led::PowerLed;
 use frameguin_hardware::device::touchpad::Touchpad;
 use frameguin_hardware::device::touchscreen::Touchscreen;
@@ -103,6 +104,7 @@ fn main() -> zbus::Result<()> {
         touchpad,
         touchscreen,
         power_led,
+        ports: ec.as_ref().and_then(Ports::detect),
     };
     let _conn = zbus::block_on(async move {
         let conn = Connection::system().await?;

@@ -86,7 +86,11 @@ impl Report {
     /// leaves its rows as they were rather than blanking them, which is what
     /// keeps a single unlucky transfer from reading as a fault.
     fn show(&self, reading: &Reading) {
-        let info = &reading.info;
+        // This window is only reachable where a pack answered, so an absent
+        // block is a read that missed and leaves its rows standing.
+        let Some(info) = &reading.info else {
+            return;
+        };
         if let Some(condition) = &reading.condition {
             self.temperature
                 .set_label(&temperature(condition.decicelsius));
@@ -166,7 +170,11 @@ fn build(shell: Shell, daemon: &Rc<Daemon>, feed: &Rc<Feed>) {
                 .as_ref()
                 .is_some_and(|battery| battery.has(BatteryFeature::Condition))
         });
-        let wants = Wants { condition };
+        let wants = Wants {
+            battery: true,
+            condition,
+            ports: false,
+        };
         // Both rows read the pack over I2C, so one feature answers for the
         // pair.
         report.temperature_row.set_visible(wants.condition);
@@ -182,7 +190,7 @@ fn build(shell: Shell, daemon: &Rc<Daemon>, feed: &Rc<Feed>) {
         // The one read here that announces a failure. From now on the feed
         // reads on its own schedule, silently, as every repeating read in this
         // app does.
-        if let Err(e) = feed.read().await {
+        if let Err(e) = feed.read(Wants::default()).await {
             shell.toast_error("Reading the battery", e);
         }
     });

@@ -1,11 +1,19 @@
-//! The pack's reading, taken once however many windows are showing it.
+//! The machine's reading, taken once however many windows are showing it.
 //!
 //! The window's status row and the battery report render the same walk of the
-//! EC's battery block. Polled per window that is one pack read twice on two
+//! EC's battery block; the charger row and the ports report render the same
+//! walk of the USB-C ports. Polled per window that is one read twice on two
 //! schedules — an EC paying twice for one answer, and two windows that can sit
 //! a tick apart on a figure neither of them owns. So a view says what it wants
 //! shown and the feed does the reading: one timer, one call, every view fed
 //! from the same answer.
+//!
+//! That holds for a window filling itself too, which is why [`Feed::read`] is
+//! what fills one rather than a read beside it: a fill is broadcast like any
+//! tick, so opening a window cannot leave another showing what it saw before.
+//!
+//! Nothing here needs a pack. The block is an absent extra on a board with
+//! none, the way a failed read is, and the ports are still read.
 //!
 //! The reading is always the whole block, never the summary the status row
 //! alone would need. The daemon walks the same memmap for either, and the two
@@ -26,7 +34,7 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
-use frameguin_wire::{BatteryCondition, BatteryInfo, DeviceError, DeviceResult};
+use frameguin_wire::{BatteryCondition, BatteryInfo, DeviceResult, PortState};
 use gtk4 as gtk;
 use gtk4::glib;
 use gtk4::prelude::*;
@@ -59,14 +67,22 @@ const CONDITION_EVERY: u32 = 5;
 /// should be a field here rather than another parameter everywhere.
 #[derive(Clone, Copy, Default)]
 pub(crate) struct Wants {
+    /// The EC's battery block.
+    pub(crate) battery: bool,
     pub(crate) condition: bool,
+    /// The USB-C ports. One call however many there are, and no EC transfer
+    /// past its own host commands, so this rides the base cadence rather
+    /// than being spaced the way the condition is.
+    pub(crate) ports: bool,
 }
 
 impl Wants {
     /// What the feed must read to satisfy every view at once.
     fn with(self, other: Self) -> Self {
         Self {
+            battery: self.battery || other.battery,
             condition: self.condition || other.condition,
+            ports: self.ports || other.ports,
         }
     }
 }
@@ -78,8 +94,11 @@ impl Wants {
 /// the window standing, which is what keeps a row from emptying over one
 /// unlucky transfer.
 pub(crate) struct Reading {
-    pub(crate) info: BatteryInfo,
+    /// None on a board with no pack, which is a machine this feed still
+    /// serves: the USB-C ports are read whether or not one answered.
+    pub(crate) info: Option<BatteryInfo>,
     pub(crate) condition: Option<BatteryCondition>,
+    pub(crate) ports: Option<Vec<PortState>>,
 }
 
 type Show = dyn Fn(&Reading);
@@ -195,7 +214,7 @@ impl Feed {
                     if feed.reading.replace(true) {
                         return;
                     }
-                    let _ = feed.read().await;
+                    let _ = feed.read(Wants::default()).await;
                     feed.reading.set(false);
                 });
             })));
@@ -203,43 +222,58 @@ impl Feed {
 
     /// Takes one reading, shows it on every view, and hands it back.
     ///
-    /// Returned as well as broadcast for the caller that needs the block in
-    /// hand rather than on screen — the window fills its status row from the
-    /// same read it pushes to the tray, so neither is a second reading taken a
-    /// moment apart from the other.
+    /// `also` is what the caller wants read on top of what the subscribed
+    /// views do — for a window filling itself before its own subscription
+    /// exists, which is the order `Ui::load_values` runs in. Without it such
+    /// a fill reads only what something else had already asked for, and the
+    /// caller's own rows wait for the first tick.
+    ///
+    /// Returned as well as broadcast, so a fill is the feed's own read rather
+    /// than a second assembly beside it — and so any fill refreshes every
+    /// other view at the same instant rather than leaving them a tick behind.
     ///
     /// The error is for a caller filling a window, which is the one placed to
-    /// say so; the tick above drops it, silence being the rule for a read with
-    /// a successor seconds behind it. Only the block itself can fail the call:
-    /// an extra that fails arrives as None, and the row keeps what it last
-    /// showed rather than emptying over a single miss.
-    pub(crate) async fn read(&self) -> DeviceResult<BatteryInfo> {
+    /// say so, and it is only ever raised for something a view asked for —
+    /// so a report's toast names what that report was reading. The tick above
+    /// drops it, silence being the rule for a read with a successor seconds
+    /// behind it. A device the board does not have is not a failure: its
+    /// field arrives as None, as one nobody asked for does.
+    pub(crate) async fn read(&self, also: Wants) -> DeviceResult<Reading> {
         let controls = self.daemon.controls().await?;
-        let battery = controls
-            .battery
-            .as_ref()
-            // Not `Absent`, which is the bus's alone to raise: every view here
-            // hangs off a pack that answered, so this is a caller's mistake
-            // rather than a device's answer.
-            .ok_or_else(|| DeviceError::Failed("no battery on this board".into()))?;
-        let info = battery.read().await?;
         let wants = self
             .views
             .borrow()
             .iter()
-            .fold(Wants::default(), |wants, (_, view)| wants.with(view.wants));
+            .fold(also, |wants, (_, view)| wants.with(view.wants));
+        let battery = controls.battery.as_ref();
+        let info = match battery.filter(|_| wants.battery) {
+            Some(battery) => Some(battery.read().await?),
+            None => None,
+        };
         // Every read wants the block; the condition only on the reads that come
         // round to it. Subscribing rewinds the count, so the fill that follows
         // a view arriving is always one of them and the spacing only applies
         // to the repeats after it.
         let ticks = self.ticks.get();
         self.ticks.set(ticks.wrapping_add(1));
-        let condition = if wants.condition && ticks.is_multiple_of(CONDITION_EVERY) {
-            battery.condition().await.ok()
-        } else {
-            None
+        let condition =
+            match battery.filter(|_| wants.condition && ticks.is_multiple_of(CONDITION_EVERY)) {
+                Some(battery) => battery.condition().await.ok(),
+                None => None,
+            };
+        // Asked of the ports control rather than the pack's: a board can have
+        // one and not the other. Its failure is raised rather than swallowed,
+        // unlike the condition's, because a window showing only the ports has
+        // nothing else for its toast to be about.
+        let ports = match controls.ports.as_ref().filter(|_| wants.ports) {
+            Some(ports) => Some(ports.read().await?),
+            None => None,
         };
-        let reading = Reading { info, condition };
+        let reading = Reading {
+            info,
+            condition,
+            ports,
+        };
         // Copied out of the list before anything is shown: a view may drop its
         // subscription from inside its own call, and the borrow would still be
         // held when it did.
@@ -252,7 +286,7 @@ impl Feed {
         for show in showing {
             show(&reading);
         }
-        Ok(reading.info)
+        Ok(reading)
     }
 }
 

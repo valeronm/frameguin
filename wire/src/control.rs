@@ -10,7 +10,9 @@
 //! concrete type.
 
 use crate::error::DeviceResult;
-use crate::vocabulary::{BatteryCondition, BatteryFeature, BatteryInfo, ClickForce, PowerLedLevel};
+use crate::vocabulary::{
+    BatteryCondition, BatteryFeature, BatteryInfo, ClickForce, PortState, PowerLedLevel,
+};
 
 pub trait TouchpadControl {
     async fn haptic_intensity(&self) -> DeviceResult<u8>;
@@ -43,6 +45,18 @@ pub trait PowerLedControl {
     async fn levels(&self) -> DeviceResult<Vec<PowerLedLevel>>;
     async fn set_level(&self, level: PowerLedLevel) -> DeviceResult<()>;
     async fn set_brightness(&self, percent: u8) -> DeviceResult<()>;
+}
+
+/// The machine's USB-C ports: one device answering for all of them, since
+/// what a caller wants is the set — which port is charging is a fact about
+/// the set and not about any one port.
+///
+/// Read-only. What a port does is negotiated between its controller and
+/// whatever is plugged in; nothing here is this app's to set.
+pub trait PortsControl {
+    /// Every port the EC answers for, in its own port order. Their number is
+    /// fixed for the device's run.
+    async fn ports(&self) -> DeviceResult<Vec<PortState>>;
 }
 
 /// The battery: the pack the EC's block answers for, and the charger that

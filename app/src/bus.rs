@@ -6,8 +6,8 @@
 
 use frameguin_wire::{
     BatteryCondition, BatteryControl, BatteryFeature, BatteryInfo, ClickForce, DeviceResult,
-    FrameguinProxy, PowerLedControl, PowerLedLevel, Proxies, TouchpadControl, TouchscreenControl,
-    proxy,
+    FrameguinProxy, PortState, PortsControl, PowerLedControl, PowerLedLevel, Proxies,
+    TouchpadControl, TouchscreenControl, proxy,
 };
 
 pub(crate) struct Bus {
@@ -88,6 +88,12 @@ impl TouchscreenControl for Bus {
 
     async fn set_enabled(&self, enabled: bool) -> DeviceResult<()> {
         Ok(self.devices.touchscreen.set_enabled(enabled).await?)
+    }
+}
+
+impl PortsControl for Bus {
+    async fn ports(&self) -> DeviceResult<Vec<PortState>> {
+        Ok(self.devices.ports.get_ports().await?)
     }
 }
 

@@ -1,6 +1,7 @@
 //! One module per control: its detection, its read, its commands, its words.
 
 pub mod battery;
+pub mod ports;
 pub mod power_led;
 pub mod touchpad;
 pub mod touchscreen;
@@ -8,7 +9,8 @@ pub mod touchscreen;
 use std::rc::Rc;
 
 use frameguin_wire::{
-    BatteryControl, DeviceError, DeviceResult, PowerLedControl, TouchpadControl, TouchscreenControl,
+    BatteryControl, DeviceError, DeviceResult, PortsControl, PowerLedControl, TouchpadControl,
+    TouchscreenControl,
 };
 
 /// Whether a device is there, decided by the device's own path: a read the
@@ -36,9 +38,12 @@ pub struct Controls<C> {
     pub touchpad: Option<Rc<touchpad::Touchpad<C>>>,
     pub touchscreen: Option<Rc<touchscreen::Touchscreen<C>>>,
     pub power_led: Option<Rc<power_led::PowerLed<C>>>,
+    pub ports: Option<Rc<ports::Ports<C>>>,
 }
 
-impl<C: BatteryControl + TouchpadControl + TouchscreenControl + PowerLedControl> Controls<C> {
+impl<C: BatteryControl + TouchpadControl + TouchscreenControl + PowerLedControl + PortsControl>
+    Controls<C>
+{
     /// Asks each control's device to detect itself. Fails only where the
     /// device could not be asked at all — an absent device is an answer, not
     /// a failure.
@@ -50,6 +55,7 @@ impl<C: BatteryControl + TouchpadControl + TouchscreenControl + PowerLedControl>
                 .await?
                 .map(Rc::new),
             power_led: power_led::PowerLed::detect(control).await?.map(Rc::new),
+            ports: ports::Ports::detect(control).await?.map(Rc::new),
         })
     }
 
@@ -59,6 +65,7 @@ impl<C: BatteryControl + TouchpadControl + TouchscreenControl + PowerLedControl>
             && self.touchpad.is_none()
             && self.touchscreen.is_none()
             && self.power_led.is_none()
+            && self.ports.is_none()
     }
 }
 

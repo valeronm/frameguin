@@ -11,6 +11,7 @@
 
 pub(crate) mod battery;
 pub(crate) mod parts;
+pub(crate) mod ports;
 
 use std::rc::Rc;
 
@@ -32,10 +33,11 @@ use crate::reading::Feed;
 pub(crate) fn actions(
     daemon: &Rc<Daemon>,
     feed: &Rc<Feed>,
-) -> [gio::ActionEntry<adw::Application>; 2] {
+) -> [gio::ActionEntry<adw::Application>; 3] {
     [
         battery::action(daemon.clone(), feed.clone()),
         parts::action(daemon.clone()),
+        ports::action(feed.clone()),
     ]
 }
 

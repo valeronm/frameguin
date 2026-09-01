@@ -9,11 +9,12 @@ use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll, Waker};
 
 use frameguin_wire::{
-    BatteryCondition, BatteryInfo, BatteryState, ChargeFlow, ClickForce, DeviceError, DeviceResult,
-    Identity, PartKind, PowerLedLevel,
+    BatteryCondition, BatteryInfo, BatteryState, CcPolarity, ChargeFlow, ClickForce, DataRole,
+    DeviceError, DeviceResult, Epr, Identity, PartKind, PortPartner, PortState, PowerLedLevel,
+    PowerRole,
 };
 
-use crate::ec::{Charger, Pack, PowerLedEc};
+use crate::ec::{Charger, Pack, PdPorts, PowerLedEc};
 use crate::led::LedClass;
 use crate::lifetime::{EcBoot, Holders};
 use crate::mirror::Mirrors;
@@ -21,6 +22,11 @@ use crate::part;
 use crate::state::{self, Store};
 use crate::touchpad::HapticPad;
 use crate::touchscreen::TouchSwitch;
+
+/// One PD controller's version blob, as a controller really answered: base
+/// `3.8.50.00A`, application `1.0.0A`.
+pub const PD_VERSION: [u8; crate::pd::VERSION_LEN] =
+    [0x0a, 0x00, 0x50, 0x38, 0x62, 0x6e, 0x0a, 0x10];
 
 /// An EC boot a mirror's evidence can name and a later reading can match.
 pub const EC_BOOT: EcBoot = EcBoot::from_clocks(500_000, 1_000_000);
@@ -302,6 +308,65 @@ impl HapticPad for Haptic {
 
     fn set_click_force(&self, _force: ClickForce) -> DeviceResult<()> {
         self.answer()
+    }
+}
+
+/// One port as a stub answers for it: the first is charging under a 100 W
+/// contract, every other is empty.
+pub fn port(index: u8) -> PortState {
+    let charging = index == 0;
+    PortState {
+        index,
+        partner: if charging {
+            PortPartner::Source
+        } else {
+            PortPartner::Nothing
+        },
+        contract: charging,
+        power_role: PowerRole::Sink,
+        data_role: if charging {
+            DataRole::DownstreamFacing
+        } else {
+            DataRole::UpstreamFacing
+        },
+        millivolts: if charging { 20_000 } else { 0 },
+        milliamps: if charging { 5000 } else { 0 },
+        charging,
+        video: false,
+        vconn: charging,
+        cc: CcPolarity::Cc1,
+        epr: Epr::Unsupported,
+    }
+}
+
+/// An EC answering for two controllers and `count` ports, refusing every
+/// number past them — or answering past them anyway, the way a board has
+/// been seen to.
+pub struct Connectors {
+    pub controllers: u8,
+    pub count: u8,
+    /// Answers for any port asked for rather than refusing one past the
+    /// last, which is what a board does that reads past its own array.
+    pub refusing_none: bool,
+}
+
+impl Default for Connectors {
+    fn default() -> Self {
+        Self {
+            controllers: 2,
+            count: 4,
+            refusing_none: false,
+        }
+    }
+}
+
+impl PdPorts for Connectors {
+    fn pd_controllers(&self) -> u8 {
+        self.controllers
+    }
+
+    fn port_state(&self, index: u8) -> DeviceResult<Option<PortState>> {
+        Ok((self.refusing_none || index < self.count).then(|| port(index)))
     }
 }
 
