@@ -1,3 +1,23 @@
+frameguin (0.2.1-1) unstable; urgency=medium
+
+  * Add a USB-C ports report: what is attached to each socket, the power and
+    data roles it negotiated, and the contract in force — reached from the
+    tray's supply line and from the window's Charger row.
+  * Show what is powering the machine in the window's Power group, which is
+    named for the power rather than the battery: a mainboard running without
+    a pack has that row and nothing else.
+  * Name the power button LED's level on the Laptop 13 up to 13th Gen Intel,
+    whose firmware reports the stored percentage and no level beside it,
+    instead of leaving the Level row unselected at every brightness.
+  * Keep the brightness slider open when the power button LED's level is set
+    to Custom, instead of folding it away as soon as the value was written.
+  * Say when the kernel will not hand the power button LED back, instead of
+    reporting success on a write that left the LED dark.
+  * Say why a tray preset was refused in a session that never opened the
+    window, instead of failing silently.
+
+ -- Valerii Myronov <valeriy@hey.com>  Thu, 03 Sep 2026 09:46:45 +0100
+
 frameguin (0.2.0-1) unstable; urgency=medium
 
   * Add a Display group that switches the touchscreen off: at the mainboard's
