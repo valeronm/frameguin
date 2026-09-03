@@ -59,7 +59,8 @@ fn group(part: &Identity) -> adw::PreferencesGroup {
     let group = adw::PreferencesGroup::builder()
         .title(kind_label(part.kind))
         .build();
-    if let Some(sold) = catalogue(part) {
+    let sold = catalogue(part);
+    if let Some(sold) = sold {
         optional_value(&group, "Model", sold.model);
         if let Some((manufacturer, part_number)) = maker(part) {
             optional_value(&group, "Manufacturer", manufacturer);
@@ -74,8 +75,8 @@ fn group(part: &Identity) -> adw::PreferencesGroup {
     for firmware in &part.firmware {
         optional_value(&group, &firmware.name, &firmware.version);
     }
-    if let Some(sold) = catalogue(part) {
-        group.add(&link_row("Framework Marketplace", sold.url));
+    if let Some(url) = sold.and_then(|sold| sold.url) {
+        group.add(&link_row("Framework Marketplace", url));
     }
     group
 }

@@ -238,7 +238,7 @@ mod tests {
     fn the_joined_line_carries_the_supply_and_its_port() {
         let ports: Vec<_> = (0..4).map(port).collect();
         assert_eq!(
-            supply_summary(&ports, "Laptop 13 Pro (Intel Core Ultra Series 3)"),
+            supply_summary(&ports, frameguin_wire::BOARD_LAPTOP13_PRO_ULTRA_3),
             "100 W · Right front"
         );
         assert_eq!(supply_summary(&ports, "Laptop 16"), "100 W · Port 0");

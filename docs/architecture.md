@@ -127,7 +127,8 @@ snapshot's movement under a refused write on the app's.
   `Served<Device>`, forwarding through the control trait with the bus's
   order around it.
 - **`wire`** — `<Name>Control`, `<Name>Proxy` for that interface, and the
-  vocabulary its values travel in.
+  vocabulary its values travel in, beside the strings both binaries must
+  spell alike.
 - **`model/src/control/<name>.rs`**, or `<name>/` where the words outgrow
   one file — `<Name><H: <Name>Control>` holding an
   `Rc<H>`; `detect()` by its own first read; a `read()` answering what the
@@ -214,9 +215,9 @@ the bus carries it as one method on the root interface —
 `GetDevices -> Vec<Identity>` — beside the per-device control interfaces. Where a part maps to
 something purchasable — the pad's descriptor names nothing, the part a
 person buys is Framework's — that is `model::part::catalogue`, a curated
-table keyed on `Identity::id`, or on the part number for memory, whose
-identifier is the board's slot: words about values, beside the labels; the
-device keeps what detection saw, not the word.
+table keyed on `Identity::id`, except a mainboard and a memory module,
+which are keyed on their model string: words about values, beside the
+labels; the device keeps what detection saw, not the word.
 
 ## Adding a control
 

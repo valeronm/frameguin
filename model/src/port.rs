@@ -16,6 +16,8 @@
 //! to read its underside mirrors every one of them, so a position measured
 //! that way is entered here flipped.
 
+use frameguin_wire::BOARD_LAPTOP13_PRO_ULTRA_3;
+
 /// The sockets of one board, in the EC's port order.
 struct Layout {
     /// The board as its own firmware names it, matched whole — the product
@@ -26,7 +28,7 @@ struct Layout {
 }
 
 const LAYOUTS: &[Layout] = &[Layout {
-    product: "Laptop 13 Pro (Intel Core Ultra Series 3)",
+    product: BOARD_LAPTOP13_PRO_ULTRA_3,
     positions: &["Right front", "Right rear", "Left rear", "Left front"],
 }];
 
@@ -68,7 +70,7 @@ fn number(index: u8) -> String {
 mod tests {
     use super::{label, position, secondary};
 
-    const MEASURED: &str = "Laptop 13 Pro (Intel Core Ultra Series 3)";
+    use frameguin_wire::BOARD_LAPTOP13_PRO_ULTRA_3 as MEASURED;
 
     #[test]
     fn a_measured_board_leads_with_where_the_socket_is() {

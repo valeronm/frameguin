@@ -3,6 +3,9 @@
 //! restatements of one interface that meet only at runtime — are made to
 //! agree at compile time instead. One flat namespace, whichever file an
 //! item sits in.
+//!
+//! Beside the interface sit the strings both binaries must spell alike —
+//! [`VENDOR`], the board names.
 
 #![allow(
     async_fn_in_trait,

@@ -50,7 +50,7 @@ use crate::dmi;
 /// daemon cannot identify, which is the one failure that damages something
 /// rather than returning an error.
 const TOUCHSCREEN_PAD: &str = "GPP_B_18";
-const TOUCHSCREEN_BOARD: &str = "Laptop 13 Pro (Intel Core Ultra Series 3)";
+const TOUCHSCREEN_BOARD: &str = frameguin_wire::BOARD_LAPTOP13_PRO_ULTRA_3;
 
 /// What this daemon calls itself to the kernel while it holds a line. Shows
 /// up as the line's consumer to anything else that looks.

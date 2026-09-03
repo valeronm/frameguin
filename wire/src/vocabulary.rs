@@ -27,6 +27,24 @@ pub const OBJECT_PATH: &str = "/io/github/valeronm/Frameguin";
 /// end's own business, spelling it is not.
 pub const VENDOR: &str = "Framework";
 
+// A board's DMI `product_name`, in the firmware's own spelling, matched
+// whole and never parsed. They are the strings `framework_lib` matches to
+// identify a platform, re-spelled because the type it answers with is
+// private to that crate.
+pub const BOARD_LAPTOP13_11TH_GEN: &str = "Laptop";
+pub const BOARD_LAPTOP13_12TH_GEN: &str = "Laptop (12th Gen Intel Core)";
+pub const BOARD_LAPTOP13_13TH_GEN: &str = "Laptop (13th Gen Intel Core)";
+pub const BOARD_LAPTOP13_ULTRA_1: &str = "Laptop 13 (Intel Core Ultra Series 1)";
+pub const BOARD_LAPTOP13_AMD_7040: &str = "Laptop 13 (AMD Ryzen 7040 Series)";
+// Some 7040 firmware ships the series without its space.
+pub const BOARD_LAPTOP13_AMD_7040_UNSPACED: &str = "Laptop 13 (AMD Ryzen 7040Series)";
+pub const BOARD_LAPTOP13_AMD_AI_300: &str = "Laptop 13 (AMD Ryzen AI 300 Series)";
+pub const BOARD_LAPTOP13_PRO_ULTRA_3: &str = "Laptop 13 Pro (Intel Core Ultra Series 3)";
+pub const BOARD_LAPTOP12_13TH_GEN: &str = "Laptop 12 (13th Gen Intel Core)";
+pub const BOARD_LAPTOP16_AMD_7040: &str = "Laptop 16 (AMD Ryzen 7040 Series)";
+pub const BOARD_LAPTOP16_AMD_AI_300: &str = "Laptop 16 (AMD Ryzen AI 300 Series)";
+pub const BOARD_DESKTOP_AMD_AI_MAX_300: &str = "Desktop (AMD Ryzen AI Max 300 Series)";
+
 /// Charge as fast as the battery asks. The EC clamps every requested charge
 /// current against its limit, so the largest value is the one that imposes
 /// none; 0 at the other end would mean never charge, which no setter accepts.

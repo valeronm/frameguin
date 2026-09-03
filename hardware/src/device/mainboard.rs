@@ -93,7 +93,7 @@ mod tests {
     fn a_board_is_identified_by_its_part_number_and_named_for_its_machine() {
         let board = Mainboard::new(
             "Framework",
-            "Laptop 13 Pro (Intel Core Ultra Series 3)",
+            frameguin_wire::BOARD_LAPTOP13_PRO_ULTRA_3,
             "FRANMJCP07",
             "",
             vec![Firmware::new("BIOS", "03.02")],
@@ -101,7 +101,7 @@ mod tests {
         let identity = board.identity();
         assert_eq!(identity.kind, PartKind::Mainboard);
         assert_eq!(identity.id, "dmi-board:FRANMJCP07");
-        assert_eq!(identity.model, "Laptop 13 Pro (Intel Core Ultra Series 3)");
+        assert_eq!(identity.model, frameguin_wire::BOARD_LAPTOP13_PRO_ULTRA_3);
         assert_eq!(identity.firmware[0].name, "BIOS");
     }
 
