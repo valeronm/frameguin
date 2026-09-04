@@ -39,8 +39,7 @@ pub fn of_hid(kind: PartKind, dev: &hidapi::DeviceInfo) -> Identity {
 }
 
 /// A Smart Battery, from what its gauge announces over the EC. The model
-/// number is the part's rather than the unit's, so it is the identifier a
-/// catalogue keys on; the serial is the unit's.
+/// number is the part's rather than the unit's; the serial is the unit's.
 pub fn sbs(manufacturer: &str, model: &str, serial: &str) -> Identity {
     Identity {
         kind: PartKind::Battery,

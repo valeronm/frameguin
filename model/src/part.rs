@@ -48,14 +48,14 @@ pub struct Catalogue {
     pub url: Option<&'static str>,
 }
 
-/// What names a part to the catalogue: the identifier it announces itself
-/// by, except a mainboard, whose part number is confirmed for one board
-/// only, and a memory module, whose identifier is the board's slot rather
-/// than the module's — both keyed on their model string instead.
+/// What names a part to the catalogue: the model string, the part's own
+/// words for itself, and not the identifier beside it — a board's is a part
+/// number confirmed for one machine only. A HID part is the exception, its
+/// descriptor free to carry no strings at all.
 fn key(part: &Identity) -> (PartKind, &str) {
     let key = match part.kind {
-        PartKind::Mainboard | PartKind::Memory => &part.model,
-        _ => &part.id,
+        PartKind::Mainboard | PartKind::Battery | PartKind::Memory => &part.model,
+        PartKind::Touchpad | PartKind::Touchscreen => &part.id,
     };
     (part.kind, key)
 }
@@ -120,23 +120,23 @@ pub fn catalogue(part: &Identity) -> Option<Catalogue> {
         }),
         // The EC publishes the pack's name in an eight-byte field, so these
         // are the first seven characters of it.
-        (PartKind::Battery, "sbs:Framewo") => Some(Catalogue {
+        (PartKind::Battery, "Framewo") => Some(Catalogue {
             model: "Laptop 13 Battery - 55Wh",
             url: None,
         }),
-        (PartKind::Battery, "sbs:FRANGWA") => Some(Catalogue {
+        (PartKind::Battery, "FRANGWA") => Some(Catalogue {
             model: "Laptop 13 Battery - 61Wh",
             url: Some("https://frame.work/products/battery"),
         }),
-        (PartKind::Battery, "sbs:FRANEDA") => Some(Catalogue {
+        (PartKind::Battery, "FRANEDA") => Some(Catalogue {
             model: "Laptop 13 Pro Battery - 74Wh",
             url: Some("https://frame.work/products/pro-battery-74wh"),
         }),
-        (PartKind::Battery, "sbs:FRANDZG") => Some(Catalogue {
+        (PartKind::Battery, "FRANDZG") => Some(Catalogue {
             model: "Laptop 12 Battery - 50Wh",
             url: Some("https://frame.work/products/laptop12-battery-50wh"),
         }),
-        (PartKind::Battery, "sbs:FRANDBA") => Some(Catalogue {
+        (PartKind::Battery, "FRANDBA") => Some(Catalogue {
             model: "Laptop 16 Battery - 85Wh",
             url: Some("https://frame.work/products/16-battery"),
         }),
@@ -235,6 +235,15 @@ mod tests {
     #[test]
     fn a_memory_module_is_catalogued_by_its_part_number_not_its_slot() {
         assert!(catalogue(&module("dmi-slot:LPCAMM2_1")).is_some());
+    }
+
+    #[test]
+    fn a_pack_is_catalogued_by_its_model_number_not_the_identifier_carrying_it() {
+        let pack = Identity {
+            model: "FRANEDA".to_owned(),
+            ..part(PartKind::Battery, "sbs:FRANEDA")
+        };
+        assert!(catalogue(&pack).is_some());
     }
 
     #[test]

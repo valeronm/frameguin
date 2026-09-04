@@ -215,9 +215,8 @@ the bus carries it as one method on the root interface —
 `GetDevices -> Vec<Identity>` — beside the per-device control interfaces. Where a part maps to
 something purchasable — the pad's descriptor names nothing, the part a
 person buys is Framework's — that is `model::part::catalogue`, a curated
-table keyed on `Identity::id`, except a mainboard and a memory module,
-which are keyed on their model string: words about values, beside the
-labels; the device keeps what detection saw, not the word.
+table keyed on the words a part announces for itself: words about values,
+beside the labels; the device keeps what detection saw, not the word.
 
 ## Adding a control
 
