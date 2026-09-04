@@ -5,38 +5,35 @@ use frameguin_wire::{DeviceResult, TouchscreenControl};
 
 use crate::lifetime::Lifetime;
 use crate::mirror::{Mirror, Mirrors};
-use crate::part::{self, Firmware, Identity, Part, PartKind};
+use crate::part::Firmware;
 use crate::touchscreen::{self, TouchSwitch};
 
 const KEY_OFF: &str = "touchscreen_off";
 
 pub struct Touchscreen {
     route: Box<dyn TouchSwitch>,
-    identity: Identity,
     /// That the panel was switched off.
     off: Mirror<bool>,
 }
 
 impl Touchscreen {
     /// The panel this machine can switch, by whichever route it has — see
-    /// [`touchscreen::find`] for what qualifies one.
-    pub fn detect(hid: &hidapi::HidApi, mirrors: &Mirrors) -> Option<Self> {
-        let (route, controller) = touchscreen::find(hid)?;
-        let identity = Identity {
-            firmware: route
-                .firmware(hid, controller)
-                .map(|version| Firmware::new("Controller", &version))
-                .into_iter()
-                .collect(),
-            ..part::of_hid(PartKind::Touchscreen, controller)
+    /// [`touchscreen::find`] for what qualifies one — and the controller's
+    /// firmware version, which is the display's to report: the controller
+    /// is sold in front of a panel and never on its own.
+    pub fn detect(hid: &hidapi::HidApi, mirrors: &Mirrors) -> (Option<Self>, Option<Firmware>) {
+        let Some((route, controller)) = touchscreen::find(hid) else {
+            return (None, None);
         };
-        Some(Self::new(Box::new(route), mirrors, identity))
+        let firmware = route
+            .firmware(hid, controller)
+            .map(|version| Firmware::new("Controller", &version));
+        (Some(Self::new(Box::new(route), mirrors)), firmware)
     }
 
-    pub fn new(route: Box<dyn TouchSwitch>, mirrors: &Mirrors, identity: Identity) -> Self {
+    pub fn new(route: Box<dyn TouchSwitch>, mirrors: &Mirrors) -> Self {
         Self {
             route,
-            identity,
             off: mirrors.value(KEY_OFF, Lifetime::HostAwake),
         }
     }
@@ -45,12 +42,6 @@ impl Touchscreen {
     /// account.
     pub fn reading(&self) -> DeviceResult<Option<bool>> {
         self.route.reading()
-    }
-}
-
-impl Part for Touchscreen {
-    fn identity(&self) -> &Identity {
-        &self.identity
     }
 }
 
@@ -91,7 +82,7 @@ mod tests {
     use super::{KEY_OFF, Touchscreen};
     use crate::mirror::evidence_key;
     use crate::state::Store;
-    use crate::testing::{Memory, Route, mirrors, panel_identity, ready};
+    use crate::testing::{Memory, Route, mirrors, ready};
 
     const BOOT: &str = "00000000-0000-4000-8000-000000000001";
     const EARLIER: &str = "00000000-0000-4000-8000-000000000002";
@@ -122,11 +113,7 @@ mod tests {
     }
 
     fn over(route: Route, store: &Arc<Memory>) -> Touchscreen {
-        Touchscreen::new(
-            Box::new(route),
-            &mirrors(store, None, Some(BOOT)),
-            panel_identity(),
-        )
+        Touchscreen::new(Box::new(route), &mirrors(store, None, Some(BOOT)))
     }
 
     #[test]

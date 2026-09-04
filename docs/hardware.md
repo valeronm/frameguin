@@ -61,6 +61,7 @@ Every heading in the file appears here.
   - [Keyboard backlight persistence](#keyboard-backlight-persistence)
 - [Haptic touchpad](#haptic-touchpad)
   - [Haptic touchpad persistence](#haptic-touchpad-persistence)
+- [Display panel](#display-panel)
 - [Touchscreen](#touchscreen)
   - [Touchscreen persistence](#touchscreen-persistence)
 - [USB-C ports and PD controllers](#usb-c-ports-and-pd-controllers)
@@ -614,6 +615,29 @@ and an EC restart alike — the EC is not on the path and has nothing to reset.
 Nothing needs re-applying after a resume. That independence is no help to
 anything that forgot what it set, though: the write-only interface above means
 the device will not say.
+
+## Display panel
+
+The panel answers for itself over the DRM connector's `edid` attribute,
+which is world-readable — no root, no ioctl, and no dependency on whatever
+compositor is running.
+
+An EDID guarantees the maker's three-letter PNP id and a 16-bit product
+code, and nothing else that names a part: the product-name and serial-number
+descriptors are optional, and this machine's panel carries a name and no
+serial. So a panel is always distinguishable and not always nameable.
+
+This machine's panel reads `CSW` 4898, `MND508ZB1-1`, 2880x1920 at 120 Hz
+over 285x190 mm. The PNP id is CSOT's, which the panel confirms itself in
+its free-form descriptor: `CSOT T3`.
+
+**Only `eDP` connectors are the machine's own.** What is plugged into a
+USB-C port is a monitor rather than a part of the laptop.
+
+**Whether a connector still answers when the lid is shut is untested.** i915
+settles an eDP connector's status when it initializes the panel rather than
+from lid state, so a machine booting docked is expected to report it, but
+that has not been watched here.
 
 ## Touchscreen
 

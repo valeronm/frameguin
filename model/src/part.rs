@@ -10,8 +10,8 @@ pub fn kind_label(kind: PartKind) -> &'static str {
         PartKind::Mainboard => "Mainboard",
         PartKind::Battery => "Battery",
         PartKind::Memory => "Memory",
+        PartKind::Display => "Display",
         PartKind::Touchpad => "Touchpad",
-        PartKind::Touchscreen => "Touchscreen",
     }
 }
 
@@ -23,8 +23,8 @@ fn rank(kind: PartKind) -> u8 {
         PartKind::Mainboard => 0,
         PartKind::Memory => 1,
         PartKind::Battery => 2,
-        PartKind::Touchpad => 3,
-        PartKind::Touchscreen => 4,
+        PartKind::Display => 3,
+        PartKind::Touchpad => 4,
     }
 }
 
@@ -54,8 +54,10 @@ pub struct Catalogue {
 /// descriptor free to carry no strings at all.
 fn key(part: &Identity) -> (PartKind, &str) {
     let key = match part.kind {
-        PartKind::Mainboard | PartKind::Battery | PartKind::Memory => &part.model,
-        PartKind::Touchpad | PartKind::Touchscreen => &part.id,
+        PartKind::Mainboard | PartKind::Battery | PartKind::Memory | PartKind::Display => {
+            &part.model
+        }
+        PartKind::Touchpad => &part.id,
     };
     (part.kind, key)
 }
@@ -145,7 +147,9 @@ pub fn catalogue(part: &Identity) -> Option<Catalogue> {
             model: "Laptop 13 Pro Input Cover Frame",
             url: Some("https://frame.work/products/laptop13pro-input-cover-frame"),
         }),
-        (PartKind::Touchscreen, "hid:3558:14fd") => Some(Catalogue {
+        // The kit is the panel and the touch controller together, and the
+        // panel is the half every machine with a screen has.
+        (PartKind::Display, "MND508ZB1-1") => Some(Catalogue {
             model: "Laptop 13 Pro Touchscreen Display Kit - 2.8K",
             url: Some("https://frame.work/products/laptop13pro-display-kit"),
         }),
@@ -166,7 +170,17 @@ pub fn catalogue(part: &Identity) -> Option<Catalogue> {
 #[must_use]
 pub fn maker(part: &Identity) -> Option<(&str, &str)> {
     (!part.vendor.is_empty() && part.vendor != VENDOR)
-        .then_some((part.vendor.as_str(), part.model.as_str()))
+        .then(|| (pnp(&part.vendor), part.model.as_str()))
+}
+
+/// The maker behind a three-letter PNP id, curated from the ids seen on real
+/// hardware: the register that assigns them is not something this can carry,
+/// so an id with no entry is left as the part gave it.
+fn pnp(id: &str) -> &str {
+    match id {
+        "CSW" => "CSOT",
+        _ => id,
+    }
 }
 
 #[cfg(test)]
@@ -227,7 +241,7 @@ mod tests {
     #[test]
     fn a_part_the_catalogue_does_not_name_keeps_its_own_words() {
         assert!(catalogue(&part(PartKind::Memory, "dmi-slot:LPCAMM2_0")).is_none());
-        assert!(catalogue(&part(PartKind::Touchscreen, "hid:3558:14fd")).is_some());
+        assert!(catalogue(&part(PartKind::Touchpad, "hid:093a:1343")).is_some());
     }
 
     /// A module is the same part in whichever slot it sits, and a slot holds

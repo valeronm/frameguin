@@ -15,7 +15,7 @@ use frameguin_hardware::ec::Pack;
 use frameguin_hardware::part::Identity;
 use frameguin_hardware::testing::{
     Connectors, EC_BOOT, EcCharger, Gauge, Haptic, LedEc, Leds, Memory, Route, battery_identity,
-    block, mirrors, panel_identity, touchpad_identity,
+    block, display_identity, mirrors, touchpad_identity,
 };
 use frameguin_wire::{
     BatteryFeature, ClickForce, DeviceError, FrameguinProxy, NO_CHARGE_CURRENT_LIMIT, PortPartner,
@@ -44,11 +44,7 @@ fn devices() -> Devices {
             &mirrors,
             touchpad_identity(),
         )),
-        touchscreen: Some(Touchscreen::new(
-            Box::new(Route::default()),
-            &mirrors,
-            panel_identity(),
-        )),
+        touchscreen: Some(Touchscreen::new(Box::new(Route::default()), &mirrors)),
         power_led: Some(PowerLed::new(
             Arc::new(LedEc::default()),
             Box::new(Leds::default()),
@@ -59,7 +55,7 @@ fn devices() -> Devices {
 
 /// An inventory for the root interface to answer, which it holds verbatim.
 fn parts() -> Vec<Identity> {
-    vec![battery_identity(), touchpad_identity(), panel_identity()]
+    vec![battery_identity(), touchpad_identity(), display_identity()]
 }
 
 /// The proxies dialled over one end of a socket pair, the other serving

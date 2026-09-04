@@ -46,9 +46,9 @@ pub fn touchpad_identity() -> Identity {
     )
 }
 
-/// The touch panel's controller as detection would identify it.
-pub fn panel_identity() -> Identity {
-    part::hid(PartKind::Touchscreen, 0x2c68, 0x0100, "", "", "")
+/// The panel as its EDID identifies it.
+pub fn display_identity() -> Identity {
+    part::edid("CSW", 4898, "MND508ZB1-1", "")
 }
 
 /// The pack as its own registers identify it.

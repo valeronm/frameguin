@@ -8,6 +8,7 @@
 //! linking this crate directly has already got past it.
 
 pub mod battery;
+pub mod display;
 pub mod mainboard;
 pub mod memory;
 pub mod ports;

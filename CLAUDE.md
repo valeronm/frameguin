@@ -175,7 +175,7 @@ it and the non-obvious constraints.
   reaches the machine, so the filename answers which way: `ec.rs` the EC,
   `led.rs` the kernel's LED class, `touchpad.rs` the pad's own HID transport,
   `panel.rs` the touch panel's, `gpio.rs` a pad on the processor through the
-  GPIO character device. Two of those pairs need an arbitration, and the two
+  GPIO character device, `drm.rs` the kernel's DRM class. Two of those pairs need an arbitration, and the two
   arbitrations are not alike: the power button LED has two possible drivers
   and one at a time, so what is settled is a handover and the order to make
   it in — and that lives in the device, `device/power_led.rs`, over the
@@ -189,7 +189,9 @@ it and the non-obvious constraints.
   product name deciding which board's pads are which, the raw entries a
   part's identity comes from — `sbs.rs` the pack's own registers and what
   their words mean, apart from `ec.rs` so the decoding is testable without
-  an EC and `ec.rs` stays every EC call and nothing else — `lifetime.rs` what
+  an EC and `ec.rs` stays every EC call and nothing else — `edid.rs` what a
+  panel's own block says it is, apart from `drm.rs` for the same reason —
+  `lifetime.rs` what
   holds a mirrored value and whether it still holds it, where `dmi.rs`
   answers for the machine, which is the difference between a fact a reboot or
   a sleep changes and one that outlives both, `state.rs`

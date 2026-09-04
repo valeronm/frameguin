@@ -38,6 +38,20 @@ pub fn of_hid(kind: PartKind, dev: &hidapi::DeviceInfo) -> Identity {
     )
 }
 
+/// A panel, from what its EDID announces. The PNP id and the product code
+/// are the two things every EDID carries, so the identifier is those where
+/// the optional name descriptor leaves the model empty.
+pub fn edid(manufacturer: &str, product: u16, name: &str, serial: &str) -> Identity {
+    Identity {
+        kind: PartKind::Display,
+        vendor: manufacturer.to_owned(),
+        model: name.to_owned(),
+        serial: serial.to_owned(),
+        id: format!("edid:{manufacturer}:{product:04x}"),
+        firmware: Vec::new(),
+    }
+}
+
 /// A Smart Battery, from what its gauge announces over the EC. The model
 /// number is the part's rather than the unit's; the serial is the unit's.
 pub fn sbs(manufacturer: &str, model: &str, serial: &str) -> Identity {

@@ -377,8 +377,8 @@ pub enum PartKind {
     Mainboard,
     Battery,
     Memory,
+    Display,
     Touchpad,
-    Touchscreen,
 }
 
 /// One firmware a part runs, named for what carries it as the part's user

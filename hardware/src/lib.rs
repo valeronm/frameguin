@@ -14,10 +14,12 @@
 //! filename answers which way: [`ec`] the EC, [`led`] the kernel's LED
 //! class, [`touchpad`] the pad's own HID transport, [`panel`] the touch
 //! panel's, [`gpio`] a pad on the processor through the GPIO character
-//! device, [`dmi`] the firmware's SMBIOS table. [`touchscreen`] settles
+//! device, [`dmi`] the firmware's SMBIOS table, [`drm`] the kernel's DRM
+//! class. [`touchscreen`] settles
 //! which of two routes a machine has, and is the role over either. `sbs` is
 //! the pack's own registers and what their words mean, `pd` what the EC's
-//! cached PD controller version means,
+//! cached PD controller version means, [`edid`] what a panel's own block
+//! says it is,
 //! [`state`] the store for what cannot be read back, [`lifetime`] what
 //! holds a mirrored value and how to tell it still does, [`mirror`] the
 //! mirror a device reads and writes such a value through, [`part`] what a
@@ -33,7 +35,9 @@
 
 pub mod device;
 pub mod dmi;
+pub mod drm;
 pub mod ec;
+pub mod edid;
 pub mod gpio;
 pub mod led;
 pub mod lifetime;

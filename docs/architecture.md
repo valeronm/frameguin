@@ -205,8 +205,10 @@ that is a part and nothing else — the mainboard, a memory module — is a
 device all the same.
 
 The two facets are not one list. A memory module or an expansion card is a
-part with no control; the power button LED is a control that is no part; the
-mainboard is a part the daemon reads and never sets, and its BIOS, its EC and
+part with no control; the power button LED is a control that is no part, and
+so is the touch controller, whose version is firmware on the panel it sits
+in front of; the mainboard is a part the daemon reads and never sets, and
+its BIOS, its EC and
 its USB-C power delivery controllers are firmware it runs rather than parts of
 their own — what is soldered to the board is not a part, there being no such
 thing to order. So the inventory is its own
@@ -243,9 +245,9 @@ Order: touchpad, touchscreen, power LED, battery. Smallest column first, the
 one with the most shared state last.
 
 Every control has moved: **touchpad, touchscreen, power LED, battery**.
-Parts with no control: **mainboard, memory**. The keyboard backlight, which
-the app never showed — the desktop already carries it on its own keys — was
-dropped rather than moved.
+Parts with no control: **mainboard, memory, display**. The keyboard
+backlight, which the app never showed — the desktop already carries it on
+its own keys — was dropped rather than moved.
 
 A device detects itself at both ends — in `hardware` by its own probe, in
 `model` by its own first read, which an unregistered interface answers with

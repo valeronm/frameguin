@@ -13,6 +13,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use frameguin_hardware::device::battery::Battery;
+use frameguin_hardware::device::display::Display;
 use frameguin_hardware::device::mainboard::Mainboard;
 use frameguin_hardware::device::memory::Module;
 use frameguin_hardware::device::ports::Ports;
@@ -76,22 +77,23 @@ fn main() -> zbus::Result<()> {
     // `HidApi` enumerates the lot.
     let hid = hidapi::HidApi::new().ok();
     let touchpad = hid.as_ref().and_then(|hid| Touchpad::detect(hid, &mirrors));
-    let touchscreen = hid
+    let (touchscreen, controller_firmware) = hid
         .as_ref()
-        .and_then(|hid| Touchscreen::detect(hid, &mirrors));
+        .map_or((None, None), |hid| Touchscreen::detect(hid, &mirrors));
     let power_led = ec.as_ref().and_then(PowerLed::detect);
     let battery = ec.as_ref().and_then(|ec| Battery::detect(ec, &mirrors));
     let mainboard = Mainboard::detect(ec.as_deref());
     let memory = Module::detect();
+    let displays = Display::detect(controller_firmware);
     let parts: Vec<Identity> = [
         mainboard.as_ref().map(Part::identity),
         battery.as_ref().map(Part::identity),
         touchpad.as_ref().map(Part::identity),
-        touchscreen.as_ref().map(Part::identity),
     ]
     .into_iter()
     .flatten()
     .chain(memory.iter().map(Part::identity))
+    .chain(displays.iter().map(Part::identity))
     .cloned()
     .collect();
     // One journal line per part found, which is what a bug report about a
