@@ -50,11 +50,11 @@ fn fill(page: &adw::PreferencesPage, parts: &[Identity]) {
 }
 
 /// One part: its kind as the title, the words it is sold under where the
-/// catalogue has them and the hardware's own otherwise, then its serial,
-/// identifier and one row per firmware. A row with nothing to say is left
-/// out rather than filled with a placeholder — an I2C-HID descriptor
-/// carries no vendor and often no serial, and a column of "Unknown" is what
-/// teaches a reader to skip the column.
+/// catalogue has them and the hardware's own otherwise, then its serial and
+/// one row per firmware. A row with nothing to say is left out rather than
+/// filled with a placeholder — an I2C-HID descriptor carries no vendor and
+/// often no serial, and a column of "Unknown" is what teaches a reader to
+/// skip the column.
 fn group(part: &Identity) -> adw::PreferencesGroup {
     let group = adw::PreferencesGroup::builder()
         .title(kind_label(part.kind))
@@ -71,7 +71,6 @@ fn group(part: &Identity) -> adw::PreferencesGroup {
         optional_value(&group, "Model", &part.model);
     }
     optional_value(&group, "Serial", &part.serial);
-    optional_value(&group, "Identifier", &part.id);
     for firmware in &part.firmware {
         optional_value(&group, &firmware.name, &firmware.version);
     }
