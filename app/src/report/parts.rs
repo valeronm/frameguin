@@ -4,7 +4,7 @@
 use std::rc::Rc;
 
 use adw::prelude::*;
-use frameguin_model::part::{catalogue, kind_label, maker, ordered};
+use frameguin_model::part::{catalogue, kind_label, maker, ordered, part_number};
 use frameguin_wire::Identity;
 use gtk4 as gtk;
 use gtk4::gio;
@@ -50,8 +50,9 @@ fn fill(page: &adw::PreferencesPage, parts: &[Identity]) {
 }
 
 /// One part: its kind as the title, the words it is sold under where the
-/// catalogue has them and the hardware's own otherwise, then its serial and
-/// one row per firmware. A row with nothing to say is left out rather than
+/// catalogue has them and the hardware's own otherwise, then its number, its
+/// serial and one row per firmware. A row with nothing to say is left out
+/// rather than
 /// filled with a placeholder — an I2C-HID descriptor carries no vendor and
 /// often no serial, and a column of "Unknown" is what teaches a reader to
 /// skip the column.
@@ -62,14 +63,12 @@ fn group(part: &Identity) -> adw::PreferencesGroup {
     let sold = catalogue(part);
     if let Some(sold) = sold {
         optional_value(&group, "Model", sold.model);
-        if let Some((manufacturer, part_number)) = maker(part) {
-            optional_value(&group, "Manufacturer", manufacturer);
-            optional_value(&group, "Part number", part_number);
-        }
+        optional_value(&group, "Manufacturer", maker(part).unwrap_or_default());
     } else {
         optional_value(&group, "Vendor", &part.vendor);
         optional_value(&group, "Model", &part.model);
     }
+    optional_value(&group, "Part number", part_number(part, sold));
     optional_value(&group, "Serial", &part.serial);
     for firmware in &part.firmware {
         optional_value(&group, &firmware.name, &firmware.version);

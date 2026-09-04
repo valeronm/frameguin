@@ -410,6 +410,8 @@ pub struct Identity {
     pub kind: PartKind,
     pub vendor: String,
     pub model: String,
+    /// Empty where the model is already the part's own number.
+    pub part_number: String,
     /// Empty where the part announces none, as some descriptors do.
     pub serial: String,
     /// The identifier the part announces itself by, prefixed with the space

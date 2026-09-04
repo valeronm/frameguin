@@ -49,6 +49,7 @@ impl Module {
                 kind: PartKind::Memory,
                 vendor: entry.string(MANUFACTURER).unwrap_or_default().to_owned(),
                 model: entry.string(PART_NUMBER).unwrap_or_default().to_owned(),
+                part_number: String::new(),
                 serial: entry.string(SERIAL).unwrap_or_default().to_owned(),
                 id: format!("dmi-slot:{}", entry.string(LOCATOR).unwrap_or_default()),
                 firmware: Vec::new(),

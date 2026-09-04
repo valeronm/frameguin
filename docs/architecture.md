@@ -192,8 +192,8 @@ to. There is no common trait over controls, and none is wanted: nothing
 loops over controls without knowing which one it holds.
 
 A **part** is asked what it is through one common trait,
-`hardware::part::Part`, answering an `Identity` — kind, vendor, model,
-serial, the identifier it announces itself by, prefixed with its space
+`hardware::part::Part`, answering an `Identity` — kind, vendor, model, part
+number, serial, the identifier it announces itself by, prefixed with its space
 (`hid:093a:1343`, `dmi-slot:LPCAMM2_0`, `dmi-board:FRANMJCP07`), and every
 firmware it would report — because its caller iterates the machine's bill
 of materials without caring what any entry does. `Identity` lives in `wire`,

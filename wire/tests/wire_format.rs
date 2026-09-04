@@ -43,9 +43,9 @@ fn the_composite_signatures_are_the_ones_the_methods_declare() {
     // The pack's own report: cell voltages, alarms by name, and a temperature
     // in tenths of a degree.
     assert_eq!(BatteryCondition::SIGNATURE, "(auasn)");
-    // A part: kind, vendor, model, serial, id, then its firmwares as
-    // name/version pairs.
-    assert_eq!(Identity::SIGNATURE, "(sssssa(ss))");
+    // A part: kind, vendor, model, part number, serial, id, then its
+    // firmwares as name/version pairs.
+    assert_eq!(Identity::SIGNATURE, "(ssssssa(ss))");
 }
 
 #[test]

@@ -55,6 +55,7 @@ impl Mainboard {
                 kind: PartKind::Mainboard,
                 vendor: vendor.to_owned(),
                 model: product.to_owned(),
+                part_number: board.to_owned(),
                 serial: serial.to_owned(),
                 id: format!("dmi-board:{board}"),
                 firmware,
@@ -100,6 +101,7 @@ mod tests {
         );
         let identity = board.identity();
         assert_eq!(identity.kind, PartKind::Mainboard);
+        assert_eq!(identity.part_number, "FRANMJCP07");
         assert_eq!(identity.id, "dmi-board:FRANMJCP07");
         assert_eq!(identity.model, frameguin_wire::BOARD_LAPTOP13_PRO_ULTRA_3);
         assert_eq!(identity.firmware[0].name, "BIOS");

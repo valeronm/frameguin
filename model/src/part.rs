@@ -163,14 +163,25 @@ pub fn catalogue(part: &Identity) -> Option<Catalogue> {
     }
 }
 
-/// The maker's own words for a part made by someone other than Framework —
-/// a memory module is Micron's part before it is Framework's listing — as
-/// manufacturer and part number. None where Framework made it or the
-/// hardware named no maker.
+/// The maker of a part made by someone other than Framework — a memory
+/// module is Micron's part before it is Framework's listing. None where
+/// Framework made it or the hardware named no maker.
 #[must_use]
-pub fn maker(part: &Identity) -> Option<(&str, &str)> {
-    (!part.vendor.is_empty() && part.vendor != VENDOR)
-        .then(|| (pnp(&part.vendor), part.model.as_str()))
+pub fn maker(part: &Identity) -> Option<&str> {
+    (!part.vendor.is_empty() && part.vendor != VENDOR).then(|| pnp(&part.vendor))
+}
+
+/// The number a part announced for itself: the one it gives apart from its
+/// model, and the model where `sold` means a listing's name is standing in
+/// the model's place. Empty where the model is the number and is already on
+/// screen as itself.
+#[must_use]
+pub fn part_number(part: &Identity, sold: Option<Catalogue>) -> &str {
+    match (part.part_number.as_str(), sold) {
+        ("", Some(_)) => &part.model,
+        ("", None) => "",
+        (number, _) => number,
+    }
 }
 
 /// The maker behind a three-letter PNP id, curated from the ids seen on real
@@ -187,13 +198,14 @@ fn pnp(id: &str) -> &str {
 mod tests {
     use frameguin_wire::{self as wire, Identity, PartKind, VENDOR};
 
-    use super::{catalogue, maker, ordered};
+    use super::{catalogue, maker, ordered, part_number};
 
     fn part(kind: PartKind, id: &str) -> Identity {
         Identity {
             kind,
             vendor: String::new(),
             model: String::new(),
+            part_number: String::new(),
             serial: String::new(),
             id: id.to_owned(),
             firmware: Vec::new(),
@@ -282,7 +294,7 @@ mod tests {
     fn only_a_part_of_another_make_keeps_its_makers_words() {
         assert_eq!(
             maker(&module("dmi-slot:LPCAMM2_0")),
-            Some(("Micron Technology", "MTD16C20325N4FN023F1 YF"))
+            Some("Micron Technology")
         );
         let board = Identity {
             vendor: VENDOR.to_owned(),
@@ -290,5 +302,21 @@ mod tests {
         };
         assert_eq!(maker(&board), None);
         assert_eq!(maker(&part(PartKind::Touchpad, "hid:093a:1343")), None);
+    }
+
+    #[test]
+    fn a_board_shows_its_own_number_where_every_other_part_shows_its_model() {
+        let board = Identity {
+            part_number: "FRANMJCP07".to_owned(),
+            ..board(wire::BOARD_LAPTOP13_PRO_ULTRA_3)
+        };
+        let sold = catalogue(&board);
+        assert_eq!(part_number(&board, sold), "FRANMJCP07");
+        let module = module("dmi-slot:LPCAMM2_0");
+        assert_eq!(
+            part_number(&module, catalogue(&module)),
+            "MTD16C20325N4FN023F1 YF"
+        );
+        assert_eq!(part_number(&module, None), "");
     }
 }
