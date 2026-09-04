@@ -43,9 +43,8 @@ pub struct Catalogue {
     /// The product's name as its page spells it, less the vendor's own name
     /// leading it.
     pub model: &'static str,
-    /// None for a part Framework has stopped selling, its page taken down
-    /// with it: the name is still what a reader wants and a dead link is
-    /// not.
+    /// None where no live page names this part: the name is still what a
+    /// reader wants and a page about another part is not.
     pub url: Option<&'static str>,
 }
 
@@ -119,9 +118,27 @@ pub fn catalogue(part: &Identity) -> Option<Catalogue> {
                 "https://frame.work/products/framework-desktop-mainboard-amd-ryzen-ai-max-300-series",
             ),
         }),
+        // The EC publishes the pack's name in an eight-byte field, so these
+        // are the first seven characters of it.
+        (PartKind::Battery, "sbs:Framewo") => Some(Catalogue {
+            model: "Laptop 13 Battery - 55Wh",
+            url: None,
+        }),
+        (PartKind::Battery, "sbs:FRANGWA") => Some(Catalogue {
+            model: "Laptop 13 Battery - 61Wh",
+            url: Some("https://frame.work/products/battery"),
+        }),
         (PartKind::Battery, "sbs:FRANEDA") => Some(Catalogue {
             model: "Laptop 13 Pro Battery - 74Wh",
             url: Some("https://frame.work/products/pro-battery-74wh"),
+        }),
+        (PartKind::Battery, "sbs:FRANDZG") => Some(Catalogue {
+            model: "Laptop 12 Battery - 50Wh",
+            url: Some("https://frame.work/products/laptop12-battery-50wh"),
+        }),
+        (PartKind::Battery, "sbs:FRANDBA") => Some(Catalogue {
+            model: "Laptop 16 Battery - 85Wh",
+            url: Some("https://frame.work/products/16-battery"),
         }),
         // The haptic touchpad is sold only fitted to the input cover frame.
         (PartKind::Touchpad, "hid:093a:1343") => Some(Catalogue {

@@ -41,6 +41,7 @@ Every heading in the file appears here.
   - [Which board the EC tree calls this machine](#which-board-the-ec-tree-calls-this-machine)
 - [Battery](#battery)
   - [The EC's battery block](#the-ecs-battery-block)
+  - [Telling the packs apart](#telling-the-packs-apart)
   - [What the flag byte means, and does not](#what-the-flag-byte-means-and-does-not)
   - [The pack itself, over I²C](#the-pack-itself-over-ic)
   - [Cycle count goes stale in the EC](#cycle-count-goes-stale-in-the-ec)
@@ -159,15 +160,42 @@ One memory-map region carrying voltage, present rate, remaining and last-full
 capacity, design capacity and voltage, cycle count, a flag byte, and four
 8-byte strings (manufacturer, model, serial, chemistry).
 
-The 8-byte string fields are a genuine limit — but on the packs seen so far
-nothing is being truncated by them. The model reads `FRANEDA`, and the pack's
-own Smart Battery `DeviceName` register also returns `FRANEDA`, so the longer
-`FRANEDAC00` printed on the physical label exists only on the label. Worth
-knowing before writing code to chase a fuller name over I²C; there isn't one.
+The 8-byte string fields cut a name to seven characters. Nothing is lost on
+this machine's pack: the model reads `FRANEDA`, its own Smart Battery
+`DeviceName` register returns `FRANEDA` too, and the longer `FRANEDAC00`
+printed on the physical label exists only there — chasing a fuller name over
+I²C finds nothing. Other packs are genuinely cut,
+[below](#telling-the-packs-apart).
 
 Capacities are in mAh and voltages in mV. `framework_lib` computes the charge
 percentage as `100 * remaining / last_full`, which divides by a value the pack
 supplies — a pack reporting zero there panics inside the library.
+
+### Telling the packs apart
+
+The EC's devicetree declares these packs across every board, and a pack's
+`DeviceName` is what separates them, cut to seven characters on its way to the
+host:
+
+| `DeviceName` | Maker | Pack |
+|---|---|---|
+| `Framework Laptop` | NVT | Laptop 13, 55Wh |
+| `FRANGWAT01` | NVT | Laptop 13, 61Wh |
+| `FRANEDA` | ATC | Laptop 13 Pro, 74Wh |
+| `FRANDBAT01` | NVT | Laptop 16, 85Wh |
+| `FRANDZG` | ATC | Laptop 12, 50Wh |
+
+Seven characters still separate them, and the firmware relies on that itself:
+`board_get_battery_type` compares the name against its own literals at exactly
+that length. What it calls a type there is not a capacity — the 74Wh pack is
+`ATC_75W`.
+
+A fuller name is reachable through `EC_CMD_BATTERY_GET_STATIC`, whose v1
+returns 11 characters and v2 the whole string, but only where the firmware is
+built on battery API v2; the pre-Zephyr `hx20`/`hx30` code is on v1, whose
+`common/battery_v1.c` declares no host command at all. The 55Wh pack fits
+machines on both sides of that split, so the seven-character form is the only
+name every machine agrees on.
 
 ### What the flag byte means, and does not
 

@@ -396,6 +396,10 @@ asserted and its reason a file away.
   count and the manufacturing date each fall back to the EC's answer or to
   nothing, so they need no feature and are read inside the `Pack` role's
   `info`, once per run and then remembered, absence included.
+- A pack is catalogued by the seven characters the EC's memory map holds and
+  never by the fuller name `EC_CMD_BATTERY_GET_STATIC` would answer with,
+  which firmware on battery API v1 does not implement at all — so a pack
+  carried between two machines would key two ways.
 - A direction is never taken from the EC's flags alone; `charge_flow` weighs
   them against the charger and the rate, because the flags do not mean what
   their names suggest and the charge limiter produces a state they cannot
