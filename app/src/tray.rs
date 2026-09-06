@@ -8,7 +8,7 @@ use std::rc::Rc;
 
 use frameguin_model::control::Controls;
 use frameguin_model::control::battery::{
-    charge_limit_at, charge_limit_labels, charge_limit_preset_row, charge_speed_at,
+    charge_cap, charge_limit_at, charge_limit_labels, charge_limit_preset_row, charge_speed_at,
     charge_speed_names, charge_speed_preset_row,
     reading::{amps, battery_summary, percent_label},
 };
@@ -314,7 +314,7 @@ impl TrayIcon {
         // Named by its preset where there is one, and by the current itself
         // where there isn't — a menu that can only show presets would say
         // nothing at all about a limit dialled in from the window.
-        let unlisted = self.charge_current_limit.map(amps);
+        let unlisted = self.charge_current_limit.and_then(charge_cap).map(amps);
         Some(radio_submenu(
             "Charge speed",
             selected,

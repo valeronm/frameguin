@@ -84,6 +84,10 @@ pub const NO_CHARGE_LIMIT: u8 = 100;
 /// user dials in; the tray offers the presets alone.
 pub const CHARGE_LIMIT_CUSTOM: usize = CHARGE_PRESETS.len();
 
+/// The lowest ceiling the custom slider offers is the lowest the daemon
+/// accepts: a slider reaching below it would offer a write it refuses.
+pub use frameguin_wire::MIN_CHARGE_LIMIT;
+
 /// The charge speeds the combo offers, each beside the divisor it applies to
 /// the battery's 1C design current; `None` is full speed, which the daemon
 /// takes as no limit at all.
@@ -108,6 +112,14 @@ pub const MIN_CUSTOM_CHARGE_MA: u32 = 100;
 /// this a drag lands on a value like 984 mA that the row then displays as
 /// "1.0 A", reporting a current nobody chose.
 pub const CUSTOM_CHARGE_STEP_MA: u32 = 100;
+
+/// The cap a charge speed reading carries, in mA, and None at full speed —
+/// a value the wire spells as a number, which the slider cannot show and a
+/// toast should not read out.
+#[must_use]
+pub fn charge_cap(milliamps: u32) -> Option<u32> {
+    (milliamps != NO_CHARGE_CURRENT_LIMIT).then_some(milliamps)
+}
 
 /// The milliamps a charge speed row asks the daemon for; None for a row
 /// nothing is listed at. Shared by the window and the tray so the two can't
@@ -214,9 +226,9 @@ mod tests {
 
     use super::{
         Battery, CHARGE_LIMIT_CUSTOM, CHARGE_SPEED_CUSTOM, CHARGE_SPEEDS, Custom, NO_CHARGE_LIMIT,
-        charge_limit_at, charge_limit_labels, charge_limit_preset_row, charge_limit_row,
-        charge_speed_at, charge_speed_labels, charge_speed_preset_row, charge_speed_row,
-        with_custom_row,
+        charge_cap, charge_limit_at, charge_limit_labels, charge_limit_preset_row,
+        charge_limit_row, charge_speed_at, charge_speed_labels, charge_speed_preset_row,
+        charge_speed_row, with_custom_row,
     };
     use crate::testing::{Board, CAPACITY, absent, ready};
 
@@ -278,6 +290,12 @@ mod tests {
         // Sending the capacity would install a real cap at 1C; the EC only
         // stops clamping when the limit is the maximum.
         assert_eq!(charge_speed_at(CAPACITY, 0), Some(NO_CHARGE_CURRENT_LIMIT));
+    }
+
+    #[test]
+    fn full_speed_carries_no_cap_and_a_fraction_carries_its_own() {
+        assert_eq!(charge_cap(charge_speed_at(CAPACITY, 0).unwrap()), None);
+        assert_eq!(charge_cap(2320), Some(2320));
     }
 
     #[test]

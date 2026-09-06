@@ -13,16 +13,14 @@ use std::rc::Rc;
 use adw::prelude::*;
 use frameguin_model::control::Custom;
 use frameguin_model::control::battery::{
-    self, CHARGE_LIMIT_CUSTOM, CHARGE_SPEED_CUSTOM, CUSTOM_CHARGE_STEP_MA, MIN_CUSTOM_CHARGE_MA,
-    NO_CHARGE_LIMIT, charge_limit_at, charge_limit_labels, charge_limit_row, charge_speed_at,
-    charge_speed_labels, charge_speed_names, charge_speed_row,
+    self, CHARGE_LIMIT_CUSTOM, CHARGE_SPEED_CUSTOM, CUSTOM_CHARGE_STEP_MA, MIN_CHARGE_LIMIT,
+    MIN_CUSTOM_CHARGE_MA, NO_CHARGE_LIMIT, charge_cap, charge_limit_at, charge_limit_labels,
+    charge_limit_row, charge_speed_at, charge_speed_labels, charge_speed_names, charge_speed_row,
     reading::{amps, charge_flow_label, percent_label},
     with_custom_row,
 };
 use frameguin_model::control::ports::{self, supply_label, supply_port};
-use frameguin_wire::{
-    BatteryFeature, BatteryState, MIN_CHARGE_LIMIT, NO_CHARGE_CURRENT_LIMIT, PortState,
-};
+use frameguin_wire::{BatteryFeature, BatteryState, PortState};
 use gtk4 as gtk;
 
 use crate::board;
@@ -199,8 +197,8 @@ impl Group {
             });
             // Full speed is the absence of a limit, not a position on a
             // slider that can only express one.
-            if milliamps != NO_CHARGE_CURRENT_LIMIT {
-                self.speed_scale.set_value(f64::from(milliamps));
+            if let Some(cap) = charge_cap(milliamps) {
+                self.speed_scale.set_value(f64::from(cap));
             }
         });
     }
@@ -433,9 +431,10 @@ pub(crate) async fn apply_charge_limit(
     show_limit(sink, percent, custom);
 }
 
-/// The one write for the charge speed, in mA or `NO_CHARGE_CURRENT_LIMIT`.
-/// Callers resolve a speed to milliamps against the battery capacity they
-/// hold — the window's, or the tray's own copy.
+/// The one write for the charge speed, in mA, with the uncapped value
+/// `charge_speed_at` answers for full speed. Callers resolve a speed to
+/// milliamps against the battery capacity they hold — the window's, or the
+/// tray's own copy.
 pub(crate) async fn apply_charge_speed(
     sink: Sink<'_>,
     control: &Battery,
@@ -450,10 +449,9 @@ pub(crate) async fn apply_charge_speed(
         }
     };
     if written {
-        if milliamps == NO_CHARGE_CURRENT_LIMIT {
-            sink.toast("Charge speed uncapped");
-        } else {
-            sink.toast(&format!("Charge speed capped at {}", amps(milliamps)));
+        match charge_cap(milliamps) {
+            Some(cap) => sink.toast(&format!("Charge speed capped at {}", amps(cap))),
+            None => sink.toast("Charge speed uncapped"),
         }
     }
     show_speed(sink, milliamps, custom);
