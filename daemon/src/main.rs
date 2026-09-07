@@ -32,7 +32,7 @@ use zbus::object_server::ObjectServer;
 use zbus::{Connection, fdo, interface};
 use zbus_polkit::policykit1::AuthorityProxy;
 
-use crate::interface::Devices;
+use crate::interface::{Devices, Op};
 use crate::service::Service;
 
 const IDLE_EXIT: Duration = Duration::from_mins(5);
@@ -62,6 +62,7 @@ impl Daemon {
         &self,
         enabled: bool,
         #[zbus(header)] header: Header<'_>,
+        #[zbus(object_server)] server: &ObjectServer,
     ) -> fdo::Result<()> {
         self.service.touch();
         if self.restore.enabled() == enabled {
@@ -69,6 +70,11 @@ impl Daemon {
         }
         self.service.authorize(&header).await?;
         self.restore.set_enabled(enabled);
+        // A device that cannot be read is in the journal and the switch is
+        // on regardless: nothing here is the caller's to act on.
+        if enabled {
+            let _ = interface::each_restorable(server, Op::Remember).await;
+        }
         Ok(())
     }
 
@@ -82,7 +88,7 @@ impl Daemon {
             return Ok(());
         }
         self.service.authorize(&header).await?;
-        Ok(interface::restore_all(server).await?)
+        Ok(interface::each_restorable(server, Op::Restore).await?)
     }
 
     /// The daemon's version and the path it was started from. The path is the

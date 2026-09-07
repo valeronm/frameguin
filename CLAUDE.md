@@ -409,7 +409,10 @@ asserted and its reason a file away.
   value in force costs nothing, so the call needs no record of having run.
   Recording happens only while the switch is on and switching it off drops
   every wanted value, so the store holds a wanted value exactly while the
-  switch is on and turning it on restores nothing chosen before that.
+  switch is on. Switching it on records what each device finds in force,
+  a value set before the switch being what a user turning it on means to
+  keep; where that is what firmware would re-send anyway, pinning it costs
+  nothing.
 - What the pack is asked directly falls into two groups, and the split is why
   one is a feature the battery offers and the other is not. The temperature,
   cell voltages and alarms have no fallback, so they are one operation behind

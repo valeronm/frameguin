@@ -149,6 +149,15 @@ impl PowerLed {
 }
 
 impl Restorable for PowerLed {
+    async fn remember(&self) -> DeviceResult<()> {
+        let (percent, level) = self.brightness().await?;
+        self.wanted.set(Some(&match level {
+            PowerLedLevel::Custom => Brightness::Percent(percent),
+            level => Brightness::Level(level),
+        }));
+        Ok(())
+    }
+
     async fn restore(&self) -> DeviceResult<()> {
         match self.wanted.current() {
             Some(Brightness::Level(level)) => self.set_level(level).await,
@@ -183,7 +192,7 @@ impl PowerLedControl for PowerLed {
                 self.release().await?;
             }
         }
-        self.wanted.record(&Brightness::Level(level));
+        self.wanted.set(Some(&Brightness::Level(level)));
         Ok(())
     }
 
@@ -191,7 +200,7 @@ impl PowerLedControl for PowerLed {
         Self::check_brightness(percent)?;
         self.ec.set_power_led_percentage(percent)?;
         self.release().await?;
-        self.wanted.record(&Brightness::Percent(percent));
+        self.wanted.set(Some(&Brightness::Percent(percent)));
         Ok(())
     }
 }
@@ -282,6 +291,26 @@ mod tests {
         ready(led.restore()).unwrap();
         assert!(writes(&fresh).is_empty());
         assert_eq!(writes(&log), ["level Low"]);
+    }
+
+    #[test]
+    fn the_level_in_force_is_remembered_when_the_switch_goes_on() {
+        let store = Arc::new(Memory::default());
+        let mirrors = mirrors(&store, None, None);
+        let Bench { led, .. } = over_mirrors(&FULL, &mirrors);
+        ready(led.set_brightness(20)).unwrap();
+        mirrors.restore().set_enabled(true);
+        ready(led.remember()).unwrap();
+        assert_eq!(
+            mirrors.wanted::<Brightness>(KEY_BRIGHTNESS).current(),
+            Some(Brightness::Percent(20))
+        );
+        ready(led.set_level(PowerLedLevel::Off)).unwrap();
+        ready(led.remember()).unwrap();
+        assert_eq!(
+            mirrors.wanted::<Brightness>(KEY_BRIGHTNESS).current(),
+            Some(Brightness::Level(PowerLedLevel::Off))
+        );
     }
 
     fn writes(log: &Log) -> Vec<String> {

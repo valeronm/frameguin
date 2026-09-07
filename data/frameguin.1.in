@@ -68,7 +68,8 @@ re-asserts rather than a setting anything stores.
 .PP
 .B Restore settings
 has the daemon put the charge limit, the power button LED and the touchscreen
-back to whatever was last set here after a restart or a resume, through
+back after a restart or a resume, to whatever they were when it was switched
+on or last set here since, through
 .BR frameguin\-restore.service .
 Switching it off forgets them.
 .SH BUGS

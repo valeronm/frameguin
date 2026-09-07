@@ -105,6 +105,14 @@ impl Part for Battery {
 }
 
 impl Restorable for Battery {
+    async fn remember(&self) -> DeviceResult<()> {
+        self.wanted_charge_limit
+            .set(Some(&self.charger.charge_limit()?));
+        self.wanted_current_limit
+            .set(self.current_limit.current().as_ref());
+        Ok(())
+    }
+
     /// A write that fails leaves the other still made.
     async fn restore(&self) -> DeviceResult<()> {
         let ceiling = match self.wanted_charge_limit.current() {
@@ -146,7 +154,7 @@ impl BatteryControl for Battery {
     async fn set_charge_limit(&self, percent: u8) -> DeviceResult<bool> {
         Self::check_charge_limit(percent)?;
         self.charger.set_charge_limit(percent)?;
-        self.wanted_charge_limit.record(&percent);
+        self.wanted_charge_limit.set(Some(&percent));
         Ok(true)
     }
 
@@ -161,13 +169,11 @@ impl BatteryControl for Battery {
         Self::check_charge_current_limit(milliamps)?;
         let write = || self.charger.set_charge_current_limit(milliamps);
         let cap = NonZeroU32::new(milliamps).filter(|cap| cap.get() != NO_CHARGE_CURRENT_LIMIT);
-        if let Some(cap) = cap {
-            self.current_limit.record(cap, write)?;
-            self.wanted_current_limit.record(&cap);
-        } else {
-            self.current_limit.clear(write)?;
-            self.wanted_current_limit.forget();
+        match cap {
+            Some(cap) => self.current_limit.record(cap, write)?,
+            None => self.current_limit.clear(write)?,
         }
+        self.wanted_current_limit.set(cap.as_ref());
         Ok(true)
     }
 }
@@ -406,6 +412,23 @@ mod tests {
         assert_eq!(*ec.limit.lock().unwrap(), 80);
         assert_eq!(*ec.written.lock().unwrap(), [1_500]);
         assert_eq!(ready(battery.charge_current_limit()), Ok(1_500));
+    }
+
+    #[test]
+    fn the_limits_in_force_are_remembered_when_the_switch_goes_on() {
+        let store = Arc::new(Memory::default());
+        let before = over(&FULL, &store);
+        ready(before.battery.set_charge_limit(80)).unwrap();
+        ready(before.battery.set_charge_current_limit(1_500)).unwrap();
+        let mirrors = mirrors(&store, Some(EC_BOOT), None);
+        let Bench { battery, ec } = over_mirrors(&FULL, &mirrors);
+        *ec.limit.lock().unwrap() = 80;
+        mirrors.restore().set_enabled(true);
+        ready(battery.remember()).unwrap();
+        *ec.limit.lock().unwrap() = 100;
+        ready(battery.restore()).unwrap();
+        assert_eq!(*ec.limit.lock().unwrap(), 80);
+        assert_eq!(*ec.written.lock().unwrap(), [1_500]);
     }
 
     #[test]

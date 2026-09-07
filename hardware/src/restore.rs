@@ -14,6 +14,9 @@ const WANTED_PREFIX: &str = "wanted_";
 
 /// A device with something to write back.
 pub trait Restorable {
+    /// For the switch going on over a value set before it, which nothing
+    /// else would write back.
+    fn remember(&self) -> impl Future<Output = DeviceResult<()>> + Send;
     fn restore(&self) -> impl Future<Output = DeviceResult<()>> + Send;
 }
 
@@ -33,8 +36,6 @@ impl Restore {
         self.store.get(KEY_RESTORE).is_some()
     }
 
-    /// Off drops every wanted value with it, so the switch going on again
-    /// restores nothing chosen before that.
     pub fn set_enabled(&self, enabled: bool) {
         self.store.set(KEY_RESTORE, enabled.then(|| true.stored()));
         if !enabled {
@@ -59,16 +60,12 @@ pub struct Wanted<V> {
 }
 
 impl<V: Stored> Wanted<V> {
-    /// Kept only while the switch is on: a choice made with it off is one
-    /// nobody asked to have written back.
-    pub fn record(&self, value: &V) {
-        if self.restore.enabled() {
-            self.restore.store.set(&self.key, Some(value.stored()));
+    /// A value is kept only while the switch is on: a choice made with it
+    /// off is one nobody asked to have written back.
+    pub fn set(&self, value: Option<&V>) {
+        if value.is_none() || self.restore.enabled() {
+            self.restore.store.set(&self.key, value.map(Stored::stored));
         }
-    }
-
-    pub fn forget(&self) {
-        self.restore.store.set(&self.key, None);
     }
 
     pub fn current(&self) -> Option<V> {
@@ -93,13 +90,13 @@ mod tests {
         let store = Arc::new(Memory::default());
         let restore = switch(&store);
         let wanted = restore.clone().wanted::<u8>("limit");
-        wanted.record(&80);
+        wanted.set(Some(&80));
         assert_eq!(wanted.current(), None);
         restore.set_enabled(true);
-        wanted.record(&80);
+        wanted.set(Some(&80));
         assert_eq!(wanted.current(), Some(80));
         assert_eq!(store.get("wanted_limit").as_deref(), Some("80"));
-        wanted.forget();
+        wanted.set(None);
         assert_eq!(wanted.current(), None);
     }
 
@@ -109,8 +106,8 @@ mod tests {
         let restore = switch(&store);
         restore.set_enabled(true);
         assert!(restore.enabled());
-        restore.clone().wanted::<u8>("limit").record(&80);
-        restore.clone().wanted::<bool>("off").record(&true);
+        restore.clone().wanted::<u8>("limit").set(Some(&80));
+        restore.clone().wanted::<bool>("off").set(Some(&true));
         store.set("charge_current_limit", Some("1500".into()));
         restore.set_enabled(false);
         assert!(!restore.enabled());

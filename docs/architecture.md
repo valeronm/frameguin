@@ -235,7 +235,7 @@ which is what puts it on the bus and in front of the proxies in
 `interface/tests.rs`; the client control in `model`; the group; the tray
 item. What another device shares is a line in a struct or a fan-out — the
 `Devices`, `Proxies` and `Controls` fields, the window's `gate`, `watch`,
-`load_values` and `connect_handlers` arms, the daemon's `restore_all` line
+`load_values` and `connect_handlers` arms, the daemon's `each_restorable` line
 for a device with a wanted value — never a body. Adding a part with
 no control is one device module
 implementing `Part`, and its line where the daemon collects the inventory

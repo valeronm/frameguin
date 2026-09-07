@@ -29,8 +29,9 @@ same goes for the power button LED's level, and a touchscreen switched off
 comes back when the lid is opened, after a suspend, and at the next restart —
 the panel's enable is a line the firmware re-asserts rather than a setting
 anything stores. **Restore settings** has the daemon put each of them back
-after a restart or a resume, to whatever was last set here; switching it off
-forgets them, and the next restart is the firmware's again.
+after a restart or a resume, to whatever they were when it was switched on
+or last set here since; switching it off forgets them, and the next restart
+is the firmware's again.
 
 The power button LED and the fingerprint reader share one button. What the
 app reaches is the LED's brightness; nothing here touches the reader.

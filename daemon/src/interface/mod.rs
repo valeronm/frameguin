@@ -70,32 +70,55 @@ pub(crate) async fn serve_all(
     serve_one(server, &service, ports).await
 }
 
+#[derive(Clone, Copy)]
+pub(crate) enum Op {
+    Remember,
+    Restore,
+}
+
+impl Op {
+    fn done(self) -> &'static str {
+        match self {
+            Self::Remember => "remembered",
+            Self::Restore => "restored",
+        }
+    }
+
+    fn verb(self) -> &'static str {
+        match self {
+            Self::Remember => "remember",
+            Self::Restore => "restore",
+        }
+    }
+}
+
 /// Through the object server rather than a list of its own: the interfaces
 /// at the path are the inventory, so a device not on the bus has nothing to
 /// write back.
-pub(crate) async fn restore_all(server: &ObjectServer) -> DeviceResult<()> {
-    let battery = restore_one::<Battery>(server).await;
-    let power_led = restore_one::<PowerLed>(server).await;
-    let touchscreen = restore_one::<Touchscreen>(server).await;
+pub(crate) async fn each_restorable(server: &ObjectServer, op: Op) -> DeviceResult<()> {
+    let battery = one_restorable::<Battery>(server, op).await;
+    let power_led = one_restorable::<PowerLed>(server, op).await;
+    let touchscreen = one_restorable::<Touchscreen>(server, op).await;
     battery.and(power_led).and(touchscreen)
 }
 
-async fn restore_one<D: Restorable>(server: &ObjectServer) -> DeviceResult<()>
+async fn one_restorable<D: Restorable>(server: &ObjectServer, op: Op) -> DeviceResult<()>
 where
     Served<D>: Interface,
 {
     let Ok(interface) = server.interface::<_, Served<D>>(OBJECT_PATH).await else {
         return Ok(());
     };
+    let guard = interface.get().await;
+    let device = guard.device();
+    let outcome = match op {
+        Op::Remember => device.remember().await,
+        Op::Restore => device.restore().await,
+    };
     let name = <Served<D> as Interface>::name();
-    interface
-        .get()
-        .await
-        .device()
-        .restore()
-        .await
-        .inspect(|()| eprintln!("restored {name}"))
-        .inspect_err(|e| eprintln!("could not restore {name}: {e}"))
+    outcome
+        .inspect(|()| eprintln!("{} {name}", op.done()))
+        .inspect_err(|e| eprintln!("could not {} {name}: {e}", op.verb()))
 }
 
 async fn serve_one<D>(

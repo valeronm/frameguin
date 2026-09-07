@@ -391,6 +391,23 @@ fn what_was_set_is_written_back_on_request_after_a_boot() {
 }
 
 #[test]
+fn what_was_set_before_the_switch_went_on_is_restored_too() {
+    let machine = Machine::new();
+    let peer = machine.serve(true);
+    peer.run(|p| async move {
+        p.battery.set_charge_limit(80).await.unwrap();
+        p.power_led.set_level(PowerLedLevel::Low).await.unwrap();
+        root(&p).await.set_restore(true).await.unwrap();
+    });
+    machine.post_resends_its_own();
+    machine.serve(true).run(|p| async move {
+        root(&p).await.restore().await.unwrap();
+    });
+    assert_eq!(*machine.charger.limit.lock().unwrap(), 80);
+    assert_eq!(machine.led.level.lock().unwrap().1, PowerLedLevel::Low);
+}
+
+#[test]
 fn a_restore_is_refused_where_polkit_refuses_and_skipped_while_off() {
     let machine = Machine::new();
     machine.serve(true).run(|p| async move {

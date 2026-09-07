@@ -43,6 +43,10 @@ impl Touchscreen {
         }
     }
 
+    fn want_off(&self, off: bool) {
+        self.wanted_off.set(off.then_some(&true));
+    }
+
     /// What the hardware itself says, and None on the route that keeps no
     /// account.
     pub fn reading(&self) -> DeviceResult<Option<bool>> {
@@ -51,6 +55,11 @@ impl Touchscreen {
 }
 
 impl Restorable for Touchscreen {
+    async fn remember(&self) -> DeviceResult<()> {
+        self.want_off(!self.enabled().await?);
+        Ok(())
+    }
+
     /// On is what every event that moves the panel leaves it, so only off is
     /// ever written back.
     async fn restore(&self) -> DeviceResult<()> {
@@ -80,11 +89,7 @@ impl TouchscreenControl for Touchscreen {
         } else {
             self.off.record(true, write)?;
         }
-        if enabled {
-            self.wanted_off.forget();
-        } else {
-            self.wanted_off.record(&true);
-        }
+        self.want_off(!enabled);
         Ok(())
     }
 }
@@ -184,6 +189,20 @@ mod tests {
         ready(over(panel(), &store).set_enabled(false)).unwrap();
         let touchscreen = over(pad(), &store);
         assert_eq!(ready(touchscreen.enabled()), Ok(true));
+    }
+
+    #[test]
+    fn a_panel_found_off_is_remembered_and_one_found_on_is_not() {
+        let store = Arc::new(Memory::default());
+        let mirrors = mirrors(&store, None, Some(BOOT));
+        let touchscreen = Touchscreen::new(Box::new(pad()), &mirrors);
+        ready(touchscreen.set_enabled(false)).unwrap();
+        mirrors.restore().set_enabled(true);
+        ready(touchscreen.remember()).unwrap();
+        assert_eq!(mirrors.wanted::<bool>(KEY_OFF).current(), Some(true));
+        ready(touchscreen.set_enabled(true)).unwrap();
+        ready(touchscreen.remember()).unwrap();
+        assert_eq!(mirrors.wanted::<bool>(KEY_OFF).current(), None);
     }
 
     #[test]
