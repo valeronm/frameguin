@@ -15,6 +15,38 @@ use frameguin_wire::{DeviceError, DeviceResult, PowerLedControl, PowerLedLevel};
 
 use crate::ec::{Ec, PowerLedEc};
 use crate::led::{self, LedClass};
+use crate::mirror::Mirrors;
+use crate::restore::{Restorable, Wanted};
+use crate::state::Stored;
+
+const KEY_BRIGHTNESS: &str = "power_led";
+
+/// What the LED was asked for, by whichever setter asked.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Brightness {
+    Level(PowerLedLevel),
+    Percent(u8),
+}
+
+impl Stored for Brightness {
+    fn from_stored(value: &str) -> Option<Self> {
+        if let Some(percent) = u8::from_stored(value) {
+            return PowerLed::check_brightness(percent)
+                .is_ok()
+                .then_some(Self::Percent(percent));
+        }
+        PowerLedLevel::from_name(value)
+            .filter(|level| level.is_settable())
+            .map(Self::Level)
+    }
+
+    fn stored(&self) -> String {
+        match self {
+            Self::Level(level) => level.name().to_owned(),
+            Self::Percent(percent) => percent.to_string(),
+        }
+    }
+}
 
 /// How long the EC's own deferred hook takes to move the LED's PWM duty to a
 /// level just written, plus margin — the hook is scheduled at 100 ms, not
@@ -33,19 +65,20 @@ pub struct PowerLed {
     ec: Arc<dyn PowerLedEc>,
     leds: Box<dyn LedClass>,
     levels: Vec<PowerLedLevel>,
+    wanted: Wanted<Brightness>,
 }
 
 impl PowerLed {
     /// The LED the EC answers for, by the getter's own read.
-    pub fn detect(ec: &Arc<Ec>) -> Option<Self> {
+    pub fn detect(ec: &Arc<Ec>, mirrors: &Mirrors) -> Option<Self> {
         ec.power_led_level().ok()?;
-        Some(Self::new(ec.clone(), Box::new(led::Sysfs)))
+        Some(Self::new(ec.clone(), Box::new(led::Sysfs), mirrors))
     }
 
     /// Which levels the board has is settled here, once: the fixed levels on
     /// every firmware, the rest where the firmware takes a percentage, and
     /// off where the kernel has a node this could take and give back.
-    pub fn new(ec: Arc<dyn PowerLedEc>, leds: Box<dyn LedClass>) -> Self {
+    pub fn new(ec: Arc<dyn PowerLedEc>, leds: Box<dyn LedClass>, mirrors: &Mirrors) -> Self {
         let custom = ec.custom_power_led_levels();
         let off_node = leds.controllable().is_some();
         let levels = PowerLedLevel::ALL
@@ -56,7 +89,12 @@ impl PowerLed {
                 PowerLedLevel::Off => off_node,
             })
             .collect();
-        Self { ec, leds, levels }
+        Self {
+            ec,
+            leds,
+            levels,
+            wanted: mirrors.wanted(KEY_BRIGHTNESS),
+        }
     }
 
     /// Separate from the setter so a server can refuse a level before it
@@ -110,6 +148,16 @@ impl PowerLed {
     }
 }
 
+impl Restorable for PowerLed {
+    async fn restore(&self) -> DeviceResult<()> {
+        match self.wanted.current() {
+            Some(Brightness::Level(level)) => self.set_level(level).await,
+            Some(Brightness::Percent(percent)) => self.set_brightness(percent).await,
+            None => Ok(()),
+        }
+    }
+}
+
 impl PowerLedControl for PowerLed {
     async fn brightness(&self) -> DeviceResult<(u8, PowerLedLevel)> {
         let (percent, level) = self.ec.power_led_level()?;
@@ -129,18 +177,22 @@ impl PowerLedControl for PowerLed {
     /// write that skipped it would never be seen.
     async fn set_level(&self, level: PowerLedLevel) -> DeviceResult<()> {
         match self.write_for(level)? {
-            Write::Dark(dir) => self.leds.darken(&dir),
+            Write::Dark(dir) => self.leds.darken(&dir)?,
             Write::Level(level) => {
                 self.ec.set_power_led_level(level)?;
-                self.release().await
+                self.release().await?;
             }
         }
+        self.wanted.record(&Brightness::Level(level));
+        Ok(())
     }
 
     async fn set_brightness(&self, percent: u8) -> DeviceResult<()> {
         Self::check_brightness(percent)?;
         self.ec.set_power_led_percentage(percent)?;
-        self.release().await
+        self.release().await?;
+        self.wanted.record(&Brightness::Percent(percent));
+        Ok(())
     }
 }
 
@@ -150,8 +202,9 @@ mod tests {
 
     use frameguin_wire::{DeviceError, PowerLedControl, PowerLedLevel};
 
-    use super::PowerLed;
-    use crate::testing::{LedEc, Leds, Log, ready};
+    use super::{Brightness, KEY_BRIGHTNESS, PowerLed, Restorable};
+    use crate::mirror::Mirrors;
+    use crate::testing::{LedEc, Leds, Log, Memory, mirrors, ready};
 
     enum Refusing {
         Neither,
@@ -177,6 +230,10 @@ mod tests {
     }
 
     fn over(machine: &Machine) -> Bench {
+        over_mirrors(machine, &mirrors(&Arc::new(Memory::default()), None, None))
+    }
+
+    fn over_mirrors(machine: &Machine, mirrors: &Mirrors) -> Bench {
         let log = Log::default();
         let ec = Arc::new(LedEc {
             custom: machine.custom,
@@ -191,9 +248,40 @@ mod tests {
             ..Leds::default()
         });
         Bench {
-            led: PowerLed::new(ec, leds),
+            led: PowerLed::new(ec, leds, mirrors),
             log,
         }
+    }
+
+    #[test]
+    fn the_last_ask_is_written_back_on_a_restore_whichever_setter_made_it() {
+        let store = Arc::new(Memory::default());
+        let mirrors = mirrors(&store, None, None);
+        mirrors.restore().set_enabled(true);
+        let first = over_mirrors(&FULL, &mirrors);
+        ready(first.led.set_level(PowerLedLevel::Low)).unwrap();
+        assert_eq!(
+            mirrors.wanted::<Brightness>(KEY_BRIGHTNESS).current(),
+            Some(Brightness::Level(PowerLedLevel::Low))
+        );
+        ready(first.led.set_brightness(20)).unwrap();
+        let Bench { led, log } = over_mirrors(&FULL, &mirrors);
+        ready(led.restore()).unwrap();
+        assert_eq!(writes(&log), ["percent 20"]);
+        ready(led.set_level(PowerLedLevel::Off)).unwrap();
+        let Bench { led, log } = over_mirrors(&FULL, &mirrors);
+        ready(led.restore()).unwrap();
+        assert_eq!(writes(&log), ["darken"]);
+    }
+
+    #[test]
+    fn nothing_is_written_back_where_nothing_was_asked() {
+        let Bench { led, log } = over(&FULL);
+        ready(led.set_level(PowerLedLevel::Low)).unwrap();
+        let Bench { led, log: fresh } = over(&FULL);
+        ready(led.restore()).unwrap();
+        assert!(writes(&fresh).is_empty());
+        assert_eq!(writes(&log), ["level Low"]);
     }
 
     fn writes(log: &Log) -> Vec<String> {

@@ -32,6 +32,12 @@ pub trait Frameguin {
     /// run.
     async fn get_devices(&self) -> zbus::Result<Vec<Identity>>;
     async fn get_build(&self) -> zbus::Result<(String, String)>;
+    /// Whether the daemon writes back what each control was last set to
+    /// after a boot or a resume.
+    async fn get_restore(&self) -> zbus::Result<bool>;
+    async fn set_restore(&self, enabled: bool) -> zbus::Result<()>;
+    /// Writes them back now; nothing while the switch is off.
+    async fn restore(&self) -> zbus::Result<()>;
 }
 
 /// The haptic touchpad, on its own interface at the same path. Absent from

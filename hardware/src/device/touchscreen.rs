@@ -6,6 +6,7 @@ use frameguin_wire::{DeviceResult, TouchscreenControl};
 use crate::lifetime::Lifetime;
 use crate::mirror::{Mirror, Mirrors};
 use crate::part::Firmware;
+use crate::restore::{Restorable, Wanted};
 use crate::touchscreen::{self, TouchSwitch};
 
 const KEY_OFF: &str = "touchscreen_off";
@@ -14,6 +15,9 @@ pub struct Touchscreen {
     route: Box<dyn TouchSwitch>,
     /// That the panel was switched off.
     off: Mirror<bool>,
+    /// That it was asked off, which a resume or a lid opening undoes on the
+    /// pad route without anyone asking.
+    wanted_off: Wanted<bool>,
 }
 
 impl Touchscreen {
@@ -35,6 +39,7 @@ impl Touchscreen {
         Self {
             route,
             off: mirrors.value(KEY_OFF, Lifetime::HostAwake),
+            wanted_off: mirrors.wanted(KEY_OFF),
         }
     }
 
@@ -42,6 +47,17 @@ impl Touchscreen {
     /// account.
     pub fn reading(&self) -> DeviceResult<Option<bool>> {
         self.route.reading()
+    }
+}
+
+impl Restorable for Touchscreen {
+    /// On is what every event that moves the panel leaves it, so only off is
+    /// ever written back.
+    async fn restore(&self) -> DeviceResult<()> {
+        if self.wanted_off.current() == Some(true) {
+            self.set_enabled(false).await?;
+        }
+        Ok(())
     }
 }
 
@@ -53,23 +69,23 @@ impl TouchscreenControl for Touchscreen {
         Ok(self.off.current().is_none())
     }
 
-    /// Nothing re-applies the switch afterwards: the panel is put back on
-    /// behind whoever asked for it off, by a resume or a lid opening on one
-    /// route and by whatever the controller does not keep on the other, and
-    /// re-asserting it on those events would be enforcing a policy nobody
-    /// asked for.
     async fn set_enabled(&self, enabled: bool) -> DeviceResult<()> {
-        // A route with a reading of its own gets no record: nothing would
+        let write = || self.route.set_enabled(enabled);
+        // A route with a reading of its own gets no mirror: nothing would
         // read it.
         if self.route.reading()?.is_some() {
-            return self.route.set_enabled(enabled);
-        }
-        let write = || self.route.set_enabled(enabled);
-        if enabled {
-            self.off.clear(write)
+            write()?;
+        } else if enabled {
+            self.off.clear(write)?;
         } else {
-            self.off.record(true, write)
+            self.off.record(true, write)?;
         }
+        if enabled {
+            self.wanted_off.forget();
+        } else {
+            self.wanted_off.record(&true);
+        }
+        Ok(())
     }
 }
 
@@ -79,13 +95,12 @@ mod tests {
 
     use frameguin_wire::TouchscreenControl;
 
-    use super::{KEY_OFF, Touchscreen};
+    use super::{KEY_OFF, Restorable, Touchscreen};
     use crate::mirror::evidence_key;
     use crate::state::Store;
-    use crate::testing::{Memory, Route, mirrors, ready};
-
-    const BOOT: &str = "00000000-0000-4000-8000-000000000001";
-    const EARLIER: &str = "00000000-0000-4000-8000-000000000002";
+    use crate::testing::{
+        HOST_BOOT as BOOT, HOST_EARLIER as EARLIER, Memory, Route, mirrors, ready,
+    };
 
     fn pad() -> Route {
         Route::default()
@@ -169,6 +184,28 @@ mod tests {
         ready(over(panel(), &store).set_enabled(false)).unwrap();
         let touchscreen = over(pad(), &store);
         assert_eq!(ready(touchscreen.enabled()), Ok(true));
+    }
+
+    #[test]
+    fn off_is_written_back_on_a_restore_and_on_never_is() {
+        let store = Arc::new(Memory::default());
+        let mirrors = mirrors(&store, None, Some(BOOT));
+        mirrors.restore().set_enabled(true);
+        ready(Touchscreen::new(Box::new(pad()), &mirrors).set_enabled(false)).unwrap();
+        let touchscreen = over(pad(), &store);
+        assert_eq!(touchscreen.reading(), Ok(Some(true)));
+        ready(touchscreen.restore()).unwrap();
+        assert_eq!(touchscreen.reading(), Ok(Some(false)));
+        ready(touchscreen.set_enabled(true)).unwrap();
+        let untouched = over(
+            Route {
+                refusing: true,
+                ..pad()
+            },
+            &store,
+        );
+        ready(untouched.restore()).unwrap();
+        assert_eq!(untouched.reading(), Ok(Some(true)));
     }
 
     /// A route with an account of its own is one the mirror never records,

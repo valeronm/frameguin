@@ -11,8 +11,8 @@ use frameguin_wire::{
 };
 
 pub(crate) struct Bus {
-    /// The root interface, for what belongs to no device: the inventory and
-    /// the daemon's build.
+    /// The root interface, for what belongs to no device: the inventory,
+    /// the daemon's build, and the restore switch.
     pub(crate) frameguin: FrameguinProxy<'static>,
     devices: Proxies,
 }

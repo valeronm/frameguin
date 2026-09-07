@@ -264,6 +264,26 @@ impl PowerLedLevel {
     pub const fn is_settable(self) -> bool {
         !matches!(self, Self::Custom)
     }
+
+    /// The level's name, spelled as it travels on the wire.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::High => "high",
+            Self::Medium => "medium",
+            Self::Low => "low",
+            Self::UltraLow => "ultra-low",
+            Self::Off => "off",
+            Self::Custom => "custom",
+        }
+    }
+
+    /// The inverse of [`Self::name`].
+    #[must_use]
+    pub fn from_name(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|level| level.name() == name)
+    }
 }
 
 /// What is on the other end of a USB-C port, as the controller's Type-C

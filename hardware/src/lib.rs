@@ -20,9 +20,12 @@
 //! the pack's own registers and what their words mean, `pd` what the EC's
 //! cached PD controller version means, [`edid`] what a panel's own block
 //! says it is,
-//! [`state`] the store for what cannot be read back, [`lifetime`] what
+//! [`state`] the store for what cannot be read back and what was asked
+//! for, [`lifetime`] what
 //! holds a mirrored value and how to tell it still does, [`mirror`] the
-//! mirror a device reads and writes such a value through, [`part`] what a
+//! mirror a device reads and writes such a value through, [`restore`] what
+//! a control was asked to be and the switch that has it written back after
+//! firmware has moved it, [`part`] what a
 //! device is as a part of the machine, and [`device`] the devices
 //! themselves.
 
@@ -45,6 +48,7 @@ pub mod mirror;
 pub mod panel;
 pub mod part;
 pub(crate) mod pd;
+pub mod restore;
 pub(crate) mod sbs;
 pub mod state;
 pub mod touchpad;

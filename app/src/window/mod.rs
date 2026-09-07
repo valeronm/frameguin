@@ -47,6 +47,9 @@ pub(crate) struct Ui {
     power_led: power_led::Group,
     touchpad: touchpad::Group,
     touchscreen: touchscreen::Group,
+    /// The daemon's restore switch, which is no control: it belongs to no
+    /// device and is set through the root interface.
+    restore: adw::SwitchRow,
     tray: Option<ksni::blocking::Handle<TrayIcon>>,
     daemon: Rc<Daemon>,
     /// Where the status row's reading comes from, shared with the battery
@@ -124,7 +127,15 @@ impl Ui {
         if let Some(touchscreen) = &controls.touchscreen {
             self.touchscreen.load(self, touchscreen, &mut values).await;
         }
+        self.load_restore().await;
         self.sync_tray(values);
+    }
+
+    async fn load_restore(&self) {
+        match async { self.daemon.bus().await?.frameguin.get_restore().await }.await {
+            Ok(enabled) => widgets::show_switch(self, &self.restore, enabled),
+            Err(e) => self.toast_error(&format!("Reading “{}”", self.restore.title()), e),
+        }
     }
 
     /// A control's group connects only where the control is, its handlers
@@ -142,7 +153,28 @@ impl Ui {
         if let Some(touchscreen) = &controls.touchscreen {
             self.touchscreen.connect(self, touchscreen);
         }
+        // A refused write leaves the switch claiming a setting will be there
+        // after a restart, and its prior value is the negation.
+        widgets::connect_switch(
+            self,
+            &self.daemon,
+            &self.restore,
+            |ui, daemon, enabled| async move {
+                let written =
+                    async { daemon.bus().await?.frameguin.set_restore(enabled).await }.await;
+                if let Err(e) = written {
+                    ui.toast_error(&setting(&ui.restore), e);
+                    widgets::show_switch(&ui, &ui.restore, !enabled);
+                }
+            },
+        );
     }
+}
+
+/// Read off the row rather than spelled again, because a message naming a
+/// row by a title it no longer has is worse than a vaguer one.
+fn setting(row: &adw::SwitchRow) -> String {
+    format!("Setting “{}”", row.title())
 }
 
 /// Where a write reports back to. A tray preset can arrive in a session whose
@@ -212,6 +244,12 @@ pub(crate) fn build_window(
         .build();
     autostart_row.set_active(autostart::entry_path().exists());
     application.add(&autostart_row);
+    let restore = adw::SwitchRow::builder()
+        .title("Restore settings")
+        .subtitle("Put back what was set here after a restart or a resume")
+        .sensitive(false)
+        .build();
+    application.add(&restore);
     page.add(&application);
 
     // Detected hardware as the header subtitle: one line, no key/value rows.
@@ -246,7 +284,7 @@ pub(crate) fn build_window(
         .default_width(420)
         // Tall enough for every control group at the default font scale;
         // re-measure when the rows change.
-        .default_height(710)
+        .default_height(770)
         .content(&toasts)
         .icon_name(APP_ID)
         .build();
@@ -262,6 +300,7 @@ pub(crate) fn build_window(
         power_led,
         touchpad,
         touchscreen,
+        restore,
         tray,
         daemon,
         feed,
@@ -270,10 +309,7 @@ pub(crate) fn build_window(
     let autostart_ui = ui.clone();
     autostart_row.connect_active_notify(move |row| {
         if let Err(e) = autostart::set(row.is_active()) {
-            // Quoted off the row rather than spelled again: a message naming
-            // a row by a title the row no longer has is worse than a vaguer
-            // one.
-            autostart_ui.toast_error(&format!("Setting “{}”", row.title()), e);
+            autostart_ui.toast_error(&setting(row), e);
         }
     });
 

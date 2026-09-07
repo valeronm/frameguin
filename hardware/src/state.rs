@@ -1,25 +1,58 @@
-//! The store for what cannot be read back.
+//! The store for what cannot be read back, and for what was asked for.
 //!
 //! The haptic touchpad ACKs `GET_FEATURE` with zeros, the charge current
 //! limit has no readback in any command version, and the touch panel's own
 //! enable command asks for no reply, so what was written is only knowable
 //! from a mirror. One file, keyed: a mirror is two lines, `<key>` for the
-//! value and `<key>_evidence` for what proves the holder still has it, read
-//! and written through [`Store`], so a key another version wrote is carried
-//! across a save rather than dropped, and a mirror this version does not
-//! know costs nothing but the line.
+//! value and `<key>_evidence` for what proves the holder still has it, a
+//! wanted value one line under its own prefix, read and written through
+//! [`Store`], so a key another version wrote is carried across a save
+//! rather than dropped, and a key this version does not know costs nothing
+//! but the line.
 
 use std::collections::BTreeMap;
+use std::num::NonZeroU32;
 use std::sync::Mutex;
 
 const STATE_FILE: &str = "/var/lib/frameguin/state";
 
-/// Where a device keeps what it cannot read back. A `None` value removes the
-/// key, for a mirror whose presence is the whole of its claim.
+/// Where a device keeps what it cannot read back and what it was asked for.
+/// A `None` value removes the key, for a mirror whose presence is the whole
+/// of its claim.
 pub trait Store: Send + Sync {
     fn get(&self, key: &str) -> Option<String>;
     fn set(&self, key: &str, value: Option<String>);
+    /// The wanted values are dropped as a set, so a device absent this run
+    /// loses its record with the rest.
+    fn drop_prefix(&self, prefix: &str);
 }
+
+/// A value the store can keep and name again. What the store cannot name
+/// is refused here, so nothing holds it.
+pub trait Stored: Clone + Send {
+    fn from_stored(value: &str) -> Option<Self>;
+    fn stored(&self) -> String;
+
+    fn load(store: &dyn Store, key: &str) -> Option<Self> {
+        store.get(key).and_then(|v| Self::from_stored(&v))
+    }
+}
+
+macro_rules! stored_by_parsing {
+    ($($t:ty),*) => {$(
+        impl Stored for $t {
+            fn from_stored(value: &str) -> Option<Self> {
+                value.parse().ok()
+            }
+
+            fn stored(&self) -> String {
+                self.to_string()
+            }
+        }
+    )*};
+}
+
+stored_by_parsing!(NonZeroU32, bool, u8);
 
 /// The state file, held whole and written whole on every change.
 pub struct StateFile {
@@ -70,6 +103,13 @@ pub(crate) fn apply(
     }
 }
 
+/// Answers whether the map moved, as [`apply`] does.
+pub(crate) fn drop_prefix(entries: &mut BTreeMap<String, String>, prefix: &str) -> bool {
+    let before = entries.len();
+    entries.retain(|key, _| !key.starts_with(prefix));
+    entries.len() != before
+}
+
 fn render(entries: &BTreeMap<String, String>) -> String {
     use std::fmt::Write;
     entries.iter().fold(String::new(), |mut out, (key, value)| {
@@ -83,11 +123,21 @@ impl Store for StateFile {
         self.entries.lock().unwrap().get(key).cloned()
     }
 
-    // The directory is provisioned by StateDirectory= in the systemd unit.
     fn set(&self, key: &str, value: Option<String>) {
+        self.change(|entries| apply(entries, key, value));
+    }
+
+    fn drop_prefix(&self, prefix: &str) {
+        self.change(|entries| drop_prefix(entries, prefix));
+    }
+}
+
+impl StateFile {
+    // The directory is provisioned by StateDirectory= in the systemd unit.
+    fn change(&self, change: impl FnOnce(&mut BTreeMap<String, String>) -> bool) {
         let content = {
             let mut entries = self.entries.lock().unwrap();
-            if !apply(&mut entries, key, value) {
+            if !change(&mut entries) {
                 return;
             }
             render(&entries)

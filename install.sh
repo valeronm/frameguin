@@ -48,6 +48,7 @@ files=(
     # /etc, not /usr/lib: this is a local-admin install, and a packaged one
     # must not find a competing unit shadowing its own.
     644 "$data/frameguin-daemon.service"       "/etc/systemd/system/frameguin-daemon.service"
+    644 "$data/frameguin-restore.service"      "/etc/systemd/system/frameguin-restore.service"
     644 "$data/$app_id.policy"                 "/usr/share/polkit-1/actions/$app_id.policy"
     644 "$data/$app_id.desktop"                "/usr/share/applications/$app_id.desktop"
     644 "$data/$app_id.metainfo.xml"           "/usr/share/metainfo/$app_id.metainfo.xml"
@@ -64,6 +65,7 @@ if [ "${1:-}" = "--uninstall" ]; then
     # linger as a broken ghost after its binary and daemon are removed.
     pkill -x frameguin 2>/dev/null || true
     systemctl stop frameguin-daemon.service 2>/dev/null || true
+    systemctl disable frameguin-restore.service 2>/dev/null || true
     # Removing this script while it runs is safe: bash reads through an open
     # descriptor, which unlink does not invalidate.
     for ((i = 0; i < ${#files[@]}; i += 3)); do
@@ -159,6 +161,7 @@ done
 gtk-update-icon-cache -f /usr/share/icons/hicolor 2>/dev/null || true
 
 systemctl daemon-reload
+systemctl enable frameguin-restore.service
 # Pick up the new bus policy without restarting the bus.
 systemctl reload dbus 2>/dev/null || busctl call org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus ReloadConfig || true
 # Restart the daemon if a previous version is running; activation restarts it on demand.

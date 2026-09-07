@@ -24,9 +24,12 @@ use frameguin_hardware::ec::Ec;
 use frameguin_hardware::lifetime::{self, Holders};
 use frameguin_hardware::mirror::Mirrors;
 use frameguin_hardware::part::{Identity, Part};
+use frameguin_hardware::restore::Restore;
 use frameguin_hardware::state::{StateFile, Store};
 use frameguin_wire as wire;
-use zbus::{Connection, interface};
+use zbus::message::Header;
+use zbus::object_server::ObjectServer;
+use zbus::{Connection, fdo, interface};
 use zbus_polkit::policykit1::AuthorityProxy;
 
 use crate::interface::Devices;
@@ -38,6 +41,7 @@ struct Daemon {
     service: Arc<Service>,
     /// Every part detection found at startup, which is the one time it looks.
     parts: Vec<Identity>,
+    restore: Restore,
 }
 
 #[interface(name = "io.github.valeronm.Frameguin1")]
@@ -47,6 +51,38 @@ impl Daemon {
     fn get_devices(&self) -> Vec<Identity> {
         self.service.touch();
         self.parts.clone()
+    }
+
+    fn get_restore(&self) -> bool {
+        self.service.touch();
+        self.restore.enabled()
+    }
+
+    async fn set_restore(
+        &self,
+        enabled: bool,
+        #[zbus(header)] header: Header<'_>,
+    ) -> fdo::Result<()> {
+        self.service.touch();
+        if self.restore.enabled() == enabled {
+            return Ok(());
+        }
+        self.service.authorize(&header).await?;
+        self.restore.set_enabled(enabled);
+        Ok(())
+    }
+
+    async fn restore(
+        &self,
+        #[zbus(header)] header: Header<'_>,
+        #[zbus(object_server)] server: &ObjectServer,
+    ) -> fdo::Result<()> {
+        self.service.touch();
+        if !self.restore.enabled() {
+            return Ok(());
+        }
+        self.service.authorize(&header).await?;
+        Ok(interface::restore_all(server).await?)
     }
 
     /// The daemon's version and the path it was started from. The path is the
@@ -80,7 +116,7 @@ fn main() -> zbus::Result<()> {
     let (touchscreen, controller_firmware) = hid
         .as_ref()
         .map_or((None, None), |hid| Touchscreen::detect(hid, &mirrors));
-    let power_led = ec.as_ref().and_then(PowerLed::detect);
+    let power_led = ec.as_ref().and_then(|ec| PowerLed::detect(ec, &mirrors));
     let battery = ec.as_ref().and_then(|ec| Battery::detect(ec, &mirrors));
     let mainboard = Mainboard::detect(ec.as_deref());
     let memory = Module::detect();
@@ -117,6 +153,7 @@ fn main() -> zbus::Result<()> {
         let daemon = Daemon {
             service: service.clone(),
             parts,
+            restore: mirrors.restore(),
         };
         interface::serve_all(conn.object_server(), daemon, devices).await?;
         // Claim the name only once the objects are served, so an activating

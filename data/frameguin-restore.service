@@ -1,0 +1,15 @@
+[Unit]
+Description=Frameguin settings restore after boot and resume
+Documentation=https://github.com/valeronm/frameguin
+# Wanted by the sleep targets and ordered after them: the target is reached
+# once its sleep service returns, which is on the way back up.
+After=suspend.target hibernate.target hybrid-sleep.target suspend-then-hibernate.target
+
+[Service]
+Type=oneshot
+# Asks the daemon rather than running one: the bus starts it where none is
+# up, and where one is up it is the one that has to be told.
+ExecStart=busctl call io.github.valeronm.Frameguin /io/github/valeronm/Frameguin io.github.valeronm.Frameguin1 Restore
+
+[Install]
+WantedBy=multi-user.target suspend.target hibernate.target hybrid-sleep.target suspend-then-hibernate.target

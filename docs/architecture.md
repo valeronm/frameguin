@@ -116,7 +116,9 @@ snapshot's movement under a refused write on the app's.
   device is there and which of its operations work (the probe rule, beside
   the operations it vouches for), keeping the identity detection saw; the
   mirror for what cannot be read back, cut from `Mirrors` under the
-  device's own key and the lifetime of whatever holds the value;
+  device's own key and the lifetime of whatever holds the value; the
+  `Wanted` beside it for what firmware moves back, recorded by the setter
+  and written back by its `Restorable` impl;
   `impl <Name>Control` with the argument checks inside it; `impl Part`. The
   device holds its transport as a `dyn` role, and `Mirror`s whose store is a
   `dyn` role beneath them — so it is constructible without hardware — and
@@ -189,7 +191,10 @@ are asked differently.
 A **control** is asked through its own trait — `TouchpadControl` and the
 rest — because a caller of a control has to know which device it is talking
 to. There is no common trait over controls, and none is wanted: nothing
-loops over controls without knowing which one it holds.
+loops over controls without knowing which one it holds. The restore is the
+one loop that does not need to — every device with a wanted value writes it
+back the same way — and `hardware::restore::Restorable` is its trait,
+implemented by those devices alone.
 
 A **part** is asked what it is through one common trait,
 `hardware::part::Part`, answering an `Identity` — kind, vendor, model, part
@@ -230,7 +235,8 @@ which is what puts it on the bus and in front of the proxies in
 `interface/tests.rs`; the client control in `model`; the group; the tray
 item. What another device shares is a line in a struct or a fan-out — the
 `Devices`, `Proxies` and `Controls` fields, the window's `gate`, `watch`,
-`load_values` and `connect_handlers` arms — never a body. Adding a part with
+`load_values` and `connect_handlers` arms, the daemon's `restore_all` line
+for a device with a wanted value — never a body. Adding a part with
 no control is one device module
 implementing `Part`, and its line where the daemon collects the inventory
 at startup.
@@ -255,5 +261,6 @@ A device detects itself at both ends — in `hardware` by its own probe, in
 device's own `NotSupported` cannot read as absence. There is no capability
 list: presence is the interface being on the bus, and the features a device
 offers beyond presence travel on its own interface. The root interface
-carries only what belongs to no device — the inventory and the daemon's
-build.
+carries only what belongs to no device — the inventory, the daemon's
+build, and the restore switch with the `Restore` call that
+`frameguin-restore.service` makes after a boot and a resume.

@@ -173,9 +173,8 @@ fn clock_ms(clock: libc::clockid_t) -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::{EcBoot, Evidence, Holders, HostWaking, Lifetime, SUSPEND_FLOOR_MS};
+    use crate::testing::{HOST_BOOT as BOOT, HOST_EARLIER as EARLIER};
 
-    const BOOT: &str = "00000000-0000-4000-8000-000000000001";
-    const EARLIER: &str = "00000000-0000-4000-8000-000000000002";
     const HOUR: u64 = 3_600;
     const DAY: u64 = 24 * HOUR;
 

@@ -14,8 +14,10 @@ use crate::ec::{Charger, Ec, Pack};
 use crate::lifetime::Lifetime;
 use crate::mirror::{Mirror, Mirrors};
 use crate::part::{Identity, Part};
+use crate::restore::{Restorable, Wanted};
 
 const KEY_CURRENT_LIMIT: &str = "charge_current_limit";
+const KEY_CHARGE_LIMIT: &str = "charge_limit";
 
 pub struct Battery {
     pack: Arc<dyn Pack>,
@@ -25,6 +27,8 @@ pub struct Battery {
     /// The cap last written, and nothing while there is none; the EC keeps
     /// it in RAM.
     current_limit: Mirror<NonZeroU32>,
+    wanted_charge_limit: Wanted<u8>,
+    wanted_current_limit: Wanted<NonZeroU32>,
 }
 
 impl Battery {
@@ -63,6 +67,8 @@ impl Battery {
             identity,
             features,
             current_limit: mirrors.value(KEY_CURRENT_LIMIT, Lifetime::Ec),
+            wanted_charge_limit: mirrors.wanted(KEY_CHARGE_LIMIT),
+            wanted_current_limit: mirrors.wanted(KEY_CURRENT_LIMIT),
         }
     }
 
@@ -98,6 +104,21 @@ impl Part for Battery {
     }
 }
 
+impl Restorable for Battery {
+    /// A write that fails leaves the other still made.
+    async fn restore(&self) -> DeviceResult<()> {
+        let ceiling = match self.wanted_charge_limit.current() {
+            Some(percent) => self.set_charge_limit(percent).await.map(drop),
+            None => Ok(()),
+        };
+        let cap = match self.wanted_current_limit.current() {
+            Some(cap) => self.set_charge_current_limit(cap.get()).await.map(drop),
+            None => Ok(()),
+        };
+        ceiling.and(cap)
+    }
+}
+
 impl BatteryControl for Battery {
     /// Spelled apart from the condition below, which fails for a different
     /// reason and says so: a passthrough that stays silent is not an absent
@@ -125,6 +146,7 @@ impl BatteryControl for Battery {
     async fn set_charge_limit(&self, percent: u8) -> DeviceResult<bool> {
         Self::check_charge_limit(percent)?;
         self.charger.set_charge_limit(percent)?;
+        self.wanted_charge_limit.record(&percent);
         Ok(true)
     }
 
@@ -138,9 +160,13 @@ impl BatteryControl for Battery {
     async fn set_charge_current_limit(&self, milliamps: u32) -> DeviceResult<bool> {
         Self::check_charge_current_limit(milliamps)?;
         let write = || self.charger.set_charge_current_limit(milliamps);
-        match NonZeroU32::new(milliamps).filter(|cap| cap.get() != NO_CHARGE_CURRENT_LIMIT) {
-            Some(cap) => self.current_limit.record(cap, write)?,
-            None => self.current_limit.clear(write)?,
+        let cap = NonZeroU32::new(milliamps).filter(|cap| cap.get() != NO_CHARGE_CURRENT_LIMIT);
+        if let Some(cap) = cap {
+            self.current_limit.record(cap, write)?;
+            self.wanted_current_limit.record(&cap);
+        } else {
+            self.current_limit.clear(write)?;
+            self.wanted_current_limit.forget();
         }
         Ok(true)
     }
@@ -152,10 +178,10 @@ mod tests {
 
     use frameguin_wire::{BatteryControl, BatteryFeature, DeviceError, NO_CHARGE_CURRENT_LIMIT};
 
-    use super::{Battery, KEY_CURRENT_LIMIT};
+    use super::{Battery, KEY_CURRENT_LIMIT, Restorable};
     use crate::ec::Pack;
     use crate::lifetime::EcBoot;
-    use crate::mirror::evidence_key;
+    use crate::mirror::{Mirrors, evidence_key};
     use crate::state::Store;
     use crate::testing::{EC_BOOT, EC_RESTARTED, EcCharger, Gauge, Memory, block, mirrors, ready};
 
@@ -184,6 +210,16 @@ mod tests {
     }
 
     fn over(machine: &Machine, store: &Arc<Memory>) -> Bench {
+        over_mirrors(machine, &mirrors(store, machine.ec_boot, None))
+    }
+
+    fn restoring(machine: &Machine, store: &Arc<Memory>) -> Bench {
+        let mirrors = mirrors(store, machine.ec_boot, None);
+        mirrors.restore().set_enabled(true);
+        over_mirrors(machine, &mirrors)
+    }
+
+    fn over_mirrors(machine: &Machine, mirrors: &Mirrors) -> Bench {
         let pack = Arc::new(Gauge {
             answering: machine.condition,
         });
@@ -193,9 +229,8 @@ mod tests {
             ..EcCharger::default()
         });
         let identity = pack.identity().unwrap();
-        let mirrors = mirrors(store, machine.ec_boot, None);
         Bench {
-            battery: Battery::new(pack, ec.clone(), &mirrors, identity),
+            battery: Battery::new(pack, ec.clone(), mirrors, identity),
             ec,
         }
     }
@@ -357,6 +392,37 @@ mod tests {
             ready(battery.charge_current_limit()),
             Ok(NO_CHARGE_CURRENT_LIMIT)
         );
+    }
+
+    #[test]
+    fn the_limits_asked_for_are_written_back_on_a_restore() {
+        let store = Arc::new(Memory::default());
+        let first = restoring(&FULL, &store);
+        ready(first.battery.set_charge_limit(80)).unwrap();
+        ready(first.battery.set_charge_current_limit(1_500)).unwrap();
+        let Bench { battery, ec } = over(&RESTARTED, &store);
+        *ec.limit.lock().unwrap() = 100;
+        ready(battery.restore()).unwrap();
+        assert_eq!(*ec.limit.lock().unwrap(), 80);
+        assert_eq!(*ec.written.lock().unwrap(), [1_500]);
+        assert_eq!(ready(battery.charge_current_limit()), Ok(1_500));
+    }
+
+    #[test]
+    fn a_lifted_cap_is_not_asked_for_again() {
+        let store = Arc::new(Memory::default());
+        let first = restoring(&FULL, &store);
+        ready(first.battery.set_charge_current_limit(1_500)).unwrap();
+        ready(
+            first
+                .battery
+                .set_charge_current_limit(NO_CHARGE_CURRENT_LIMIT),
+        )
+        .unwrap();
+        let Bench { battery, ec } = over(&RESTARTED, &store);
+        ready(battery.restore()).unwrap();
+        assert!(ec.written.lock().unwrap().is_empty());
+        assert_eq!(*ec.limit.lock().unwrap(), 100);
     }
 
     #[test]

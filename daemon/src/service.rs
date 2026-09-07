@@ -50,14 +50,18 @@ impl Service {
 
     /// Call only once the arguments have been validated: this can raise a
     /// password prompt, and a caller that authorizes first makes the user
-    /// answer one for a request that can only end in `InvalidArgs`.
+    /// answer one for a request that can only end in `InvalidArgs`. The idle
+    /// clock is stamped on both sides of the prompt, so a body is free to
+    /// hold the device across it.
     pub(crate) async fn authorize(&self, header: &Header<'_>) -> fdo::Result<()> {
+        self.touch();
         let authorized = match &self.authority {
-            Authority::Polkit(authority) => polkit_authorizes(authority, header).await?,
+            Authority::Polkit(authority) => polkit_authorizes(authority, header).await,
             #[cfg(test)]
-            Authority::Answering(authorized) => *authorized,
+            Authority::Answering(authorized) => Ok(*authorized),
         };
-        if authorized {
+        self.touch();
+        if authorized? {
             Ok(())
         } else {
             Err(fdo::Error::AccessDenied("not authorized".into()))

@@ -119,6 +119,15 @@ pub(super) fn connect_combo<C: 'static, T, Fut: Future<Output = ()> + 'static>(
     });
 }
 
+/// Under the sync guard so the fill does not echo back as a write, and made
+/// usable here because a row is only ever filled from a read that succeeded.
+pub(super) fn show_switch(ui: &Ui, switch: &adw::SwitchRow, active: bool) {
+    ui.sync(|| {
+        switch.set_active(active);
+        switch.set_sensitive(true);
+    });
+}
+
 /// A switch a sync moved must not be written back, and a switch wired here
 /// cannot forget that.
 pub(super) fn connect_switch<C: 'static, Fut: Future<Output = ()> + 'static>(

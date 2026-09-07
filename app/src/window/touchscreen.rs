@@ -8,7 +8,7 @@ use frameguin_model::control::touchscreen;
 
 use crate::bus::Bus;
 use crate::tray::TrayValues;
-use crate::window::widgets::connect_switch;
+use crate::window::widgets::{connect_switch, show_switch};
 use crate::window::{Sink, Ui};
 
 pub(crate) type Touchscreen = touchscreen::Touchscreen<Bus>;
@@ -39,20 +39,11 @@ impl Group {
     pub(crate) async fn load(&self, ui: &Ui, control: &Touchscreen, values: &mut TrayValues) {
         match control.read().await {
             Ok(enabled) => {
-                self.show(ui, enabled);
+                show_switch(ui, &self.switch, enabled);
                 values.touchscreen = Some(enabled);
             }
             Err(e) => ui.toast_error("Reading the touchscreen", e),
         }
-    }
-
-    /// Moves the switch without its handler writing it back, and makes it
-    /// usable — a row is only ever filled from a read that succeeded.
-    fn show(&self, ui: &Ui, enabled: bool) {
-        ui.sync(|| {
-            self.switch.set_active(enabled);
-            self.switch.set_sensitive(true);
-        });
     }
 
     pub(crate) fn connect(&self, ui: &Rc<Ui>, control: &Rc<Touchscreen>) {
@@ -91,6 +82,6 @@ pub(crate) async fn apply(sink: Sink<'_>, control: &Touchscreen, enabled: bool) 
         }
     };
     if let Sink::Window(ui) = sink {
-        ui.touchscreen.show(ui, standing);
+        show_switch(ui, &ui.touchscreen.switch, standing);
     }
 }

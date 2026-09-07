@@ -89,6 +89,15 @@ fn power_led_level_names_are_kebab_case() {
 }
 
 #[test]
+fn a_power_led_level_is_named_as_it_travels() {
+    for level in PowerLedLevel::ALL {
+        assert_eq!(level.name(), wire_string(level));
+        assert_eq!(PowerLedLevel::from_name(level.name()), Some(level));
+    }
+    assert_eq!(PowerLedLevel::from_name("bright"), None);
+}
+
+#[test]
 fn click_force_names_are_kebab_case() {
     assert_eq!(wire_string(ClickForce::Low), "low");
     assert_eq!(wire_string(ClickForce::Medium), "medium");

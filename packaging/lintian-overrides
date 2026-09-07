@@ -1,0 +1,3 @@
+# The tag knows only the boot targets; the sleep targets are the point of
+# the unit, which says why.
+frameguin: systemd-service-file-refers-to-unusual-wantedby-target * [usr/lib/systemd/system/frameguin-restore.service]

@@ -24,14 +24,16 @@ Computer Inc. Licensed under the [MIT License](LICENSE).
 - **Display** — switching the touchscreen off.
 
 A charge limit set here lasts until reboot: UEFI setup re-sends its own
-stored value at every POST, so the standing limit lives in BIOS setup.
+stored value at every POST, so the standing limit lives in BIOS setup. The
+same goes for the power button LED's level, and a touchscreen switched off
+comes back when the lid is opened, after a suspend, and at the next restart —
+the panel's enable is a line the firmware re-asserts rather than a setting
+anything stores. **Restore settings** has the daemon put each of them back
+after a restart or a resume, to whatever was last set here; switching it off
+forgets them, and the next restart is the firmware's again.
 
 The power button LED and the fingerprint reader share one button. What the
 app reaches is the LED's brightness; nothing here touches the reader.
-
-A touchscreen switched off comes back when the lid is opened, after a suspend,
-and at the next restart — the panel's enable is a line the firmware re-asserts
-rather than a setting anything stores.
 
 Closing the window hides it to the tray; **Quit Frameguin** in the tray menu
 is the real exit. **Start at login** brings up the tray icon only.
@@ -135,7 +137,8 @@ sudo apt purge frameguin
 ```
 
 `apt remove` keeps `/var/lib/frameguin`, the daemon's record of the settings
-the hardware cannot report back; only `apt purge` drops it.
+the hardware cannot report back and of the ones it restores; only `apt
+purge` drops it.
 
 Installed from the tarball or from source:
 

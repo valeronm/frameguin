@@ -195,9 +195,12 @@ it and the non-obvious constraints.
   holds a mirrored value and whether it still holds it, where `dmi.rs`
   answers for the machine, which is the difference between a fact a reboot or
   a sleep changes and one that outlives both, `state.rs`
-  the keyed store for what cannot be read back, `mirror.rs` the mirror a
+  the keyed store for what cannot be read back and what was asked for, and
+  the spelling a value takes in it, `mirror.rs` the mirror a
   device reads and writes such a value through, declared under its own key
-  and the `Lifetime` of whatever holds it, `testing.rs` the stub per role
+  and the `Lifetime` of whatever holds it, `restore.rs` the `Wanted` beside
+  a mirror for what firmware moves back and the switch that has it written
+  again, `testing.rs` the stub per role
   and the store in memory, which the daemon's tests build the same devices
   from under the `testing` feature. A module's own doc says what it is
   for; the reasoning is here. `ec.rs` is every EC call: `Ec` is the only
@@ -389,6 +392,24 @@ asserted and its reason a file away.
   record of its lifetime — and what a mirror holds after its holder's life
   ended is a state both know, the current cap lifted, the panel reporting,
   so no device keeps a rule of its own for it.
+- A wanted value is the other record a setter keeps, and it is not a mirror:
+  a mirror claims what the hardware holds and is withdrawn with its
+  holder's life, a `Wanted` claims what was asked for and is withdrawn only
+  by the next ask or by the restore switch going off. The writes it is
+  written back through are the ordinary setters, so the mirror moves with
+  it. The one trigger is `frameguin-restore.service`, wanted by
+  `multi-user.target` and the sleep targets and calling `Restore` on the
+  root interface — a call rather than a restart, so a daemon still up from
+  before the sleep is the one told, and one activated by the call restores
+  in the same method. The daemon never restores on its own start: it is
+  activated by any client and exits idle, so a restore on every start would
+  switch the touchscreen off hours into a run because a lid opening had
+  switched it on, and the unit already covers the boot — a session starts
+  after `multi-user.target`, which waits on the oneshot. Re-asserting a
+  value in force costs nothing, so the call needs no record of having run.
+  Recording happens only while the switch is on and switching it off drops
+  every wanted value, so the store holds a wanted value exactly while the
+  switch is on and turning it on restores nothing chosen before that.
 - What the pack is asked directly falls into two groups, and the split is why
   one is a feature the battery offers and the other is not. The temperature,
   cell voltages and alarms have no fallback, so they are one operation behind
@@ -418,9 +439,9 @@ asserted and its reason a file away.
   in `rustfmt.toml` rather than inferred from each crate's own edition — so
   an edition bump cannot reformat the tree as a side effect. Run `cargo fmt`
   before pushing; nothing local enforces it.
-- A change that moves the window or the tray menu re-shoots `screenshot.png`
-  or `screenshot-tray.png` in the same commit: the metainfo serves both from
-  `main`, so between the two commits `main` is wrong.
+- `screenshot.png` and `screenshot-tray.png` are re-shot at release time,
+  not per commit: the installed package's metainfo serves both from `main`,
+  so `main` has to show the released window, not the tip's.
 - `packaging/changelog` is written at release time, not accumulated per
   commit, so a change that will deserve a bullet owes nothing when it lands.
 - Cutting a release is `docs/release.md`.

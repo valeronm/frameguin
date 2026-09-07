@@ -12,7 +12,9 @@ use frameguin_hardware::device::power_led::PowerLed;
 use frameguin_hardware::device::touchpad::Touchpad;
 use frameguin_hardware::device::touchscreen::Touchscreen;
 use frameguin_hardware::ec::Pack;
+use frameguin_hardware::mirror::Mirrors;
 use frameguin_hardware::part::Identity;
+use frameguin_hardware::restore::Restore;
 use frameguin_hardware::testing::{
     Connectors, EC_BOOT, EcCharger, Gauge, Haptic, LedEc, Leds, Memory, Route, battery_identity,
     block, display_identity, mirrors, touchpad_identity,
@@ -28,29 +30,66 @@ use super::Devices;
 use crate::Daemon;
 use crate::service::Service;
 
-fn devices() -> Devices {
-    let store = Arc::new(Memory::default());
-    let mirrors = mirrors(&store, Some(EC_BOOT), None);
-    let gauge = Arc::new(Gauge::default());
-    Devices {
-        battery: Some(Battery::new(
-            gauge.clone(),
-            Arc::new(EcCharger::default()),
-            &mirrors,
-            gauge.identity().unwrap(),
-        )),
-        touchpad: Some(Touchpad::new(
-            Box::new(Haptic::default()),
-            &mirrors,
-            touchpad_identity(),
-        )),
-        touchscreen: Some(Touchscreen::new(Box::new(Route::default()), &mirrors)),
-        power_led: Some(PowerLed::new(
-            Arc::new(LedEc::default()),
-            Box::new(Leds::default()),
-        )),
-        ports: Ports::new(Arc::new(Connectors::default())),
+/// The stubs a machine's devices are built over, kept so a test can read
+/// what the devices wrote into them.
+struct Machine {
+    store: Arc<Memory>,
+    charger: Arc<EcCharger>,
+    led: Arc<LedEc>,
+}
+
+impl Machine {
+    fn new() -> Self {
+        Self {
+            store: Arc::new(Memory::default()),
+            charger: Arc::new(EcCharger::default()),
+            led: Arc::new(LedEc::default()),
+        }
     }
+
+    fn mirrors(&self) -> Mirrors {
+        mirrors(&self.store, Some(EC_BOOT), None)
+    }
+
+    fn post_resends_its_own(&self) {
+        *self.charger.limit.lock().unwrap() = 100;
+        self.led.level.lock().unwrap().1 = PowerLedLevel::High;
+    }
+
+    /// The restore switch cut from the same mirrors as the devices.
+    fn serve(&self, authorized: bool) -> Peer {
+        let mirrors = self.mirrors();
+        serve_restoring(authorized, self.devices(&mirrors), mirrors.restore())
+    }
+
+    fn devices(&self, mirrors: &Mirrors) -> Devices {
+        let gauge = Arc::new(Gauge::default());
+        Devices {
+            battery: Some(Battery::new(
+                gauge.clone(),
+                self.charger.clone(),
+                mirrors,
+                gauge.identity().unwrap(),
+            )),
+            touchpad: Some(Touchpad::new(
+                Box::new(Haptic::default()),
+                mirrors,
+                touchpad_identity(),
+            )),
+            touchscreen: Some(Touchscreen::new(Box::new(Route::default()), mirrors)),
+            power_led: Some(PowerLed::new(
+                self.led.clone(),
+                Box::new(Leds::default()),
+                mirrors,
+            )),
+            ports: Ports::new(Arc::new(Connectors::default())),
+        }
+    }
+}
+
+fn devices() -> Devices {
+    let machine = Machine::new();
+    machine.devices(&machine.mirrors())
 }
 
 /// An inventory for the root interface to answer, which it holds verbatim.
@@ -100,10 +139,17 @@ impl Peer {
 }
 
 fn serve(authorized: bool) -> Peer {
-    serve_devices(authorized, devices())
+    Machine::new().serve(authorized)
 }
 
+/// A switch over a store of its own, for devices built around an absence
+/// rather than a machine.
 fn serve_devices(authorized: bool, devices: Devices) -> Peer {
+    let restore = mirrors(&Arc::new(Memory::default()), None, None).restore();
+    serve_restoring(authorized, devices, restore)
+}
+
+fn serve_restoring(authorized: bool, devices: Devices, restore: Restore) -> Peer {
     let (server_end, client_end) = UnixStream::pair().unwrap();
     let guid = Guid::generate();
     let end = |stream| {
@@ -135,6 +181,7 @@ fn serve_devices(authorized: bool, devices: Devices) -> Peer {
     let root = Daemon {
         service: service.clone(),
         parts: parts(),
+        restore,
     };
     on_executor(&server, async move {
         super::serve_all(serving.object_server(), root, devices).await
@@ -286,15 +333,82 @@ fn a_bad_argument_and_a_write_in_place_never_reach_polkit() {
 #[test]
 fn the_root_interface_answers_the_inventory_and_the_build() {
     let peer = serve(true);
-    let conn = peer.client.clone();
-    on_executor(&peer.client, async move {
-        let daemon: FrameguinProxy = proxy(&conn).await.unwrap();
+    peer.run(|p| async move {
+        let daemon = root(&p).await;
         assert_eq!(daemon.get_devices().await.unwrap(), parts());
         assert_eq!(
             daemon.get_build().await.unwrap().0,
             env!("CARGO_PKG_VERSION")
         );
     });
+}
+
+/// The root proxy on the same connection as the device proxies.
+async fn root(p: &Proxies) -> FrameguinProxy<'static> {
+    proxy(p.battery.inner().connection()).await.unwrap()
+}
+
+#[test]
+fn the_restore_switch_reaches_polkit_only_when_it_moves() {
+    let peer = serve(true);
+    peer.run(|p| async move {
+        let daemon = root(&p).await;
+        assert!(!daemon.get_restore().await.unwrap());
+        daemon.set_restore(true).await.unwrap();
+        assert!(daemon.get_restore().await.unwrap());
+    });
+    let peer = serve(false);
+    peer.run(|p| async move {
+        let daemon = root(&p).await;
+        assert!(denied(daemon.set_restore(true).await));
+        daemon.set_restore(false).await.unwrap();
+        assert!(!daemon.get_restore().await.unwrap());
+    });
+}
+
+#[test]
+fn what_was_set_is_written_back_on_request_after_a_boot() {
+    let machine = Machine::new();
+    let peer = machine.serve(true);
+    peer.run(|p| async move {
+        root(&p).await.set_restore(true).await.unwrap();
+        p.battery.set_charge_limit(80).await.unwrap();
+        p.battery.set_charge_current_limit(1_500).await.unwrap();
+        p.power_led.set_level(PowerLedLevel::Low).await.unwrap();
+        p.touchscreen.set_enabled(false).await.unwrap();
+    });
+    machine.post_resends_its_own();
+    let peer = machine.serve(true);
+    assert_eq!(*machine.charger.limit.lock().unwrap(), 100);
+    peer.run(|p| async move {
+        assert!(p.touchscreen.get_enabled().await.unwrap());
+        root(&p).await.restore().await.unwrap();
+        assert!(!p.touchscreen.get_enabled().await.unwrap());
+    });
+    assert_eq!(*machine.charger.limit.lock().unwrap(), 80);
+    assert_eq!(*machine.charger.written.lock().unwrap(), [1_500, 1_500]);
+    assert_eq!(machine.led.level.lock().unwrap().1, PowerLedLevel::Low);
+}
+
+#[test]
+fn a_restore_is_refused_where_polkit_refuses_and_skipped_while_off() {
+    let machine = Machine::new();
+    machine.serve(true).run(|p| async move {
+        root(&p).await.set_restore(true).await.unwrap();
+        p.battery.set_charge_limit(80).await.unwrap();
+    });
+    machine.post_resends_its_own();
+    machine.serve(false).run(|p| async move {
+        assert!(denied(root(&p).await.restore().await));
+    });
+    assert_eq!(*machine.charger.limit.lock().unwrap(), 100);
+    machine.serve(true).run(|p| async move {
+        root(&p).await.set_restore(false).await.unwrap();
+    });
+    machine.serve(false).run(|p| async move {
+        root(&p).await.restore().await.unwrap();
+    });
+    assert_eq!(*machine.charger.limit.lock().unwrap(), 100);
 }
 
 #[test]

@@ -62,18 +62,27 @@ assets = [
     ["target/release/data/icons/io.github.valeronm.Frameguin.svg", "usr/share/icons/hicolor/scalable/apps/", "644"],
     ["target/release/data/icons/io.github.valeronm.Frameguin-symbolic.svg", "usr/share/icons/hicolor/symbolic/apps/", "644"],
     ["../README.md", "usr/share/doc/frameguin/README.md", "644"],
+    ["../packaging/lintian-overrides", "usr/share/lintian/overrides/frameguin", "644"],
     ["target/release/data/frameguin.1.gz", "usr/share/man/man1/frameguin.1.gz", "644"],
 ]
 
-# Installs the unit and generates the systemd maintainer-script snippets, so a
-# chroot or container install behaves like every other package. Not enabled or
-# started: D-Bus activation runs the daemon, and the unit has no [Install].
+# Installs the units and generates the systemd maintainer-script snippets, so
+# a chroot or container install behaves like every other package. The daemon
+# is neither enabled nor started: D-Bus activation runs it, and the unit has
+# no [Install]. The restore unit is enabled so it fires at boot and after a
+# resume, and not started: nothing is asked to be restored at install time.
 # systemd is the only refresh needing this — the icon theme, desktop database
 # and bus config all have dpkg triggers owned by packages depended on above.
 # unit-scripts is manifest-relative and gets none of the target-dir remapping
 # the assets list relies on, hence the leading `../`.
-[package.metadata.deb.systemd-units]
+[[package.metadata.deb.systemd-units]]
 unit-scripts = "../target/release/data"
 unit-name = "frameguin-daemon"
 enable = false
+start = false
+
+[[package.metadata.deb.systemd-units]]
+unit-scripts = "../target/release/data"
+unit-name = "frameguin-restore"
+enable = true
 start = false

@@ -34,6 +34,10 @@ pub const EC_BOOT: EcBoot = EcBoot::from_clocks(500_000, 1_000_000);
 /// The EC an hour after [`EC_BOOT`], having restarted a minute ago.
 pub const EC_RESTARTED: EcBoot = EcBoot::from_clocks(60, 1_003_600);
 
+/// The host's boot id, and the id of the boot before it.
+pub const HOST_BOOT: &str = "00000000-0000-4000-8000-000000000001";
+pub const HOST_EARLIER: &str = "00000000-0000-4000-8000-000000000002";
+
 /// The haptic touchpad as detection would identify it.
 pub fn touchpad_identity() -> Identity {
     part::hid(
@@ -67,6 +71,10 @@ impl Store for Memory {
 
     fn set(&self, key: &str, value: Option<String>) {
         state::apply(&mut self.0.lock().unwrap(), key, value);
+    }
+
+    fn drop_prefix(&self, prefix: &str) {
+        state::drop_prefix(&mut self.0.lock().unwrap(), prefix);
     }
 }
 

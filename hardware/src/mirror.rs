@@ -1,15 +1,15 @@
 //! A mirror: the last write the hardware took, for a value it cannot read
 //! back, believed for the lifetime of whatever holds it.
 
-use std::num::NonZeroU32;
 use std::sync::{Arc, Mutex};
 
 use frameguin_wire::DeviceResult;
 
 use crate::lifetime::{Evidence, Holders, Lifetime};
-use crate::state::Store;
+use crate::restore::{Restore, Wanted};
+use crate::state::{Store, Stored};
 
-/// Where a device's mirrors are cut from.
+/// Where a device's mirrors and wanted values are cut from.
 pub struct Mirrors {
     store: Arc<dyn Store>,
     holders: Holders,
@@ -20,11 +20,19 @@ impl Mirrors {
         Self { store, holders }
     }
 
+    pub fn restore(&self) -> Restore {
+        Restore::new(self.store.clone())
+    }
+
+    pub fn wanted<V: Stored>(&self, name: &str) -> Wanted<V> {
+        self.restore().wanted(name)
+    }
+
     /// A mirror holding a value under `key`, believed for `lifetime`. One
     /// mirror per key: a second over the same key holds a copy the first's
     /// writes do not move.
     pub fn value<V: Stored>(&self, key: &str, lifetime: Lifetime) -> Mirror<V> {
-        let value = self.store.get(key).and_then(|v| V::from_stored(&v));
+        let value = V::load(self.store.as_ref(), key);
         let evidence = lifetime.recall(self.store.get(&evidence_key(key)).as_deref());
         Mirror {
             store: self.store.clone(),
@@ -40,29 +48,6 @@ impl Mirrors {
 pub(crate) fn evidence_key(key: &str) -> String {
     format!("{key}_evidence")
 }
-
-/// A value a mirror can keep in the store and name again. What the store
-/// cannot name is refused here, so a mirror never holds it.
-pub trait Stored: Clone + Send {
-    fn from_stored(value: &str) -> Option<Self>;
-    fn stored(&self) -> String;
-}
-
-macro_rules! stored_by_parsing {
-    ($($t:ty),*) => {$(
-        impl Stored for $t {
-            fn from_stored(value: &str) -> Option<Self> {
-                value.parse().ok()
-            }
-
-            fn stored(&self) -> String {
-                self.to_string()
-            }
-        }
-    )*};
-}
-
-stored_by_parsing!(NonZeroU32, bool);
 
 pub struct Mirror<V> {
     store: Arc<dyn Store>,

@@ -6,8 +6,9 @@ use frameguin_wire::{
 };
 
 use crate::lifetime::Lifetime;
-use crate::mirror::{Mirror, Mirrors, Stored};
+use crate::mirror::{Mirror, Mirrors};
 use crate::part::{self, Identity, Part, PartKind};
+use crate::state::Stored;
 use crate::touchpad::{self, HapticPad};
 
 const DEFAULT_HAPTIC_INTENSITY: u8 = 75;

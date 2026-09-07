@@ -46,13 +46,15 @@ if ! grep -q " \.$unit_exec\$" <<<"$contents"; then
     echo "ExecStart=$unit_exec is not in the package" >&2
     exit 1
 fi
-if ! grep -q " \./usr/lib/systemd/system/frameguin-daemon\.service\$" <<<"$contents"; then
-    echo "the systemd unit is not in the package — unit-scripts found nothing" >&2
-    exit 1
-fi
+for unit in frameguin-daemon frameguin-restore; do
+    if ! grep -q " \./usr/lib/systemd/system/$unit\.service\$" <<<"$contents"; then
+        echo "$unit.service is not in the package — unit-scripts found nothing" >&2
+        exit 1
+    fi
+done
 
-# Guarded so a machine without the validators can still build. The package
-# carries no lintian overrides: warnings are fatal and there are none.
+# Guarded so a machine without the validators can still build. Warnings are
+# fatal; an override the package carries names its reason.
 if command -v lintian >/dev/null; then
     lintian --fail-on error,warning "$deb"
 fi

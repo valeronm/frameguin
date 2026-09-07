@@ -25,7 +25,8 @@ use frameguin_hardware::device::ports::Ports;
 use frameguin_hardware::device::power_led::PowerLed;
 use frameguin_hardware::device::touchpad::Touchpad;
 use frameguin_hardware::device::touchscreen::Touchscreen;
-use frameguin_wire::OBJECT_PATH;
+use frameguin_hardware::restore::Restorable;
+use frameguin_wire::{DeviceResult, OBJECT_PATH};
 use zbus::object_server::{Interface, ObjectServer};
 
 use crate::Daemon;
@@ -67,6 +68,34 @@ pub(crate) async fn serve_all(
     serve_one(server, &service, touchscreen).await?;
     serve_one(server, &service, power_led).await?;
     serve_one(server, &service, ports).await
+}
+
+/// Through the object server rather than a list of its own: the interfaces
+/// at the path are the inventory, so a device not on the bus has nothing to
+/// write back.
+pub(crate) async fn restore_all(server: &ObjectServer) -> DeviceResult<()> {
+    let battery = restore_one::<Battery>(server).await;
+    let power_led = restore_one::<PowerLed>(server).await;
+    let touchscreen = restore_one::<Touchscreen>(server).await;
+    battery.and(power_led).and(touchscreen)
+}
+
+async fn restore_one<D: Restorable>(server: &ObjectServer) -> DeviceResult<()>
+where
+    Served<D>: Interface,
+{
+    let Ok(interface) = server.interface::<_, Served<D>>(OBJECT_PATH).await else {
+        return Ok(());
+    };
+    let name = <Served<D> as Interface>::name();
+    interface
+        .get()
+        .await
+        .device()
+        .restore()
+        .await
+        .inspect(|()| eprintln!("restored {name}"))
+        .inspect_err(|e| eprintln!("could not restore {name}: {e}"))
 }
 
 async fn serve_one<D>(
