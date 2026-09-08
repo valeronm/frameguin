@@ -410,6 +410,12 @@ pub struct Firmware {
     pub name: String,
     /// As the vendor spells it.
     pub version: String,
+    /// When the firmware was built, as `YYYY-MM-DD HH:MM:SS` where it stamps
+    /// a date and whatever it stamped instead where it does not. Empty where
+    /// it announced a version and nothing more.
+    pub built: String,
+    /// Whoever built it, and empty where the firmware announced no builder.
+    pub builder: String,
 }
 
 impl Firmware {
@@ -418,6 +424,8 @@ impl Firmware {
         Self {
             name: name.to_owned(),
             version: version.to_owned(),
+            built: String::new(),
+            builder: String::new(),
         }
     }
 }
@@ -454,7 +462,14 @@ impl fmt::Display for Identity {
         } else {
             self.firmware
                 .iter()
-                .map(|f| format!("{} {}", f.name, f.version))
+                .map(|f| {
+                    [&f.name, &f.version, &f.built, &f.builder]
+                        .into_iter()
+                        .filter(|field| !field.is_empty())
+                        .map(String::as_str)
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                })
                 .collect::<Vec<_>>()
                 .join(", ")
         };

@@ -150,6 +150,18 @@ which directory answers for it: the connector maps, the controller count, the
 pack, the LED colours and the charger part are all per board, and boards
 differ in which drivers they compile at all.
 
+`EC_CMD_GET_BUILD_INFO` answers more than that name. `common/version.c`
+composes the string as the version, then the build stamp, then the builder —
+`sakura-3.0.2-cf48815 2026-05-26 04:34:57 lotus@ip-172-26-3-226` — with a
+CrOS FWID between the version and the stamp on firmware built with
+`CONFIG_CROS_FWID_VERSION`. Two things about the stamp: it is itself two
+space-separated fields, so it cannot be read as one; and it carries no zone,
+`util/getversion.sh` taking a `git log` date or a file's mtime and cutting the
+offset off either. A reproducible build replaces it with the literal
+`STATIC_VERSION_DATE` and names the builder `reproducible@build`. The builder
+is the machine the firmware was compiled on and no relation to the hardware —
+`lotus` there is a build host, though it is also a board name.
+
 ## Battery
 
 What the pack and the EC report about it, and how to read it. What can be set

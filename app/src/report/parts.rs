@@ -170,6 +170,12 @@ fn details(part: &Identity) -> adw::PreferencesPage {
     optional_value(&group, "Serial", &part.serial);
     for firmware in &part.firmware {
         optional_value(&group, &firmware.name, &firmware.version);
+        optional_value(&group, &format!("{} built", firmware.name), &firmware.built);
+        optional_value(
+            &group,
+            &format!("{} builder", firmware.name),
+            &firmware.builder,
+        );
     }
     page.add(&group);
     page

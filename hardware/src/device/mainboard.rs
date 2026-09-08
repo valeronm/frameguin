@@ -1,6 +1,7 @@
 //! The mainboard, as the firmware's DMI fields describe it: a part the
 //! daemon reads and never sets, carrying the firmware it runs.
 
+use crate::build_info;
 use crate::dmi;
 use crate::ec::Ec;
 use crate::part::{Firmware, Identity, Part, PartKind};
@@ -23,10 +24,7 @@ impl Mainboard {
     pub fn detect(ec: Option<&Ec>) -> Option<Self> {
         let firmware = [
             dmi::field("bios_version").map(|v| Firmware::new("BIOS", &v)),
-            // A version is never worth a failed detection, so a silent EC
-            // costs the board that field alone.
-            ec.and_then(|ec| ec.version().ok())
-                .map(|v| Firmware::new("EC", &v)),
+            ec_firmware(ec),
         ]
         .into_iter()
         .flatten()
@@ -74,6 +72,18 @@ impl Mainboard {
 /// A controller keeps its number when an earlier one has no version, so a
 /// gap in what the EC answers is a gap in the names rather than a renaming
 /// of the controllers after it.
+/// A version is never worth a failed detection, so an EC that will not
+/// answer costs the board this firmware alone.
+fn ec_firmware(ec: Option<&Ec>) -> Option<Firmware> {
+    let build = build_info::parse(&ec?.version().ok()?);
+    Some(Firmware {
+        name: "EC".to_owned(),
+        version: build.version,
+        built: build.built,
+        builder: build.builder,
+    })
+}
+
 fn pd_firmware(versions: &[[u8; pd::VERSION_LEN]]) -> Vec<Firmware> {
     versions
         .iter()

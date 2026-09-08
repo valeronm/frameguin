@@ -36,6 +36,7 @@
     reason = "a workspace-private crate with one caller; its signatures are the contract"
 )]
 
+pub mod build_info;
 pub mod device;
 pub mod dmi;
 pub mod drm;
