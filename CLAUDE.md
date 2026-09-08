@@ -67,9 +67,14 @@ it and the non-obvious constraints.
 - Inside `app/`, a module boundary is drawn where it makes a class of mistake
   impossible, not where a file got long. A control's presets, the values
   behind them and the words those values carry are its `model` control's —
-  the chrome around them, group and row titles and the sentences a toast
-  makes, stays with the widget that is its only site. Which row a reading
-  shows is theirs too: a value dialled in that happens to equal a preset is
+  the chrome around them, the titles a widget invents and the sentences a
+  toast makes, stays with the widget that is its only site. A title naming
+  something else belongs to whoever knows the word: `model`'s where `model`
+  curated it, group heading and list row alike, and `wire`'s where the
+  hardware announced it. `model` answers for a part whether or not the
+  catalogue names it, so a widget never picks a part's words by whether a
+  lookup hit. Which row a reading shows is the widget's too: a value dialled
+  in that happens to equal a preset is
   indistinguishable from it — the app derives one over the value, the EC's
   firmware hands back a name it deduced the same way — so the answer weighs
   where the combo sits and what moved it, and only the tray, whose menu has
