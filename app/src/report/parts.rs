@@ -63,6 +63,7 @@ fn group(part: &Identity) -> adw::PreferencesGroup {
     let sold = catalogue(part);
     if let Some(sold) = sold {
         optional_value(&group, "Model", sold.model);
+        optional_value(&group, "Variant", sold.variant.unwrap_or_default());
         optional_value(&group, "Manufacturer", maker(part).unwrap_or_default());
     } else {
         optional_value(&group, "Vendor", &part.vendor);

@@ -41,8 +41,11 @@ pub fn ordered(parts: &[Identity]) -> Vec<&Identity> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Catalogue {
     /// The product's name as its page spells it, less the vendor's own name
-    /// leading it.
+    /// leading it and less the `variant` it ends on.
     pub model: &'static str,
+    /// The processor line the product's name ends on; None where the name
+    /// is one piece.
+    pub variant: Option<&'static str>,
     /// None where no live page names this part: the name is still what a
     /// reader wants and a page about another part is not.
     pub url: Option<&'static str>,
@@ -69,97 +72,124 @@ fn key(part: &Identity) -> (PartKind, &str) {
 #[must_use]
 pub fn catalogue(part: &Identity) -> Option<Catalogue> {
     match key(part) {
-        (PartKind::Mainboard, wire::BOARD_LAPTOP13_11TH_GEN) => Some(Catalogue {
-            model: "Laptop 13 Mainboard (11th Gen Intel Core)",
-            url: None,
-        }),
-        (PartKind::Mainboard, wire::BOARD_LAPTOP13_12TH_GEN) => Some(Catalogue {
-            model: "Laptop 13 Mainboard (12th Gen Intel Core)",
-            url: None,
-        }),
-        (PartKind::Mainboard, wire::BOARD_LAPTOP13_13TH_GEN) => Some(Catalogue {
-            model: "Laptop 13 Mainboard (13th Gen Intel Core)",
-            url: None,
-        }),
+        (PartKind::Mainboard, wire::BOARD_LAPTOP13_11TH_GEN) => {
+            Some(varied("Laptop 13 Mainboard", "11th Gen Intel Core", None))
+        }
+        (PartKind::Mainboard, wire::BOARD_LAPTOP13_12TH_GEN) => {
+            Some(varied("Laptop 13 Mainboard", "12th Gen Intel Core", None))
+        }
+        (PartKind::Mainboard, wire::BOARD_LAPTOP13_13TH_GEN) => {
+            Some(varied("Laptop 13 Mainboard", "13th Gen Intel Core", None))
+        }
         // A page carries the processor as a variant code the product name
         // does not map to, so a board's link is to the page unvaried.
-        (PartKind::Mainboard, wire::BOARD_LAPTOP13_ULTRA_1) => Some(Catalogue {
-            model: "Laptop 13 Mainboard (Intel Core Ultra Series 1)",
-            url: Some("https://frame.work/products/mainboard-ultra-1-intel-core"),
-        }),
+        (PartKind::Mainboard, wire::BOARD_LAPTOP13_ULTRA_1) => Some(varied(
+            "Laptop 13 Mainboard",
+            "Intel Core Ultra Series 1",
+            Some("https://frame.work/products/mainboard-ultra-1-intel-core"),
+        )),
         (
             PartKind::Mainboard,
             wire::BOARD_LAPTOP13_AMD_7040 | wire::BOARD_LAPTOP13_AMD_7040_UNSPACED,
-        ) => Some(Catalogue {
-            model: "Laptop 13 Mainboard (AMD Ryzen 7040 Series)",
-            url: Some("https://frame.work/products/mainboard-amd-ryzen-7040-series"),
-        }),
-        (PartKind::Mainboard, wire::BOARD_LAPTOP13_AMD_AI_300) => Some(Catalogue {
-            model: "Laptop 13 Mainboard (AMD Ryzen AI 300 Series)",
-            url: Some("https://frame.work/products/mainboard-amd-ai300"),
-        }),
-        (PartKind::Mainboard, wire::BOARD_LAPTOP13_PRO_ULTRA_3) => Some(Catalogue {
-            model: "Laptop 13 Pro Mainboard (Intel Core Ultra Series 3)",
-            url: Some("https://frame.work/products/laptop13pro-mainboard-intel-ultra-3"),
-        }),
-        (PartKind::Mainboard, wire::BOARD_LAPTOP12_13TH_GEN) => Some(Catalogue {
-            model: "Laptop 12 Mainboard (13th Gen Intel Core)",
-            url: Some("https://frame.work/products/laptop12-mainboard-13th-gen-intel-core"),
-        }),
-        (PartKind::Mainboard, wire::BOARD_LAPTOP16_AMD_7040) => Some(Catalogue {
-            model: "Laptop 16 Mainboard (AMD Ryzen 7040 Series)",
-            url: Some("https://frame.work/products/16-mainboard-amd-ryzen-7040-series"),
-        }),
-        (PartKind::Mainboard, wire::BOARD_LAPTOP16_AMD_AI_300) => Some(Catalogue {
-            model: "Laptop 16 Mainboard (AMD Ryzen AI 300 Series)",
-            url: Some("https://frame.work/products/laptop16-mainboard-amd-ai300"),
-        }),
-        (PartKind::Mainboard, wire::BOARD_DESKTOP_AMD_AI_MAX_300) => Some(Catalogue {
-            model: "Desktop Mainboard (AMD Ryzen AI Max 300 Series)",
-            url: Some(
+        ) => Some(varied(
+            "Laptop 13 Mainboard",
+            "AMD Ryzen 7040 Series",
+            Some("https://frame.work/products/mainboard-amd-ryzen-7040-series"),
+        )),
+        (PartKind::Mainboard, wire::BOARD_LAPTOP13_AMD_AI_300) => Some(varied(
+            "Laptop 13 Mainboard",
+            "AMD Ryzen AI 300 Series",
+            Some("https://frame.work/products/mainboard-amd-ai300"),
+        )),
+        (PartKind::Mainboard, wire::BOARD_LAPTOP13_PRO_ULTRA_3) => Some(varied(
+            "Laptop 13 Pro Mainboard",
+            "Intel Core Ultra Series 3",
+            Some("https://frame.work/products/laptop13pro-mainboard-intel-ultra-3"),
+        )),
+        (PartKind::Mainboard, wire::BOARD_LAPTOP12_13TH_GEN) => Some(varied(
+            "Laptop 12 Mainboard",
+            "13th Gen Intel Core",
+            Some("https://frame.work/products/laptop12-mainboard-13th-gen-intel-core"),
+        )),
+        (PartKind::Mainboard, wire::BOARD_LAPTOP12_CORE_3) => Some(varied(
+            "Laptop 12 Mainboard",
+            "Intel Core Series 3",
+            Some("https://frame.work/products/laptop12-mainboard-series3"),
+        )),
+        (PartKind::Mainboard, wire::BOARD_LAPTOP16_AMD_7040) => Some(varied(
+            "Laptop 16 Mainboard",
+            "AMD Ryzen 7040 Series",
+            Some("https://frame.work/products/16-mainboard-amd-ryzen-7040-series"),
+        )),
+        (PartKind::Mainboard, wire::BOARD_LAPTOP16_AMD_AI_300) => Some(varied(
+            "Laptop 16 Mainboard",
+            "AMD Ryzen AI 300 Series",
+            Some("https://frame.work/products/laptop16-mainboard-amd-ai300"),
+        )),
+        (PartKind::Mainboard, wire::BOARD_DESKTOP_AMD_AI_MAX_300) => Some(varied(
+            "Desktop Mainboard",
+            "AMD Ryzen AI Max 300 Series",
+            Some(
                 "https://frame.work/products/framework-desktop-mainboard-amd-ryzen-ai-max-300-series",
             ),
-        }),
+        )),
         // The EC publishes the pack's name in an eight-byte field, so these
         // are the first seven characters of it.
-        (PartKind::Battery, "Framewo") => Some(Catalogue {
-            model: "Laptop 13 Battery - 55Wh",
-            url: None,
-        }),
-        (PartKind::Battery, "FRANGWA") => Some(Catalogue {
-            model: "Laptop 13 Battery - 61Wh",
-            url: Some("https://frame.work/products/battery"),
-        }),
-        (PartKind::Battery, "FRANEDA") => Some(Catalogue {
-            model: "Laptop 13 Pro Battery - 74Wh",
-            url: Some("https://frame.work/products/pro-battery-74wh"),
-        }),
-        (PartKind::Battery, "FRANDZG") => Some(Catalogue {
-            model: "Laptop 12 Battery - 50Wh",
-            url: Some("https://frame.work/products/laptop12-battery-50wh"),
-        }),
-        (PartKind::Battery, "FRANDBA") => Some(Catalogue {
-            model: "Laptop 16 Battery - 85Wh",
-            url: Some("https://frame.work/products/16-battery"),
-        }),
+        (PartKind::Battery, "Framewo") => Some(listed("Laptop 13 Battery - 55Wh", None)),
+        (PartKind::Battery, "FRANGWA") => Some(listed(
+            "Laptop 13 Battery - 61Wh",
+            Some("https://frame.work/products/battery"),
+        )),
+        (PartKind::Battery, "FRANEDA") => Some(listed(
+            "Laptop 13 Pro Battery - 74Wh",
+            Some("https://frame.work/products/pro-battery-74wh"),
+        )),
+        (PartKind::Battery, "FRANDZG") => Some(listed(
+            "Laptop 12 Battery - 50Wh",
+            Some("https://frame.work/products/laptop12-battery-50wh"),
+        )),
+        (PartKind::Battery, "FRANDBA") => Some(listed(
+            "Laptop 16 Battery - 85Wh",
+            Some("https://frame.work/products/16-battery"),
+        )),
         // The haptic touchpad is sold only fitted to the input cover frame.
-        (PartKind::Touchpad, "hid:093a:1343") => Some(Catalogue {
-            model: "Laptop 13 Pro Input Cover Frame",
-            url: Some("https://frame.work/products/laptop13pro-input-cover-frame"),
-        }),
+        (PartKind::Touchpad, "hid:093a:1343") => Some(listed(
+            "Laptop 13 Pro Input Cover Frame",
+            Some("https://frame.work/products/laptop13pro-input-cover-frame"),
+        )),
         // The kit is the panel and the touch controller together, and the
         // panel is the half every machine with a screen has.
-        (PartKind::Display, "MND508ZB1-1") => Some(Catalogue {
-            model: "Laptop 13 Pro Touchscreen Display Kit - 2.8K",
-            url: Some("https://frame.work/products/laptop13pro-display-kit"),
-        }),
+        (PartKind::Display, "MND508ZB1-1") => Some(listed(
+            "Laptop 13 Pro Touchscreen Display Kit - 2.8K",
+            Some("https://frame.work/products/laptop13pro-display-kit"),
+        )),
         // The page's capacity variants carry codes nothing on the module
         // maps to, so the link is to the page unvaried.
-        (PartKind::Memory, "MTD16C20325N4FN023F1 YF") => Some(Catalogue {
-            model: "LPCAMM2 - LPDDR5X 8533 Memory",
-            url: Some("https://frame.work/products/lpcamm2-lpddr5x"),
-        }),
+        (PartKind::Memory, "MTD16C20325N4FN023F1 YF") => Some(listed(
+            "LPCAMM2 - LPDDR5X 8533 Memory",
+            Some("https://frame.work/products/lpcamm2-lpddr5x"),
+        )),
         _ => None,
+    }
+}
+
+const fn listed(model: &'static str, url: Option<&'static str>) -> Catalogue {
+    Catalogue {
+        model,
+        variant: None,
+        url,
+    }
+}
+
+const fn varied(
+    model: &'static str,
+    variant: &'static str,
+    url: Option<&'static str>,
+) -> Catalogue {
+    Catalogue {
+        model,
+        variant: Some(variant),
+        url,
     }
 }
 
@@ -275,13 +305,14 @@ mod tests {
     #[test]
     fn a_board_is_catalogued_by_the_machine_its_firmware_names() {
         let sold = catalogue(&board(wire::BOARD_LAPTOP13_AMD_7040_UNSPACED)).unwrap();
-        assert_eq!(sold.model, "Laptop 13 Mainboard (AMD Ryzen 7040 Series)");
+        assert_eq!(sold.model, "Laptop 13 Mainboard");
+        assert_eq!(sold.variant, Some("AMD Ryzen 7040 Series"));
     }
 
     #[test]
     fn a_board_framework_no_longer_sells_is_named_without_a_link() {
         let sold = catalogue(&board(wire::BOARD_LAPTOP13_12TH_GEN)).unwrap();
-        assert_eq!(sold.model, "Laptop 13 Mainboard (12th Gen Intel Core)");
+        assert_eq!(sold.model, "Laptop 13 Mainboard");
         assert!(sold.url.is_none());
     }
 

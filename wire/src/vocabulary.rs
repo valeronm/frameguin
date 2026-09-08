@@ -41,6 +41,7 @@ pub const BOARD_LAPTOP13_AMD_7040_UNSPACED: &str = "Laptop 13 (AMD Ryzen 7040Ser
 pub const BOARD_LAPTOP13_AMD_AI_300: &str = "Laptop 13 (AMD Ryzen AI 300 Series)";
 pub const BOARD_LAPTOP13_PRO_ULTRA_3: &str = "Laptop 13 Pro (Intel Core Ultra Series 3)";
 pub const BOARD_LAPTOP12_13TH_GEN: &str = "Laptop 12 (13th Gen Intel Core)";
+pub const BOARD_LAPTOP12_CORE_3: &str = "Laptop 12 (Intel Core Series 3)";
 pub const BOARD_LAPTOP16_AMD_7040: &str = "Laptop 16 (AMD Ryzen 7040 Series)";
 pub const BOARD_LAPTOP16_AMD_AI_300: &str = "Laptop 16 (AMD Ryzen AI 300 Series)";
 pub const BOARD_DESKTOP_AMD_AI_MAX_300: &str = "Desktop (AMD Ryzen AI Max 300 Series)";
