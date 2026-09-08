@@ -18,6 +18,7 @@ use frameguin_model::control::battery::reading::{
     alarms_label, capacity, cell_spread, cell_voltages, charge_direction, charger_label, milliamps,
     percent_label, power_label, retention_label, temperature, text_or_unknown, volts,
 };
+use frameguin_model::date;
 use frameguin_wire::BatteryFeature;
 use gtk4 as gtk;
 use gtk4::gio;
@@ -136,7 +137,7 @@ impl Report {
         self.model.set_label(text_or_unknown(&info.model));
         self.serial.set_label(text_or_unknown(&info.serial));
         self.manufacture_date
-            .set_label(text_or_unknown(&info.manufactured));
+            .set_label(text_or_unknown(&date::spelled(&info.manufactured)));
     }
 }
 

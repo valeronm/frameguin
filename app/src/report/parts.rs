@@ -5,6 +5,7 @@
 use std::rc::Rc;
 
 use adw::prelude::*;
+use frameguin_model::date;
 use frameguin_model::part::{catalogue, inventory, maker, name, part_number};
 use frameguin_wire::Identity;
 use gtk4 as gtk;
@@ -170,7 +171,11 @@ fn details(part: &Identity) -> adw::PreferencesPage {
     optional_value(&group, "Serial", &part.serial);
     for firmware in &part.firmware {
         optional_value(&group, &firmware.name, &firmware.version);
-        optional_value(&group, &format!("{} built", firmware.name), &firmware.built);
+        optional_value(
+            &group,
+            &format!("{} built", firmware.name),
+            &date::spelled(&firmware.built),
+        );
         optional_value(
             &group,
             &format!("{} builder", firmware.name),
