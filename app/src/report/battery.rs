@@ -148,14 +148,15 @@ fn described_value(group: &adw::PreferencesGroup, title: &str, subtitle: &str) -
 }
 
 pub(super) fn action(daemon: Rc<Daemon>, feed: Rc<Feed>) -> gio::ActionEntry<adw::Application> {
-    super::action(ACTION, "Battery", 680, move |shell| {
-        build(shell, &daemon, &feed);
+    super::action(ACTION, "Battery", 680, move |shell, page| {
+        build(shell, page, &daemon, &feed);
     })
 }
 
 /// The rows, built and left to fill themselves.
-fn build(shell: Shell, daemon: &Rc<Daemon>, feed: &Rc<Feed>) {
-    let report = build_rows(&shell.page);
+fn build(shell: Shell, page: &adw::PreferencesPage, daemon: &Rc<Daemon>, feed: &Rc<Feed>) {
+    let report = build_rows(page);
+    let page = page.clone();
     let daemon = daemon.clone();
     let feed = feed.clone();
     glib::spawn_future_local(async move {
@@ -185,8 +186,7 @@ fn build(shell: Shell, daemon: &Rc<Daemon>, feed: &Rc<Feed>) {
         // it grows a part. The subscription hangs on the page rather than the
         // window: it is the widget that unmaps with the report, and every row
         // fed from here is inside it.
-        let page = &shell.page;
-        show_while_mapped(&feed, page, wants, move |reading| report.show(reading));
+        show_while_mapped(&feed, &page, wants, move |reading| report.show(reading));
         // The one read here that announces a failure. From now on the feed
         // reads on its own schedule, silently, as every repeating read in this
         // app does.

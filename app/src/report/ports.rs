@@ -35,21 +35,21 @@ use crate::reading::{Feed, Wants, show_while_mapped};
 pub(crate) const ACTION: &str = "ports";
 
 pub(super) fn action(feed: Rc<Feed>) -> gio::ActionEntry<adw::Application> {
-    super::action(ACTION, "USB-C Ports", 640, move |shell| {
-        build(shell, &feed);
+    super::action(ACTION, "USB-C Ports", 640, move |shell, page| {
+        build(shell, page, &feed);
     })
 }
 
 /// Fills the window, then follows the feed while it is mapped. The fill is
 /// the read placed to say the daemon could not be reached; the feed's ticks
 /// are silent, the rule every poll in this app follows.
-fn build(shell: Shell, feed: &Rc<Feed>) {
+fn build(shell: Shell, page: &adw::PreferencesPage, feed: &Rc<Feed>) {
     // The page is held weakly and nothing else here outlives it. The
     // subscription hangs on the page's own map signal, so a strong reference
     // to it from inside the shown closure would be the page keeping itself
     // alive — and this window is destroyed on close, which is the moment that
     // would silently stop happening.
-    let page = shell.page.downgrade();
+    let shown = page.downgrade();
     let drawn = RefCell::new(Drawn::default());
     // Subscribed before the window is filled, as the battery report is and
     // for the same reason: filling it is then the feed's own read, which
@@ -59,8 +59,8 @@ fn build(shell: Shell, feed: &Rc<Feed>) {
         ports: true,
         ..Wants::default()
     };
-    show_while_mapped(feed, &shell.page, wants, move |reading| {
-        if let (Some(page), Some(ports)) = (page.upgrade(), &reading.ports) {
+    show_while_mapped(feed, page, wants, move |reading| {
+        if let (Some(page), Some(ports)) = (shown.upgrade(), &reading.ports) {
             draw(&page, &drawn, ports);
         }
     });

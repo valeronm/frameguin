@@ -1,6 +1,7 @@
 //! The windows that only read — the battery report, the parts list — and
-//! the shell they share: a page under a header bar inside a toast overlay,
-//! the row that names one value, and the one way such a window is opened.
+//! the shell they share: a toast overlay filling the window, the page under
+//! a header bar most of them are drawn as, the row that names one value,
+//! and the one way such a window is opened.
 //!
 //! Such a window is destroyed on close, unlike the main window, which hides
 //! to the tray: a hidden window stays registered with the application and
@@ -41,9 +42,8 @@ pub(crate) fn actions(
     ]
 }
 
-/// The shell one report fills, and where it says a read failed.
+/// Where a report says a read failed.
 struct Shell {
-    page: adw::PreferencesPage,
     toasts: adw::ToastOverlay,
 }
 
@@ -54,17 +54,14 @@ impl Shell {
 }
 
 /// The action that opens one report: the window already open for it where
-/// there is one, and otherwise a fresh shell handed to `fill` and presented.
+/// there is one, and otherwise a fresh shell whose content `fill` builds.
 /// The one way in, so a report cannot build a window the lookup would not
 /// find — the window is named after the action, and only reports name one.
-///
-/// `height` is what fits every group at the default font scale; re-measure
-/// when the rows change.
-fn action(
+fn entry<W: IsA<gtk::Widget>>(
     action: &'static str,
     title: &'static str,
-    height: i32,
-    fill: impl Fn(Shell) + 'static,
+    size: (i32, i32),
+    fill: impl Fn(Shell, &adw::Window) -> W + 'static,
 ) -> gio::ActionEntry<adw::Application> {
     gio::ActionEntry::builder(action)
         .activate(move |app: &adw::Application, _, _| {
@@ -76,24 +73,53 @@ fn action(
                 open.present();
                 return;
             }
-            let page = adw::PreferencesPage::new();
-            let view = adw::ToolbarView::new();
-            view.add_top_bar(&adw::HeaderBar::new());
-            view.set_content(Some(&page));
-            let toasts = adw::ToastOverlay::new();
-            toasts.set_child(Some(&view));
+            let (width, height) = size;
             let window = adw::Window::builder()
                 .application(app)
                 .title(title)
-                .default_width(420)
+                .default_width(width)
                 .default_height(height)
-                .content(&toasts)
                 .build();
             window.set_widget_name(action);
-            fill(Shell { page, toasts });
+            let toasts = adw::ToastOverlay::new();
+            let content = fill(
+                Shell {
+                    toasts: toasts.clone(),
+                },
+                &window,
+            );
+            toasts.set_child(Some(&content));
+            window.set_content(Some(&toasts));
             window.present();
         })
         .build()
+}
+
+/// A report drawn as one page of rows under a header bar.
+///
+/// `height` is what fits every group at the default font scale; re-measure
+/// when the rows change.
+fn action(
+    action: &'static str,
+    title: &'static str,
+    height: i32,
+    fill: impl Fn(Shell, &adw::PreferencesPage) + 'static,
+) -> gio::ActionEntry<adw::Application> {
+    entry(action, title, (420, height), move |shell, _| {
+        let page = adw::PreferencesPage::new();
+        let view = headed(&page);
+        fill(shell, &page);
+        view
+    })
+}
+
+/// The window carries no titlebar of its own, so its controls sit in this
+/// header bar.
+fn headed(content: &impl IsA<gtk::Widget>) -> adw::ToolbarView {
+    let view = adw::ToolbarView::new();
+    view.add_top_bar(&adw::HeaderBar::new());
+    view.set_content(Some(content));
+    view
 }
 
 /// A row naming one value, and the label that carries it. Selectable,

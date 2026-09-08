@@ -30,11 +30,34 @@ fn rank(kind: PartKind) -> u8 {
 
 /// Parts in list order, those of a kind by their identifier — so two memory
 /// modules list by slot whatever order the table gave them in.
-#[must_use]
-pub fn ordered(parts: &[Identity]) -> Vec<&Identity> {
+fn ordered(parts: &[Identity]) -> Vec<&Identity> {
     let mut parts: Vec<&Identity> = parts.iter().collect();
     parts.sort_by_key(|part| (rank(part.kind), part.id.as_str()));
     parts
+}
+
+/// The machine's parts in list order, each with the words it is listed
+/// under: its kind, numbered where the machine holds more than one of that
+/// kind, two memory modules being the same word twice otherwise. The
+/// numbering counts in the order returned, so the two cannot be taken apart.
+#[must_use]
+pub fn inventory(parts: &[Identity]) -> Vec<(&Identity, String)> {
+    let ordered = ordered(parts);
+    ordered
+        .iter()
+        .enumerate()
+        .map(|(index, part)| {
+            let kind = kind_label(part.kind);
+            let alike = |other: &&&Identity| other.kind == part.kind;
+            let listed = if ordered.iter().filter(alike).count() == 1 {
+                kind.to_owned()
+            } else {
+                let ordinal = ordered[..index].iter().filter(alike).count() + 1;
+                format!("{kind} #{ordinal}")
+            };
+            (*part, listed)
+        })
+        .collect()
 }
 
 /// A part as Framework's marketplace names it.
@@ -201,6 +224,18 @@ pub fn maker(part: &Identity) -> Option<&str> {
     (!part.vendor.is_empty() && part.vendor != VENDOR).then(|| pnp(&part.vendor))
 }
 
+/// What a part is called: the catalogue's words where a listing names it,
+/// the hardware's own where none does, and its kind where the descriptor
+/// named nothing at all.
+#[must_use]
+pub fn name(part: &Identity, sold: Option<Catalogue>) -> &str {
+    match sold {
+        Some(sold) => sold.model,
+        None if !part.model.is_empty() => &part.model,
+        None => kind_label(part.kind),
+    }
+}
+
 /// The number a part announced for itself: the one it gives apart from its
 /// model, and the model where `sold` means a listing's name is standing in
 /// the model's place. Empty where the model is the number and is already on
@@ -228,7 +263,7 @@ fn pnp(id: &str) -> &str {
 mod tests {
     use frameguin_wire::{self as wire, Identity, PartKind, VENDOR};
 
-    use super::{catalogue, maker, ordered, part_number};
+    use super::{catalogue, inventory, maker, name, ordered, part_number};
 
     fn part(kind: PartKind, id: &str) -> Identity {
         Identity {
@@ -278,6 +313,20 @@ mod tests {
                 "hid:093a:1343"
             ]
         );
+    }
+
+    #[test]
+    fn a_kind_the_machine_holds_twice_is_numbered_and_a_lone_kind_is_not() {
+        let parts = [
+            part(PartKind::Memory, "dmi-slot:LPCAMM2_1"),
+            part(PartKind::Mainboard, "dmi-board:FRANMJCP07"),
+            part(PartKind::Memory, "dmi-slot:LPCAMM2_0"),
+        ];
+        let listed: Vec<String> = inventory(&parts)
+            .into_iter()
+            .map(|(_, title)| title)
+            .collect();
+        assert_eq!(listed, ["Mainboard", "Memory #1", "Memory #2"]);
     }
 
     #[test]
@@ -333,6 +382,19 @@ mod tests {
         };
         assert_eq!(maker(&board), None);
         assert_eq!(maker(&part(PartKind::Touchpad, "hid:093a:1343")), None);
+    }
+
+    #[test]
+    fn a_listed_part_is_named_by_its_listing_and_numbered_by_its_own_model() {
+        let board = board(wire::BOARD_LAPTOP13_PRO_ULTRA_3);
+        let sold = catalogue(&board);
+        assert_eq!(name(&board, sold), "Laptop 13 Pro Mainboard");
+        assert_eq!(part_number(&board, sold), wire::BOARD_LAPTOP13_PRO_ULTRA_3);
+    }
+
+    #[test]
+    fn a_part_that_named_nothing_falls_back_to_its_kind() {
+        assert_eq!(name(&part(PartKind::Display, "drm:eDP-1"), None), "Display");
     }
 
     #[test]
