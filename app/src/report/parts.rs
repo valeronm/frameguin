@@ -164,10 +164,8 @@ fn details(part: &Identity) -> adw::PreferencesPage {
         if let Some(url) = sold.url {
             group.set_header_suffix(Some(&link_button(url)));
         }
-        optional_value(&group, "Manufacturer", maker(part).unwrap_or_default());
-    } else {
-        optional_value(&group, "Vendor", &part.vendor);
     }
+    optional_value(&group, "Manufacturer", maker(part));
     optional_value(&group, "Part number", part_number(part, sold));
     optional_value(&group, "Serial", &part.serial);
     for firmware in &part.firmware {

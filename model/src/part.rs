@@ -217,11 +217,14 @@ const fn varied(
 }
 
 /// The maker of a part made by someone other than Framework — a memory
-/// module is Micron's part before it is Framework's listing. None where
+/// module is Micron's part before it is Framework's listing. Empty where
 /// Framework made it or the hardware named no maker.
 #[must_use]
-pub fn maker(part: &Identity) -> Option<&str> {
-    (!part.vendor.is_empty() && part.vendor != VENDOR).then(|| pnp(&part.vendor))
+pub fn maker(part: &Identity) -> &str {
+    if part.vendor.is_empty() || part.vendor == VENDOR {
+        return "";
+    }
+    pnp(part.kind, &part.vendor)
 }
 
 /// What a part is called: the catalogue's words where a listing names it,
@@ -251,10 +254,11 @@ pub fn part_number(part: &Identity, sold: Option<Catalogue>) -> &str {
 
 /// The maker behind a three-letter PNP id, curated from the ids seen on real
 /// hardware: the register that assigns them is not something this can carry,
-/// so an id with no entry is left as the part gave it.
-fn pnp(id: &str) -> &str {
-    match id {
-        "CSW" => "CSOT",
+/// so an id with no entry is left as the part gave it. Only a display
+/// announces itself with one, the other kinds naming their maker outright.
+fn pnp(kind: PartKind, id: &str) -> &str {
+    match (kind, id) {
+        (PartKind::Display, "CSW") => "CSOT",
         _ => id,
     }
 }
@@ -372,16 +376,13 @@ mod tests {
 
     #[test]
     fn only_a_part_of_another_make_keeps_its_makers_words() {
-        assert_eq!(
-            maker(&module("dmi-slot:LPCAMM2_0")),
-            Some("Micron Technology")
-        );
+        assert_eq!(maker(&module("dmi-slot:LPCAMM2_0")), "Micron Technology");
         let board = Identity {
             vendor: VENDOR.to_owned(),
             ..part(PartKind::Mainboard, "dmi-board:FRANMJCP07")
         };
-        assert_eq!(maker(&board), None);
-        assert_eq!(maker(&part(PartKind::Touchpad, "hid:093a:1343")), None);
+        assert_eq!(maker(&board), "");
+        assert_eq!(maker(&part(PartKind::Touchpad, "hid:093a:1343")), "");
     }
 
     #[test]
