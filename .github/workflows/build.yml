@@ -93,7 +93,7 @@ jobs:
           name: packages
           path: |
             target/debian/*.deb
-            target/dist/*.tar.gz
+            target/dist/*.tar.xz
             target/dist/*.sha256
 
   release:

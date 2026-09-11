@@ -106,11 +106,11 @@ That downloads and unpacks as your user and runs only the installer under
 [packaging/get.sh](packaging/get.sh).
 
 By hand, from the same release page: download
-`frameguin-<version>-x86_64-linux.tar.gz` and the `.sha256` beside it, then
+`frameguin-<version>-x86_64-linux.tar.xz` and the `.sha256` beside it, then
 
 ```sh
-sha256sum -c frameguin-*-x86_64-linux.tar.gz.sha256
-tar -xzf frameguin-*-x86_64-linux.tar.gz
+sha256sum -c frameguin-*-x86_64-linux.tar.xz.sha256
+tar -xJf frameguin-*-x86_64-linux.tar.xz
 sudo ./frameguin-*-x86_64-linux/install.sh
 ```
 

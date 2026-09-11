@@ -1,5 +1,5 @@
 #!/bin/bash
-# Builds target/dist/frameguin-<version>-<arch>-linux.tar.gz, for distributions
+# Builds target/dist/frameguin-<version>-<arch>-linux.tar.xz, for distributions
 # the .deb cannot serve. The tarball carries install.sh and the unrendered
 # data/ templates rather than a prepared tree, so a tarball install and a
 # checkout install run the same code and land in the same places.
@@ -33,10 +33,10 @@ install -m755 packaging/render-data.sh "$stage/packaging/"
 cp -r data "$stage/data"
 cp README.md LICENSE "$stage/"
 
-tar -czf "target/dist/$name.tar.gz" -C target/dist "$name"
-( cd target/dist && sha256sum "$name.tar.gz" >"$name.tar.gz.sha256" )
+tar -cJf "target/dist/$name.tar.xz" -C target/dist "$name"
+( cd target/dist && sha256sum "$name.tar.xz" >"$name.tar.xz.sha256" )
 # Staging tree removed rather than left beside the tarball: it is under
 # target/, which CI caches, and nothing reads it again.
 rm -rf "$stage"
 
-echo "target/dist/$name.tar.gz"
+echo "target/dist/$name.tar.xz"

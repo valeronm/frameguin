@@ -14,7 +14,7 @@ set -eu
 repo=valeronm/frameguin
 latest="https://github.com/$repo/releases/latest"
 
-for tool in curl tar sha256sum; do
+for tool in curl tar xz sha256sum; do
     command -v "$tool" >/dev/null || { echo "$tool is required" >&2; exit 1; }
 done
 
@@ -37,20 +37,20 @@ trap 'rm -rf "$tmp"' EXIT INT TERM
 # Which architectures exist is the release's business, not this script's, so
 # a missing asset is what reports an unsupported one.
 echo "downloading $name"
-if ! curl -fsSL -o "$tmp/$name.tar.gz" "$base/$name.tar.gz"; then
+if ! curl -fsSL -o "$tmp/$name.tar.xz" "$base/$name.tar.xz"; then
     echo "$tag has no build for $(uname -m) — build from source instead:" >&2
     echo "  https://github.com/$repo#build-from-source" >&2
     exit 1
 fi
-curl -fsSL -o "$tmp/$name.tar.gz.sha256" "$base/$name.tar.gz.sha256"
+curl -fsSL -o "$tmp/$name.tar.xz.sha256" "$base/$name.tar.xz.sha256"
 
 # The checksum ships beside the tarball, so this catches a truncated download
 # or a half-replaced release asset rather than a hostile one — that is what
 # HTTPS is for.
-( cd "$tmp" && sha256sum -c "$name.tar.gz.sha256" >/dev/null ) ||
+( cd "$tmp" && sha256sum -c "$name.tar.xz.sha256" >/dev/null ) ||
     { echo "checksum mismatch — download corrupted" >&2; exit 1; }
 
-tar -xzf "$tmp/$name.tar.gz" -C "$tmp"
+tar -xJf "$tmp/$name.tar.xz" -C "$tmp"
 
 echo "installing with sudo; you may be prompted for your password"
 sudo "$tmp/$name/install.sh"
