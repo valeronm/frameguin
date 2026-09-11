@@ -1,3 +1,24 @@
+frameguin (0.3.0-1) unstable; urgency=medium
+
+  * Add a Restore settings switch that puts the charge limit, the power
+    button LED level and the touchscreen setting back after a restart or a
+    resume.
+  * Draw the parts window as a list of parts beside the details of the one
+    selected.
+  * List the display panel as a part of its own, read from the display
+    connector.
+  * Show the number stamped on a part beside its model.
+  * Name the maker of a part even where the catalogue does not list the part
+    itself.
+  * Catalogue the Laptop 12 (Intel Core Series 3) mainboard and every battery
+    pack the EC knows.
+  * Put a mainboard's processor on a row of its own.
+  * Show the EC's firmware as a version, a build date and a builder.
+  * Ship the tarball compressed with xz; unpacking one by hand needs xz
+    present.
+
+ -- Valerii Myronov <valeriy@hey.com>  Fri, 11 Sep 2026 01:18:30 +0100
+
 frameguin (0.2.1-1) unstable; urgency=medium
 
   * Add a USB-C ports report: what is attached to each socket, the power and
