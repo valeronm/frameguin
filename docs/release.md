@@ -82,18 +82,17 @@ One bullet per change a user can see, never one per commit: most of a range is
 refactors, module splits and formatting, and a release names none of them. The
 test is whether someone who never reads the repo would notice.
 
-Say what the app now does, and name what it did before wherever the change is
-a correction. These bullets are the release page as well as `apt changelog`,
-so they are read by someone deciding whether to update, who needs to know
-whether the thing that annoyed them is the thing that was fixed.
+Describe plainly what the app gained or lost, with no clause setting it
+against what it did before: these bullets are the release page as well as
+`apt changelog`, and a page where each one carries an "instead of" reads as
+one sentence repeated.
 
 ```
 frameguin (0.9.0-1) unstable; urgency=medium
 
-  * Show the charge limit as a percentage, instead of the raw value the EC
-    reports.
-  * Name the tray icon after the board it found, rather than leaving it
-    "Frameguin" on every machine.
+  * Show the charge limit as a percentage.
+  * Name the tray icon after the board it found.
+  * Remove the raw register dump from the battery window.
 
  -- Your Name <you@example.org>  Mon, 02 Feb 2026 09:15:00 +0000
 ```
