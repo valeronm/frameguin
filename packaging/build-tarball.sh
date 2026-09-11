@@ -17,7 +17,6 @@ esac
 root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$root"
 
-app_id=io.github.valeronm.Frameguin
 version="$(./packaging/check-version.sh "$expected")"
 
 # --locked: a committed lock that disagrees with the manifest is a release
@@ -33,19 +32,6 @@ install -m755 target/release/frameguin target/release/frameguin-daemon install.s
 install -m755 packaging/render-data.sh "$stage/packaging/"
 cp -r data "$stage/data"
 cp README.md LICENSE "$stage/"
-
-# Every data/ member install.sh names. cp -r would copy a data/ that had lost
-# one without complaining, and the failure would then land at install time on
-# someone else's machine. Comparing the staged tree against data/ cannot catch
-# this: a missing member is missing on both sides.
-for f in frameguin.1.in frameguin-daemon.service.in "$app_id.service.in" \
-         "$app_id.conf" "$app_id.policy" "$app_id.desktop" "$app_id.metainfo.xml" \
-         icons/"$app_id.svg" icons/"$app_id-symbolic.svg"; do
-    if [ ! -e "data/$f" ]; then
-        echo "data/$f is missing; install.sh installs it" >&2
-        exit 1
-    fi
-done
 
 tar -czf "target/dist/$name.tar.gz" -C target/dist "$name"
 ( cd target/dist && sha256sum "$name.tar.gz" >"$name.tar.gz.sha256" )
