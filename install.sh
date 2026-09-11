@@ -41,6 +41,10 @@ data="$staging/data"
 # mode, source, destination triples — the single list both modes use. Kept as
 # separate elements rather than delimited strings so a path is never parsed.
 files=(
+    # This script, so --uninstall stays available: get.sh unpacks into a
+    # temporary directory it deletes, taking the only other copy with it.
+    # First, so an install stopped partway can still be removed.
+    755 "$src/install.sh"                      "$prefix/libexec/frameguin-uninstall.sh"
     755 "$built/frameguin-daemon"              "$prefix/libexec/frameguin-daemon"
     755 "$built/frameguin"                     "$prefix/bin/frameguin"
     644 "$data/$app_id.conf"                   "/etc/dbus-1/system.d/$app_id.conf"
@@ -55,9 +59,6 @@ files=(
     644 "$data/icons/$app_id.svg"              "/usr/share/icons/hicolor/scalable/apps/$app_id.svg"
     644 "$data/icons/$app_id-symbolic.svg"     "/usr/share/icons/hicolor/symbolic/apps/$app_id-symbolic.svg"
     644 "$data/frameguin.1"                    "$prefix/share/man/man1/frameguin.1"
-    # This script, so --uninstall stays available: get.sh unpacks into a
-    # temporary directory it deletes, taking the only other copy with it.
-    755 "$src/install.sh"                      "$prefix/libexec/frameguin-uninstall.sh"
 )
 
 if [ "${1:-}" = "--uninstall" ]; then
@@ -114,6 +115,22 @@ if [ -n "$missing" ]; then
     exit 1
 fi
 
+# Asked of the binary being installed rather than tracked here: it is the one
+# thing that always knows, and --version needs no display or environment.
+# Expects one line ending in the version; render-data.sh rejects an empty one.
+version="$("$built/frameguin" --version)"
+"$src/packaging/render-data.sh" "$data" \
+    LIBEXECDIR="$prefix/libexec" VERSION="${version##* }"
+
+# install runs once per file, so a source found missing mid-loop leaves the
+# files before it written.
+for ((i = 0; i < ${#files[@]}; i += 3)); do
+    if [ ! -e "${files[i + 1]}" ]; then
+        echo "${files[i + 1]##*/} is missing; nothing was installed" >&2
+        exit 1
+    fi
+done
+
 # Everything that can refuse has run; what follows is advisory.
 
 # The other prefix having an install is the mixed-install case, and here is
@@ -147,13 +164,6 @@ if [ -n "${SUDO_USER:-}" ] && pgrep -x -u "$SUDO_USER" frameguin >/dev/null 2>&1
     app_was_running=1
 fi
 pkill -x frameguin 2>/dev/null || true
-
-# Asked of the binary being installed rather than tracked here: it is the one
-# thing that always knows, and --version needs no display or environment.
-# Expects one line ending in the version; render-data.sh rejects an empty one.
-version="$("$built/frameguin" --version)"
-"$src/packaging/render-data.sh" "$data" \
-    LIBEXECDIR="$prefix/libexec" VERSION="${version##* }"
 
 for ((i = 0; i < ${#files[@]}; i += 3)); do
     install -Dm"${files[i]}" "${files[i + 1]}" "${files[i + 2]}"
