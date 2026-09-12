@@ -21,6 +21,7 @@ pub fn hid(
         model: product.to_owned(),
         part_number: String::new(),
         serial: serial.to_owned(),
+        size_bytes: 0,
         id: format!("hid:{vid:04x}:{pid:04x}"),
         firmware: Vec::new(),
     }
@@ -49,6 +50,7 @@ pub fn edid(manufacturer: &str, product: u16, name: &str, serial: &str) -> Ident
         model: name.to_owned(),
         part_number: String::new(),
         serial: serial.to_owned(),
+        size_bytes: 0,
         id: format!("edid:{manufacturer}:{product:04x}"),
         firmware: Vec::new(),
     }
@@ -63,6 +65,7 @@ pub fn sbs(manufacturer: &str, model: &str, serial: &str) -> Identity {
         model: model.to_owned(),
         part_number: String::new(),
         serial: serial.to_owned(),
+        size_bytes: 0,
         id: format!("sbs:{model}"),
         firmware: Vec::new(),
     }

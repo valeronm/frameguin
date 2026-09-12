@@ -7,8 +7,10 @@ it and the non-obvious constraints.
 
 - Five crates, two binaries: `hardware/` is direct access to the machine —
   the transports, the roles, and the devices implementing the control
-  traits `wire` declares — and the only crate linking `framework_lib` and
-  `hidapi`; `daemon/` runs as root, links it, and serves it over the bus;
+  traits `wire` declares — and the only crate linking `framework_lib`;
+  `daemon/` runs as root, links it, and serves it over the bus, and links
+  `hidapi` itself to build the one `HidApi` every HID probe is handed, since
+  building one walks the bus;
   `app/` is the GTK4/libadwaita UI and links no hardware code; `wire/` is
   the D-Bus vocabulary, the control traits and the error kind every
   implementation of them shares, and the strings both binaries must spell
@@ -180,7 +182,8 @@ it and the non-obvious constraints.
   reaches the machine, so the filename answers which way: `ec.rs` the EC,
   `led.rs` the kernel's LED class, `touchpad.rs` the pad's own HID transport,
   `panel.rs` the touch panel's, `gpio.rs` a pad on the processor through the
-  GPIO character device, `drm.rs` the kernel's DRM class. Two of those pairs need an arbitration, and the two
+  GPIO character device, `drm.rs` the kernel's DRM class, `nvme.rs` the
+  kernel's NVMe class. Two of those pairs need an arbitration, and the two
   arbitrations are not alike: the power button LED has two possible drivers
   and one at a time, so what is settled is a handover and the order to make
   it in — and that lives in the device, `device/power_led.rs`, over the

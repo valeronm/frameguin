@@ -198,13 +198,14 @@ implemented by those devices alone.
 
 A **part** is asked what it is through one common trait,
 `hardware::part::Part`, answering an `Identity` — kind, vendor, model, part
-number, serial, the identifier it announces itself by, prefixed with its space
+number, serial, size, the identifier it announces itself by, prefixed with its space
 (`hid:093a:1343`, `dmi-slot:LPCAMM2_0`, `dmi-board:FRANMJCP07`), and every
 firmware it would report — because its caller iterates the machine's bill
 of materials without caring what any entry does. `Identity` lives in `wire`,
 being what that caller receives: the daemon collects one per part at
 startup, `GetDevices` answers with the list, and the app's parts window
-draws it with the words `model::part` gives. Detection sees the identity
+draws it with the words `model::part` gives — bar the size, spelled in
+`wire` so the daemon's own line carries the words the window shows. Detection sees the identity
 anyway, so a device keeps it rather than reducing it to a bool, and a device
 that is a part and nothing else — the mainboard, a memory module — is a
 device all the same.
@@ -251,7 +252,7 @@ Order: touchpad, touchscreen, power LED, battery. Smallest column first, the
 one with the most shared state last.
 
 Every control has moved: **touchpad, touchscreen, power LED, battery**.
-Parts with no control: **mainboard, memory, display**. The keyboard
+Parts with no control: **mainboard, memory, storage, display**. The keyboard
 backlight, which the app never showed — the desktop already carries it on
 its own keys — was dropped rather than moved.
 

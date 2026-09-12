@@ -168,6 +168,7 @@ fn details(part: &Identity) -> adw::PreferencesPage {
     }
     optional_value(&group, "Manufacturer", maker(part));
     optional_value(&group, "Part number", part_number(part, sold));
+    optional_value(&group, "Capacity", &part.size_spelled());
     optional_value(&group, "Serial", &part.serial);
     for firmware in &part.firmware {
         optional_value(&group, &firmware.name, &firmware.version);

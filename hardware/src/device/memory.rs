@@ -18,6 +18,13 @@ const EXTENDED_SIZE: usize = 0x1c;
 
 const SIZE_EXTENDED: u16 = 0x7fff;
 const SIZE_UNKNOWN: u16 = 0xffff;
+/// Set where the 16-bit size counts kilobytes rather than megabytes.
+const SIZE_IN_KILOBYTES: u16 = 0x8000;
+/// The extension's size field, its top bit being reserved.
+const EXTENDED_SIZE_MASK: u32 = 0x7fff_ffff;
+
+const KILOBYTE: u64 = 1 << 10;
+const MEGABYTE: u64 = 1 << 20;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Module {
@@ -43,7 +50,7 @@ impl Module {
 
     /// None for a structure that names no fitted module.
     pub fn parse(entry: &Structure) -> Option<Self> {
-        fitted(entry)?;
+        let size_bytes = size(entry)?;
         Some(Self {
             identity: Identity {
                 kind: PartKind::Memory,
@@ -51,6 +58,7 @@ impl Module {
                 model: entry.string(PART_NUMBER).unwrap_or_default().to_owned(),
                 part_number: String::new(),
                 serial: entry.string(SERIAL).unwrap_or_default().to_owned(),
+                size_bytes,
                 id: format!("dmi-slot:{}", entry.string(LOCATOR).unwrap_or_default()),
                 firmware: Vec::new(),
             },
@@ -58,14 +66,20 @@ impl Module {
     }
 }
 
-/// Whether anything is in the slot, which the table says through the size:
-/// none, unknown, or — for a module the 16-bit field cannot hold — a size
-/// carried in the 32-bit extension, where zero is still nothing.
-fn fitted(entry: &Structure) -> Option<()> {
+/// An empty slot says so as none, as unknown, or — for a module the 16-bit
+/// field cannot hold — as a zero in the 32-bit extension that carries its
+/// megabytes.
+fn size(entry: &Structure) -> Option<u64> {
     match entry.u16(SIZE)? {
         0 | SIZE_UNKNOWN => None,
-        SIZE_EXTENDED => (entry.u32(EXTENDED_SIZE)? != 0).then_some(()),
-        _ => Some(()),
+        SIZE_EXTENDED => match entry.u32(EXTENDED_SIZE)? & EXTENDED_SIZE_MASK {
+            0 => None,
+            megabytes => Some(u64::from(megabytes) * MEGABYTE),
+        },
+        size if size & SIZE_IN_KILOBYTES != 0 => {
+            Some(u64::from(size & !SIZE_IN_KILOBYTES) * KILOBYTE)
+        }
+        size => Some(u64::from(size) * MEGABYTE),
     }
 }
 
@@ -114,13 +128,26 @@ mod tests {
         assert_eq!(identity.vendor, "Micron Technology");
         assert_eq!(identity.model, "MTD16C20325N4FN023F1 YF");
         assert_eq!(identity.serial, "01234567");
+        assert_eq!(identity.size_bytes, 32 << 30);
         assert_eq!(identity.id, "dmi-slot:LPCAMM2_0");
     }
 
     #[test]
-    fn a_module_the_short_field_can_size_is_fitted() {
+    fn a_module_the_short_field_can_size_is_counted_in_megabytes() {
         let entry = Structure::parse(&entry(0x2000, 0, &STRINGS)).unwrap();
-        assert!(Module::parse(&entry).is_some());
+        assert_eq!(
+            Module::parse(&entry).unwrap().identity().size_bytes,
+            8 << 30
+        );
+    }
+
+    #[test]
+    fn a_short_field_with_its_top_bit_set_counts_kilobytes() {
+        let entry = Structure::parse(&entry(0x8000 | 512, 0, &STRINGS)).unwrap();
+        assert_eq!(
+            Module::parse(&entry).unwrap().identity().size_bytes,
+            512 << 10
+        );
     }
 
     #[test]

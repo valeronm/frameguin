@@ -43,9 +43,9 @@ fn the_composite_signatures_are_the_ones_the_methods_declare() {
     // The pack's own report: cell voltages, alarms by name, and a temperature
     // in tenths of a degree.
     assert_eq!(BatteryCondition::SIGNATURE, "(auasn)");
-    // A part: kind, vendor, model, part number, serial, id, then its
-    // firmwares as name, version, build stamp and builder.
-    assert_eq!(Identity::SIGNATURE, "(ssssssa(ssss))");
+    // A part: kind, vendor, model, part number, serial, size, id, then
+    // its firmwares as name, version, build stamp and builder.
+    assert_eq!(Identity::SIGNATURE, "(ssssstsa(ssss))");
 }
 
 #[test]
@@ -53,6 +53,7 @@ fn part_kind_names_are_kebab_case() {
     assert_eq!(wire_string(PartKind::Mainboard), "mainboard");
     assert_eq!(wire_string(PartKind::Battery), "battery");
     assert_eq!(wire_string(PartKind::Memory), "memory");
+    assert_eq!(wire_string(PartKind::Storage), "storage");
     assert_eq!(wire_string(PartKind::Display), "display");
     assert_eq!(wire_string(PartKind::Touchpad), "touchpad");
 }

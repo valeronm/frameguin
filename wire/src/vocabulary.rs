@@ -398,6 +398,7 @@ pub enum PartKind {
     Mainboard,
     Battery,
     Memory,
+    Storage,
     Display,
     Touchpad,
 }
@@ -443,6 +444,9 @@ pub struct Identity {
     pub part_number: String,
     /// Empty where the part announces none, as some descriptors do.
     pub serial: String,
+    /// How much the part holds, in bytes, and zero where it announces no
+    /// size.
+    pub size_bytes: u64,
     /// The identifier the part announces itself by, prefixed with the space
     /// it is drawn from — `hid:093a:1343`, `dmi-slot:LPCAMM2_0`,
     /// `dmi-board:FRANMJCP07`.
@@ -450,6 +454,55 @@ pub struct Identity {
     /// Every firmware the part would report — a version is never worth a
     /// failed detection, so one it would not say is left out.
     pub firmware: Vec<Firmware>,
+}
+
+impl Identity {
+    /// The size in the units the part is sold in: memory in binary ones, as
+    /// a module is labelled, and anything else in decimal ones, as a drive
+    /// is — both spelled GB and TB. Empty where the part announced no size.
+    #[must_use]
+    pub fn size_spelled(&self) -> String {
+        if self.size_bytes == 0 {
+            return String::new();
+        }
+        let base = match self.kind {
+            PartKind::Memory => 1024.0,
+            PartKind::Mainboard
+            | PartKind::Battery
+            | PartKind::Storage
+            | PartKind::Display
+            | PartKind::Touchpad => 1000.0,
+        };
+        scaled(self.size_bytes, base)
+    }
+}
+
+/// `bytes` in the largest unit of `base` it reaches, to three significant
+/// figures with trailing zeros dropped.
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "three significant figures ask far less than an f64 carries"
+)]
+fn scaled(bytes: u64, base: f64) -> String {
+    const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
+    let mut value = bytes as f64;
+    let mut unit = 0;
+    while value >= base && unit < UNITS.len() - 1 {
+        value /= base;
+        unit += 1;
+    }
+    let decimals = match value {
+        v if v >= 100.0 => 0,
+        v if v >= 10.0 => 1,
+        _ => 2,
+    };
+    let mut spelled = format!("{value:.decimals$}");
+    if spelled.contains('.') {
+        spelled.truncate(spelled.trim_end_matches('0').trim_end_matches('.').len());
+    }
+    spelled.push(' ');
+    spelled.push_str(UNITS[unit]);
+    spelled
 }
 
 /// One line per part, as the daemon's journal and the app's debug report
@@ -473,9 +526,15 @@ impl fmt::Display for Identity {
                 .collect::<Vec<_>>()
                 .join(", ")
         };
+        let spelled = self.size_spelled();
+        let capacity = if spelled.is_empty() {
+            String::new()
+        } else {
+            format!(" capacity {spelled}")
+        };
         write!(
             f,
-            "{:?} {} \"{}\" \"{}\" firmware {firmware}",
+            "{:?} {} \"{}\" \"{}\"{capacity} firmware {firmware}",
             self.kind, self.id, self.vendor, self.model
         )
     }
@@ -496,4 +555,43 @@ impl ClickForce {
     /// than a layout — so unlike [`PowerLedLevel::ALL`] a front-end can draw
     /// them in this order, and reordering here would move its rows.
     pub const ALL: [Self; 3] = [Self::Low, Self::Medium, Self::High];
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Identity, PartKind};
+
+    fn sized(kind: PartKind, size_bytes: u64) -> Identity {
+        Identity {
+            kind,
+            vendor: String::new(),
+            model: String::new(),
+            part_number: String::new(),
+            serial: String::new(),
+            size_bytes,
+            id: String::new(),
+            firmware: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn each_kind_is_sized_in_the_units_it_is_sold_in() {
+        let spelled = |kind, size_bytes| sized(kind, size_bytes).size_spelled();
+        assert_eq!(spelled(PartKind::Memory, 32 << 30), "32 GB");
+        assert_eq!(spelled(PartKind::Storage, 1_024_209_543_168), "1.02 TB");
+        assert_eq!(spelled(PartKind::Storage, 512_110_190_592), "512 GB");
+        assert_eq!(spelled(PartKind::Storage, 2_000_398_934_016), "2 TB");
+    }
+
+    #[test]
+    fn a_part_that_announced_no_size_is_spelled_no_size() {
+        assert_eq!(sized(PartKind::Battery, 0).size_spelled(), "");
+    }
+
+    #[test]
+    fn a_line_carries_a_capacity_only_where_the_part_has_one() {
+        let drive = sized(PartKind::Storage, 1_024_209_543_168).to_string();
+        assert!(drive.contains("capacity 1.02 TB"));
+        assert!(!sized(PartKind::Battery, 0).to_string().contains("capacity"));
+    }
 }

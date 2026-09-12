@@ -10,6 +10,7 @@ pub fn kind_label(kind: PartKind) -> &'static str {
         PartKind::Mainboard => "Mainboard",
         PartKind::Battery => "Battery",
         PartKind::Memory => "Memory",
+        PartKind::Storage => "Storage",
         PartKind::Display => "Display",
         PartKind::Touchpad => "Touchpad",
     }
@@ -22,9 +23,10 @@ fn rank(kind: PartKind) -> u8 {
     match kind {
         PartKind::Mainboard => 0,
         PartKind::Memory => 1,
-        PartKind::Battery => 2,
-        PartKind::Display => 3,
-        PartKind::Touchpad => 4,
+        PartKind::Storage => 2,
+        PartKind::Battery => 3,
+        PartKind::Display => 4,
+        PartKind::Touchpad => 5,
     }
 }
 
@@ -80,9 +82,11 @@ pub struct Catalogue {
 /// descriptor free to carry no strings at all.
 fn key(part: &Identity) -> (PartKind, &str) {
     let key = match part.kind {
-        PartKind::Mainboard | PartKind::Battery | PartKind::Memory | PartKind::Display => {
-            &part.model
-        }
+        PartKind::Mainboard
+        | PartKind::Battery
+        | PartKind::Memory
+        | PartKind::Storage
+        | PartKind::Display => &part.model,
         PartKind::Touchpad => &part.id,
     };
     (part.kind, key)
@@ -224,7 +228,7 @@ pub fn maker(part: &Identity) -> &str {
     if part.vendor.is_empty() || part.vendor == VENDOR {
         return "";
     }
-    pnp(part.kind, &part.vendor)
+    registered(part.kind, &part.vendor)
 }
 
 /// What a part is called: the catalogue's words where a listing names it,
@@ -252,13 +256,14 @@ pub fn part_number(part: &Identity, sold: Option<Catalogue>) -> &str {
     }
 }
 
-/// The maker behind a three-letter PNP id, curated from the ids seen on real
-/// hardware: the register that assigns them is not something this can carry,
-/// so an id with no entry is left as the part gave it. Only a display
-/// announces itself with one, the other kinds naming their maker outright.
-fn pnp(kind: PartKind, id: &str) -> &str {
+/// The maker behind an id a registry assigns — a display's three-letter PNP
+/// id, a drive's PCI vendor id — curated from the ids seen on real hardware:
+/// the registries are not something this can carry, so an id with no entry
+/// is left as the part gave it. The other kinds name their maker outright.
+fn registered(kind: PartKind, id: &str) -> &str {
     match (kind, id) {
         (PartKind::Display, "CSW") => "CSOT",
+        (PartKind::Storage, "15b7") => "SanDisk",
         _ => id,
     }
 }
@@ -276,6 +281,7 @@ mod tests {
             model: String::new(),
             part_number: String::new(),
             serial: String::new(),
+            size_bytes: 0,
             id: id.to_owned(),
             firmware: Vec::new(),
         }
@@ -383,6 +389,16 @@ mod tests {
         };
         assert_eq!(maker(&board), "");
         assert_eq!(maker(&part(PartKind::Touchpad, "hid:093a:1343")), "");
+    }
+
+    #[test]
+    fn a_drive_is_made_by_whoever_holds_its_pci_vendor_id() {
+        let drive = |vendor: &str| Identity {
+            vendor: vendor.to_owned(),
+            ..part(PartKind::Storage, "pci:15b7:5045")
+        };
+        assert_eq!(maker(&drive("15b7")), "SanDisk");
+        assert_eq!(maker(&drive("1e0f")), "1e0f");
     }
 
     #[test]

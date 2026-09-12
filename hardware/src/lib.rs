@@ -15,7 +15,7 @@
 //! class, [`touchpad`] the pad's own HID transport, [`panel`] the touch
 //! panel's, [`gpio`] a pad on the processor through the GPIO character
 //! device, [`dmi`] the firmware's SMBIOS table, [`drm`] the kernel's DRM
-//! class. [`touchscreen`] settles
+//! class, [`nvme`] the kernel's `NVMe` class. [`touchscreen`] settles
 //! which of two routes a machine has, and is the role over either. `sbs` is
 //! the pack's own registers and what their words mean, `pd` what the EC's
 //! cached PD controller version means, [`edid`] what a panel's own block
@@ -46,6 +46,7 @@ pub mod gpio;
 pub mod led;
 pub mod lifetime;
 pub mod mirror;
+pub mod nvme;
 pub mod panel;
 pub mod part;
 pub(crate) mod pd;

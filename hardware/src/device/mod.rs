@@ -13,5 +13,6 @@ pub mod mainboard;
 pub mod memory;
 pub mod ports;
 pub mod power_led;
+pub mod storage;
 pub mod touchpad;
 pub mod touchscreen;

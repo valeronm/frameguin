@@ -18,6 +18,7 @@ use frameguin_hardware::device::mainboard::Mainboard;
 use frameguin_hardware::device::memory::Module;
 use frameguin_hardware::device::ports::Ports;
 use frameguin_hardware::device::power_led::PowerLed;
+use frameguin_hardware::device::storage::Drive;
 use frameguin_hardware::device::touchpad::Touchpad;
 use frameguin_hardware::device::touchscreen::Touchscreen;
 use frameguin_hardware::ec::Ec;
@@ -126,6 +127,7 @@ fn main() -> zbus::Result<()> {
     let battery = ec.as_ref().and_then(|ec| Battery::detect(ec, &mirrors));
     let mainboard = Mainboard::detect(ec.as_deref());
     let memory = Module::detect();
+    let drives = Drive::detect();
     let displays = Display::detect(controller_firmware);
     let parts: Vec<Identity> = [
         mainboard.as_ref().map(Part::identity),
@@ -135,6 +137,7 @@ fn main() -> zbus::Result<()> {
     .into_iter()
     .flatten()
     .chain(memory.iter().map(Part::identity))
+    .chain(drives.iter().map(Part::identity))
     .chain(displays.iter().map(Part::identity))
     .cloned()
     .collect();

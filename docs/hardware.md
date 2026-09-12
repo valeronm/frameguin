@@ -62,6 +62,7 @@ Every heading in the file appears here.
 - [Haptic touchpad](#haptic-touchpad)
   - [Haptic touchpad persistence](#haptic-touchpad-persistence)
 - [Display panel](#display-panel)
+- [Storage](#storage)
 - [Touchscreen](#touchscreen)
   - [Touchscreen persistence](#touchscreen-persistence)
 - [USB-C ports and PD controllers](#usb-c-ports-and-pd-controllers)
@@ -650,6 +651,27 @@ USB-C port is a monitor rather than a part of the laptop.
 settles an eDP connector's status when it initializes the panel rather than
 from lid state, so a machine booting docked is expected to report it, but
 that has not been watched here.
+
+## Storage
+
+A drive answers for itself through the kernel's NVMe class: `model`,
+`serial` and `firmware_rev` under `/sys/class/nvme/nvme*`, world-readable,
+and space-padded to the width of the Identify fields the controller carries
+them in.
+
+NVMe names no maker in words. What it carries instead is three identifiers,
+and they can disagree: this machine's drive, `SD PC SN7100S SDFPNSL-1T00` on
+firmware `7612M000`, reads PCI vendor `0x15b7` and IEEE OUI `00:1B:44` at the
+head of its namespace EUI-64, both registered to SanDisk, and a subsystem NQN
+of `nqn.2023-01.com.wdc:…`, which names Western Digital. A drive with no NQN
+of its own is given one under `nqn.2014.08.org.nvmexpress:` by the kernel.
+
+**Only a drive the board carries is a part.** The class lists a drive in a
+Thunderbolt enclosure beside one in an M.2 slot. The kernel marks a PCI
+device below an external-facing port `removable`, and this machine's own
+drive carries no such attribute; that an enclosure's drive reads `removable`
+has not been watched here. A drive on a USB bridge, the storage expansion
+card among them, enumerates as SCSI and never appears in the class.
 
 ## Touchscreen
 
