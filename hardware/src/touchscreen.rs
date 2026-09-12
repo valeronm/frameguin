@@ -2,8 +2,8 @@
 //! holds it through.
 //!
 //! One control, reached two unrelated ways: a pad on the processor
-//! ([`crate::gpio`]) where the panel takes no command, the panel's own
-//! transport ([`crate::panel`]) where it does. A machine has one or the
+//! (`gpio`) where the panel takes no command, the panel's own
+//! transport (`panel`) where it does. A machine has one or the
 //! other and never both — which pad carries the enable is a fact about the
 //! mainboard, whether a command is implemented is a fact about the panel, and
 //! the pairings that exist put exactly one of the two within reach. So this

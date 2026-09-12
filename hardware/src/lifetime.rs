@@ -142,7 +142,7 @@ impl HostWaking {
 }
 
 /// None where `/proc/sys` is hidden from this unit by `ProcSubset=`.
-pub fn host_boot() -> Option<String> {
+pub(crate) fn host_boot() -> Option<String> {
     std::fs::read_to_string("/proc/sys/kernel/random/boot_id")
         .ok()
         .map(|id| id.trim().to_owned())

@@ -33,7 +33,7 @@ pub struct Battery {
 
 impl Battery {
     /// The pack in the EC's block, if one answers there.
-    pub fn detect(ec: &Arc<Ec>, mirrors: &Mirrors) -> Option<Self> {
+    pub(crate) fn detect(ec: &Arc<Ec>, mirrors: &Mirrors) -> Option<Self> {
         let identity = ec.identity()?;
         Some(Self::new(ec.clone(), ec.clone(), mirrors, identity))
     }

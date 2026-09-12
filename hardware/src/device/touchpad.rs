@@ -55,7 +55,7 @@ pub struct Touchpad {
 impl Touchpad {
     /// The pad on this machine's HID bus, if it is a haptic one, keeping
     /// what the bus said it was.
-    pub fn detect(hid: &hidapi::HidApi, mirrors: &Mirrors) -> Option<Self> {
+    pub(crate) fn detect(hid: &hidapi::HidApi, mirrors: &Mirrors) -> Option<Self> {
         let pad = touchpad::haptic_pad(hid)?;
         // No firmware version: the haptic pad's registers are in no table
         // this can trust.

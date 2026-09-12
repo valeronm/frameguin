@@ -12,28 +12,16 @@ mod service;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use frameguin_hardware::device::battery::Battery;
-use frameguin_hardware::device::display::Display;
-use frameguin_hardware::device::mainboard::Mainboard;
-use frameguin_hardware::device::memory::Module;
-use frameguin_hardware::device::ports::Ports;
-use frameguin_hardware::device::power_led::PowerLed;
-use frameguin_hardware::device::storage::Drive;
-use frameguin_hardware::device::touchpad::Touchpad;
-use frameguin_hardware::device::touchscreen::Touchscreen;
-use frameguin_hardware::ec::Ec;
-use frameguin_hardware::lifetime::{self, Holders};
-use frameguin_hardware::mirror::Mirrors;
-use frameguin_hardware::part::{Identity, Part};
+use frameguin_hardware::device::{self, Detected};
+use frameguin_hardware::part::Identity;
 use frameguin_hardware::restore::Restore;
-use frameguin_hardware::state::{StateFile, Store};
 use frameguin_wire as wire;
 use zbus::message::Header;
 use zbus::object_server::ObjectServer;
 use zbus::{Connection, fdo, interface};
 use zbus_polkit::policykit1::AuthorityProxy;
 
-use crate::interface::{Devices, Op};
+use crate::interface::Op;
 use crate::service::Service;
 
 const IDLE_EXIT: Duration = Duration::from_mins(5);
@@ -109,50 +97,16 @@ impl Daemon {
 fn main() -> zbus::Result<()> {
     let last_used = Arc::new(Mutex::new(Instant::now()));
     let clock = last_used.clone();
-    let store: Arc<dyn Store> = Arc::new(StateFile::load());
-    let ec = Ec::open().map(Arc::new);
-    let holders = Holders::new(
-        ec.as_ref().and_then(|ec| ec.boot().ok()),
-        lifetime::host_boot(),
-    );
-    let mirrors = Mirrors::new(store, holders);
-    // One walk of the HID bus for every device asked about: building an
-    // `HidApi` enumerates the lot.
-    let hid = hidapi::HidApi::new().ok();
-    let touchpad = hid.as_ref().and_then(|hid| Touchpad::detect(hid, &mirrors));
-    let (touchscreen, controller_firmware) = hid
-        .as_ref()
-        .map_or((None, None), |hid| Touchscreen::detect(hid, &mirrors));
-    let power_led = ec.as_ref().and_then(|ec| PowerLed::detect(ec, &mirrors));
-    let battery = ec.as_ref().and_then(|ec| Battery::detect(ec, &mirrors));
-    let mainboard = Mainboard::detect(ec.as_deref());
-    let memory = Module::detect();
-    let drives = Drive::detect();
-    let displays = Display::detect(controller_firmware);
-    let parts: Vec<Identity> = [
-        mainboard.as_ref().map(Part::identity),
-        battery.as_ref().map(Part::identity),
-        touchpad.as_ref().map(Part::identity),
-    ]
-    .into_iter()
-    .flatten()
-    .chain(memory.iter().map(Part::identity))
-    .chain(drives.iter().map(Part::identity))
-    .chain(displays.iter().map(Part::identity))
-    .cloned()
-    .collect();
-    // One journal line per part found, which is what a bug report about a
-    // device that is there and not served has to start from.
+    let Detected {
+        devices,
+        parts,
+        restore,
+    } = device::detect();
+    // What a bug report about a device that is there and not served has to
+    // start from.
     for identity in &parts {
         eprintln!("detected {identity}");
     }
-    let devices = Devices {
-        battery,
-        touchpad,
-        touchscreen,
-        power_led,
-        ports: ec.as_ref().and_then(Ports::detect),
-    };
     let _conn = zbus::block_on(async move {
         let conn = Connection::system().await?;
         let authority = AuthorityProxy::new(&conn)
@@ -162,7 +116,7 @@ fn main() -> zbus::Result<()> {
         let daemon = Daemon {
             service: service.clone(),
             parts,
-            restore: mirrors.restore(),
+            restore,
         };
         interface::serve_all(conn.object_server(), daemon, devices).await?;
         // Claim the name only once the objects are served, so an activating

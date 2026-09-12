@@ -41,7 +41,7 @@ impl Module {
     /// Every fitted module, in slot order. Empty slots are listed by the
     /// table too, with no size, and are left out here: a slot is a fact
     /// about the board, not a part.
-    pub fn detect() -> Vec<Self> {
+    pub(crate) fn detect() -> Vec<Self> {
         dmi::entries(MEMORY_DEVICE)
             .iter()
             .filter_map(Self::parse)
@@ -49,7 +49,7 @@ impl Module {
     }
 
     /// None for a structure that names no fitted module.
-    pub fn parse(entry: &Structure) -> Option<Self> {
+    fn parse(entry: &Structure) -> Option<Self> {
         let size_bytes = size(entry)?;
         Some(Self {
             identity: Identity {

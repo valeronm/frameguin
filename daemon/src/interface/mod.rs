@@ -20,10 +20,9 @@ mod tests;
 
 use std::sync::Arc;
 
+use frameguin_hardware::device::Devices;
 use frameguin_hardware::device::battery::Battery;
-use frameguin_hardware::device::ports::Ports;
 use frameguin_hardware::device::power_led::PowerLed;
-use frameguin_hardware::device::touchpad::Touchpad;
 use frameguin_hardware::device::touchscreen::Touchscreen;
 use frameguin_hardware::restore::Restorable;
 use frameguin_wire::{DeviceResult, OBJECT_PATH};
@@ -32,17 +31,6 @@ use zbus::object_server::{Interface, ObjectServer};
 use crate::Daemon;
 use crate::served::Served;
 use crate::service::Service;
-
-/// Every device with an interface, None where detection found none. One
-/// struct for the daemon and its tests both, so a device served by one and
-/// not the other is a missing field rather than a missing line.
-pub(crate) struct Devices {
-    pub(crate) battery: Option<Battery>,
-    pub(crate) touchpad: Option<Touchpad>,
-    pub(crate) touchscreen: Option<Touchscreen>,
-    pub(crate) power_led: Option<PowerLed>,
-    pub(crate) ports: Option<Ports>,
-}
 
 /// Everything the daemon puts at [`OBJECT_PATH`]: the root interface, then
 /// an interface per device detected — a device detection did not find is

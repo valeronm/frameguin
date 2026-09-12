@@ -6,12 +6,12 @@ use std::sync::{Arc, mpsc};
 use std::time::Duration;
 
 use async_io::Async;
+use frameguin_hardware::device::Devices;
 use frameguin_hardware::device::battery::Battery;
 use frameguin_hardware::device::ports::Ports;
 use frameguin_hardware::device::power_led::PowerLed;
 use frameguin_hardware::device::touchpad::Touchpad;
 use frameguin_hardware::device::touchscreen::Touchscreen;
-use frameguin_hardware::ec::Pack;
 use frameguin_hardware::mirror::Mirrors;
 use frameguin_hardware::part::Identity;
 use frameguin_hardware::restore::Restore;
@@ -26,7 +26,6 @@ use frameguin_wire::{
 use futures_lite::future::{block_on, or};
 use zbus::{Connection, Guid, connection};
 
-use super::Devices;
 use crate::Daemon;
 use crate::service::Service;
 
@@ -63,13 +62,12 @@ impl Machine {
     }
 
     fn devices(&self, mirrors: &Mirrors) -> Devices {
-        let gauge = Arc::new(Gauge::default());
         Devices {
             battery: Some(Battery::new(
-                gauge.clone(),
+                Arc::new(Gauge::default()),
                 self.charger.clone(),
                 mirrors,
-                gauge.identity().unwrap(),
+                battery_identity(),
             )),
             touchpad: Some(Touchpad::new(
                 Box::new(Haptic::default()),

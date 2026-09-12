@@ -16,7 +16,7 @@ pub struct Mirrors {
 }
 
 impl Mirrors {
-    pub fn new(store: Arc<dyn Store>, holders: Holders) -> Self {
+    pub(crate) fn new(store: Arc<dyn Store>, holders: Holders) -> Self {
         Self { store, holders }
     }
 
@@ -24,14 +24,13 @@ impl Mirrors {
         Restore::new(self.store.clone())
     }
 
-    pub fn wanted<V: Stored>(&self, name: &str) -> Wanted<V> {
+    pub(crate) fn wanted<V: Stored>(&self, name: &str) -> Wanted<V> {
         self.restore().wanted(name)
     }
 
-    /// A mirror holding a value under `key`, believed for `lifetime`. One
-    /// mirror per key: a second over the same key holds a copy the first's
-    /// writes do not move.
-    pub fn value<V: Stored>(&self, key: &str, lifetime: Lifetime) -> Mirror<V> {
+    /// One mirror per key: a second over the same key holds a copy the
+    /// first's writes do not move.
+    pub(crate) fn value<V: Stored>(&self, key: &str, lifetime: Lifetime) -> Mirror<V> {
         let value = V::load(self.store.as_ref(), key);
         let evidence = lifetime.recall(self.store.get(&evidence_key(key)).as_deref());
         Mirror {

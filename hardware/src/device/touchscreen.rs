@@ -25,7 +25,10 @@ impl Touchscreen {
     /// [`touchscreen::find`] for what qualifies one — and the controller's
     /// firmware version, which is the display's to report: the controller
     /// is sold in front of a panel and never on its own.
-    pub fn detect(hid: &hidapi::HidApi, mirrors: &Mirrors) -> (Option<Self>, Option<Firmware>) {
+    pub(crate) fn detect(
+        hid: &hidapi::HidApi,
+        mirrors: &Mirrors,
+    ) -> (Option<Self>, Option<Firmware>) {
         let Some((route, controller)) = touchscreen::find(hid) else {
             return (None, None);
         };

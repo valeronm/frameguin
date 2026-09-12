@@ -1,11 +1,11 @@
 //! The embedded controller: one method per operation the daemon performs on
 //! it.
 //!
-//! [`Ec`] is the only thing in the daemon holding a `CrosEc`. Every method
+//! `Ec` is the only holder of the `CrosEc`. Every method
 //! takes the lock and releases it before returning, and none calls another
 //! through the handle — `Mutex` does not re-enter, so a method that wants two
 //! commands under one lock issues both against the guard it already holds, as
-//! [`Ec::set_charge_current_limit`] does.
+//! `Ec::set_charge_current_limit` does.
 //!
 //! Two devices are deliberately absent: the power LED's off, which the
 //! kernel arbitrates ([`crate::led`]), and the haptic touchpad, which
@@ -102,7 +102,7 @@ fn device_error(e: impl std::fmt::Debug) -> DeviceError {
 /// can tell which — that is what makes remembering more of them later a change
 /// here rather than everywhere. A value is remembered only where asking again
 /// could not change what the answer settles.
-pub struct Ec {
+pub(crate) struct Ec {
     ec: Mutex<CrosEc>,
     memo: Memo,
 }
@@ -148,7 +148,7 @@ impl Ec {
     /// outright when `framework_lib` finds no driver (an empty driver list on
     /// e.g. aarch64 without `/dev/cros_ec`), so the vendor check is what keeps
     /// it from being constructed there rather than a courtesy.
-    pub fn open() -> Option<Self> {
+    pub(crate) fn open() -> Option<Self> {
         dmi::is_framework().then(|| Self {
             ec: Mutex::new(CrosEc::new()),
             memo: Memo::default(),
@@ -266,7 +266,7 @@ impl Ec {
     }
 
     /// When the EC booted, from its uptime and the wall clock read together.
-    pub fn boot(&self) -> DeviceResult<EcBoot> {
+    pub(crate) fn boot(&self) -> DeviceResult<EcBoot> {
         let uptime = uptime_secs(&self.ec()).map_err(device_error)?;
         Ok(EcBoot::from_clocks(uptime, unix_now()))
     }

@@ -24,7 +24,7 @@ impl Ports {
     /// The ports, and None where the EC answers for none — a board whose
     /// firmware has no such command included, since a port that cannot be
     /// asked about is one this device has nothing to say about.
-    pub fn detect(ec: &Arc<Ec>) -> Option<Self> {
+    pub(crate) fn detect(ec: &Arc<Ec>) -> Option<Self> {
         Self::new(ec.clone())
     }
 

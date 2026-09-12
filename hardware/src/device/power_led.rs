@@ -2,7 +2,7 @@
 //! the LED now.
 //!
 //! It has two possible drivers — the EC's own policy and the kernel holding
-//! it dark — and only one at a time. [`crate::led`] is the kernel half's
+//! it dark — and only one at a time. `led` is the kernel half's
 //! mechanism; this is the arbitration: which one holds it now, and taking
 //! the LED back before any write the EC has to be the one to make.
 
@@ -70,7 +70,7 @@ pub struct PowerLed {
 
 impl PowerLed {
     /// The LED the EC answers for, by the getter's own read.
-    pub fn detect(ec: &Arc<Ec>, mirrors: &Mirrors) -> Option<Self> {
+    pub(crate) fn detect(ec: &Arc<Ec>, mirrors: &Mirrors) -> Option<Self> {
         ec.power_led_level().ok()?;
         Some(Self::new(ec.clone(), Box::new(led::Sysfs), mirrors))
     }

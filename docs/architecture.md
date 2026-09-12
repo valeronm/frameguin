@@ -232,16 +232,16 @@ beside the labels; the device keeps what detection saw, not the word.
 One edit per row: a variant or method in `wire`, and for a new interface
 its proxy in `wire::Proxies`; the device module in `hardware`, or a method
 in one that exists, with a stub in `hardware::testing` for any role it
-adds; its interface in the daemon, and its field in `interface::Devices`,
-which is what puts it on the bus and in front of the proxies in
-`interface/tests.rs`; the client control in `model`; the group; the tray
-item. What another device shares is a line in a struct or a fan-out — the
+adds; its interface in the daemon, and its field in `device::Devices` with
+the line in `device::detect()` that fills it, which is what puts it on the
+bus and in front of the proxies in `interface/tests.rs`; the client control
+in `model`; the group; the tray item. What another device shares is a line in a struct or a fan-out — the
 `Devices`, `Proxies` and `Controls` fields, the window's `gate`, `watch`,
 `load_values` and `connect_handlers` arms, the daemon's `each_restorable` line
 for a device with a wanted value — never a body. Adding a part with
 no control is one device module
-implementing `Part`, and its line where the daemon collects the inventory
-at startup.
+implementing `Part`, and its line where `device::detect()` collects the
+inventory.
 
 ## Migration
 

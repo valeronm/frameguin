@@ -7,10 +7,10 @@ it and the non-obvious constraints.
 
 - Five crates, two binaries: `hardware/` is direct access to the machine —
   the transports, the roles, and the devices implementing the control
-  traits `wire` declares — and the only crate linking `framework_lib`;
-  `daemon/` runs as root, links it, and serves it over the bus, and links
-  `hidapi` itself to build the one `HidApi` every HID probe is handed, since
+  traits `wire` declares — and the only crate linking `framework_lib` and
+  `hidapi`, whose one `HidApi` `detect()` builds for every HID probe, since
   building one walks the bus;
+  `daemon/` runs as root, links it, and serves it over the bus;
   `app/` is the GTK4/libadwaita UI and links no hardware code; `wire/` is
   the D-Bus vocabulary, the control traits and the error kind every
   implementation of them shares, and the strings both binaries must spell
@@ -46,8 +46,8 @@ it and the non-obvious constraints.
   `daemon/src/interface/tests.rs`, which serves every device on stub roles
   to the `wire` proxies over a socket pair: a method one end spells and the
   other does not fails there rather than in an installed pair. The devices
-  it serves are `interface::Devices`, the one struct `main.rs` fills from
-  detection, and the proxies it dials are `wire::Proxies`, the one struct
+  it serves are `hardware::device::Devices`, the one struct `detect()`
+  fills, and the proxies it dials are `wire::Proxies`, the one struct
   the app dials too, so a device served or dialled by one end and not the
   other is a missing field. Nothing in the harness runs under async-io's
   `block_on`: two of them in one process contend for the reactor, and the
@@ -213,13 +213,16 @@ it and the non-obvious constraints.
   again, `testing.rs` the stub per role
   and the store in memory, which the daemon's tests build the same devices
   from under the `testing` feature. A module's own doc says what it is
-  for; the reasoning is here. `ec.rs` is every EC call: `Ec` is the only
+  for; the reasoning is here. `device::detect()` is the whole way in — it
+  opens every transport — so a module is public only where a path outside
+  the crate names it, the daemon's harness counting as one. `ec.rs` is
+  every EC call: `Ec` is the only
   holder of the `CrosEc`, one method per operation, each taking the lock and
   releasing it before returning and none reaching the handle through another —
   `Mutex` does not re-enter, so a method wanting two commands under one lock
   issues both against the guard it holds. `daemon/src/main.rs` keeps the
   `Daemon` object with the root interface, polkit, the idle exit and the
-  detection that registers each device's interface; `daemon/src/interface/`
+  serving of every device `detect()` found; `daemon/src/interface/`
   holds those interfaces, and what stays inline in each is the *order* —
   validate, skip a write already in place, authorize, write. That order is
   the policy, and splitting the write out would leave it legible at neither

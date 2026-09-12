@@ -634,7 +634,6 @@ dependencies = [
  "frameguin-hardware",
  "frameguin-wire",
  "futures-lite",
- "hidapi",
  "zbus",
  "zbus_polkit",
 ]

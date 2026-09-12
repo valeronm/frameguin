@@ -17,8 +17,7 @@ impl Part for Drive {
 }
 
 impl Drive {
-    /// Every drive the board carries.
-    pub fn detect() -> Vec<Self> {
+    pub(crate) fn detect() -> Vec<Self> {
         nvme::controllers()
             .iter()
             .map(|controller| {
@@ -29,7 +28,7 @@ impl Drive {
     }
 
     /// The vendor is the PCI vendor id, `NVMe` naming no maker in words.
-    pub fn of(controller: &Controller, vendor_name: &str) -> Self {
+    fn of(controller: &Controller, vendor_name: &str) -> Self {
         Self {
             identity: Identity {
                 kind: PartKind::Storage,

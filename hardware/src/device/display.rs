@@ -21,7 +21,7 @@ impl Display {
     /// controller's version joins the one panel's firmware and is dropped
     /// where a machine has more, nothing saying which panel it sits in
     /// front of.
-    pub fn detect(controller: Option<Firmware>) -> Vec<Self> {
+    pub(crate) fn detect(controller: Option<Firmware>) -> Vec<Self> {
         let mut panels: Vec<Self> = drm::panels()
             .iter()
             .filter_map(|block| edid::parse(block))
@@ -33,7 +33,7 @@ impl Display {
         panels
     }
 
-    pub fn of_edid(edid: &Edid) -> Self {
+    fn of_edid(edid: &Edid) -> Self {
         Self {
             identity: part::edid(&edid.manufacturer, edid.product, &edid.name, &edid.serial),
         }

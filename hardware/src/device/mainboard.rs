@@ -21,7 +21,7 @@ impl Mainboard {
     /// The board, named by its own part number, on any machine that
     /// publishes one. `ec` is None where there is no Framework EC, which
     /// costs the board its EC version and nothing else.
-    pub fn detect(ec: Option<&Ec>) -> Option<Self> {
+    pub(crate) fn detect(ec: Option<&Ec>) -> Option<Self> {
         let firmware = [
             dmi::field("bios_version").map(|v| Firmware::new("BIOS", &v)),
             ec_firmware(ec),
@@ -41,7 +41,7 @@ impl Mainboard {
 
     /// `product` is the machine the board is sold for, which is how the
     /// board's generation is spoken of; `board` is its own part number.
-    pub fn new(
+    fn new(
         vendor: &str,
         product: &str,
         board: &str,
