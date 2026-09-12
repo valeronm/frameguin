@@ -2,17 +2,17 @@
 //! [`crate::ec`] so the reading of it is testable without an EC.
 
 /// A firmware as its build-info string describes it.
-pub struct Build {
-    pub version: String,
-    pub built: String,
-    pub builder: String,
+pub(crate) struct Build {
+    pub(crate) version: String,
+    pub(crate) built: String,
+    pub(crate) builder: String,
 }
 
 /// The stamp is itself two space-separated fields. A string of another shape
 /// is kept whole as the version, a firmware being worth showing as it
 /// spelled itself even where nothing here recognises the shape.
 #[must_use]
-pub fn parse(info: &str) -> Build {
+pub(crate) fn parse(info: &str) -> Build {
     let fields: Vec<&str> = info.split_whitespace().collect();
     match fields.as_slice() {
         [version, built @ .., builder] if !built.is_empty() => Build {

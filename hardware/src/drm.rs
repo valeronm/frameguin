@@ -13,7 +13,7 @@ const INTERNAL: &str = "-eDP-";
 /// The EDID of every panel wired to the board, in connector order. What is
 /// plugged into a port is left out: the inventory is read once for the
 /// daemon's run, and a monitor comes and goes within it.
-pub fn panels() -> Vec<Vec<u8>> {
+pub(crate) fn panels() -> Vec<Vec<u8>> {
     let Ok(entries) = fs::read_dir(CLASS) else {
         return Vec::new();
     };

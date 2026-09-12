@@ -18,9 +18,8 @@ use framework_lib::touchpad::{self, ClickForce};
 /// pads.
 const HAPTIC_PIDS: [u16; 1] = [0x1343];
 
-/// What the pad ships with, and so what a read before any write answers
-/// with, in the wire's terms since the getter is what answers it.
-pub const DEFAULT_CLICK_FORCE: wire::ClickForce = wire::ClickForce::Medium;
+/// What the pad ships with, there being no readback to ask instead.
+pub(crate) const DEFAULT_CLICK_FORCE: wire::ClickForce = wire::ClickForce::Medium;
 
 /// The writes the haptic touchpad takes, in the wire's vocabulary so that a
 /// device over it needs none of the transport's.
@@ -30,7 +29,7 @@ pub trait HapticPad: Send + Sync {
 }
 
 /// The pad on the HID bus.
-pub struct Hid;
+pub(crate) struct Hid;
 
 impl HapticPad for Hid {
     fn set_haptic_intensity(&self, percent: u8) -> DeviceResult<()> {
@@ -51,12 +50,12 @@ fn device_error(error: impl std::fmt::Display) -> DeviceError {
 /// Takes the enumeration rather than making one: `HidApi::new` walks every
 /// HID device on the machine before a caller asks it anything, and the
 /// daemon has more than one device to look for.
-pub fn haptic_pad(hid: &hidapi::HidApi) -> Option<&hidapi::DeviceInfo> {
+pub(crate) fn haptic_pad(hid: &hidapi::HidApi) -> Option<&hidapi::DeviceInfo> {
     hid.device_list()
         .find(|dev| dev.vendor_id() == touchpad::PIX_VID && HAPTIC_PIDS.contains(&dev.product_id()))
 }
 
-pub fn click_force(force: wire::ClickForce) -> ClickForce {
+pub(crate) fn click_force(force: wire::ClickForce) -> ClickForce {
     match force {
         wire::ClickForce::Low => ClickForce::Low,
         wire::ClickForce::Medium => ClickForce::Medium,
@@ -66,7 +65,7 @@ pub fn click_force(force: wire::ClickForce) -> ClickForce {
 
 /// The device code the state file carries, back to the wire's name; None for
 /// a code no force maps to.
-pub fn wire_click_force(code: u8) -> Option<wire::ClickForce> {
+pub(crate) fn wire_click_force(code: u8) -> Option<wire::ClickForce> {
     wire::ClickForce::ALL
         .into_iter()
         .find(|force| click_force(*force) as u8 == code)

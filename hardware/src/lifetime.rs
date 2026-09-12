@@ -4,7 +4,7 @@
 
 /// Whose life a mirrored value shares.
 #[derive(Clone, Copy)]
-pub enum Lifetime {
+pub(crate) enum Lifetime {
     /// The hardware keeps the value itself, so nothing withdraws it.
     Permanent,
     /// The EC's RAM, cleared by an EC restart and by nothing else.
@@ -17,13 +17,13 @@ pub enum Lifetime {
 /// say; the host's sleep is the one reading taken as it is weighed rather
 /// than handed in here.
 #[derive(Clone)]
-pub struct Holders {
+pub(crate) struct Holders {
     ec: Option<EcBoot>,
     host: Option<String>,
 }
 
 impl Holders {
-    pub fn new(ec: Option<EcBoot>, host: Option<String>) -> Self {
+    pub(crate) fn new(ec: Option<EcBoot>, host: Option<String>) -> Self {
         Self { ec, host }
     }
 }

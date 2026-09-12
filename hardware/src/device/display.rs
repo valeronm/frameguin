@@ -6,7 +6,7 @@ use crate::edid::{self, Edid};
 use crate::part::{self, Firmware, Identity, Part};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Display {
+pub(crate) struct Display {
     identity: Identity,
 }
 

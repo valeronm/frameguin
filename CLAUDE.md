@@ -215,8 +215,10 @@ it and the non-obvious constraints.
   from under the `testing` feature. A module's own doc says what it is
   for; the reasoning is here. `device::detect()` is the whole way in — it
   opens every transport — so a module is public only where a path outside
-  the crate names it, the daemon's harness counting as one. `ec.rs` is
-  every EC call: `Ec` is the only
+  the crate names it, the daemon's harness counting as one; an item inside
+  a closed module keeps `pub` only where a public signature elsewhere
+  carries it, which is the role traits and what `testing` spells in its
+  own. `ec.rs` is every EC call: `Ec` is the only
   holder of the `CrosEc`, one method per operation, each taking the lock and
   releasing it before returning and none reaching the handle through another —
   `Mutex` does not re-enter, so a method wanting two commands under one lock

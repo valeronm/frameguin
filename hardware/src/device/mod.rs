@@ -3,9 +3,9 @@
 //! [`crate::part::Part`], or both.
 //!
 //! A device holds only the roles it needs — a `dyn` transport, and a
-//! [`crate::mirror::Mirror`] for what it cannot read back — so its logic
-//! runs against stubs in tests, and nothing of the bus: authorization is the bus's business, and a caller
-//! linking this crate directly has already got past it.
+//! `Mirror` for what it cannot read back — so its logic runs against stubs
+//! in tests, and nothing of the bus: authorization is the bus's business,
+//! and a caller linking this crate directly has already got past it.
 
 pub mod battery;
 pub(crate) mod display;

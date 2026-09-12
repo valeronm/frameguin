@@ -27,7 +27,7 @@ const KILOBYTE: u64 = 1 << 10;
 const MEGABYTE: u64 = 1 << 20;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Module {
+pub(crate) struct Module {
     identity: Identity,
 }
 

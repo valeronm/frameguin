@@ -12,22 +12,22 @@ const SECTOR: u64 = 512;
 
 /// What a controller announces, trimmed of the padding its fixed-width
 /// fields carry.
-pub struct Controller {
+pub(crate) struct Controller {
     /// The PCI ids of the function the controller sits on.
-    pub vendor: u16,
-    pub device: u16,
-    pub address: String,
-    pub model: String,
-    pub serial: String,
-    pub firmware: String,
+    pub(crate) vendor: u16,
+    pub(crate) device: u16,
+    pub(crate) address: String,
+    pub(crate) model: String,
+    pub(crate) serial: String,
+    pub(crate) firmware: String,
     /// Bytes across every namespace the controller holds.
-    pub capacity: u64,
+    pub(crate) capacity: u64,
 }
 
 /// Every controller the board carries, in controller order. A drive behind
 /// an external port is left out: the inventory is read once for the daemon's
 /// run, and an enclosure comes and goes within it.
-pub fn controllers() -> Vec<Controller> {
+pub(crate) fn controllers() -> Vec<Controller> {
     let Ok(entries) = fs::read_dir(CLASS) else {
         return Vec::new();
     };

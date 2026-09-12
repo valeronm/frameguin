@@ -31,7 +31,7 @@ pub trait TouchSwitch: Send + Sync {
 }
 
 /// The way in, as [`find`] settled it.
-pub enum Route {
+pub(crate) enum Route {
     Pad(gpio::Pad),
     Panel,
 }
@@ -69,7 +69,7 @@ const GATED_CONTROLLERS: [(u16, u16); 1] = [(HX_VID, HX_PID)];
 ///
 /// The panel needs nothing added: the command is the controller's own, so
 /// finding the controller is the whole question.
-pub fn find(hid: &hidapi::HidApi) -> Option<(Route, &hidapi::DeviceInfo)> {
+pub(crate) fn find(hid: &hidapi::HidApi) -> Option<(Route, &hidapi::DeviceInfo)> {
     if let Some(pad) = gpio::touchscreen() {
         let controller = gated_controller(hid)?;
         return pad.level().is_ok().then_some((Route::Pad(pad), controller));
@@ -86,7 +86,7 @@ impl Route {
     /// The controller's firmware version, read the way its vendor answers
     /// it — which the route already settles, the pad gating a Himax and
     /// the command being the Ilitek's. None where it would not answer.
-    pub fn firmware(
+    pub(crate) fn firmware(
         &self,
         hid: &hidapi::HidApi,
         controller: &hidapi::DeviceInfo,

@@ -53,7 +53,7 @@ impl Restore {
 }
 
 /// What a control was last asked to be, under its own key.
-pub struct Wanted<V> {
+pub(crate) struct Wanted<V> {
     restore: Restore,
     key: String,
     value: PhantomData<V>,
@@ -62,13 +62,13 @@ pub struct Wanted<V> {
 impl<V: Stored> Wanted<V> {
     /// A value is kept only while the switch is on: a choice made with it
     /// off is one nobody asked to have written back.
-    pub fn set(&self, value: Option<&V>) {
+    pub(crate) fn set(&self, value: Option<&V>) {
         if value.is_none() || self.restore.enabled() {
             self.restore.store.set(&self.key, value.map(Stored::stored));
         }
     }
 
-    pub fn current(&self) -> Option<V> {
+    pub(crate) fn current(&self) -> Option<V> {
         V::load(self.restore.store.as_ref(), &self.key)
     }
 }

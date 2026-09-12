@@ -39,7 +39,7 @@ const VENDOR_USAGE_PAGE: u16 = 0xFF00;
 /// laptop of no relation carrying one of their panels would be offered the
 /// control — and taking it would send the command to a controller this
 /// daemon cannot identify.
-pub fn controller(hid: &hidapi::HidApi) -> Option<&hidapi::DeviceInfo> {
+pub(crate) fn controller(hid: &hidapi::HidApi) -> Option<&hidapi::DeviceInfo> {
     hid.device_list().find(|dev| {
         (dev.vendor_id(), dev.product_id()) == COMMANDED_CONTROLLER
             && dev.usage_page() == VENDOR_USAGE_PAGE
@@ -63,7 +63,7 @@ const ILITEK_REPLY_HEADER: usize = 4;
 const ILITEK_READ_TIMEOUT_MS: i32 = 1000;
 
 /// The Ilitek's firmware version, as eight decimal fields.
-pub fn ilitek_firmware(device: &hidapi::HidDevice) -> Option<String> {
+pub(crate) fn ilitek_firmware(device: &hidapi::HidDevice) -> Option<String> {
     let mut message = [0u8; ILITEK_BUF_LEN];
     message[0] = ILITEK_REPORT_ID;
     message[1] = ILITEK_MESSAGE;
@@ -95,7 +95,7 @@ const HIMAX_CFG_LEN: usize = 256;
 const HIMAX_CID_OFFSET: usize = 52;
 
 /// The Himax's firmware version, as its chip id in hex.
-pub fn himax_firmware(device: &hidapi::HidDevice) -> Option<String> {
+pub(crate) fn himax_firmware(device: &hidapi::HidDevice) -> Option<String> {
     let mut buf = [0u8; HIMAX_CFG_LEN];
     buf[0] = HIMAX_REPORT_ID_CFG;
     let read = device.get_feature_report(&mut buf).ok()?;
@@ -116,7 +116,7 @@ fn himax_version(config: &[u8]) -> Option<String> {
 /// a controller that enumerates but will not open would take this daemon
 /// down rather than return an error. Running as root against hidraw is what
 /// keeps that theoretical.
-pub fn set_enabled(enabled: bool) -> io::Result<()> {
+pub(crate) fn set_enabled(enabled: bool) -> io::Result<()> {
     touchscreen::enable_touch(enabled)
         .ok_or_else(|| io::Error::other("the touch panel refused the enable command"))
 }

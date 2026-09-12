@@ -8,10 +8,10 @@ use std::path::PathBuf;
 const ID: &str = "/sys/class/dmi/id";
 const ENTRIES: &str = "/sys/firmware/dmi/entries";
 
-/// One published field, trimmed of the newline sysfs ends every one of them
-/// with. None where the kernel keeps it from this process — the serials
-/// are root-only — as well as where the firmware left it out.
-pub fn field(name: &str) -> Option<String> {
+/// Trimmed of the newline sysfs ends every one of these files with. None
+/// where the kernel keeps the field from this process — the serials are
+/// root-only — as well as where the firmware left it out.
+pub(crate) fn field(name: &str) -> Option<String> {
     std::fs::read_to_string(format!("{ID}/{name}"))
         .ok()
         .map(|value| value.trim().to_owned())
@@ -21,25 +21,24 @@ pub fn field(name: &str) -> Option<String> {
 /// non-Framework EC every command spin-waits to a timeout, stalling the
 /// daemon's start for tens of seconds. Don't touch the EC unless the
 /// firmware says this is the hardware it belongs to.
-pub fn is_framework() -> bool {
+pub(crate) fn is_framework() -> bool {
     field("sys_vendor").as_deref() == Some(frameguin_wire::VENDOR)
 }
 
-/// The mainboard, under the name its firmware gives it — and the mainboard
-/// only, which is what makes this the right question to ask about a
-/// processor pad and the wrong one to ask about anything plugged into it.
+/// The mainboard as its firmware names it, and never anything plugged into
+/// it.
 ///
 /// Read here rather than taken from `framework_lib`, whose `get_platform`
 /// answers with a type its crate keeps private and so unnameable from
 /// outside. The string this matches is the one that library maps too.
-pub fn product() -> Option<String> {
+pub(crate) fn product() -> Option<String> {
     field("product_name")
 }
 
-/// One structure: the formatted area the spec lays out by offset, and the
-/// string table that follows it, which the formatted area refers into by
-/// one-based index.
-pub struct Structure {
+/// The formatted area the spec lays out by offset, and the string table
+/// that follows it, which the formatted area refers into by one-based
+/// index.
+pub(crate) struct Structure {
     formatted: Vec<u8>,
     strings: Vec<String>,
 }
@@ -47,7 +46,7 @@ pub struct Structure {
 impl Structure {
     /// None where the bytes are shorter than the header says the formatted
     /// area is.
-    pub fn parse(raw: &[u8]) -> Option<Self> {
+    pub(crate) fn parse(raw: &[u8]) -> Option<Self> {
         let length = usize::from(*raw.get(1)?);
         let formatted = raw.get(..length)?.to_vec();
         let strings = raw[length..]
@@ -58,19 +57,19 @@ impl Structure {
         Some(Self { formatted, strings })
     }
 
-    pub fn u16(&self, offset: usize) -> Option<u16> {
+    pub(crate) fn u16(&self, offset: usize) -> Option<u16> {
         let bytes = self.formatted.get(offset..offset + 2)?;
         Some(u16::from_le_bytes([bytes[0], bytes[1]]))
     }
 
-    pub fn u32(&self, offset: usize) -> Option<u32> {
+    pub(crate) fn u32(&self, offset: usize) -> Option<u32> {
         let bytes = self.formatted.get(offset..offset + 4)?;
         Some(u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
     }
 
     /// The string the byte at `offset` indexes, and None both for an index
     /// of zero — the spec's "no string" — and for one past the table.
-    pub fn string(&self, offset: usize) -> Option<&str> {
+    pub(crate) fn string(&self, offset: usize) -> Option<&str> {
         let index = usize::from(*self.formatted.get(offset)?).checked_sub(1)?;
         self.strings
             .get(index)
@@ -82,7 +81,7 @@ impl Structure {
 /// Every structure of one type, in the order the table lists them. Empty
 /// where the entries cannot be read, which is what an unprivileged process
 /// sees.
-pub fn entries(kind: u8) -> Vec<Structure> {
+pub(crate) fn entries(kind: u8) -> Vec<Structure> {
     (0..)
         .map(|instance| PathBuf::from(ENTRIES).join(format!("{kind}-{instance}/raw")))
         .map_while(|path| std::fs::read(path).ok())

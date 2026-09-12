@@ -7,7 +7,7 @@ use crate::ec::Ec;
 use crate::part::{Firmware, Identity, Part, PartKind};
 use crate::pd;
 
-pub struct Mainboard {
+pub(crate) struct Mainboard {
     identity: Identity,
 }
 

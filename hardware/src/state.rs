@@ -19,7 +19,7 @@ const STATE_FILE: &str = "/var/lib/frameguin/state";
 /// Where a device keeps what it cannot read back and what it was asked for.
 /// A `None` value removes the key, for a mirror whose presence is the whole
 /// of its claim.
-pub trait Store: Send + Sync {
+pub(crate) trait Store: Send + Sync {
     fn get(&self, key: &str) -> Option<String>;
     fn set(&self, key: &str, value: Option<String>);
     /// The wanted values are dropped as a set, so a device absent this run
@@ -28,8 +28,8 @@ pub trait Store: Send + Sync {
 }
 
 /// A value the store can keep and name again. What the store cannot name
-/// is refused here, so nothing holds it.
-pub trait Stored: Clone + Send {
+/// is refused here.
+pub(crate) trait Stored: Clone + Send {
     fn from_stored(value: &str) -> Option<Self>;
     fn stored(&self) -> String;
 
@@ -55,7 +55,7 @@ macro_rules! stored_by_parsing {
 stored_by_parsing!(NonZeroU32, bool, u8);
 
 /// The state file, held whole and written whole on every change.
-pub struct StateFile {
+pub(crate) struct StateFile {
     entries: Mutex<BTreeMap<String, String>>,
 }
 
@@ -64,7 +64,7 @@ impl StateFile {
     /// answers its default until the first write, which on a machine whose
     /// touchpad was already changed by other means is a misreport nothing
     /// can avoid, the hardware being unreadable.
-    pub fn load() -> Self {
+    pub(crate) fn load() -> Self {
         let entries = std::fs::read_to_string(STATE_FILE)
             .map(|content| parse(&content))
             .unwrap_or_default();

@@ -48,7 +48,7 @@ pub(crate) fn evidence_key(key: &str) -> String {
     format!("{key}_evidence")
 }
 
-pub struct Mirror<V> {
+pub(crate) struct Mirror<V> {
     store: Arc<dyn Store>,
     holders: Holders,
     key: String,
@@ -60,7 +60,11 @@ impl<V: Stored> Mirror<V> {
     /// Makes the write and remembers `value` once the hardware has taken it.
     /// Evidence is witnessed before the write, so a holder's life ending
     /// between the two withdraws the record rather than vouching for it.
-    pub fn record(&self, value: V, write: impl FnOnce() -> DeviceResult<()>) -> DeviceResult<()> {
+    pub(crate) fn record(
+        &self,
+        value: V,
+        write: impl FnOnce() -> DeviceResult<()>,
+    ) -> DeviceResult<()> {
         let evidence = self.lifetime.witness(&self.holders);
         write()?;
         self.hold(evidence.map(|evidence| (value, evidence)));
@@ -69,13 +73,13 @@ impl<V: Stored> Mirror<V> {
 
     /// Makes the write and drops the record, for a write that returns the
     /// value to the state the hardware comes up in.
-    pub fn clear(&self, write: impl FnOnce() -> DeviceResult<()>) -> DeviceResult<()> {
+    pub(crate) fn clear(&self, write: impl FnOnce() -> DeviceResult<()>) -> DeviceResult<()> {
         write()?;
         self.hold(None);
         Ok(())
     }
 
-    pub fn current(&self) -> Option<V> {
+    pub(crate) fn current(&self) -> Option<V> {
         let held = self.held.lock().unwrap();
         held.as_ref()
             .filter(|(_, evidence)| evidence.proves(&self.holders))

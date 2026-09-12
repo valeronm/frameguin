@@ -6,7 +6,7 @@ use crate::part::{Firmware, Identity, Part, PartKind};
 use crate::udev;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Drive {
+pub(crate) struct Drive {
     identity: Identity,
 }
 

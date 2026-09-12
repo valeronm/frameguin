@@ -32,7 +32,7 @@ const APPLICATION: usize = 4;
 /// that never reached its ready state — including one whose module is not
 /// installed.
 #[must_use]
-pub fn version(blob: [u8; VERSION_LEN]) -> Option<String> {
+pub(crate) fn version(blob: [u8; VERSION_LEN]) -> Option<String> {
     if blob.iter().all(|&byte| byte == 0) {
         return None;
     }
@@ -43,7 +43,7 @@ pub fn version(blob: [u8; VERSION_LEN]) -> Option<String> {
 /// EC was asked for; `charging` comes from the EC's own answer about which
 /// port is feeding the machine, which it reports per port rather than once.
 #[must_use]
-pub fn port_state(index: u8, raw: &EcResponseGetPdPortState) -> PortState {
+pub(crate) fn port_state(index: u8, raw: &EcResponseGetPdPortState) -> PortState {
     // Copied out one field at a time: the response is a packed struct, and a
     // reference into an unaligned field is undefined behaviour.
     let (millivolts, milliamps) = (raw.voltage, raw.current);

@@ -28,7 +28,7 @@ pub trait LedClass: Send + Sync {
 }
 
 /// The LED class under `/sys/class/leds`.
-pub struct Sysfs;
+pub(crate) struct Sysfs;
 
 impl LedClass for Sysfs {
     fn controllable(&self) -> Option<PathBuf> {

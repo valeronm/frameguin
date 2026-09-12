@@ -12,20 +12,20 @@ const SERIAL_NUMBER: u8 = 0xff;
 
 /// What a panel announces about itself, in its own spelling.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Edid {
+pub(crate) struct Edid {
     /// The maker's three-letter PNP id, which names nobody without the
     /// register that assigned it.
-    pub manufacturer: String,
-    pub product: u16,
+    pub(crate) manufacturer: String,
+    pub(crate) product: u16,
     /// Empty where the EDID carries no product-name descriptor, which is
     /// optional and a panel is free to omit.
-    pub name: String,
+    pub(crate) name: String,
     /// Empty where the EDID carries no serial-number descriptor.
-    pub serial: String,
+    pub(crate) serial: String,
 }
 
 /// None for anything that is not a whole, well-formed first block.
-pub fn parse(edid: &[u8]) -> Option<Edid> {
+pub(crate) fn parse(edid: &[u8]) -> Option<Edid> {
     let block = edid.get(..BLOCK)?;
     (block[..HEADER.len()] == HEADER).then_some(())?;
     let sum = block.iter().fold(0u8, |sum, byte| sum.wrapping_add(*byte));
