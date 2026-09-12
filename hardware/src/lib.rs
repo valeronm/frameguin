@@ -26,7 +26,8 @@
 //! mirror a device reads and writes such a value through, [`restore`] what
 //! a control was asked to be and the switch that has it written back after
 //! firmware has moved it, [`part`] what a
-//! device is as a part of the machine, and [`device`] the devices
+//! device is as a part of the machine, `udev` what udev resolved about one,
+//! and [`device`] the devices
 //! themselves.
 
 #![allow(
@@ -55,6 +56,7 @@ pub(crate) mod sbs;
 pub mod state;
 pub mod touchpad;
 pub mod touchscreen;
+pub(crate) mod udev;
 
 #[cfg(any(test, feature = "testing"))]
 pub mod testing;

@@ -52,6 +52,7 @@ impl Mainboard {
             identity: Identity {
                 kind: PartKind::Mainboard,
                 vendor: vendor.to_owned(),
+                vendor_name: String::new(),
                 model: product.to_owned(),
                 part_number: board.to_owned(),
                 serial: serial.to_owned(),

@@ -199,6 +199,8 @@ it and the non-obvious constraints.
   their words mean, apart from `ec.rs` so the decoding is testable without
   an EC and `ec.rs` stays every EC call and nothing else — `edid.rs` what a
   panel's own block says it is, apart from `drm.rs` for the same reason —
+  `udev.rs` what udev resolved about a device, which is a maker's name where
+  sysfs gives only the id it was matched from —
   `lifetime.rs` what
   holds a mirrored value and whether it still holds it, where `dmi.rs`
   answers for the machine, which is the difference between a fact a reboot or

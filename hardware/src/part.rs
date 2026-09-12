@@ -18,6 +18,7 @@ pub fn hid(
     Identity {
         kind,
         vendor: manufacturer.to_owned(),
+        vendor_name: String::new(),
         model: product.to_owned(),
         part_number: String::new(),
         serial: serial.to_owned(),
@@ -47,6 +48,7 @@ pub fn edid(manufacturer: &str, product: u16, name: &str, serial: &str) -> Ident
     Identity {
         kind: PartKind::Display,
         vendor: manufacturer.to_owned(),
+        vendor_name: String::new(),
         model: name.to_owned(),
         part_number: String::new(),
         serial: serial.to_owned(),
@@ -62,6 +64,7 @@ pub fn sbs(manufacturer: &str, model: &str, serial: &str) -> Identity {
     Identity {
         kind: PartKind::Battery,
         vendor: manufacturer.to_owned(),
+        vendor_name: String::new(),
         model: model.to_owned(),
         part_number: String::new(),
         serial: serial.to_owned(),

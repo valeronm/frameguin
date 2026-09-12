@@ -55,6 +55,7 @@ impl Module {
             identity: Identity {
                 kind: PartKind::Memory,
                 vendor: entry.string(MANUFACTURER).unwrap_or_default().to_owned(),
+                vendor_name: String::new(),
                 model: entry.string(PART_NUMBER).unwrap_or_default().to_owned(),
                 part_number: String::new(),
                 serial: entry.string(SERIAL).unwrap_or_default().to_owned(),

@@ -197,7 +197,8 @@ back the same way — and `hardware::restore::Restorable` is its trait,
 implemented by those devices alone.
 
 A **part** is asked what it is through one common trait,
-`hardware::part::Part`, answering an `Identity` — kind, vendor, model, part
+`hardware::part::Part`, answering an `Identity` — kind, vendor, the name a
+registry gives that vendor, model, part
 number, serial, size, the identifier it announces itself by, prefixed with its space
 (`hid:093a:1343`, `dmi-slot:LPCAMM2_0`, `dmi-board:FRANMJCP07`), and every
 firmware it would report — because its caller iterates the machine's bill

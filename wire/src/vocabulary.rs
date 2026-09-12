@@ -431,14 +431,16 @@ impl Firmware {
     }
 }
 
-/// What detection saw of a part, kept as it was announced: the words are the
-/// hardware's own, and the name a person buys it under is `model`'s
-/// catalogue to say.
+/// What detection found of a part: the hardware's own words but for the
+/// vendor name a registry supplies, and never the name a person buys it
+/// under, which is `model`'s catalogue to say.
 #[derive(Serialize, Deserialize, Type, Clone, PartialEq, Eq, Debug)]
 #[zvariant(crate = "zbus::zvariant")]
 pub struct Identity {
     pub kind: PartKind,
     pub vendor: String,
+    /// What a registry calls the vendor, and empty where nothing names it.
+    pub vendor_name: String,
     pub model: String,
     /// Empty where the model is already the part's own number.
     pub part_number: String,
@@ -565,6 +567,7 @@ mod tests {
         Identity {
             kind,
             vendor: String::new(),
+            vendor_name: String::new(),
             model: String::new(),
             part_number: String::new(),
             serial: String::new(),

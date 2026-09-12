@@ -16,6 +16,7 @@ pub struct Controller {
     /// The PCI ids of the function the controller sits on.
     pub vendor: u16,
     pub device: u16,
+    pub address: String,
     pub model: String,
     pub serial: String,
     pub firmware: String,
@@ -48,6 +49,7 @@ fn read(controller: &Path) -> Option<Controller> {
     Some(Controller {
         vendor: pci_id(&pci, "vendor")?,
         device: pci_id(&pci, "device")?,
+        address: attribute(controller, "address").unwrap_or_default(),
         model: attribute(controller, "model").unwrap_or_default(),
         serial: attribute(controller, "serial").unwrap_or_default(),
         firmware: attribute(controller, "firmware_rev").unwrap_or_default(),

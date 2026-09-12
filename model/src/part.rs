@@ -228,7 +228,11 @@ pub fn maker(part: &Identity) -> &str {
     if part.vendor.is_empty() || part.vendor == VENDOR {
         return "";
     }
-    registered(part.kind, &part.vendor)
+    match registered(part.kind, &part.vendor) {
+        Some(curated) => curated,
+        None if !part.vendor_name.is_empty() => &part.vendor_name,
+        None => &part.vendor,
+    }
 }
 
 /// What a part is called: the catalogue's words where a listing names it,
@@ -256,15 +260,13 @@ pub fn part_number(part: &Identity, sold: Option<Catalogue>) -> &str {
     }
 }
 
-/// The maker behind an id a registry assigns — a display's three-letter PNP
-/// id, a drive's PCI vendor id — curated from the ids seen on real hardware:
-/// the registries are not something this can carry, so an id with no entry
-/// is left as the part gave it. The other kinds name their maker outright.
-fn registered(kind: PartKind, id: &str) -> &str {
+/// A registry spells a maker its own way: `Sandisk Corp` where the drive's
+/// own label says `SanDisk`.
+fn registered(kind: PartKind, id: &str) -> Option<&'static str> {
     match (kind, id) {
-        (PartKind::Display, "CSW") => "CSOT",
-        (PartKind::Storage, "15b7") => "SanDisk",
-        _ => id,
+        (PartKind::Display, "CSW") => Some("CSOT"),
+        (PartKind::Storage, "15b7") => Some("SanDisk"),
+        _ => None,
     }
 }
 
@@ -278,6 +280,7 @@ mod tests {
         Identity {
             kind,
             vendor: String::new(),
+            vendor_name: String::new(),
             model: String::new(),
             part_number: String::new(),
             serial: String::new(),
@@ -392,13 +395,24 @@ mod tests {
     }
 
     #[test]
-    fn a_drive_is_made_by_whoever_holds_its_pci_vendor_id() {
-        let drive = |vendor: &str| Identity {
-            vendor: vendor.to_owned(),
+    fn a_curated_id_outranks_the_name_the_hardware_resolved() {
+        let drive = Identity {
+            vendor: "15b7".to_owned(),
+            vendor_name: "Sandisk Corp".to_owned(),
             ..part(PartKind::Storage, "pci:15b7:5045")
         };
-        assert_eq!(maker(&drive("15b7")), "SanDisk");
-        assert_eq!(maker(&drive("1e0f")), "1e0f");
+        assert_eq!(maker(&drive), "SanDisk");
+    }
+
+    #[test]
+    fn an_uncurated_id_takes_the_resolved_name_and_then_itself() {
+        let drive = |vendor_name: &str| Identity {
+            vendor: "1e0f".to_owned(),
+            vendor_name: vendor_name.to_owned(),
+            ..part(PartKind::Storage, "pci:1e0f:0001")
+        };
+        assert_eq!(maker(&drive("KIOXIA Corporation")), "KIOXIA Corporation");
+        assert_eq!(maker(&drive("")), "1e0f");
     }
 
     #[test]
