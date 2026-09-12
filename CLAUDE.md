@@ -218,11 +218,8 @@ it and the non-obvious constraints.
   the crate names it, the daemon's harness counting as one; an item inside
   a closed module keeps `pub` only where a public signature elsewhere
   carries it, which is the role traits and what `testing` spells in its
-  own. `ec.rs` is every EC call: `Ec` is the only
-  holder of the `CrosEc`, one method per operation, each taking the lock and
-  releasing it before returning and none reaching the handle through another —
-  `Mutex` does not re-enter, so a method wanting two commands under one lock
-  issues both against the guard it holds. `daemon/src/main.rs` keeps the
+  own. `ec.rs` is every EC call, its lock discipline stated in its own
+  module doc. `daemon/src/main.rs` keeps the
   `Daemon` object with the root interface, polkit, the idle exit and the
   serving of every device `detect()` found; `daemon/src/interface/`
   holds those interfaces, and what stays inline in each is the *order* —
@@ -495,7 +492,10 @@ asserted and its reason a file away.
   or in `docs/`, not in a module doc. The module doc says what the module is
   for; the reasoning behind a mechanism — why a boundary sits where it does,
   what a rule is protecting against — goes here, where one statement covers
-  every module that obeys it. The shape of the whole — the layers, what each
+  every module that obeys it. A mechanism confined to one module keeps its
+  reasoning in that module: there is no second obeyer for a statement here
+  to cover, and the rule binds whoever is editing that file. `ec.rs`'s lock
+  discipline is the case. The shape of the whole — the layers, what each
   links, what a device is at each — goes to `docs/architecture.md`, and a
   fact about the machine to `docs/hardware.md`.
 - Clippy suppressions live at the site with a `reason`, never in a manifest:

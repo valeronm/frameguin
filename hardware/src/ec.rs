@@ -1,10 +1,10 @@
 //! The embedded controller: one method per operation the daemon performs on
 //! it.
 //!
-//! `Ec` is the only holder of the `CrosEc`. Every method
-//! takes the lock and releases it before returning, and none calls another
-//! through the handle — `Mutex` does not re-enter, so a method that wants two
-//! commands under one lock issues both against the guard it already holds, as
+//! `Ec` is the only holder of the `CrosEc`. Every method takes the lock and
+//! releases it before returning, and none calls another through the handle —
+//! `Mutex` does not re-enter, so a method that wants two commands under one
+//! lock issues both against the guard it already holds, as
 //! `Ec::set_charge_current_limit` does.
 //!
 //! Two devices are deliberately absent: the power LED's off, which the
