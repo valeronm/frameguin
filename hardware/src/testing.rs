@@ -38,21 +38,29 @@ pub const EC_RESTARTED: EcBoot = EcBoot::from_clocks(60, 1_003_600);
 pub const HOST_BOOT: &str = "00000000-0000-4000-8000-000000000001";
 pub const HOST_EARLIER: &str = "00000000-0000-4000-8000-000000000002";
 
-/// The haptic touchpad as detection would identify it.
+/// The haptic touchpad as detection would identify it, the descriptor
+/// naming no maker and the vendor list naming one.
 pub fn touchpad_identity() -> Identity {
     part::hid(
         PartKind::Touchpad,
         0x093a,
         0x1343,
-        "PixArt",
+        "Pixart Imaging, Inc.",
         "Haptic touchpad",
         "",
     )
 }
 
-/// The panel as its EDID identifies it.
+/// The panel as its EDID identifies it, with the maker the vendor list
+/// resolved.
 pub fn display_identity() -> Identity {
-    part::edid("CSW", 4898, "MND508ZB1-1", "")
+    part::edid(
+        "CSW",
+        "China Star Optoelectronics Technology Co., Ltd",
+        4898,
+        "MND508ZB1-1",
+        "",
+    )
 }
 
 /// The pack as its own registers identify it.

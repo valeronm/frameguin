@@ -621,6 +621,14 @@ has to remember it.
 The firmware implements **five intensity steps** rather than the 0–100 its HID
 descriptor advertises.
 
+**The pad names no maker.** Its HID descriptor carries an empty manufacturer
+string and a product string of `PIXA3854:00 093A:1343`, which is the I2C-HID
+device name rather than a product. Two ids are left, and they name different
+companies: the USB-IF vendor id `093a` is Pixart Imaging's, and the ACPI id
+`PIXA3854` that the I2C device enumerates under has a prefix registered to
+Pixie Tech — an unrelated holder of those four letters. The pad is PixArt's,
+so the id worth trusting is the one the HID descriptor carries.
+
 ### Haptic touchpad persistence
 
 Settings live in the touchpad's own flash, so they survive a suspend, a reboot
@@ -665,6 +673,10 @@ firmware `7612M000`, reads PCI vendor `0x15b7` and IEEE OUI `00:1B:44` at the
 head of its namespace EUI-64, both registered to SanDisk, and a subsystem NQN
 of `nqn.2023-01.com.wdc:…`, which names Western Digital. A drive with no NQN
 of its own is given one under `nqn.2014.08.org.nvmexpress:` by the kernel.
+
+**The `model` field is what the drive is ordered by, not what it is sold
+as.** `SD PC SN7100S SDFPNSL-1T00` is the retail WD_BLACK SN7100, and
+nothing the drive answers connects the two.
 
 **Only a drive the board carries is a part.** The class lists a drive in a
 Thunderbolt enclosure beside one in an M.2 slot. The kernel marks a PCI

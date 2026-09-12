@@ -10,6 +10,7 @@ use crate::mirror::{Mirror, Mirrors};
 use crate::part::{self, Identity, Part, PartKind};
 use crate::state::Stored;
 use crate::touchpad::{self, HapticPad};
+use crate::udev;
 
 const DEFAULT_HAPTIC_INTENSITY: u8 = 75;
 
@@ -59,7 +60,8 @@ impl Touchpad {
         let pad = touchpad::haptic_pad(hid)?;
         // No firmware version: the haptic pad's registers are in no table
         // this can trust.
-        let identity = part::of_hid(PartKind::Touchpad, pad);
+        let resolved = udev::usb_vendor(pad.vendor_id()).unwrap_or_default();
+        let identity = part::of_hid(PartKind::Touchpad, pad, &resolved);
         Some(Self::new(Box::new(touchpad::Hid), mirrors, identity))
     }
 

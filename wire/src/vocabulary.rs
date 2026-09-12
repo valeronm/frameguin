@@ -534,9 +534,14 @@ impl fmt::Display for Identity {
         } else {
             format!(" capacity {spelled}")
         };
+        let resolved = if self.vendor_name.is_empty() {
+            String::new()
+        } else {
+            format!(" ({})", self.vendor_name)
+        };
         write!(
             f,
-            "{:?} {} \"{}\" \"{}\"{capacity} firmware {firmware}",
+            "{:?} {} \"{}\"{resolved} \"{}\"{capacity} firmware {firmware}",
             self.kind, self.id, self.vendor, self.model
         )
     }
@@ -596,5 +601,15 @@ mod tests {
         let drive = sized(PartKind::Storage, 1_024_209_543_168).to_string();
         assert!(drive.contains("capacity 1.02 TB"));
         assert!(!sized(PartKind::Battery, 0).to_string().contains("capacity"));
+    }
+
+    #[test]
+    fn a_line_carries_the_resolved_name_beside_the_id_it_was_matched_from() {
+        let mut drive = sized(PartKind::Storage, 0);
+        drive.vendor = "15b7".to_owned();
+        drive.vendor_name = "Sandisk Corp".to_owned();
+        assert!(drive.to_string().contains("\"15b7\" (Sandisk Corp)"));
+        drive.vendor_name = String::new();
+        assert!(!drive.to_string().contains('('));
     }
 }

@@ -3,7 +3,7 @@
 
 use crate::nvme::{self, Controller};
 use crate::part::{Firmware, Identity, Part, PartKind};
-use crate::udev;
+use crate::udev::{self, PciNames};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Drive {
@@ -20,22 +20,27 @@ impl Drive {
     pub(crate) fn detect() -> Vec<Self> {
         nvme::controllers()
             .iter()
-            .map(|controller| {
-                let vendor = udev::pci_vendor(&controller.address).unwrap_or_default();
-                Self::of(controller, &vendor)
-            })
+            .map(|controller| Self::of(controller, &udev::pci_names(&controller.address)))
             .collect()
     }
 
-    /// The vendor is the PCI vendor id, `NVMe` naming no maker in words.
-    fn of(controller: &Controller, vendor_name: &str) -> Self {
+    /// The vendor is the PCI vendor id, `NVMe` naming no maker in words. The
+    /// database's model outranks the drive's own, which becomes the part
+    /// number: a drive labels itself with what it is ordered by rather than
+    /// with what it is sold as.
+    fn of(controller: &Controller, named: &PciNames) -> Self {
+        let (model, part_number) = if named.model.is_empty() {
+            (controller.model.clone(), String::new())
+        } else {
+            (named.model.clone(), controller.model.clone())
+        };
         Self {
             identity: Identity {
                 kind: PartKind::Storage,
                 vendor: format!("{:04x}", controller.vendor),
-                vendor_name: vendor_name.to_owned(),
-                model: controller.model.clone(),
-                part_number: String::new(),
+                vendor_name: named.vendor.clone(),
+                model,
+                part_number,
                 serial: controller.serial.clone(),
                 size_bytes: controller.capacity,
                 id: format!("pci:{:04x}:{:04x}", controller.vendor, controller.device),
@@ -53,6 +58,21 @@ mod tests {
     use super::Drive;
     use crate::nvme::Controller;
     use crate::part::{Firmware, Part, PartKind};
+    use crate::udev::PciNames;
+
+    fn named() -> PciNames {
+        PciNames {
+            vendor: "Sandisk Corp".to_owned(),
+            model: "WD_BLACK SN7100".to_owned(),
+        }
+    }
+
+    fn unnamed() -> PciNames {
+        PciNames {
+            vendor: String::new(),
+            model: String::new(),
+        }
+    }
 
     fn controller(firmware: &str) -> Controller {
         Controller {
@@ -67,14 +87,15 @@ mod tests {
     }
 
     #[test]
-    fn a_drive_is_named_by_what_its_controller_announced() {
-        let identity = Drive::of(&controller("7612M000"), "Sandisk Corp")
+    fn a_drive_is_named_by_the_database_and_numbered_by_its_own_label() {
+        let identity = Drive::of(&controller("7612M000"), &named())
             .identity()
             .clone();
         assert_eq!(identity.kind, PartKind::Storage);
         assert_eq!(identity.vendor, "15b7");
         assert_eq!(identity.vendor_name, "Sandisk Corp");
-        assert_eq!(identity.model, "SD PC SN7100S SDFPNSL-1T00");
+        assert_eq!(identity.model, "WD_BLACK SN7100");
+        assert_eq!(identity.part_number, "SD PC SN7100S SDFPNSL-1T00");
         assert_eq!(identity.serial, "0123456789AB");
         assert_eq!(identity.size_bytes, 1_024_209_543_168);
         assert_eq!(identity.id, "pci:15b7:5045");
@@ -82,9 +103,19 @@ mod tests {
     }
 
     #[test]
+    fn a_drive_the_database_does_not_name_keeps_its_label_as_the_model() {
+        let identity = Drive::of(&controller("7612M000"), &unnamed())
+            .identity()
+            .clone();
+        assert_eq!(identity.model, "SD PC SN7100S SDFPNSL-1T00");
+        assert!(identity.part_number.is_empty());
+        assert!(identity.vendor_name.is_empty());
+    }
+
+    #[test]
     fn a_drive_announcing_no_revision_carries_no_firmware() {
         assert!(
-            Drive::of(&controller(""), "")
+            Drive::of(&controller(""), &unnamed())
                 .identity()
                 .firmware
                 .is_empty()

@@ -11,14 +11,14 @@ pub fn hid(
     kind: PartKind,
     vid: u16,
     pid: u16,
-    manufacturer: &str,
+    vendor_name: &str,
     product: &str,
     serial: &str,
 ) -> Identity {
     Identity {
         kind,
-        vendor: manufacturer.to_owned(),
-        vendor_name: String::new(),
+        vendor: format!("{vid:04x}"),
+        vendor_name: vendor_name.to_owned(),
         model: product.to_owned(),
         part_number: String::new(),
         serial: serial.to_owned(),
@@ -29,13 +29,20 @@ pub fn hid(
 }
 
 /// [`hid`] read off an enumerated device. An absent string is a descriptor
-/// that carries none, kept empty rather than guessed.
-pub fn of_hid(kind: PartKind, dev: &hidapi::DeviceInfo) -> Identity {
+/// that carries none, kept empty rather than guessed; `resolved` is what the
+/// database calls the vendor id, taken only where the descriptor names
+/// nobody, a maker's own word for itself outranking a registry's.
+pub fn of_hid(kind: PartKind, dev: &hidapi::DeviceInfo, resolved: &str) -> Identity {
+    let announced = dev.manufacturer_string().unwrap_or_default();
     hid(
         kind,
         dev.vendor_id(),
         dev.product_id(),
-        dev.manufacturer_string().unwrap_or_default(),
+        if announced.is_empty() {
+            resolved
+        } else {
+            announced
+        },
         dev.product_string().unwrap_or_default(),
         dev.serial_number().unwrap_or_default(),
     )
@@ -44,11 +51,17 @@ pub fn of_hid(kind: PartKind, dev: &hidapi::DeviceInfo) -> Identity {
 /// A panel, from what its EDID announces. The PNP id and the product code
 /// are the two things every EDID carries, so the identifier is those where
 /// the optional name descriptor leaves the model empty.
-pub fn edid(manufacturer: &str, product: u16, name: &str, serial: &str) -> Identity {
+pub fn edid(
+    manufacturer: &str,
+    vendor_name: &str,
+    product: u16,
+    name: &str,
+    serial: &str,
+) -> Identity {
     Identity {
         kind: PartKind::Display,
         vendor: manufacturer.to_owned(),
-        vendor_name: String::new(),
+        vendor_name: vendor_name.to_owned(),
         model: name.to_owned(),
         part_number: String::new(),
         serial: serial.to_owned(),

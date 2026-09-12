@@ -4,6 +4,7 @@
 use crate::drm;
 use crate::edid::{self, Edid};
 use crate::part::{self, Firmware, Identity, Part};
+use crate::udev;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Display {
@@ -25,7 +26,10 @@ impl Display {
         let mut panels: Vec<Self> = drm::panels()
             .iter()
             .filter_map(|block| edid::parse(block))
-            .map(|edid| Self::of_edid(&edid))
+            .map(|edid| {
+                let vendor = udev::acpi_vendor(&edid.manufacturer).unwrap_or_default();
+                Self::of_edid(&edid, &vendor)
+            })
             .collect();
         if let ([panel], Some(controller)) = (panels.as_mut_slice(), controller) {
             panel.identity.firmware.push(controller);
@@ -33,9 +37,16 @@ impl Display {
         panels
     }
 
-    fn of_edid(edid: &Edid) -> Self {
+    /// The vendor is the EDID's PNP id, which names nobody in words.
+    fn of_edid(edid: &Edid, vendor_name: &str) -> Self {
         Self {
-            identity: part::edid(&edid.manufacturer, edid.product, &edid.name, &edid.serial),
+            identity: part::edid(
+                &edid.manufacturer,
+                vendor_name,
+                edid.product,
+                &edid.name,
+                &edid.serial,
+            ),
         }
     }
 }
@@ -55,6 +66,10 @@ mod tests {
             name: "MND508ZB1-1".to_owned(),
             serial: String::new(),
         };
-        assert_eq!(Display::of_edid(&edid).identity(), &display_identity());
+        let resolved = "China Star Optoelectronics Technology Co., Ltd";
+        assert_eq!(
+            Display::of_edid(&edid, resolved).identity(),
+            &display_identity()
+        );
     }
 }

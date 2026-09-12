@@ -266,6 +266,7 @@ fn registered(kind: PartKind, id: &str) -> Option<&'static str> {
     match (kind, id) {
         (PartKind::Display, "CSW") => Some("CSOT"),
         (PartKind::Storage, "15b7") => Some("SanDisk"),
+        (PartKind::Touchpad, "093a") => Some("PixArt"),
         _ => None,
     }
 }
@@ -391,7 +392,7 @@ mod tests {
             ..part(PartKind::Mainboard, "dmi-board:FRANMJCP07")
         };
         assert_eq!(maker(&board), "");
-        assert_eq!(maker(&part(PartKind::Touchpad, "hid:093a:1343")), "");
+        assert_eq!(maker(&part(PartKind::Display, "edid:CSW:1322")), "");
     }
 
     #[test]
