@@ -37,7 +37,7 @@ pub(crate) struct Edid {
     /// Millimetres from the preferred timing, ten times the precision of
     /// the header's whole centimetres.
     pub(crate) size: Option<(u16, u16)>,
-    /// Bits per colour, and None where the panel is analogue or names none.
+    /// Bits per colour.
     pub(crate) depth: Option<u8>,
     /// The active pixels of the timing the panel prefers, which on a fixed
     /// panel is the only one it really has.

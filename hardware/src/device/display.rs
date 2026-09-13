@@ -37,7 +37,6 @@ impl Display {
         panels
     }
 
-    /// The vendor is the EDID's PNP id, which names nobody in words.
     fn of_edid(edid: &Edid, vendor_name: &str) -> Self {
         Self {
             identity: Identity {
@@ -55,12 +54,7 @@ impl Display {
 }
 
 fn details(edid: &Edid) -> Vec<Detail> {
-    let (dated, year) = match edid.year {
-        Some(Year::Model(year)) => ("Model year", Some(year)),
-        Some(Year::Manufacture(year)) => ("Manufactured", Some(year)),
-        None => ("Manufactured", None),
-    };
-    part::details([
+    let mut rows = part::details([
         (
             "Resolution",
             edid.resolution
@@ -77,8 +71,16 @@ fn details(edid: &Edid) -> Vec<Detail> {
             edid.depth.map(|bits| format!("{bits} bits per colour")),
         ),
         ("Refresh rate", edid.refresh.map(spelled_rate)),
-        (dated, year.map(|year| year.to_string())),
-    ])
+    ]);
+    rows.extend(edid.year.map(dated));
+    rows
+}
+
+fn dated(year: Year) -> Detail {
+    match year {
+        Year::Manufacture(year) => Detail::new("Manufactured", &year.to_string()),
+        Year::Model(year) => Detail::new("Model year", &year.to_string()),
+    }
 }
 
 /// A panel is sold as a ratio it need not exactly have.
