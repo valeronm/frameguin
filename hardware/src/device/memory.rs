@@ -118,11 +118,24 @@ fn spelled(value: u8, names: &[(u8, &'static str)]) -> String {
         .map_or_else(|| format!("{value:#04x}"), |(_, name)| (*name).to_owned())
 }
 
-/// Table 75 of the SMBIOS specification, from `3DRAM` on.
+/// Table 77 of the SMBIOS specification, less the values it reserves.
 fn memory_type(value: u8) -> String {
     spelled(
         value,
         &[
+            (0x01, "Other"),
+            (0x02, "Unknown"),
+            (0x03, "DRAM"),
+            (0x04, "EDRAM"),
+            (0x05, "VRAM"),
+            (0x06, "SRAM"),
+            (0x07, "RAM"),
+            (0x08, "ROM"),
+            (0x09, "FLASH"),
+            (0x0a, "EEPROM"),
+            (0x0b, "FEPROM"),
+            (0x0c, "EPROM"),
+            (0x0d, "CDRAM"),
             (0x0e, "3DRAM"),
             (0x0f, "SDRAM"),
             (0x10, "SGRAM"),
@@ -147,8 +160,7 @@ fn memory_type(value: u8) -> String {
     )
 }
 
-/// Table 76 of the SMBIOS specification. This board reports `CAMM`, added
-/// to it after the decoders in common use were written.
+/// Table 76 of the SMBIOS specification.
 fn form_factor(value: u8) -> String {
     spelled(
         value,
