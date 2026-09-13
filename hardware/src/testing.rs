@@ -60,6 +60,7 @@ pub fn display_identity() -> Identity {
             Detail::new("Size", "13.5 inches (285 × 190 mm)"),
             Detail::new("Colour depth", "10 bits per colour"),
             Detail::new("Refresh rate", "30–120 Hz"),
+            Detail::new("Manufactured", "2025"),
         ],
         ..part::edid(
             "CSW",

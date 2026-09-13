@@ -683,9 +683,29 @@ code, and nothing else that names a part: the product-name and serial-number
 descriptors are optional, and this machine's panel carries a name and no
 serial. So a panel is always distinguishable and not always nameable.
 
-This machine's panel reads `CSW` 4898, `MND508ZB1-1`, 2880x1920 at 120 Hz
-over 285x190 mm. The PNP id is CSOT's, which the panel confirms itself in
-its free-form descriptor: `CSOT T3`.
+This machine's panel reads `CSW` 4898, `MND508ZB1-1`, 2880x1920 over
+285x190 mm. The PNP id is CSOT's, which the panel confirms itself in its
+free-form descriptor: `CSOT T3`.
+
+**The preferred timing is 60 Hz; 120 is the ceiling of a range.** They come
+from different descriptors — the first detailed timing carries the mode the
+panel prefers, and a range-limits descriptor tagged `0xfd` carries the
+vertical rates it will accept, 30 to 120 here. A panel quoted at its highest
+rate is being quoted from the second.
+
+**Two measurements of the same panel disagree by rounding.** The header
+carries whole centimetres, 28x19, and the preferred timing carries
+millimetres, 285x190. The diagonal from the first is 13.3 inches and from
+the second 13.5, which is what the panel is sold as.
+
+The block is 384 bytes: the base block and two extensions, CTA-861 and
+DisplayID, neither of which anything here reads. The manufacture week reads
+0 — the specification's "not stated" — against a year of 2025.
+
+**The week byte decides what the year byte means.** A week of `0xff` marks
+the year as the model year the panel belongs to rather than the year it was
+built, so the two cannot be shown under one heading; anything else leaves it
+a manufacture year, stated or not. The year itself counts from 1990.
 
 **Only `eDP` connectors are the machine's own.** What is plugged into a
 USB-C port is a monitor rather than a part of the laptop.

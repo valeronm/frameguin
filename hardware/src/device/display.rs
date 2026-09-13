@@ -2,7 +2,7 @@
 //! part and no control, read for the bill of materials alone.
 
 use crate::drm;
-use crate::edid::{self, Edid};
+use crate::edid::{self, Edid, Year};
 use crate::part::{self, Detail, Firmware, Identity, Part};
 use crate::udev;
 
@@ -55,6 +55,11 @@ impl Display {
 }
 
 fn details(edid: &Edid) -> Vec<Detail> {
+    let (dated, year) = match edid.year {
+        Some(Year::Model(year)) => ("Model year", Some(year)),
+        Some(Year::Manufacture(year)) => ("Manufactured", Some(year)),
+        None => ("Manufactured", None),
+    };
     part::details([
         (
             "Resolution",
@@ -72,6 +77,7 @@ fn details(edid: &Edid) -> Vec<Detail> {
             edid.depth.map(|bits| format!("{bits} bits per colour")),
         ),
         ("Refresh rate", edid.refresh.map(spelled_rate)),
+        (dated, year.map(|year| year.to_string())),
     ])
 }
 
@@ -125,8 +131,8 @@ fn spelled_rate((slowest, fastest): (u16, u16)) -> String {
 #[cfg(test)]
 mod tests {
     use super::{Display, aspect, details};
-    use crate::edid::{Edid, tests::panel};
-    use crate::part::Part;
+    use crate::edid::{Edid, Year, tests::panel};
+    use crate::part::{Detail, Part};
     use crate::testing::display_identity;
 
     #[test]
@@ -145,9 +151,19 @@ mod tests {
             depth: None,
             resolution: None,
             refresh: None,
+            year: None,
             ..panel()
         };
         assert!(details(&silent).is_empty());
+    }
+
+    #[test]
+    fn a_panel_dated_by_its_model_year_says_which_year_that_is() {
+        let dated = Edid {
+            year: Some(Year::Model(2025)),
+            ..panel()
+        };
+        assert!(details(&dated).contains(&Detail::new("Model year", "2025")));
     }
 
     #[test]
