@@ -22,14 +22,11 @@ impl Mainboard {
     /// publishes one. `ec` is None where there is no Framework EC, which
     /// costs the board its EC version and nothing else.
     pub(crate) fn detect(ec: Option<&Ec>) -> Option<Self> {
-        let firmware = [
-            dmi::field("bios_version").map(|v| Firmware::new("BIOS", &v)),
-            ec_firmware(ec),
-        ]
-        .into_iter()
-        .flatten()
-        .chain(pd_firmware(&ec.map(Ec::pd_versions).unwrap_or_default()))
-        .collect();
+        let firmware = [bios(), ec_firmware(ec)]
+            .into_iter()
+            .flatten()
+            .chain(pd_firmware(&ec.map(Ec::pd_versions).unwrap_or_default()))
+            .collect();
         Some(Self::new(
             &dmi::field("board_vendor").unwrap_or_default(),
             &dmi::product().unwrap_or_default(),
@@ -59,21 +56,23 @@ impl Mainboard {
                 size_bytes: 0,
                 id: format!("dmi-board:{board}"),
                 firmware,
+                details: Vec::new(),
             },
         }
     }
 }
 
-/// The USB-C power delivery controllers, named by the EC's controller
-/// number — the same number the port index divides by, two ports to a
-/// controller. They are soldered to the board like the EC itself, so they
-/// are firmware it runs rather than parts of their own; the Laptop 16's
-/// third rides on whichever module fills the expansion bay, and is the one
-/// this misplaces.
-///
-/// A controller keeps its number when an earlier one has no version, so a
-/// gap in what the EC answers is a gap in the names rather than a renaming
-/// of the controllers after it.
+/// The table names a vendor for the BIOS, and it is the firmware's author
+/// rather than whoever built it.
+fn bios() -> Option<Firmware> {
+    Some(Firmware {
+        name: "BIOS".to_owned(),
+        version: dmi::field("bios_version")?,
+        built: dmi::bios_date().unwrap_or_default(),
+        builder: String::new(),
+    })
+}
+
 /// A version is never worth a failed detection, so an EC that will not
 /// answer costs the board this firmware alone.
 fn ec_firmware(ec: Option<&Ec>) -> Option<Firmware> {
@@ -86,6 +85,16 @@ fn ec_firmware(ec: Option<&Ec>) -> Option<Firmware> {
     })
 }
 
+/// The USB-C power delivery controllers, named by the EC's controller
+/// number — the same number the port index divides by, two ports to a
+/// controller. They are soldered to the board like the EC itself, so they
+/// are firmware it runs rather than parts of their own; the Laptop 16's
+/// third rides on whichever module fills the expansion bay, and is the one
+/// this misplaces.
+///
+/// A controller keeps its number when an earlier one has no version, so a
+/// gap in what the EC answers is a gap in the names rather than a renaming
+/// of the controllers after it.
 fn pd_firmware(versions: &[[u8; pd::VERSION_LEN]]) -> Vec<Firmware> {
     versions
         .iter()

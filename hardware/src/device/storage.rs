@@ -48,6 +48,7 @@ impl Drive {
                     .then(|| Firmware::new("Firmware", &controller.firmware))
                     .into_iter()
                     .collect(),
+                details: Vec::new(),
             },
         }
     }

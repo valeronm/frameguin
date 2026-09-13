@@ -10,8 +10,8 @@ use std::task::{Context, Poll, Waker};
 
 use frameguin_wire::{
     BatteryCondition, BatteryInfo, BatteryState, CcPolarity, ChargeFlow, ClickForce, DataRole,
-    DeviceError, DeviceResult, Epr, Identity, PartKind, PortPartner, PortState, PowerLedLevel,
-    PowerRole,
+    Detail, DeviceError, DeviceResult, Epr, Identity, PartKind, PortPartner, PortState,
+    PowerLedLevel, PowerRole,
 };
 
 use crate::ec::{Charger, Pack, PdPorts, PowerLedEc};
@@ -54,13 +54,21 @@ pub fn touchpad_identity() -> Identity {
 /// The panel as its EDID identifies it, with the maker the vendor list
 /// resolved.
 pub fn display_identity() -> Identity {
-    part::edid(
-        "CSW",
-        "China Star Optoelectronics Technology Co., Ltd",
-        4898,
-        "MND508ZB1-1",
-        "",
-    )
+    Identity {
+        details: vec![
+            Detail::new("Resolution", "2880 × 1920 (3:2)"),
+            Detail::new("Size", "13.5 inches (285 × 190 mm)"),
+            Detail::new("Colour depth", "10 bits per colour"),
+            Detail::new("Refresh rate", "30–120 Hz"),
+        ],
+        ..part::edid(
+            "CSW",
+            "China Star Optoelectronics Technology Co., Ltd",
+            4898,
+            "MND508ZB1-1",
+            "",
+        )
+    }
 }
 
 /// The pack as its own registers identify it.

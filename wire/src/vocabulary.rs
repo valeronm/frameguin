@@ -403,6 +403,25 @@ pub enum PartKind {
     Touchpad,
 }
 
+/// Something else a part announced about itself, as a row to show. Both
+/// halves are the hardware's words.
+#[derive(Serialize, Deserialize, Type, Clone, PartialEq, Eq, Debug)]
+#[zvariant(crate = "zbus::zvariant")]
+pub struct Detail {
+    pub name: String,
+    pub value: String,
+}
+
+impl Detail {
+    #[must_use]
+    pub fn new(name: &str, value: &str) -> Self {
+        Self {
+            name: name.to_owned(),
+            value: value.to_owned(),
+        }
+    }
+}
+
 /// One firmware a part runs, named for what carries it as the part's user
 /// would: `BIOS` and `EC` on the mainboard, `Controller` on a touch panel.
 #[derive(Serialize, Deserialize, Type, Clone, PartialEq, Eq, Debug)]
@@ -411,9 +430,9 @@ pub struct Firmware {
     pub name: String,
     /// As the vendor spells it.
     pub version: String,
-    /// When the firmware was built, as `YYYY-MM-DD HH:MM:SS` where it stamps
-    /// a date and whatever it stamped instead where it does not. Empty where
-    /// it announced a version and nothing more.
+    /// When the firmware was built: an ISO date, with the time where the
+    /// source carries one, and whatever it stamped instead where that is not
+    /// a date at all. Empty where it announced a version and nothing more.
     pub built: String,
     /// Whoever built it, and empty where the firmware announced no builder.
     pub builder: String,
@@ -456,6 +475,9 @@ pub struct Identity {
     /// Every firmware the part would report — a version is never worth a
     /// failed detection, so one it would not say is left out.
     pub firmware: Vec<Firmware>,
+    /// What the part announced beyond its identity, empty for one that
+    /// announced nothing.
+    pub details: Vec<Detail>,
 }
 
 impl Identity {
@@ -579,6 +601,7 @@ mod tests {
             size_bytes,
             id: String::new(),
             firmware: Vec::new(),
+            details: Vec::new(),
         }
     }
 

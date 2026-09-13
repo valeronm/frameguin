@@ -17,6 +17,32 @@ pub(crate) fn field(name: &str) -> Option<String> {
         .map(|value| value.trim().to_owned())
 }
 
+/// When the BIOS was built, as an ISO date where the firmware stamped the
+/// `mm/dd/yyyy` the specification asks of it and as it stands where it
+/// stamped something else.
+///
+/// The American ordering is the specification's, and so this table's to
+/// know about.
+pub(crate) fn bios_date() -> Option<String> {
+    let stamped = field("bios_date")?;
+    Some(iso(&stamped).unwrap_or(stamped))
+}
+
+/// None for a two-digit year as much as for a stamp of another shape: which
+/// century it meant is a guess, and the stamp as written says more than a
+/// wrong date.
+fn iso(stamped: &str) -> Option<String> {
+    let (month, rest) = stamped.split_once('/')?;
+    let (day, year) = rest.split_once('/')?;
+    let month: u8 = month
+        .parse()
+        .ok()
+        .filter(|month| (1..=12).contains(month))?;
+    let day: u8 = day.parse().ok().filter(|day| (1..=31).contains(day))?;
+    (year.len() == 4 && year.parse::<u16>().is_ok()).then_some(())?;
+    Some(format!("{year}-{month:02}-{day:02}"))
+}
+
 /// Without `/dev/cros_ec`, `framework_lib` falls back to raw port I/O; on a
 /// non-Framework EC every command spin-waits to a timeout, stalling the
 /// daemon's start for tens of seconds. Don't touch the EC unless the
@@ -57,6 +83,10 @@ impl Structure {
         Some(Self { formatted, strings })
     }
 
+    pub(crate) fn byte(&self, offset: usize) -> Option<u8> {
+        self.formatted.get(offset).copied()
+    }
+
     pub(crate) fn u16(&self, offset: usize) -> Option<u16> {
         let bytes = self.formatted.get(offset..offset + 2)?;
         Some(u16::from_le_bytes([bytes[0], bytes[1]]))
@@ -70,7 +100,7 @@ impl Structure {
     /// The string the byte at `offset` indexes, and None both for an index
     /// of zero — the spec's "no string" — and for one past the table.
     pub(crate) fn string(&self, offset: usize) -> Option<&str> {
-        let index = usize::from(*self.formatted.get(offset)?).checked_sub(1)?;
+        let index = usize::from(self.byte(offset)?).checked_sub(1)?;
         self.strings
             .get(index)
             .map(String::as_str)
@@ -91,7 +121,27 @@ pub(crate) fn entries(kind: u8) -> Vec<Structure> {
 
 #[cfg(test)]
 mod tests {
-    use super::Structure;
+    use super::{Structure, iso};
+
+    #[test]
+    fn a_stamp_of_the_shape_the_specification_asks_for_reads_as_an_iso_date() {
+        assert_eq!(iso("05/26/2026").as_deref(), Some("2026-05-26"));
+        assert_eq!(iso("12/01/1999").as_deref(), Some("1999-12-01"));
+    }
+
+    #[test]
+    fn a_stamp_of_another_shape_is_left_to_be_shown_as_it_stands() {
+        for stamped in ["05/26/26", "2026-05-26", "26 May 2026", "05/26", ""] {
+            assert!(iso(stamped).is_none());
+        }
+    }
+
+    #[test]
+    fn a_stamp_naming_no_month_or_day_of_the_year_is_not_a_date() {
+        assert!(iso("13/01/2026").is_none());
+        assert!(iso("05/32/2026").is_none());
+        assert!(iso("00/26/2026").is_none());
+    }
 
     #[test]
     fn strings_are_indexed_from_one_and_zero_is_none() {

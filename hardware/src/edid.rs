@@ -4,13 +4,17 @@
 const HEADER: [u8; 8] = [0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x00];
 
 const BLOCK: usize = 128;
+const INPUT: usize = 0x14;
+const WIDTH: usize = 0x15;
+const HEIGHT: usize = 0x16;
 const DESCRIPTORS: usize = 54;
 const DESCRIPTOR_LENGTH: usize = 18;
 const TEXT: usize = 5;
 const PRODUCT_NAME: u8 = 0xfc;
 const SERIAL_NUMBER: u8 = 0xff;
+const RANGE_LIMITS: u8 = 0xfd;
 
-/// What a panel announces about itself, in its own spelling.
+/// What a panel announces about itself.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Edid {
     /// The maker's three-letter PNP id, which names nobody without the
@@ -22,6 +26,17 @@ pub(crate) struct Edid {
     pub(crate) name: String,
     /// Empty where the EDID carries no serial-number descriptor.
     pub(crate) serial: String,
+    /// Millimetres, from the preferred timing where it states them and the
+    /// header's whole centimetres otherwise — ten times the precision for
+    /// the same measurement.
+    pub(crate) size: Option<(u16, u16)>,
+    /// Bits per colour, and None where the panel is analogue or names none.
+    pub(crate) depth: Option<u8>,
+    /// The active pixels of the timing the panel prefers, which on a fixed
+    /// panel is the only one it really has.
+    pub(crate) resolution: Option<(u16, u16)>,
+    /// The vertical rates it accepts, in whole Hz.
+    pub(crate) refresh: Option<(u16, u16)>,
 }
 
 /// None for anything that is not a whole, well-formed first block.
@@ -35,7 +50,61 @@ pub(crate) fn parse(edid: &[u8]) -> Option<Edid> {
         product: u16::from_le_bytes([block[10], block[11]]),
         name: descriptor(block, PRODUCT_NAME).unwrap_or_default(),
         serial: descriptor(block, SERIAL_NUMBER).unwrap_or_default(),
+        size: size(block),
+        depth: depth(block[INPUT]),
+        resolution: resolution(block),
+        refresh: refresh(block),
     })
+}
+
+fn size(block: &[u8]) -> Option<(u16, u16)> {
+    let stated = |(across, down): (u16, u16)| (across > 0 && down > 0).then_some((across, down));
+    preferred(block)
+        .and_then(|timing| {
+            stated((
+                u16::from(timing[12]) | (u16::from(timing[14] & 0xf0) << 4),
+                u16::from(timing[13]) | (u16::from(timing[14] & 0x0f) << 8),
+            ))
+        })
+        .or_else(|| stated((u16::from(block[WIDTH]) * 10, u16::from(block[HEIGHT]) * 10)))
+}
+
+/// An analogue panel's byte means something else entirely, and the codes
+/// for an undefined and a reserved depth name none.
+fn depth(input: u8) -> Option<u8> {
+    (input & 0x80 != 0).then_some(())?;
+    match (input >> 4) & 0x7 {
+        0 | 7 => None,
+        code => Some(4 + code * 2),
+    }
+}
+
+/// The first detailed timing, which the specification reserves for the one
+/// the panel prefers. A descriptor is one unless its first bytes are zero,
+/// which is what marks the rest as carrying text or limits instead.
+fn preferred(block: &[u8]) -> Option<&[u8]> {
+    timings(block).find(|timing| timing[..2] != [0, 0])
+}
+
+/// Active pixels are split across a byte and the high nibble of another,
+/// the blanking taking the low one.
+fn resolution(block: &[u8]) -> Option<(u16, u16)> {
+    let timing = preferred(block)?;
+    let active =
+        |low: usize, high: usize| u16::from(timing[low]) | (u16::from(timing[high] & 0xf0) << 4);
+    let pixels = (active(2, 4), active(5, 7));
+    (pixels.0 > 0 && pixels.1 > 0).then_some(pixels)
+}
+
+/// Either rate may be offset by 255, which is how a panel states one the
+/// byte cannot hold.
+fn refresh(block: &[u8]) -> Option<(u16, u16)> {
+    let limits = tagged(block, RANGE_LIMITS)?;
+    let offset = |flag: u8| if limits[4] & flag == 0 { 0 } else { 255 };
+    Some((
+        u16::from(limits[5]) + offset(0x01),
+        u16::from(limits[6]) + offset(0x02),
+    ))
 }
 
 /// The three letters a manufacturer id packs into five bits each, 1 for A.
@@ -52,21 +121,31 @@ fn pnp(id: u16) -> Option<String> {
         .collect()
 }
 
+/// The four fixed-length descriptors the block ends on, whatever each
+/// turned out to be.
+fn timings(block: &[u8]) -> impl Iterator<Item = &[u8]> {
+    block
+        .get(DESCRIPTORS..)
+        .unwrap_or_default()
+        .chunks_exact(DESCRIPTOR_LENGTH)
+}
+
+fn tagged(block: &[u8], tag: u8) -> Option<&[u8]> {
+    timings(block).find(|descriptor| descriptor[..3] == [0, 0, 0] && descriptor[3] == tag)
+}
+
 /// The text of the descriptor carrying `tag`, less the terminator and the
 /// spaces padding it out. None where no descriptor carries the tag, since a
 /// panel need not offer either of the ones read here.
 fn descriptor(block: &[u8], tag: u8) -> Option<String> {
-    let descriptor = block
-        .get(DESCRIPTORS..)?
-        .chunks_exact(DESCRIPTOR_LENGTH)
-        .find(|descriptor| descriptor[..3] == [0, 0, 0] && descriptor[3] == tag)?;
+    let descriptor = tagged(block, tag)?;
     let text = std::str::from_utf8(&descriptor[TEXT..]).ok()?;
     let text = text.split('\n').next()?.trim_end();
     (!text.is_empty()).then(|| text.to_owned())
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::{BLOCK, Edid, parse};
 
     const HEADER_BYTE: usize = 0;
@@ -91,6 +170,10 @@ mod tests {
         edid
     }
 
+    pub(crate) fn panel() -> Edid {
+        parse(&PANEL).unwrap()
+    }
+
     #[test]
     fn a_panel_is_read_off_its_edid() {
         assert_eq!(
@@ -100,6 +183,10 @@ mod tests {
                 product: 4898,
                 name: "MND508ZB1-1".to_owned(),
                 serial: String::new(),
+                size: Some((285, 190)),
+                depth: Some(10),
+                resolution: Some((2880, 1920)),
+                refresh: Some((30, 120)),
             }
         );
     }

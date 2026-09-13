@@ -3,18 +3,28 @@
 //! alone.
 
 use crate::dmi::{self, Structure};
-use crate::part::{Identity, Part, PartKind};
+use crate::part::{self, Detail, Identity, Part, PartKind};
 
 /// SMBIOS type 17, "Memory Device".
 const MEMORY_DEVICE: u8 = 17;
 
 /// Offsets into the formatted area, per the SMBIOS 3 specification.
 const SIZE: usize = 0x0c;
+const FORM_FACTOR: usize = 0x0e;
 const LOCATOR: usize = 0x10;
+const MEMORY_TYPE: usize = 0x12;
+const SPEED: usize = 0x15;
 const MANUFACTURER: usize = 0x17;
 const SERIAL: usize = 0x18;
 const PART_NUMBER: usize = 0x1a;
 const EXTENDED_SIZE: usize = 0x1c;
+const CONFIGURED_SPEED: usize = 0x20;
+const EXTENDED_SPEED: usize = 0x54;
+const EXTENDED_CONFIGURED_SPEED: usize = 0x58;
+
+/// The value a 16-bit speed field carries where the module runs faster than
+/// it can hold, the rate itself being in the 32-bit extension.
+const SPEED_EXTENDED: u16 = 0xffff;
 
 const SIZE_EXTENDED: u16 = 0x7fff;
 const SIZE_UNKNOWN: u16 = 0xffff;
@@ -62,9 +72,106 @@ impl Module {
                 size_bytes,
                 id: format!("dmi-slot:{}", entry.string(LOCATOR).unwrap_or_default()),
                 firmware: Vec::new(),
+                details: details(entry),
             },
         })
     }
+}
+
+/// Two rows of the same number say no more than one.
+fn details(entry: &Structure) -> Vec<Detail> {
+    let rated = speed(entry, SPEED, EXTENDED_SPEED);
+    let configured = speed(entry, CONFIGURED_SPEED, EXTENDED_CONFIGURED_SPEED);
+    part::details([
+        ("Type", entry.byte(MEMORY_TYPE).map(memory_type)),
+        ("Form factor", entry.byte(FORM_FACTOR).map(form_factor)),
+        ("Speed", rated.map(megatransfers)),
+        (
+            "Configured speed",
+            configured
+                .filter(|rate| Some(*rate) != rated)
+                .map(megatransfers),
+        ),
+    ])
+}
+
+fn megatransfers(rate: u32) -> String {
+    format!("{rate} MT/s")
+}
+
+/// None where the field says nothing, and the extension's rate where the
+/// 16-bit field defers to it.
+fn speed(entry: &Structure, short: usize, extended: usize) -> Option<u32> {
+    match entry.u16(short)? {
+        0 => None,
+        SPEED_EXTENDED => entry.u32(extended).filter(|rate| *rate != 0),
+        rate => Some(u32::from(rate)),
+    }
+}
+
+/// Firmware outruns the table it is written against, and a value it does
+/// not name says more as itself than as `Unknown`.
+fn spelled(value: u8, names: &[(u8, &'static str)]) -> String {
+    names
+        .iter()
+        .find(|(known, _)| *known == value)
+        .map_or_else(|| format!("{value:#04x}"), |(_, name)| (*name).to_owned())
+}
+
+/// Table 75 of the SMBIOS specification, from `3DRAM` on.
+fn memory_type(value: u8) -> String {
+    spelled(
+        value,
+        &[
+            (0x0e, "3DRAM"),
+            (0x0f, "SDRAM"),
+            (0x10, "SGRAM"),
+            (0x11, "RDRAM"),
+            (0x12, "DDR"),
+            (0x13, "DDR2"),
+            (0x14, "DDR2 FB-DIMM"),
+            (0x18, "DDR3"),
+            (0x19, "FBD2"),
+            (0x1a, "DDR4"),
+            (0x1b, "LPDDR"),
+            (0x1c, "LPDDR2"),
+            (0x1d, "LPDDR3"),
+            (0x1e, "LPDDR4"),
+            (0x1f, "Logical non-volatile device"),
+            (0x20, "HBM"),
+            (0x21, "HBM2"),
+            (0x22, "DDR5"),
+            (0x23, "LPDDR5"),
+            (0x24, "HBM3"),
+        ],
+    )
+}
+
+/// Table 76 of the SMBIOS specification. This board reports `CAMM`, added
+/// to it after the decoders in common use were written.
+fn form_factor(value: u8) -> String {
+    spelled(
+        value,
+        &[
+            (0x01, "Other"),
+            (0x02, "Unknown"),
+            (0x03, "SIMM"),
+            (0x04, "SIP"),
+            (0x05, "Chip"),
+            (0x06, "DIP"),
+            (0x07, "ZIP"),
+            (0x08, "Proprietary Card"),
+            (0x09, "DIMM"),
+            (0x0a, "TSOP"),
+            (0x0b, "Row of chips"),
+            (0x0c, "RIMM"),
+            (0x0d, "SODIMM"),
+            (0x0e, "SRIMM"),
+            (0x0f, "FB-DIMM"),
+            (0x10, "Die"),
+            (0x11, "CAMM"),
+        ],
+    )
 }
 
 /// An empty slot says so as none, as unknown, or — for a module the 16-bit
@@ -88,7 +195,7 @@ fn size(entry: &Structure) -> Option<u64> {
 mod tests {
     use super::Module;
     use crate::dmi::Structure;
-    use crate::part::{Part, PartKind};
+    use crate::part::{Detail, Part, PartKind};
 
     const FORMATTED_LENGTH: u8 = 0x64;
 
@@ -99,11 +206,15 @@ mod tests {
         raw[0] = 17;
         raw[1] = FORMATTED_LENGTH;
         raw[0x0c..0x0e].copy_from_slice(&size.to_le_bytes());
+        raw[0x0e] = 0x11;
         raw[0x10] = 1;
+        raw[0x12] = 0x23;
+        raw[0x15..0x17].copy_from_slice(&RATED.to_le_bytes());
         raw[0x17] = 2;
         raw[0x18] = 3;
         raw[0x1a] = 4;
         raw[0x1c..0x20].copy_from_slice(&extended_size.to_le_bytes());
+        raw[0x20..0x22].copy_from_slice(&CONFIGURED.to_le_bytes());
         for s in strings {
             raw.extend_from_slice(s.as_bytes());
             raw.push(0);
@@ -112,8 +223,11 @@ mod tests {
         raw
     }
 
+    const RATED: u16 = 8533;
+    const CONFIGURED: u16 = 7467;
+
     /// A real module's strings, with the padding firmware puts after them;
-    /// only the serial is invented, the part number being the catalogue's.
+    /// only the serial is invented.
     const STRINGS: [&str; 4] = [
         "LPCAMM2_0",
         "Micron Technology",
@@ -121,9 +235,18 @@ mod tests {
         "MTD16C20325N4FN023F1 YF       ",
     ];
 
+    fn fitted() -> Vec<u8> {
+        entry(0x7fff, 32 * 1024, &STRINGS)
+    }
+
+    fn details(raw: &[u8]) -> Vec<Detail> {
+        let entry = Structure::parse(raw).unwrap();
+        Module::parse(&entry).unwrap().identity().details.clone()
+    }
+
     #[test]
     fn a_fitted_module_is_read_off_the_table() {
-        let entry = Structure::parse(&entry(0x7fff, 32 * 1024, &STRINGS)).unwrap();
+        let entry = Structure::parse(&fitted()).unwrap();
         let identity = Module::parse(&entry).unwrap().identity().clone();
         assert_eq!(identity.kind, PartKind::Memory);
         assert_eq!(identity.vendor, "Micron Technology");
@@ -149,6 +272,48 @@ mod tests {
             Module::parse(&entry).unwrap().identity().size_bytes,
             512 << 10
         );
+    }
+
+    #[test]
+    fn a_module_carries_its_type_form_factor_and_both_speeds() {
+        assert_eq!(
+            details(&fitted()),
+            [
+                Detail::new("Type", "LPDDR5"),
+                Detail::new("Form factor", "CAMM"),
+                Detail::new("Speed", "8533 MT/s"),
+                Detail::new("Configured speed", "7467 MT/s"),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_speed_matching_the_one_it_was_rated_at_is_not_repeated() {
+        let mut raw = fitted();
+        raw[0x20..0x22].copy_from_slice(&RATED.to_le_bytes());
+        assert!(
+            details(&raw)
+                .iter()
+                .all(|detail| detail.name != "Configured speed")
+        );
+    }
+
+    #[test]
+    fn a_speed_the_short_field_cannot_hold_comes_from_the_extension() {
+        let mut raw = fitted();
+        raw[0x15..0x17].copy_from_slice(&0xffffu16.to_le_bytes());
+        raw[0x54..0x58].copy_from_slice(&70_000u32.to_le_bytes());
+        assert!(details(&raw).contains(&Detail::new("Speed", "70000 MT/s")));
+    }
+
+    #[test]
+    fn a_value_the_specification_does_not_name_is_shown_as_itself() {
+        let mut raw = fitted();
+        raw[0x0e] = 0x12;
+        raw[0x12] = 0x25;
+        let details = details(&raw);
+        assert!(details.contains(&Detail::new("Form factor", "0x12")));
+        assert!(details.contains(&Detail::new("Type", "0x25")));
     }
 
     #[test]

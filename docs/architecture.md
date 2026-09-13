@@ -200,9 +200,10 @@ A **part** is asked what it is through one common trait,
 `hardware::part::Part`, answering an `Identity` — kind, vendor, the name a
 registry gives that vendor, model, part
 number, serial, size, the identifier it announces itself by, prefixed with its space
-(`hid:093a:1343`, `dmi-slot:LPCAMM2_0`, `dmi-board:FRANMJCP07`), and every
-firmware it would report — because its caller iterates the machine's bill
-of materials without caring what any entry does. `Identity` lives in `wire`,
+(`hid:093a:1343`, `dmi-slot:LPCAMM2_0`, `dmi-board:FRANMJCP07`), every
+firmware it would report, and whatever else it announced as rows to
+show — because its caller iterates the machine's bill of materials
+without caring what any entry does. `Identity` lives in `wire`,
 being what that caller receives: the daemon collects one per part at
 startup, `GetDevices` answers with the list, and the app's parts window
 draws it with the words `model::part` gives — bar the size, spelled in

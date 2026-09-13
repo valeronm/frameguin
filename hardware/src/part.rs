@@ -2,7 +2,7 @@
 //! materials iterates, asked through one trait because its caller does not
 //! care what any entry does.
 
-pub use frameguin_wire::{Firmware, Identity, PartKind};
+pub use frameguin_wire::{Detail, Firmware, Identity, PartKind};
 
 /// A HID part, from what its descriptor announces. The ids are the USB-IF
 /// registry's, but the space is HID's: the same ids arrive over I2C, and the
@@ -25,6 +25,7 @@ pub fn hid(
         size_bytes: 0,
         id: format!("hid:{vid:04x}:{pid:04x}"),
         firmware: Vec::new(),
+        details: Vec::new(),
     }
 }
 
@@ -68,6 +69,7 @@ pub fn edid(
         size_bytes: 0,
         id: format!("edid:{manufacturer}:{product:04x}"),
         firmware: Vec::new(),
+        details: Vec::new(),
     }
 }
 
@@ -84,7 +86,19 @@ pub fn sbs(manufacturer: &str, model: &str, serial: &str) -> Identity {
         size_bytes: 0,
         id: format!("sbs:{model}"),
         firmware: Vec::new(),
+        details: Vec::new(),
     }
+}
+
+pub(crate) fn details<const N: usize>(rows: [(&str, Option<String>); N]) -> Vec<Detail> {
+    rows.into_iter()
+        .filter_map(|(name, value)| {
+            Some(Detail {
+                name: name.to_owned(),
+                value: value?,
+            })
+        })
+        .collect()
 }
 
 pub trait Part {

@@ -190,12 +190,9 @@ pub fn catalogue(part: &Identity) -> Option<Catalogue> {
             "Laptop 13 Pro Touchscreen Display Kit - 2.8K",
             Some("https://frame.work/products/laptop13pro-display-kit"),
         )),
-        // The page's capacity variants carry codes nothing on the module
-        // maps to, so the link is to the page unvaried.
-        (PartKind::Memory, "MTD16C20325N4FN023F1 YF") => Some(listed(
-            "LPCAMM2 - LPDDR5X 8533 Memory",
-            Some("https://frame.work/products/lpcamm2-lpddr5x"),
-        )),
+        // Memory is deliberately absent: the listing's capacity variants
+        // carry codes nothing on a module maps to, so a listing names a
+        // module no better than it links one.
         _ => None,
     }
 }
@@ -288,6 +285,7 @@ mod tests {
             size_bytes: 0,
             id: id.to_owned(),
             firmware: Vec::new(),
+            details: Vec::new(),
         }
     }
 
@@ -347,13 +345,6 @@ mod tests {
     fn a_part_the_catalogue_does_not_name_keeps_its_own_words() {
         assert!(catalogue(&part(PartKind::Memory, "dmi-slot:LPCAMM2_0")).is_none());
         assert!(catalogue(&part(PartKind::Touchpad, "hid:093a:1343")).is_some());
-    }
-
-    /// A module is the same part in whichever slot it sits, and a slot holds
-    /// whichever module was fitted, so the slot cannot be the key.
-    #[test]
-    fn a_memory_module_is_catalogued_by_its_part_number_not_its_slot() {
-        assert!(catalogue(&module("dmi-slot:LPCAMM2_1")).is_some());
     }
 
     #[test]
@@ -437,11 +428,11 @@ mod tests {
         };
         let sold = catalogue(&board);
         assert_eq!(part_number(&board, sold), "FRANMJCP07");
-        let module = module("dmi-slot:LPCAMM2_0");
-        assert_eq!(
-            part_number(&module, catalogue(&module)),
-            "MTD16C20325N4FN023F1 YF"
-        );
-        assert_eq!(part_number(&module, None), "");
+        let pack = Identity {
+            model: "FRANEDA".to_owned(),
+            ..part(PartKind::Battery, "sbs:FRANEDA")
+        };
+        assert_eq!(part_number(&pack, catalogue(&pack)), "FRANEDA");
+        assert_eq!(part_number(&pack, None), "");
     }
 }
