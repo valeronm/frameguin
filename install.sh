@@ -85,10 +85,11 @@ if [ ! -x "$built/frameguin-daemon" ] || [ ! -x "$built/frameguin" ]; then
     exit 1
 fi
 
-# The tarball carries no dependency metadata, so a missing GTK stack surfaces
-# here rather than as a loader error at launch.
-missing="$(ldd "$built/frameguin" "$built/frameguin-daemon" |
-    awk '/not found/ {print "  " $1}' | sort -u)"
+# The tarball carries no dependency metadata, so a missing or outdated library
+# surfaces here rather than at launch. libadwaita keeps one soname across its
+# 1.x releases, so only resolving every symbol (-r) tells a too-old one apart.
+linked="$(ldd -r "$built/frameguin" "$built/frameguin-daemon" 2>&1)"
+missing="$(awk '/=> not found/ {print "  " $1}' <<<"$linked" | sort -u)"
 if [ -n "$missing" ]; then
     # ID_LIKE carries the parent distribution, so derivatives match without
     # being listed. The names below are a best effort for distributions this
@@ -108,6 +109,18 @@ if [ -n "$missing" ]; then
             *) echo "  GTK 4, libadwaita and polkit — your package manager can"
                echo "  name the package for a soname above" ;;
         esac
+    } >&2
+    exit 1
+fi
+
+# A missing library also leaves every function it provides undefined, which is
+# why this is asked only once none is missing.
+outdated="$(awk '/undefined symbol|version .* not found/ {$1 = $1; print "  " $0}' <<<"$linked" | sort -u)"
+if [ -n "$outdated" ]; then
+    {
+        echo "the installed libraries are older than these binaries need:"
+        echo "$outdated"
+        echo "README's Requirements names the minimum versions"
     } >&2
     exit 1
 fi
