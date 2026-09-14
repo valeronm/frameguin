@@ -251,7 +251,10 @@ layered:
 `cargo install cargo-deb`. Then the system libraries:
 
 ```sh
+# Debian and Ubuntu
 sudo apt install libgtk-4-dev libadwaita-1-dev libudev-dev pkg-config build-essential
+# Fedora
+sudo dnf install gtk4-devel libadwaita-devel systemd-devel pkgconf-pkg-config gcc
 ```
 
 ```sh
