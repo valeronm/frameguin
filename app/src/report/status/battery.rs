@@ -1,5 +1,5 @@
-//! The battery section: one row carrying the charge, and a page naming
-//! everything the EC says about the pack.
+//! The battery section: one row carrying the charge, and a page naming what
+//! the pack is doing.
 //!
 //! What each value is *called* is `frameguin_model::control::battery::reading`'s;
 //! which rows there are and what fills them is this module's.
@@ -10,10 +10,8 @@ use adw::prelude::*;
 use frameguin_model::control::battery::Battery;
 use frameguin_model::control::battery::reading::{
     alarms_label, capacity, cell_spread, cell_voltages, charge_brief, charge_direction,
-    charger_label, milliamps, percent_label, power_label, retention_label, temperature,
-    text_or_unknown, volts,
+    charger_label, milliamps, percent_label, power_label, retention_label, temperature, volts,
 };
-use frameguin_model::date;
 use frameguin_wire::BatteryFeature;
 use gtk4 as gtk;
 
@@ -57,12 +55,6 @@ struct Report {
     design_capacity: gtk::Label,
     retention: gtk::Label,
     cycles: gtk::Label,
-    chemistry: gtk::Label,
-    design_voltage: gtk::Label,
-    manufacturer: gtk::Label,
-    model: gtk::Label,
-    serial: gtk::Label,
-    manufacture_date: gtk::Label,
 }
 
 impl Report {
@@ -111,16 +103,6 @@ impl Report {
             info.design_capacity,
         ));
         self.cycles.set_label(&info.cycle_count.to_string());
-
-        self.chemistry.set_label(text_or_unknown(&info.chemistry));
-        self.design_voltage
-            .set_label(&volts(info.design_millivolts));
-        self.manufacturer
-            .set_label(text_or_unknown(&info.manufacturer));
-        self.model.set_label(text_or_unknown(&info.model));
-        self.serial.set_label(text_or_unknown(&info.serial));
-        self.manufacture_date
-            .set_label(text_or_unknown(&date::spelled(&info.manufactured)));
     }
 }
 
@@ -204,19 +186,6 @@ fn build_rows(page: &adw::PreferencesPage) -> Rc<Report> {
     let cycles = value(&capacity_group, "Charge cycles");
     page.add(&capacity_group);
 
-    let pack_group = adw::PreferencesGroup::builder().title("Pack").build();
-    let chemistry = value(&pack_group, "Chemistry");
-    let design_voltage = described_value(
-        &pack_group,
-        "Nominal voltage",
-        "What the pack is rated at, not what it reads now",
-    );
-    let manufacturer = value(&pack_group, "Manufacturer");
-    let model = value(&pack_group, "Model");
-    let serial = value(&pack_group, "Serial number");
-    let manufacture_date = value(&pack_group, "Manufactured");
-    page.add(&pack_group);
-
     Rc::new(Report {
         charge_row,
         charge,
@@ -235,11 +204,5 @@ fn build_rows(page: &adw::PreferencesPage) -> Rc<Report> {
         design_capacity,
         retention,
         cycles,
-        chemistry,
-        design_voltage,
-        manufacturer,
-        model,
-        serial,
-        manufacture_date,
     })
 }

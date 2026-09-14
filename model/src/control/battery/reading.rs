@@ -208,13 +208,6 @@ pub fn alarms_label(alarms: &[BatteryAlarm]) -> String {
         .join(" · ")
 }
 
-/// A name the pack left blank, which some do for the serial. Named rather than
-/// left empty: a blank value reads as a row that failed to fill.
-#[must_use]
-pub fn text_or_unknown(text: &str) -> &str {
-    if text.is_empty() { UNKNOWN } else { text }
-}
-
 /// The whole state on one line, for the tray, which has no second line to
 /// put the charge on.
 #[must_use]

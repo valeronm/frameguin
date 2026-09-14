@@ -73,7 +73,27 @@ pub fn edid(
 
 /// A Smart Battery, from what its gauge announces over the EC. The model
 /// number is the part's rather than the unit's; the serial is the unit's.
-pub fn sbs(manufacturer: &str, model: &str, serial: &str) -> Identity {
+/// A zero rating is taken as one the gauge does not state, and a capacity
+/// without a voltage has no energy to be spelled in.
+pub fn sbs(
+    manufacturer: &str,
+    model: &str,
+    serial: &str,
+    design_capacity: u32,
+    design_millivolts: u32,
+    manufacture_date: Option<String>,
+) -> Identity {
+    let mut details = Vec::new();
+    if design_millivolts != 0 {
+        if design_capacity != 0 {
+            details.push(Detail::DesignCapacity {
+                milliamp_hours: design_capacity,
+                millivolts: design_millivolts,
+            });
+        }
+        details.push(Detail::NominalVoltage(design_millivolts));
+    }
+    details.extend(manufacture_date.map(Detail::ManufactureDate));
     Identity {
         kind: PartKind::Battery,
         vendor: manufacturer.to_owned(),
@@ -83,10 +103,55 @@ pub fn sbs(manufacturer: &str, model: &str, serial: &str) -> Identity {
         serial: serial.to_owned(),
         id: format!("sbs:{model}"),
         firmware: Vec::new(),
-        details: Vec::new(),
+        details,
     }
 }
 
 pub trait Part {
     fn identity(&self) -> &Identity;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Detail, sbs};
+
+    #[test]
+    fn a_rated_and_dated_pack_carries_its_capacity_voltage_and_date() {
+        let pack = sbs(
+            "NVT",
+            "FRANGWA",
+            "0001",
+            3_900,
+            15_400,
+            Some("2026-01-01".to_owned()),
+        );
+        assert_eq!(
+            pack.details,
+            [
+                Detail::DesignCapacity {
+                    milliamp_hours: 3_900,
+                    millivolts: 15_400,
+                },
+                Detail::NominalVoltage(15_400),
+                Detail::ManufactureDate("2026-01-01".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_capacity_without_a_voltage_is_left_out() {
+        assert!(
+            sbs("NVT", "FRANGWA", "0001", 3_900, 0, None)
+                .details
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn a_voltage_without_a_capacity_stands_alone() {
+        assert_eq!(
+            sbs("NVT", "FRANGWA", "0001", 0, 15_400, None).details,
+            [Detail::NominalVoltage(15_400)]
+        );
+    }
 }

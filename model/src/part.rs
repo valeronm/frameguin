@@ -7,6 +7,9 @@ use std::fmt::Write;
 
 use frameguin_wire::{self as wire, Detail, Identity, PartKind, VENDOR};
 
+use crate::control::battery::reading::{capacity, volts};
+use crate::date;
+
 #[must_use]
 pub fn kind_label(kind: PartKind) -> &'static str {
     match kind {
@@ -305,6 +308,12 @@ pub fn detail_row(detail: &Detail) -> (&'static str, String) {
     match detail {
         Detail::MemoryCapacity(bytes) => ("Capacity", scaled(*bytes, 1024.0)),
         Detail::StorageCapacity(bytes) => ("Capacity", scaled(*bytes, 1000.0)),
+        Detail::DesignCapacity {
+            milliamp_hours,
+            millivolts,
+        } => ("Design capacity", capacity(*milliamp_hours, *millivolts)),
+        Detail::NominalVoltage(millivolts) => ("Nominal voltage", volts(*millivolts)),
+        Detail::ManufactureDate(date) => ("Manufactured", date::spelled(date)),
         Detail::Resolution { across, down } => (
             "Resolution",
             format!("{across} × {down} ({})", aspect(*across, *down)),
@@ -697,6 +706,26 @@ mod tests {
         assert_eq!(
             detail_row(&Detail::ModelYear(2025)),
             ("Model year", "2025".to_owned())
+        );
+    }
+
+    #[test]
+    fn a_pack_is_rated_in_energy_and_dated_as_a_reader_says_it() {
+        let design = Detail::DesignCapacity {
+            milliamp_hours: 4_800,
+            millivolts: 15_400,
+        };
+        assert_eq!(
+            detail_row(&design),
+            ("Design capacity", "73.9 Wh (4800 mAh)".to_owned())
+        );
+        assert_eq!(
+            detail_row(&Detail::NominalVoltage(15_400)),
+            ("Nominal voltage", "15.40 V".to_owned())
+        );
+        assert_eq!(
+            detail_row(&Detail::ManufactureDate("2025-03-14".to_owned())),
+            ("Manufactured", "14 March 2025".to_owned())
         );
     }
 

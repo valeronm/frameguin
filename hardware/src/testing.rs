@@ -83,7 +83,14 @@ pub fn display_identity() -> Identity {
 
 /// The pack as its own registers identify it.
 pub fn battery_identity() -> Identity {
-    part::sbs("NVT", "FRANGWA", "0001")
+    part::sbs(
+        "NVT",
+        "FRANGWA",
+        "0001",
+        3_900,
+        15_400,
+        Some("2026-01-01".to_owned()),
+    )
 }
 
 /// A store that never touches disk.
@@ -124,7 +131,6 @@ pub fn ready<T>(future: impl Future<Output = T>) -> T {
 
 /// The block [`Gauge`] answers with.
 pub fn block() -> BatteryInfo {
-    let pack = battery_identity();
     BatteryInfo {
         state: BatteryState {
             percent: 80,
@@ -139,11 +145,6 @@ pub fn block() -> BatteryInfo {
         cycle_count: 12,
         charger_connected: true,
         critical: false,
-        manufacturer: pack.vendor,
-        model: pack.model,
-        serial: pack.serial,
-        chemistry: "LION".into(),
-        manufactured: "2026-01-01".into(),
     }
 }
 

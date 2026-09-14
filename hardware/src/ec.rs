@@ -55,11 +55,9 @@ pub trait PowerLedEc: Send + Sync {
 /// it.
 pub trait Pack: Send + Sync {
     /// The pack as a part, and None where none answers in the block. This is
-    /// the presence check, and it reads the block rather than the report a
-    /// caller would build from it — the report's own reads behind the cycle
-    /// count and the manufacturing date run once per run and remember an
-    /// absence, and one unlucky transfer here would fix that for the whole
-    /// of it.
+    /// the presence check, and it rests on the block alone: the manufacturing
+    /// date is a transfer to the pack, and a pack that will not give one is
+    /// still a pack.
     fn identity(&self) -> Option<Identity>;
     fn info(&self) -> Option<wire::BatteryInfo>;
     fn condition(&self) -> Option<wire::BatteryCondition>;
@@ -119,9 +117,6 @@ struct Memo {
     /// exits after five idle minutes, so "will not have changed" stands in for
     /// the "cannot have changed" the rest of this struct is held to.
     cycle_count: OnceLock<Option<u32>>,
-    /// When the pack was built, which the EC publishes nowhere and which
-    /// cannot change at all.
-    manufacture_date: OnceLock<Option<String>>,
     /// The PD controllers' versions, which the EC caches at controller
     /// bring-up and which two devices ask for at detection — the mainboard
     /// for the firmware it runs, the ports for how many controllers there
@@ -131,14 +126,12 @@ struct Memo {
 
 /// Remembers what a read answered, absence included, and asks only once.
 ///
-/// The two entries below reach the pack over I2C, and both are read on every
-/// walk of the battery block — which the window's charge row asks for every
-/// couple of seconds, not just the report. So what has to be remembered is the
-/// *answer* rather than the success: a pack that keeps no manufacturing date,
-/// or a board whose passthrough does not answer at all, would otherwise be
-/// asked again on every one of those walks, forever, for something that cannot
-/// arrive. The daemon exits after five idle minutes, which bounds how long a
-/// remembered absence stands.
+/// What has to be remembered is the *answer* rather than the success: a read
+/// that cannot arrive — a pack that keeps no cycle count, a board whose
+/// passthrough does not answer — would otherwise be asked again by every walk
+/// that wants it, and the battery block is walked every couple of seconds
+/// while the window's charge row is on screen. The daemon exits after five
+/// idle minutes, which bounds how long a remembered absence stands.
 fn remembered<T: Clone>(slot: &OnceLock<Option<T>>, read: impl FnOnce() -> Option<T>) -> Option<T> {
     slot.get_or_init(read).clone()
 }
@@ -191,9 +184,7 @@ impl Ec {
     /// When the pack was built, as `YYYY-MM-DD`, from the pack's own register:
     /// the EC's block has no room for a date and publishes none.
     fn manufacture_date(&self) -> Option<String> {
-        remembered(&self.memo.manufacture_date, || {
-            sbs::manufactured_iso(self.sb_word(sbs::MANUFACTURE_DATE)?)
-        })
+        sbs::manufactured_iso(self.sb_word(sbs::MANUFACTURE_DATE)?)
     }
 
     /// One word from the pack over the EC's I2C passthrough, which is how
@@ -326,6 +317,9 @@ impl Pack for Ec {
             &battery.manufacturer,
             &battery.model_number,
             &battery.serial_number,
+            battery.design_capacity,
+            battery.design_voltage,
+            self.manufacture_date(),
         ))
     }
 
@@ -346,11 +340,6 @@ impl Pack for Ec {
             cycle_count: self.cycle_count().unwrap_or(battery.cycle_count),
             charger_connected: info.ac_present,
             critical: battery.level_critical,
-            manufacturer: battery.manufacturer.clone(),
-            model: battery.model_number.clone(),
-            serial: battery.serial_number.clone(),
-            chemistry: battery.battery_type.clone(),
-            manufactured: self.manufacture_date().unwrap_or_default(),
         })
     }
 

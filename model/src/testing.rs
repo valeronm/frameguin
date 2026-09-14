@@ -39,11 +39,6 @@ pub(crate) fn block() -> BatteryInfo {
         cycle_count: 40,
         charger_connected: true,
         critical: false,
-        manufacturer: "NVT".into(),
-        model: "FRANGWA".into(),
-        serial: String::new(),
-        chemistry: "LION".into(),
-        manufactured: String::new(),
     }
 }
 

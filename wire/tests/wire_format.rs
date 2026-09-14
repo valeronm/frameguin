@@ -39,7 +39,7 @@ fn the_composite_signatures_are_the_ones_the_methods_declare() {
     // The report carries the reading rather than restating its fields, so the
     // block above appears nested inside this one — flattening it would be a
     // protocol break that reads in the diff like a tidy-up.
-    assert_eq!(BatteryInfo::SIGNATURE, "((ysuu)uuuuubbsssss)");
+    assert_eq!(BatteryInfo::SIGNATURE, "((ysuu)uuuuubb)");
     // The pack's own report: cell voltages, alarms by name, and a temperature
     // in tenths of a degree.
     assert_eq!(BatteryCondition::SIGNATURE, "(auasn)");

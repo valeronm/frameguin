@@ -451,8 +451,9 @@ asserted and its reason a file away.
   device whose pack answered — a mainboard running standalone must not spend
   transfers asking a battery that is not there what it thinks. The cycle
   count and the manufacturing date each fall back to the EC's answer or to
-  nothing, so they need no feature and are read inside the `Pack` role's
-  `info`, once per run and then remembered, absence included.
+  nothing, so they need no feature: the count is read inside the `Pack`
+  role's `info`, once per run and then remembered, absence included, and
+  the date inside its `identity`, which detection asks once.
 - A pack is catalogued by the seven characters the EC's memory map holds and
   never by the fuller name `EC_CMD_BATTERY_GET_STATIC` would answer with,
   which firmware on battery API v1 does not implement at all — so a pack

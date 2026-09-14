@@ -173,8 +173,10 @@ pub struct BatteryState {
     pub millivolts: u32,
 }
 
-/// Everything the EC's memmap battery block says about the pack, for a reader
-/// looking at the pack itself rather than at the controls that shape it.
+/// What the EC's memmap battery block says about the pack's charge and wear,
+/// for a reader looking at the pack itself rather than at the controls that
+/// shape it; what names and rates the pack is fixed for the run, and is its
+/// part's [`Identity`] instead.
 /// The block is fetched whole or not at all, and [`BatteryState`] — its moving
 /// part — is what a caller showing only a charge takes out of it. Carried as
 /// that struct rather than restated as fields, so a report and the row above
@@ -210,16 +212,6 @@ pub struct BatteryInfo {
     pub charger_connected: bool,
     /// The EC's own low-charge alarm — its threshold, not one this app picks.
     pub critical: bool,
-    pub manufacturer: String,
-    pub model: String,
-    pub serial: String,
-    /// The cell chemistry, which the EC's memmap calls the battery type.
-    pub chemistry: String,
-    /// When the pack was built, as `YYYY-MM-DD`, and empty where it does not
-    /// say. A date has no D-Bus type of its own, and ISO-8601 is the value's
-    /// own written form rather than either end's convenience — which is why it
-    /// travels as text where every other figure here travels as a number.
-    pub manufactured: String,
 }
 
 /// Power button LED levels.
@@ -413,6 +405,17 @@ pub enum Detail {
     MemoryCapacity(u64),
     /// In bytes; a drive is sold in decimal units.
     StorageCapacity(u64),
+    /// What a pack was built to hold, in mAh, beside its nominal voltage in
+    /// mV — a pack is sold by the energy the two make.
+    DesignCapacity {
+        milliamp_hours: u32,
+        millivolts: u32,
+    },
+    /// What a pack is rated at, in mV.
+    NominalVoltage(u32),
+    /// As `YYYY-MM-DD`. A date has no D-Bus type of its own, and ISO-8601 is
+    /// the value's own written form rather than either end's convenience.
+    ManufactureDate(String),
     /// The active pixels of the timing the panel prefers.
     Resolution {
         across: u16,
@@ -450,6 +453,9 @@ pub enum Detail {
 enum Fact {
     MemoryCapacity,
     StorageCapacity,
+    DesignCapacity,
+    NominalVoltage,
+    ManufactureDate,
     Resolution,
     PanelSize,
     ColourDepth,
@@ -467,6 +473,15 @@ impl Serialize for Detail {
         let (fact, value) = match self {
             Self::MemoryCapacity(bytes) => (Fact::MemoryCapacity, Value::from(*bytes)),
             Self::StorageCapacity(bytes) => (Fact::StorageCapacity, Value::from(*bytes)),
+            Self::DesignCapacity {
+                milliamp_hours,
+                millivolts,
+            } => (
+                Fact::DesignCapacity,
+                Value::from((*milliamp_hours, *millivolts)),
+            ),
+            Self::NominalVoltage(millivolts) => (Fact::NominalVoltage, Value::from(*millivolts)),
+            Self::ManufactureDate(date) => (Fact::ManufactureDate, Value::from(date.as_str())),
             Self::Resolution { across, down } => (Fact::Resolution, Value::from((*across, *down))),
             Self::PanelSize { across, down } => (Fact::PanelSize, Value::from((*across, *down))),
             Self::ColourDepth(bits) => (Fact::ColourDepth, Value::from(*bits)),
@@ -490,6 +505,16 @@ impl<'de> Deserialize<'de> for Detail {
         let detail = match fact {
             Fact::MemoryCapacity => u64::try_from(value).map(Self::MemoryCapacity),
             Fact::StorageCapacity => u64::try_from(value).map(Self::StorageCapacity),
+            Fact::DesignCapacity => {
+                <(u32, u32)>::try_from(value).map(|(milliamp_hours, millivolts)| {
+                    Self::DesignCapacity {
+                        milliamp_hours,
+                        millivolts,
+                    }
+                })
+            }
+            Fact::NominalVoltage => u32::try_from(value).map(Self::NominalVoltage),
+            Fact::ManufactureDate => String::try_from(value).map(Self::ManufactureDate),
             Fact::Resolution => <(u16, u16)>::try_from(value)
                 .map(|(across, down)| Self::Resolution { across, down }),
             Fact::PanelSize => {
@@ -593,6 +618,12 @@ mod tests {
         let details = vec![
             Detail::MemoryCapacity(32 << 30),
             Detail::StorageCapacity(1_024_209_543_168),
+            Detail::DesignCapacity {
+                milliamp_hours: 4_800,
+                millivolts: 15_400,
+            },
+            Detail::NominalVoltage(15_400),
+            Detail::ManufactureDate("2025-03-14".to_owned()),
             Detail::Resolution {
                 across: 2880,
                 down: 1920,
