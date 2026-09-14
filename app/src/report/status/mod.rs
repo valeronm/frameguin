@@ -155,7 +155,7 @@ struct Sidebar {
     lists: RefCell<Vec<gtk::ListBox>>,
     pages: gtk::Stack,
     titled: adw::NavigationPage,
-    entries: RefCell<Vec<SidebarRow>>,
+    rows: RefCell<Vec<SidebarRow>>,
     finds: RefCell<Vec<Box<Find>>>,
     /// A target whose row has not arrived, or that arrived before the fill.
     pending: Cell<Option<Target>>,
@@ -199,7 +199,7 @@ impl Sidebar {
             lists: RefCell::default(),
             pages,
             titled,
-            entries: RefCell::default(),
+            rows: RefCell::default(),
             finds: RefCell::default(),
             pending: Cell::default(),
             filled: Cell::default(),
@@ -258,7 +258,7 @@ impl Sidebar {
         list.append(&row);
         list.set_visible(true);
         self.pages.add_child(page);
-        self.entries.borrow_mut().push(SidebarRow {
+        self.rows.borrow_mut().push(SidebarRow {
             row: row.clone().upcast(),
             page: page.clone().upcast(),
             title: title.to_owned(),
@@ -269,19 +269,19 @@ impl Sidebar {
     fn remove(&self, row: &impl IsA<gtk::ListBoxRow>) {
         let row = row.as_ref();
         let Some(index) = self
-            .entries
+            .rows
             .borrow()
             .iter()
-            .position(|entry| entry.row == *row)
+            .position(|listed| listed.row == *row)
         else {
             return;
         };
-        let entry = self.entries.borrow_mut().remove(index);
+        let removed = self.rows.borrow_mut().remove(index);
         if let Some(list) = row.parent().and_downcast::<gtk::ListBox>() {
             list.remove(row);
             list.set_visible(list.row_at_index(0).is_some());
         }
-        self.pages.remove(&entry.page);
+        self.pages.remove(&removed.page);
     }
 
     fn answer(&self, find: impl Fn(Target) -> Option<gtk::ListBoxRow> + 'static) {
@@ -316,10 +316,10 @@ impl Sidebar {
             return;
         }
         let selected = self
-            .entries
+            .rows
             .borrow()
             .iter()
-            .any(|entry| entry.row.is_selected());
+            .any(|listed| listed.row.is_selected());
         if !selected {
             let first = self
                 .lists
@@ -356,11 +356,11 @@ impl Sidebar {
             other.unselect_all();
         }
         let shown = self
-            .entries
+            .rows
             .borrow()
             .iter()
-            .find(|entry| entry.row == *row)
-            .map(|entry| (entry.page.clone(), entry.title.clone()));
+            .find(|listed| listed.row == *row)
+            .map(|listed| (listed.page.clone(), listed.title.clone()));
         if let Some((page, title)) = shown {
             self.pages.set_visible_child(&page);
             self.titled.set_title(&title);
