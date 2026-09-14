@@ -1,8 +1,11 @@
 //! The words for a part: what its kind is called, the order a bill of
-//! materials lists them in, and — where the hardware's own words are not a
-//! name a person would recognise — the name Framework sells it under.
+//! materials lists them in, what it announced about itself, the listing it is
+//! logged in, and — where the hardware's own words are not a name a person
+//! would recognise — the name Framework sells it under.
 
-use frameguin_wire::{self as wire, Identity, PartKind, VENDOR};
+use std::fmt::Write;
+
+use frameguin_wire::{self as wire, Detail, Identity, PartKind, VENDOR};
 
 #[must_use]
 pub fn kind_label(kind: PartKind) -> &'static str {
@@ -268,11 +271,193 @@ fn registered(kind: PartKind, id: &str) -> Option<&'static str> {
     }
 }
 
+/// Binary units are spelled GB and TB too, as a module is labelled.
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "three significant figures ask far less than an f64 carries"
+)]
+fn scaled(bytes: u64, base: f64) -> String {
+    const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
+    let mut value = bytes as f64;
+    let mut unit = 0;
+    while value >= base && unit < UNITS.len() - 1 {
+        value /= base;
+        unit += 1;
+    }
+    let decimals = match value {
+        v if v >= 100.0 => 0,
+        v if v >= 10.0 => 1,
+        _ => 2,
+    };
+    format!("{} {}", trimmed(format!("{value:.decimals$}")), UNITS[unit])
+}
+
+/// Only a decimal is trimmed: a whole number's trailing zeros are its value.
+fn trimmed(mut spelled: String) -> String {
+    if spelled.contains('.') {
+        spelled.truncate(spelled.trim_end_matches('0').trim_end_matches('.').len());
+    }
+    spelled
+}
+
+#[must_use]
+pub fn detail_row(detail: &Detail) -> (&'static str, String) {
+    match detail {
+        Detail::MemoryCapacity(bytes) => ("Capacity", scaled(*bytes, 1024.0)),
+        Detail::StorageCapacity(bytes) => ("Capacity", scaled(*bytes, 1000.0)),
+        Detail::Resolution { across, down } => (
+            "Resolution",
+            format!("{across} × {down} ({})", aspect(*across, *down)),
+        ),
+        Detail::PanelSize { across, down } => (
+            "Size",
+            format!("{} inches ({across} × {down} mm)", diagonal(*across, *down)),
+        ),
+        Detail::ColourDepth(bits) => ("Colour depth", format!("{bits} bits per colour")),
+        Detail::RefreshRate { slowest, fastest } if slowest == fastest => {
+            ("Refresh rate", format!("{fastest} Hz"))
+        }
+        Detail::RefreshRate { slowest, fastest } => {
+            ("Refresh rate", format!("{slowest}–{fastest} Hz"))
+        }
+        Detail::ManufactureYear(year) => ("Manufactured", year.to_string()),
+        Detail::ModelYear(year) => ("Model year", year.to_string()),
+        Detail::MemoryType(name) => ("Type", name.clone()),
+        Detail::FormFactor(name) => ("Form factor", name.clone()),
+        Detail::Speed(rate) => ("Speed", format!("{rate} MT/s")),
+        Detail::ConfiguredSpeed(rate) => ("Configured speed", format!("{rate} MT/s")),
+    }
+}
+
+/// A panel is sold as a ratio it need not exactly have.
+fn aspect(across: u16, down: u16) -> String {
+    const NAMED: [((u16, u16), &str); 6] = [
+        ((3, 2), "3:2"),
+        ((4, 3), "4:3"),
+        ((5, 4), "5:4"),
+        ((16, 9), "16:9"),
+        ((32, 9), "32:9"),
+        ((8, 5), "16:10"),
+    ];
+    let divisor = gcd(across, down);
+    let reduced = (across / divisor, down / divisor);
+    NAMED.iter().find(|(pair, _)| *pair == reduced).map_or_else(
+        || format!("{:.2}:1", f64::from(across) / f64::from(down)),
+        |(_, name)| (*name).to_owned(),
+    )
+}
+
+fn gcd(mut a: u16, mut b: u16) -> u16 {
+    while b != 0 {
+        (a, b) = (b, a % b);
+    }
+    a
+}
+
+/// A panel is sold by the inches of its diagonal.
+fn diagonal(width: u16, height: u16) -> String {
+    const MILLIMETRES_PER_INCH: f64 = 25.4;
+    let (across, down) = (f64::from(width), f64::from(height));
+    let inches = across.hypot(down) / MILLIMETRES_PER_INCH;
+    trimmed(format!("{inches:.1}"))
+}
+
+/// The machine's parts as the daemon's journal and the app's debug report
+/// both print them, so a bug report and the log it is read against spell a
+/// part the same. The serial is left out, a report being pasted into a public
+/// issue.
+#[must_use]
+pub fn listing(parts: &[Identity]) -> String {
+    if parts.is_empty() {
+        return "parts: none\n".to_owned();
+    }
+    let mut out = String::from("parts:\n");
+    for part in parts {
+        // Whole, so a field added to the identity cannot reach the listing
+        // without a decision about it.
+        let Identity {
+            kind,
+            vendor,
+            vendor_name,
+            model,
+            part_number,
+            serial: _,
+            id,
+            firmware,
+            details,
+        } = part;
+        let _ = writeln!(out, "  {}  {id}", kind_label(*kind));
+        let vendor = if vendor_name.is_empty() {
+            vendor.clone()
+        } else {
+            format!("{vendor} ({vendor_name})")
+        };
+        let rows: Vec<_> = [
+            ("vendor", vendor),
+            ("model", model.clone()),
+            ("part number", part_number.clone()),
+        ]
+        .into_iter()
+        .filter(|(_, value)| !value.is_empty())
+        .collect();
+        let details: Vec<_> = details.iter().map(detail_row).collect();
+        let firmware: Vec<_> = firmware
+            .iter()
+            .map(|firmware| {
+                let stamped: Vec<_> = [&firmware.version, &firmware.built, &firmware.builder]
+                    .into_iter()
+                    .filter(|field| !field.is_empty())
+                    .map(String::as_str)
+                    .collect();
+                (firmware.name.as_str(), stamped.join(" "))
+            })
+            .collect();
+        let groups: Vec<_> = [("details", details), ("firmware", firmware)]
+            .into_iter()
+            .filter(|(_, rows)| !rows.is_empty())
+            .collect();
+        let width = widest(
+            rows.iter()
+                .map(|(title, _)| *title)
+                .chain(groups.iter().map(|(title, _)| *title)),
+        );
+        write_rows(&mut out, 4, width, &rows);
+        for (title, rows) in &groups {
+            let _ = writeln!(out, "    {title}:");
+            write_rows(
+                &mut out,
+                6,
+                widest(rows.iter().map(|(title, _)| *title)),
+                rows,
+            );
+        }
+    }
+    out
+}
+
+fn widest<'a>(titles: impl Iterator<Item = &'a str>) -> usize {
+    titles.map(|title| title.chars().count()).max().unwrap_or(0)
+}
+
+fn write_rows(out: &mut String, indent: usize, width: usize, rows: &[(&str, String)]) {
+    for (title, value) in rows {
+        let _ = writeln!(
+            out,
+            "{:indent$}{:<pad$}{value}",
+            "",
+            format!("{title}:"),
+            pad = width + 3
+        );
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use frameguin_wire::{self as wire, Identity, PartKind, VENDOR};
+    use frameguin_wire::{self as wire, Detail, Firmware, Identity, PartKind, VENDOR};
 
-    use super::{catalogue, inventory, maker, name, ordered, part_number};
+    use super::{
+        aspect, catalogue, detail_row, inventory, listing, maker, name, ordered, part_number,
+    };
 
     fn part(kind: PartKind, id: &str) -> Identity {
         Identity {
@@ -282,7 +467,6 @@ mod tests {
             model: String::new(),
             part_number: String::new(),
             serial: String::new(),
-            size_bytes: 0,
             id: id.to_owned(),
             firmware: Vec::new(),
             details: Vec::new(),
@@ -434,5 +618,131 @@ mod tests {
         };
         assert_eq!(part_number(&pack, catalogue(&pack)), "FRANEDA");
         assert_eq!(part_number(&pack, None), "");
+    }
+
+    #[test]
+    fn each_capacity_is_spelled_in_the_units_it_is_sold_in() {
+        let spelled = |detail| detail_row(&detail).1;
+        assert_eq!(spelled(Detail::MemoryCapacity(32 << 30)), "32 GB");
+        assert_eq!(
+            spelled(Detail::StorageCapacity(1_024_209_543_168)),
+            "1.02 TB"
+        );
+        assert_eq!(spelled(Detail::StorageCapacity(512_110_190_592)), "512 GB");
+        assert_eq!(spelled(Detail::StorageCapacity(2_000_398_934_016)), "2 TB");
+    }
+
+    #[test]
+    fn a_ratio_the_trade_names_is_named_and_one_it_does_not_is_a_decimal() {
+        assert_eq!(aspect(2880, 1920), "3:2");
+        assert_eq!(aspect(1920, 1080), "16:9");
+        assert_eq!(aspect(1024, 768), "4:3");
+        assert_eq!(aspect(1280, 1024), "5:4");
+        assert_eq!(aspect(3840, 1080), "32:9");
+        assert_eq!(aspect(2560, 1600), "16:10");
+        assert_eq!(aspect(1920, 1200), "16:10");
+        assert_eq!(aspect(1366, 768), "1.78:1");
+        assert_eq!(aspect(2560, 1080), "2.37:1");
+    }
+
+    #[test]
+    fn a_panel_is_spelled_with_its_ratio_and_its_inches() {
+        let resolution = Detail::Resolution {
+            across: 2880,
+            down: 1920,
+        };
+        assert_eq!(
+            detail_row(&resolution),
+            ("Resolution", "2880 × 1920 (3:2)".to_owned())
+        );
+        let size = Detail::PanelSize {
+            across: 285,
+            down: 190,
+        };
+        assert_eq!(
+            detail_row(&size),
+            ("Size", "13.5 inches (285 × 190 mm)".to_owned())
+        );
+    }
+
+    #[test]
+    fn a_panel_of_whole_inches_is_named_without_a_trailing_zero() {
+        let sixteen = Detail::PanelSize {
+            across: 345,
+            down: 215,
+        };
+        assert_eq!(detail_row(&sixteen).1, "16 inches (345 × 215 mm)");
+    }
+
+    #[test]
+    fn a_panel_of_one_rate_names_it_once() {
+        let fixed = Detail::RefreshRate {
+            slowest: 60,
+            fastest: 60,
+        };
+        assert_eq!(detail_row(&fixed).1, "60 Hz");
+        let variable = Detail::RefreshRate {
+            slowest: 30,
+            fastest: 120,
+        };
+        assert_eq!(detail_row(&variable).1, "30–120 Hz");
+    }
+
+    #[test]
+    fn a_year_is_labelled_by_which_year_it_is() {
+        assert_eq!(
+            detail_row(&Detail::ManufactureYear(2025)),
+            ("Manufactured", "2025".to_owned())
+        );
+        assert_eq!(
+            detail_row(&Detail::ModelYear(2025)),
+            ("Model year", "2025".to_owned())
+        );
+    }
+
+    #[test]
+    fn a_listing_nests_each_part_s_facts_under_it_in_aligned_columns() {
+        let module = Identity {
+            vendor: "Micron Technology".to_owned(),
+            model: "MTD16C20325N4FN023F1 YF".to_owned(),
+            serial: "01234567".to_owned(),
+            details: vec![
+                Detail::MemoryCapacity(32 << 30),
+                Detail::ConfiguredSpeed(7467),
+            ],
+            ..part(PartKind::Memory, "dmi-slot:LPCAMM2_0")
+        };
+        let drive = Identity {
+            vendor: "15b7".to_owned(),
+            vendor_name: "Sandisk Corp".to_owned(),
+            model: "WD_BLACK SN7100".to_owned(),
+            part_number: "SD PC SN7100S SDFPNSL-1T00".to_owned(),
+            firmware: vec![Firmware {
+                built: "2025-01-02".to_owned(),
+                ..Firmware::new("Firmware", "7612M000")
+            }],
+            ..part(PartKind::Storage, "pci:15b7:5045")
+        };
+        assert_eq!(
+            listing(&[module, drive]),
+            "parts:\n\
+             \x20 Memory  dmi-slot:LPCAMM2_0\n\
+             \x20   vendor:   Micron Technology\n\
+             \x20   model:    MTD16C20325N4FN023F1 YF\n\
+             \x20   details:\n\
+             \x20     Capacity:          32 GB\n\
+             \x20     Configured speed:  7467 MT/s\n\
+             \x20 Storage  pci:15b7:5045\n\
+             \x20   vendor:       15b7 (Sandisk Corp)\n\
+             \x20   model:        WD_BLACK SN7100\n\
+             \x20   part number:  SD PC SN7100S SDFPNSL-1T00\n\
+             \x20   firmware:\n\
+             \x20     Firmware:  7612M000 2025-01-02\n"
+        );
+    }
+
+    #[test]
+    fn a_machine_with_no_parts_lists_none() {
+        assert_eq!(listing(&[]), "parts: none\n");
     }
 }

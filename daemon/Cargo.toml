@@ -9,6 +9,7 @@ workspace = true
 
 [dependencies]
 frameguin-hardware = { workspace = true }
+frameguin-model = { workspace = true }
 frameguin-wire = { workspace = true }
 zbus = { workspace = true }
 zbus_polkit = "5.0.0"

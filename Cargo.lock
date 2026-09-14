@@ -632,6 +632,7 @@ version = "0.3.0"
 dependencies = [
  "async-io",
  "frameguin-hardware",
+ "frameguin-model",
  "frameguin-wire",
  "futures-lite",
  "zbus",

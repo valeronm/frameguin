@@ -8,13 +8,11 @@
 //! the same reason, and fails more quietly still: the receiver accepts it
 //! and acts on it.
 //!
-//! Every enum here serializes as `s`, so the wire format is the plain string
-//! the variant is named after.
-
-use std::fmt;
+//! An enum whose variants carry nothing serializes as `s`, so the wire format
+//! is the plain string the variant is named after.
 
 use serde::{Deserialize, Serialize};
-use zbus::zvariant::Type;
+use zbus::zvariant::{Type, Value};
 
 pub const BUS_NAME: &str = "io.github.valeronm.Frameguin";
 pub const OBJECT_PATH: &str = "/io/github/valeronm/Frameguin";
@@ -403,22 +401,111 @@ pub enum PartKind {
     Touchpad,
 }
 
-/// Something else a part announced about itself, as a row to show. Both
-/// halves are the hardware's words.
-#[derive(Serialize, Deserialize, Type, Clone, PartialEq, Eq, Debug)]
-#[zvariant(crate = "zbus::zvariant")]
-pub struct Detail {
-    pub name: String,
-    pub value: String,
+/// Something else a part announced about itself, each fact in its own unit.
+///
+/// zvariant encodes an enum's fields only where every variant carries the
+/// same ones, so a detail crosses the bus as `(sv)`: the fact's name and its
+/// value.
+#[derive(Type, Clone, PartialEq, Eq, Debug)]
+#[zvariant(crate = "zbus::zvariant", signature = "(sv)")]
+pub enum Detail {
+    /// In bytes; a module is sold in binary units.
+    MemoryCapacity(u64),
+    /// In bytes; a drive is sold in decimal units.
+    StorageCapacity(u64),
+    /// The active pixels of the timing the panel prefers.
+    Resolution {
+        across: u16,
+        down: u16,
+    },
+    /// In millimetres.
+    PanelSize {
+        across: u16,
+        down: u16,
+    },
+    /// Bits per colour.
+    ColourDepth(u8),
+    /// The vertical rates a panel accepts, in whole Hz — both ends the same
+    /// on a panel of one rate.
+    RefreshRate {
+        slowest: u16,
+        fastest: u16,
+    },
+    ManufactureYear(u16),
+    ModelYear(u16),
+    /// As the SMBIOS specification names the byte, or the byte in hex where
+    /// it names none.
+    MemoryType(String),
+    /// As [`Detail::MemoryType`].
+    FormFactor(String),
+    /// In MT/s.
+    Speed(u32),
+    /// In MT/s.
+    ConfiguredSpeed(u32),
 }
 
-impl Detail {
-    #[must_use]
-    pub fn new(name: &str, value: &str) -> Self {
-        Self {
-            name: name.to_owned(),
-            value: value.to_owned(),
-        }
+#[derive(Serialize, Deserialize, Type, Clone, Copy)]
+#[zvariant(crate = "zbus::zvariant", signature = "s")]
+#[serde(rename_all = "kebab-case")]
+enum Fact {
+    MemoryCapacity,
+    StorageCapacity,
+    Resolution,
+    PanelSize,
+    ColourDepth,
+    RefreshRate,
+    ManufactureYear,
+    ModelYear,
+    MemoryType,
+    FormFactor,
+    Speed,
+    ConfiguredSpeed,
+}
+
+impl Serialize for Detail {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let (fact, value) = match self {
+            Self::MemoryCapacity(bytes) => (Fact::MemoryCapacity, Value::from(*bytes)),
+            Self::StorageCapacity(bytes) => (Fact::StorageCapacity, Value::from(*bytes)),
+            Self::Resolution { across, down } => (Fact::Resolution, Value::from((*across, *down))),
+            Self::PanelSize { across, down } => (Fact::PanelSize, Value::from((*across, *down))),
+            Self::ColourDepth(bits) => (Fact::ColourDepth, Value::from(*bits)),
+            Self::RefreshRate { slowest, fastest } => {
+                (Fact::RefreshRate, Value::from((*slowest, *fastest)))
+            }
+            Self::ManufactureYear(year) => (Fact::ManufactureYear, Value::from(*year)),
+            Self::ModelYear(year) => (Fact::ModelYear, Value::from(*year)),
+            Self::MemoryType(name) => (Fact::MemoryType, Value::from(name.as_str())),
+            Self::FormFactor(name) => (Fact::FormFactor, Value::from(name.as_str())),
+            Self::Speed(rate) => (Fact::Speed, Value::from(*rate)),
+            Self::ConfiguredSpeed(rate) => (Fact::ConfiguredSpeed, Value::from(*rate)),
+        };
+        (fact, value).serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for Detail {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let (fact, value) = <(Fact, Value<'de>)>::deserialize(deserializer)?;
+        let detail = match fact {
+            Fact::MemoryCapacity => u64::try_from(value).map(Self::MemoryCapacity),
+            Fact::StorageCapacity => u64::try_from(value).map(Self::StorageCapacity),
+            Fact::Resolution => <(u16, u16)>::try_from(value)
+                .map(|(across, down)| Self::Resolution { across, down }),
+            Fact::PanelSize => {
+                <(u16, u16)>::try_from(value).map(|(across, down)| Self::PanelSize { across, down })
+            }
+            Fact::ColourDepth => u8::try_from(value).map(Self::ColourDepth),
+            Fact::RefreshRate => <(u16, u16)>::try_from(value)
+                .map(|(slowest, fastest)| Self::RefreshRate { slowest, fastest }),
+            Fact::ManufactureYear => u16::try_from(value).map(Self::ManufactureYear),
+            Fact::ModelYear => u16::try_from(value).map(Self::ModelYear),
+            Fact::MemoryType => String::try_from(value).map(Self::MemoryType),
+            Fact::FormFactor => String::try_from(value).map(Self::FormFactor),
+            Fact::Speed => u32::try_from(value).map(Self::Speed),
+            Fact::ConfiguredSpeed => u32::try_from(value).map(Self::ConfiguredSpeed),
+        };
+        detail.map_err(serde::de::Error::custom)
     }
 }
 
@@ -465,9 +552,6 @@ pub struct Identity {
     pub part_number: String,
     /// Empty where the part announces none, as some descriptors do.
     pub serial: String,
-    /// How much the part holds, in bytes, and zero where it announces no
-    /// size.
-    pub size_bytes: u64,
     /// The identifier the part announces itself by, prefixed with the space
     /// it is drawn from — `hid:093a:1343`, `dmi-slot:LPCAMM2_0`,
     /// `dmi-board:FRANMJCP07`.
@@ -478,95 +562,6 @@ pub struct Identity {
     /// What the part announced beyond its identity, empty for one that
     /// announced nothing.
     pub details: Vec<Detail>,
-}
-
-impl Identity {
-    /// The size in the units the part is sold in: memory in binary ones, as
-    /// a module is labelled, and anything else in decimal ones, as a drive
-    /// is — both spelled GB and TB. Empty where the part announced no size.
-    #[must_use]
-    pub fn size_spelled(&self) -> String {
-        if self.size_bytes == 0 {
-            return String::new();
-        }
-        let base = match self.kind {
-            PartKind::Memory => 1024.0,
-            PartKind::Mainboard
-            | PartKind::Battery
-            | PartKind::Storage
-            | PartKind::Display
-            | PartKind::Touchpad => 1000.0,
-        };
-        scaled(self.size_bytes, base)
-    }
-}
-
-/// `bytes` in the largest unit of `base` it reaches, to three significant
-/// figures with trailing zeros dropped.
-#[expect(
-    clippy::cast_precision_loss,
-    reason = "three significant figures ask far less than an f64 carries"
-)]
-fn scaled(bytes: u64, base: f64) -> String {
-    const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
-    let mut value = bytes as f64;
-    let mut unit = 0;
-    while value >= base && unit < UNITS.len() - 1 {
-        value /= base;
-        unit += 1;
-    }
-    let decimals = match value {
-        v if v >= 100.0 => 0,
-        v if v >= 10.0 => 1,
-        _ => 2,
-    };
-    let mut spelled = format!("{value:.decimals$}");
-    if spelled.contains('.') {
-        spelled.truncate(spelled.trim_end_matches('0').trim_end_matches('.').len());
-    }
-    spelled.push(' ');
-    spelled.push_str(UNITS[unit]);
-    spelled
-}
-
-/// One line per part, as the daemon's journal and the app's debug report
-/// both print it — `Mainboard dmi-board:… "vendor" "model" firmware BIOS …`
-/// — so a bug report and the log it is read against spell a part the same.
-impl fmt::Display for Identity {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let firmware = if self.firmware.is_empty() {
-            "unknown".to_owned()
-        } else {
-            self.firmware
-                .iter()
-                .map(|f| {
-                    [&f.name, &f.version, &f.built, &f.builder]
-                        .into_iter()
-                        .filter(|field| !field.is_empty())
-                        .map(String::as_str)
-                        .collect::<Vec<_>>()
-                        .join(" ")
-                })
-                .collect::<Vec<_>>()
-                .join(", ")
-        };
-        let spelled = self.size_spelled();
-        let capacity = if spelled.is_empty() {
-            String::new()
-        } else {
-            format!(" capacity {spelled}")
-        };
-        let resolved = if self.vendor_name.is_empty() {
-            String::new()
-        } else {
-            format!(" ({})", self.vendor_name)
-        };
-        write!(
-            f,
-            "{:?} {} \"{}\"{resolved} \"{}\"{capacity} firmware {firmware}",
-            self.kind, self.id, self.vendor, self.model
-        )
-    }
 }
 
 /// How hard the haptic touchpad has to be pressed to register a click.
@@ -588,51 +583,38 @@ impl ClickForce {
 
 #[cfg(test)]
 mod tests {
-    use super::{Identity, PartKind};
+    use zbus::zvariant::serialized::Context;
+    use zbus::zvariant::{LE, to_bytes};
 
-    fn sized(kind: PartKind, size_bytes: u64) -> Identity {
-        Identity {
-            kind,
-            vendor: String::new(),
-            vendor_name: String::new(),
-            model: String::new(),
-            part_number: String::new(),
-            serial: String::new(),
-            size_bytes,
-            id: String::new(),
-            firmware: Vec::new(),
-            details: Vec::new(),
-        }
-    }
+    use super::Detail;
 
     #[test]
-    fn each_kind_is_sized_in_the_units_it_is_sold_in() {
-        let spelled = |kind, size_bytes| sized(kind, size_bytes).size_spelled();
-        assert_eq!(spelled(PartKind::Memory, 32 << 30), "32 GB");
-        assert_eq!(spelled(PartKind::Storage, 1_024_209_543_168), "1.02 TB");
-        assert_eq!(spelled(PartKind::Storage, 512_110_190_592), "512 GB");
-        assert_eq!(spelled(PartKind::Storage, 2_000_398_934_016), "2 TB");
-    }
-
-    #[test]
-    fn a_part_that_announced_no_size_is_spelled_no_size() {
-        assert_eq!(sized(PartKind::Battery, 0).size_spelled(), "");
-    }
-
-    #[test]
-    fn a_line_carries_a_capacity_only_where_the_part_has_one() {
-        let drive = sized(PartKind::Storage, 1_024_209_543_168).to_string();
-        assert!(drive.contains("capacity 1.02 TB"));
-        assert!(!sized(PartKind::Battery, 0).to_string().contains("capacity"));
-    }
-
-    #[test]
-    fn a_line_carries_the_resolved_name_beside_the_id_it_was_matched_from() {
-        let mut drive = sized(PartKind::Storage, 0);
-        drive.vendor = "15b7".to_owned();
-        drive.vendor_name = "Sandisk Corp".to_owned();
-        assert!(drive.to_string().contains("\"15b7\" (Sandisk Corp)"));
-        drive.vendor_name = String::new();
-        assert!(!drive.to_string().contains('('));
+    fn every_detail_crosses_the_bus_as_itself() {
+        let details = vec![
+            Detail::MemoryCapacity(32 << 30),
+            Detail::StorageCapacity(1_024_209_543_168),
+            Detail::Resolution {
+                across: 2880,
+                down: 1920,
+            },
+            Detail::PanelSize {
+                across: 285,
+                down: 190,
+            },
+            Detail::ColourDepth(10),
+            Detail::RefreshRate {
+                slowest: 30,
+                fastest: 120,
+            },
+            Detail::ManufactureYear(2025),
+            Detail::ModelYear(2024),
+            Detail::MemoryType("LPDDR5".to_owned()),
+            Detail::FormFactor("CAMM".to_owned()),
+            Detail::Speed(8533),
+            Detail::ConfiguredSpeed(7467),
+        ];
+        let encoded = to_bytes(Context::new_dbus(LE, 0), &details).unwrap();
+        let decoded: Vec<Detail> = encoded.deserialize().unwrap().0;
+        assert_eq!(decoded, details);
     }
 }

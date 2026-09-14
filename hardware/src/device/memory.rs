@@ -3,7 +3,7 @@
 //! alone.
 
 use crate::dmi::{self, Structure};
-use crate::part::{self, Detail, Identity, Part, PartKind};
+use crate::part::{Detail, Identity, Part, PartKind};
 
 /// SMBIOS type 17, "Memory Device".
 const MEMORY_DEVICE: u8 = 17;
@@ -60,7 +60,7 @@ impl Module {
 
     /// None for a structure that names no fitted module.
     fn parse(entry: &Structure) -> Option<Self> {
-        let size_bytes = size(entry)?;
+        let capacity = size(entry)?;
         Some(Self {
             identity: Identity {
                 kind: PartKind::Memory,
@@ -69,34 +69,34 @@ impl Module {
                 model: entry.string(PART_NUMBER).unwrap_or_default().to_owned(),
                 part_number: String::new(),
                 serial: entry.string(SERIAL).unwrap_or_default().to_owned(),
-                size_bytes,
                 id: format!("dmi-slot:{}", entry.string(LOCATOR).unwrap_or_default()),
                 firmware: Vec::new(),
-                details: details(entry),
+                details: details(entry, capacity),
             },
         })
     }
 }
 
 /// Two rows of the same number say no more than one.
-fn details(entry: &Structure) -> Vec<Detail> {
+fn details(entry: &Structure, capacity: u64) -> Vec<Detail> {
     let rated = speed(entry, SPEED, EXTENDED_SPEED);
     let configured = speed(entry, CONFIGURED_SPEED, EXTENDED_CONFIGURED_SPEED);
-    part::details([
-        ("Type", entry.byte(MEMORY_TYPE).map(memory_type)),
-        ("Form factor", entry.byte(FORM_FACTOR).map(form_factor)),
-        ("Speed", rated.map(megatransfers)),
-        (
-            "Configured speed",
-            configured
-                .filter(|rate| Some(*rate) != rated)
-                .map(megatransfers),
-        ),
-    ])
-}
-
-fn megatransfers(rate: u32) -> String {
-    format!("{rate} MT/s")
+    [
+        Some(Detail::MemoryCapacity(capacity)),
+        entry
+            .byte(MEMORY_TYPE)
+            .map(|value| Detail::MemoryType(memory_type(value))),
+        entry
+            .byte(FORM_FACTOR)
+            .map(|value| Detail::FormFactor(form_factor(value))),
+        rated.map(Detail::Speed),
+        configured
+            .filter(|rate| Some(*rate) != rated)
+            .map(Detail::ConfiguredSpeed),
+    ]
+    .into_iter()
+    .flatten()
+    .collect()
 }
 
 /// None where the field says nothing, and the extension's rate where the
@@ -264,37 +264,35 @@ mod tests {
         assert_eq!(identity.vendor, "Micron Technology");
         assert_eq!(identity.model, "MTD16C20325N4FN023F1 YF");
         assert_eq!(identity.serial, "01234567");
-        assert_eq!(identity.size_bytes, 32 << 30);
         assert_eq!(identity.id, "dmi-slot:LPCAMM2_0");
     }
 
     #[test]
     fn a_module_the_short_field_can_size_is_counted_in_megabytes() {
-        let entry = Structure::parse(&entry(0x2000, 0, &STRINGS)).unwrap();
         assert_eq!(
-            Module::parse(&entry).unwrap().identity().size_bytes,
-            8 << 30
+            details(&entry(0x2000, 0, &STRINGS))[0],
+            Detail::MemoryCapacity(8 << 30)
         );
     }
 
     #[test]
     fn a_short_field_with_its_top_bit_set_counts_kilobytes() {
-        let entry = Structure::parse(&entry(0x8000 | 512, 0, &STRINGS)).unwrap();
         assert_eq!(
-            Module::parse(&entry).unwrap().identity().size_bytes,
-            512 << 10
+            details(&entry(0x8000 | 512, 0, &STRINGS))[0],
+            Detail::MemoryCapacity(512 << 10)
         );
     }
 
     #[test]
-    fn a_module_carries_its_type_form_factor_and_both_speeds() {
+    fn a_module_carries_its_capacity_type_form_factor_and_both_speeds() {
         assert_eq!(
             details(&fitted()),
             [
-                Detail::new("Type", "LPDDR5"),
-                Detail::new("Form factor", "CAMM"),
-                Detail::new("Speed", "8533 MT/s"),
-                Detail::new("Configured speed", "7467 MT/s"),
+                Detail::MemoryCapacity(32 << 30),
+                Detail::MemoryType("LPDDR5".to_owned()),
+                Detail::FormFactor("CAMM".to_owned()),
+                Detail::Speed(u32::from(RATED)),
+                Detail::ConfiguredSpeed(u32::from(CONFIGURED)),
             ]
         );
     }
@@ -304,9 +302,9 @@ mod tests {
         let mut raw = fitted();
         raw[0x20..0x22].copy_from_slice(&RATED.to_le_bytes());
         assert!(
-            details(&raw)
+            !details(&raw)
                 .iter()
-                .all(|detail| detail.name != "Configured speed")
+                .any(|detail| matches!(detail, Detail::ConfiguredSpeed(_)))
         );
     }
 
@@ -315,7 +313,7 @@ mod tests {
         let mut raw = fitted();
         raw[0x15..0x17].copy_from_slice(&0xffffu16.to_le_bytes());
         raw[0x54..0x58].copy_from_slice(&70_000u32.to_le_bytes());
-        assert!(details(&raw).contains(&Detail::new("Speed", "70000 MT/s")));
+        assert!(details(&raw).contains(&Detail::Speed(70_000)));
     }
 
     #[test]
@@ -324,8 +322,8 @@ mod tests {
         raw[0x0e] = 0x12;
         raw[0x12] = 0x25;
         let details = details(&raw);
-        assert!(details.contains(&Detail::new("Form factor", "0x12")));
-        assert!(details.contains(&Detail::new("Type", "0x25")));
+        assert!(details.contains(&Detail::FormFactor("0x12".to_owned())));
+        assert!(details.contains(&Detail::MemoryType("0x25".to_owned())));
     }
 
     #[test]

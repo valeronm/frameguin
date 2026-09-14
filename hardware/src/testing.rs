@@ -56,11 +56,20 @@ pub fn touchpad_identity() -> Identity {
 pub fn display_identity() -> Identity {
     Identity {
         details: vec![
-            Detail::new("Resolution", "2880 × 1920 (3:2)"),
-            Detail::new("Size", "13.5 inches (285 × 190 mm)"),
-            Detail::new("Colour depth", "10 bits per colour"),
-            Detail::new("Refresh rate", "30–120 Hz"),
-            Detail::new("Manufactured", "2025"),
+            Detail::Resolution {
+                across: 2880,
+                down: 1920,
+            },
+            Detail::PanelSize {
+                across: 285,
+                down: 190,
+            },
+            Detail::ColourDepth(10),
+            Detail::RefreshRate {
+                slowest: 30,
+                fastest: 120,
+            },
+            Detail::ManufactureYear(2025),
         ],
         ..part::edid(
             "CSW",

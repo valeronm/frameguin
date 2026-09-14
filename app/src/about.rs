@@ -4,6 +4,7 @@
 use std::time::Duration;
 
 use adw::prelude::*;
+use frameguin_model::part;
 use gtk4 as gtk;
 use gtk4::gio;
 use gtk4::glib;
@@ -193,11 +194,7 @@ pub(crate) async fn debug_info() -> String {
     {
         // In the order the daemon answered, which is the journal's too.
         match p.get_devices().await {
-            Ok(parts) => {
-                for part in &parts {
-                    out.push_str(&format!("part: {part}\n"));
-                }
-            }
+            Ok(parts) => out.push_str(&part::listing(&parts)),
             Err(e) => out.push_str(&line("parts", Err(e))),
         }
     } else {

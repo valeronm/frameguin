@@ -6,7 +6,7 @@ use std::rc::Rc;
 
 use adw::prelude::*;
 use frameguin_model::date;
-use frameguin_model::part::{catalogue, inventory, maker, name, part_number};
+use frameguin_model::part::{catalogue, detail_row, inventory, maker, name, part_number};
 use frameguin_wire::Identity;
 use gtk4 as gtk;
 use gtk4::gio;
@@ -156,9 +156,9 @@ fn details(part: &Identity) -> adw::PreferencesPage {
     }
     optional_value(&group, "Manufacturer", maker(part));
     optional_value(&group, "Part number", part_number(part, sold));
-    optional_value(&group, "Capacity", &part.size_spelled());
     for detail in &part.details {
-        optional_value(&group, &detail.name, &detail.value);
+        let (title, text) = detail_row(detail);
+        optional_value(&group, title, &text);
     }
     optional_value(&group, "Serial number", &part.serial);
     for firmware in &part.firmware {

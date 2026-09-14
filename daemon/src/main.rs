@@ -15,6 +15,7 @@ use std::time::{Duration, Instant};
 use frameguin_hardware::device::{self, Detected};
 use frameguin_hardware::part::Identity;
 use frameguin_hardware::restore::Restore;
+use frameguin_model::part;
 use frameguin_wire as wire;
 use zbus::message::Header;
 use zbus::object_server::ObjectServer;
@@ -104,9 +105,7 @@ fn main() -> zbus::Result<()> {
     } = device::detect();
     // What a bug report about a device that is there and not served has to
     // start from.
-    for identity in &parts {
-        eprintln!("detected {identity}");
-    }
+    eprint!("{}", part::listing(&parts));
     let _conn = zbus::block_on(async move {
         let conn = Connection::system().await?;
         let authority = AuthorityProxy::new(&conn)

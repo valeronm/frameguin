@@ -66,7 +66,8 @@ there are three implementations:
 The bridge is therefore optional by construction: a process that links
 `frameguin-hardware` needs no daemon. What ships keeps the bridge, because
 the split is the security model: `frameguin-daemon` runs as root, links the
-hardware crate and serves it over `io.github.valeronm.Frameguin`; `frameguin`
+hardware crate and serves it over `io.github.valeronm.Frameguin`, and links
+`frameguin-model` for the words it logs a part in; `frameguin`
 is the GTK app, links no hardware code, and is the only process a user
 interacts with. The interface is private to the pair — they are built,
 installed and upgraded together — so renaming, dropping or regrouping a
@@ -199,15 +200,17 @@ implemented by those devices alone.
 A **part** is asked what it is through one common trait,
 `hardware::part::Part`, answering an `Identity` — kind, vendor, the name a
 registry gives that vendor, model, part
-number, serial, size, the identifier it announces itself by, prefixed with its space
+number, serial, the identifier it announces itself by, prefixed with its space
 (`hid:093a:1343`, `dmi-slot:LPCAMM2_0`, `dmi-board:FRANMJCP07`), every
-firmware it would report, and whatever else it announced as rows to
-show — because its caller iterates the machine's bill of materials
-without caring what any entry does. `Identity` lives in `wire`,
-being what that caller receives: the daemon collects one per part at
-startup, `GetDevices` answers with the list, and the app's parts window
-draws it with the words `model::part` gives — bar the size, spelled in
-`wire` so the daemon's own line carries the words the window shows. Detection sees the identity
+firmware it would report, and whatever else it announced as typed details
+— a capacity in bytes, a resolution in pixels, a speed in MT/s — because its caller iterates the
+machine's bill of materials without caring what any entry does. `Identity`
+lives in `wire`, being what that caller receives: the daemon collects one
+per part at startup, `GetDevices` answers with the list, and the app's parts
+window draws it with the words `model::part` gives. Those words include
+every detail, label and value alike, so `hardware` sends numbers
+rather than sentences, and the daemon's own listing, spelled by the same
+module, carries the words the window shows. Detection sees the identity
 anyway, so a device keeps it rather than reducing it to a bool, and a device
 that is a part and nothing else — the mainboard, a memory module — is a
 device all the same.

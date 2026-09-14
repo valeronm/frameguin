@@ -20,8 +20,9 @@ pub(crate) struct Controller {
     pub(crate) model: String,
     pub(crate) serial: String,
     pub(crate) firmware: String,
-    /// Bytes across every namespace the controller holds.
-    pub(crate) capacity: u64,
+    /// Bytes across every namespace the controller holds, and None where it
+    /// holds none or sysfs would not list them.
+    pub(crate) capacity: Option<u64>,
 }
 
 /// Every controller the board carries, in controller order. A drive behind
@@ -57,11 +58,9 @@ fn read(controller: &Path) -> Option<Controller> {
     })
 }
 
-fn capacity(controller: &Path) -> u64 {
-    let Ok(entries) = fs::read_dir(controller) else {
-        return 0;
-    };
-    let sectors: u64 = entries
+fn capacity(controller: &Path) -> Option<u64> {
+    let sectors: u64 = fs::read_dir(controller)
+        .ok()?
         .flatten()
         .filter(|entry| {
             entry
@@ -71,7 +70,7 @@ fn capacity(controller: &Path) -> u64 {
         })
         .filter_map(|entry| attribute(&entry.path(), "size")?.parse::<u64>().ok())
         .sum();
-    sectors * SECTOR
+    (sectors != 0).then_some(sectors * SECTOR)
 }
 
 fn attribute(dir: &Path, name: &str) -> Option<String> {

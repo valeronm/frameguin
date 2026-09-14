@@ -15,7 +15,8 @@ it and the non-obvious constraints.
   the D-Bus vocabulary, the control traits and the error kind every
   implementation of them shares, and the strings both binaries must spell
   alike; `model/` is the controls as the app holds
-  them, over those traits. `docs/architecture.md` opens with the vocabulary
+  them, over those traits, and the words for a part, which the daemon links
+  too for the listing it logs the parts in. `docs/architecture.md` opens with the vocabulary
   — transport, role, device, part, control, interface, bus, client control,
   group — and each word means one thing; "device" is the real thing on the
   machine and nothing on the app side. The
@@ -23,7 +24,8 @@ it and the non-obvious constraints.
   process has no hardware access — and the D-Bus interface
   `io.github.valeronm.Frameguin1` is their only bridge. Nothing that touches
   hardware may enter `wire/`: the app links it, so a dependency added there
-  lands in the unprivileged process too.
+  lands in the unprivileged process too. Nothing GUI may enter `model/` for
+  the mirror reason, the daemon linking it into the root process.
 - A string is admitted to `wire/` because a second spelling of it could
   disagree — the vendor, the board names, each matched by both binaries
   against the same hardware. A value only one binary reads, or one that

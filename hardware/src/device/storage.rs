@@ -2,7 +2,7 @@
 //! read for the bill of materials alone.
 
 use crate::nvme::{self, Controller};
-use crate::part::{Firmware, Identity, Part, PartKind};
+use crate::part::{Detail, Firmware, Identity, Part, PartKind};
 use crate::udev::{self, PciNames};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -42,13 +42,16 @@ impl Drive {
                 model,
                 part_number,
                 serial: controller.serial.clone(),
-                size_bytes: controller.capacity,
                 id: format!("pci:{:04x}:{:04x}", controller.vendor, controller.device),
                 firmware: (!controller.firmware.is_empty())
                     .then(|| Firmware::new("Firmware", &controller.firmware))
                     .into_iter()
                     .collect(),
-                details: Vec::new(),
+                details: controller
+                    .capacity
+                    .map(Detail::StorageCapacity)
+                    .into_iter()
+                    .collect(),
             },
         }
     }
@@ -58,7 +61,7 @@ impl Drive {
 mod tests {
     use super::Drive;
     use crate::nvme::Controller;
-    use crate::part::{Firmware, Part, PartKind};
+    use crate::part::{Detail, Firmware, Part, PartKind};
     use crate::udev::PciNames;
 
     fn named() -> PciNames {
@@ -83,7 +86,7 @@ mod tests {
             model: "SD PC SN7100S SDFPNSL-1T00".to_owned(),
             serial: "0123456789AB".to_owned(),
             firmware: firmware.to_owned(),
-            capacity: 1_024_209_543_168,
+            capacity: Some(1_024_209_543_168),
         }
     }
 
@@ -98,7 +101,10 @@ mod tests {
         assert_eq!(identity.model, "WD_BLACK SN7100");
         assert_eq!(identity.part_number, "SD PC SN7100S SDFPNSL-1T00");
         assert_eq!(identity.serial, "0123456789AB");
-        assert_eq!(identity.size_bytes, 1_024_209_543_168);
+        assert_eq!(
+            identity.details,
+            [Detail::StorageCapacity(1_024_209_543_168)]
+        );
         assert_eq!(identity.id, "pci:15b7:5045");
         assert_eq!(identity.firmware, [Firmware::new("Firmware", "7612M000")]);
     }

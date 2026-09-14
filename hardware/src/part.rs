@@ -22,7 +22,6 @@ pub fn hid(
         model: product.to_owned(),
         part_number: String::new(),
         serial: serial.to_owned(),
-        size_bytes: 0,
         id: format!("hid:{vid:04x}:{pid:04x}"),
         firmware: Vec::new(),
         details: Vec::new(),
@@ -66,7 +65,6 @@ pub fn edid(
         model: name.to_owned(),
         part_number: String::new(),
         serial: serial.to_owned(),
-        size_bytes: 0,
         id: format!("edid:{manufacturer}:{product:04x}"),
         firmware: Vec::new(),
         details: Vec::new(),
@@ -83,22 +81,10 @@ pub fn sbs(manufacturer: &str, model: &str, serial: &str) -> Identity {
         model: model.to_owned(),
         part_number: String::new(),
         serial: serial.to_owned(),
-        size_bytes: 0,
         id: format!("sbs:{model}"),
         firmware: Vec::new(),
         details: Vec::new(),
     }
-}
-
-pub(crate) fn details<const N: usize>(rows: [(&str, Option<String>); N]) -> Vec<Detail> {
-    rows.into_iter()
-        .filter_map(|(name, value)| {
-            Some(Detail {
-                name: name.to_owned(),
-                value: value?,
-            })
-        })
-        .collect()
 }
 
 pub trait Part {

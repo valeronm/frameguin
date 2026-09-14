@@ -53,7 +53,6 @@ impl Mainboard {
                 model: product.to_owned(),
                 part_number: board.to_owned(),
                 serial: serial.to_owned(),
-                size_bytes: 0,
                 id: format!("dmi-board:{board}"),
                 firmware,
                 details: Vec::new(),
