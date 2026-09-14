@@ -231,7 +231,7 @@ pub(crate) async fn report_issue() -> Result<(), glib::Error> {
 }
 
 pub(crate) fn show(parent: Option<&gtk::Window>) {
-    let about = adw::AboutWindow::builder()
+    let about = adw::AboutDialog::builder()
         .application_icon(APP_ID)
         .application_name("Frameguin")
         .developer_name("Valerii Myronov")
@@ -246,12 +246,11 @@ pub(crate) fn show(parent: Option<&gtk::Window>) {
         // page entirely when debug info is blank, and this fills in later.
         .debug_info("collecting…")
         .build();
-    about.set_transient_for(parent);
 
     let filling = about.clone();
     glib::spawn_future_local(async move {
         let info = debug_info().await;
         filling.set_debug_info(&info);
     });
-    about.present();
+    about.present(parent);
 }

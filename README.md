@@ -68,7 +68,7 @@ The others are shaped differently:
   the same chassis. Developed and tested on the Laptop 13 Pro (Intel Core
   Ultra Series 3), BIOS 03.02. Other Framework boards should work, and
   reports from them are welcome.
-- **GTK 4 with libadwaita 1.4 or newer** — Ubuntu 24.04, Debian 13, Fedora 40
+- **GTK 4 with libadwaita 1.5 or newer** — Ubuntu 24.04, Debian 13, Fedora 40
   or their equivalents. The `.deb` will refuse to install on anything older.
 - **A tray implementation, for the tray icon only.** The window works
   anywhere. KDE and Xfce have one natively; stock GNOME needs the

@@ -11,13 +11,13 @@ repository = "https://github.com/valeronm/frameguin"
 workspace = true
 
 [dependencies]
-adw = { version = "0.9.2", package = "libadwaita", features = ["v1_4"] }
+adw = { version = "0.9.2", package = "libadwaita", features = ["v1_5"] }
 async-channel = "2.5.0"
 async-lock = "3.4.2"
 frameguin-model = { workspace = true }
 frameguin-wire = { workspace = true }
-# v4_6 for the label's natural-wrap mode; libadwaita 1.4 already needs GTK
-# 4.12, so no platform this runs on lacks it.
+# v4_6 for the label's natural-wrap mode; libadwaita 1.5 already needs a
+# newer GTK, so no platform this runs on lacks it.
 gtk4 = { version = "0.11.4", features = ["v4_6"] }
 ksni = { version = "0.3", default-features = false, features = ["async-io", "blocking"] }
 serde = { workspace = true }
@@ -37,7 +37,7 @@ Settings are changed from a GTK4/libadwaita window, or from a tray menu that \
 needs no window open. A root D-Bus daemon holds the hardware access; the GUI \
 is unprivileged and setters are authorized through polkit."""
 section = "utils"
-# No policykit-1 fallback: the app needs libadwaita 1.4, so the oldest
+# No policykit-1 fallback: the app needs libadwaita 1.5, so the oldest
 # release it can run on already ships polkitd.
 # libgcc-s1 is Priority: required but not Essential, so it has to be declared;
 # cargo-deb's shared-library scan misses it.
