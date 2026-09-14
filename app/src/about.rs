@@ -1,17 +1,19 @@
 //! The About window and the hardware report behind its copy button, kept
 //! together so `--debug-info` and the copy button can't come to differ.
 
+use std::cell::{OnceCell, RefCell};
+use std::rc::Rc;
 use std::time::Duration;
 
 use adw::prelude::*;
 use frameguin_model::part;
 use gtk4 as gtk;
-use gtk4::gio;
-use gtk4::glib;
+use gtk4::{gdk, gdk_pixbuf, gio, glib, graphene, gsk};
 
 use crate::APP_ID;
 use crate::board::dmi;
 use crate::bus::Bus;
+use crate::mapped;
 
 /// The unit an install writes, one spelling for the two places a package and
 /// a tarball put it.
@@ -244,10 +246,224 @@ pub(crate) fn show(parent: Option<&gtk::Window>) {
         .debug_info("collecting…")
         .build();
 
+    about.add_legal_section(
+        "Framework",
+        None,
+        gtk::License::Custom,
+        Some(TRADEMARK_NOTICE),
+    );
+    about.add_legal_section(
+        "Tux",
+        Some("© Larry Ewing, Simon Budig"),
+        gtk::License::Custom,
+        Some(TUX_CREDIT),
+    );
+
     let filling = about.clone();
     glib::spawn_future_local(async move {
         let info = debug_info().await;
         filling.set_debug_info(&info);
     });
     about.present(parent);
+    // The dialog builds its contents on being presented.
+    if let Some(icon) = app_icon(about.upcast_ref()) {
+        peek_tux(&icon);
+    }
+}
+
+const TUX_CREDIT: &str = "Drawn by Larry Ewing with The GIMP, vectorized by Simon Budig, and \
+    redrawn by Garrett LeSage and IFo Hancroft. These drawings are copyrighted by Larry Ewing \
+    and Simon Budig, redistribution is free but has to include this README/Copyright notice.";
+const TRADEMARK_NOTICE: &str = "“Framework” and the gear logo are trademarks of Framework \
+    Computer Inc. Frameguin is a community project, not affiliated with or endorsed by \
+    Framework Computer Inc.";
+
+const TUX_SVG: &[u8] = include_bytes!("../../data/tux/tux.svg");
+const TUX_DELAY: Duration = Duration::from_secs(10);
+const TUX_CLIMB_MILLISECONDS: u32 = 900;
+// Fractions of the icon's side, the hole's being where the icon's SVG draws it.
+const HOLE_CENTRE: (f32, f32) = (12.003 / 24.0, 12.003 / 24.0);
+const HOLE_RADII: (f32, f32) = (7.21 / 24.0, 7.407 / 24.0);
+const TUX_HEIGHT: f32 = 0.742;
+const TUX_PEEK_TOP: f32 = 0.43;
+
+/// libadwaita gives no handle on the dialog's image of the icon.
+fn app_icon(widget: &gtk::Widget) -> Option<gtk::Image> {
+    if let Some(image) = widget.downcast_ref::<gtk::Image>()
+        && image.icon_name().as_deref() == Some(APP_ID)
+    {
+        return Some(image.clone());
+    }
+    let mut child = widget.first_child();
+    while let Some(widget) = child {
+        if let Some(image) = app_icon(&widget) {
+            return Some(image);
+        }
+        child = widget.next_sibling();
+    }
+    None
+}
+
+fn peek_tux(icon: &gtk::Image) {
+    let peek = Rc::new(Peek {
+        icon: icon.downgrade(),
+        art: OnceCell::new(),
+        animation: RefCell::default(),
+    });
+
+    let waiting = peek.clone();
+    mapped::while_mapped(icon, move || {
+        let peek = waiting.clone();
+        mapped::Once::after(TUX_DELAY, move || {
+            if peek.animation.borrow().is_none() {
+                peek.toggle();
+            }
+        })
+    });
+
+    let double_click = gtk::GestureClick::new();
+    double_click.connect_pressed(move |_, presses, _, _| {
+        if presses == 2 {
+            peek.toggle();
+        }
+    });
+    icon.add_controller(double_click);
+}
+
+struct Peek {
+    /// `Peek` is held by handlers on this image, which a strong reference
+    /// would keep alive past the dialog's close.
+    icon: glib::WeakRef<gtk::Image>,
+    art: OnceCell<Option<Art>>,
+    animation: RefCell<Option<adw::TimedAnimation>>,
+}
+
+impl Peek {
+    fn toggle(&self) {
+        let Some(icon) = self.icon.upgrade() else {
+            return;
+        };
+        let Some(art) = self.art.get_or_init(|| Art::for_icon(&icon)).clone() else {
+            return;
+        };
+        let interrupted = self.animation.take();
+        // Skipping would jump Tux to the end the interrupted animation was
+        // heading for.
+        if let Some(interrupted) = &interrupted {
+            interrupted.pause();
+        }
+        let from = interrupted.as_ref().map_or(0.0, AnimationExt::value);
+        let (to, easing) = if interrupted.is_none_or(|going| going.value_to() < 0.5) {
+            (1.0, adw::Easing::EaseOutBack)
+        } else {
+            (0.0, adw::Easing::EaseInBack)
+        };
+        let weak = self.icon.clone();
+        let target = adw::CallbackAnimationTarget::new(move |value| {
+            if let Some(icon) = weak.upgrade() {
+                icon.set_paintable(art.frame(value).as_ref());
+            }
+        });
+        let animation = adw::TimedAnimation::new(&icon, from, to, TUX_CLIMB_MILLISECONDS, target);
+        animation.set_easing(easing);
+        animation.play();
+        self.animation.replace(Some(animation));
+    }
+}
+
+#[derive(Clone)]
+struct Art {
+    gear: gtk::IconPaintable,
+    tux: gdk::Texture,
+    side: f32,
+}
+
+impl Art {
+    fn for_icon(icon: &gtk::Image) -> Option<Self> {
+        let scale = icon.scale_factor();
+        let (Ok(pixels), Ok(pixels_per_unit)) =
+            (u16::try_from(icon.pixel_size()), u16::try_from(scale))
+        else {
+            return None;
+        };
+        let side = f32::from(pixels);
+        let tux = tux_texture(side * f32::from(pixels_per_unit) * TUX_HEIGHT)?;
+        let gear = gtk::IconTheme::for_display(&icon.display()).lookup_icon(
+            APP_ID,
+            &[],
+            i32::from(pixels),
+            scale,
+            icon.direction(),
+            gtk::IconLookupFlags::empty(),
+        );
+        Some(Self { gear, tux, side })
+    }
+
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "an animation's progress needs no f64 precision"
+    )]
+    fn frame(&self, progress: f64) -> Option<gdk::Paintable> {
+        let side = self.side;
+        let snapshot = gtk::Snapshot::new();
+        self.gear
+            .snapshot(&snapshot, f64::from(side), f64::from(side));
+        let (centre_x, centre_y) = HOLE_CENTRE;
+        let (radius_x, radius_y) = HOLE_RADII;
+        let corner = graphene::Size::new(radius_x * side, radius_y * side);
+        snapshot.push_rounded_clip(&gsk::RoundedRect::new(
+            graphene::Rect::new(
+                (centre_x - radius_x) * side,
+                (centre_y - radius_y) * side,
+                2.0 * radius_x * side,
+                2.0 * radius_y * side,
+            ),
+            corner,
+            corner,
+            corner,
+            corner,
+        ));
+        let height = TUX_HEIGHT * side;
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "texture sizes are far below f32's exact integer range"
+        )]
+        let width = height * self.tux.width() as f32 / self.tux.height() as f32;
+        let hidden = centre_y + radius_y;
+        let top = hidden + (TUX_PEEK_TOP - hidden) * progress as f32;
+        snapshot.append_texture(
+            &self.tux,
+            &graphene::Rect::new((side - width) / 2.0, top * side, width, height),
+        );
+        snapshot.pop();
+        snapshot.to_paintable(Some(&graphene::Size::new(side, side)))
+    }
+}
+
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "a pixel height well inside i32"
+)]
+fn tux_texture(height: f32) -> Option<gdk::Texture> {
+    let stream = gio::MemoryInputStream::from_bytes(&glib::Bytes::from_static(TUX_SVG));
+    let pixbuf = gdk_pixbuf::Pixbuf::from_stream_at_scale(
+        &stream,
+        -1,
+        height.round() as i32,
+        true,
+        gio::Cancellable::NONE,
+    )
+    .ok()?;
+    Some(gdk::Texture::for_pixbuf(&pixbuf))
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn the_icon_still_draws_the_hole_tux_is_clipped_to() {
+        let icon = include_str!("../../data/icons/io.github.valeronm.Frameguin.svg");
+        assert!(
+            icon.contains("M12.003 19.41c-3.981 0-7.21-3.317-7.21-7.407s3.229-7.406 7.21-7.406")
+        );
+    }
 }
