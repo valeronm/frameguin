@@ -446,8 +446,7 @@ pub enum Detail {
     ConfiguredSpeed(u32),
 }
 
-#[derive(Serialize, Deserialize, Type, Clone, Copy)]
-#[zvariant(crate = "zbus::zvariant", signature = "s")]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 enum Fact {
     MemoryCapacity,
