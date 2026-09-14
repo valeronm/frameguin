@@ -1,3 +1,21 @@
+frameguin (0.3.1-1) unstable; urgency=medium
+
+  * Show the battery and the USB-C ports in one Status window, opened from
+    the window's menu, its Power rows and the tray.
+  * List the NVMe drive as a part, with the size it is sold in.
+  * Show the measurements a part announces, such as a panel's resolution,
+    size and refresh rate.
+  * Date the display panel by the model year its EDID gives.
+  * Show a battery pack's rating and build date in the parts window.
+  * Name a part's maker from the system's device database where the
+    catalogue has none.
+  * Name the Laptop 16's expansion bay port as the one at the back.
+  * Use libadwaita's about dialog, which needs libadwaita 1.5 or newer.
+  * Stop install.sh before it writes anything when a file it installs is
+    missing.
+
+ -- Valerii Myronov <valeriy@hey.com>  Mon, 14 Sep 2026 16:24:23 +0100
+
 frameguin (0.3.0-1) unstable; urgency=medium
 
   * Add a Restore settings switch that puts the charge limit, the power
