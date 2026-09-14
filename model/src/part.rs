@@ -413,42 +413,35 @@ pub fn listing(parts: &[Identity]) -> String {
         let firmware: Vec<_> = firmware
             .iter()
             .map(|firmware| {
-                let stamped: Vec<_> = [&firmware.version, &firmware.built, &firmware.builder]
-                    .into_iter()
-                    .filter(|field| !field.is_empty())
-                    .map(String::as_str)
-                    .collect();
+                let stamped: Vec<_> = [
+                    firmware.version.clone(),
+                    date::spelled(&firmware.built),
+                    firmware.builder.clone(),
+                ]
+                .into_iter()
+                .filter(|field| !field.is_empty())
+                .collect();
                 (firmware.name.as_str(), stamped.join(" "))
             })
             .collect();
-        let groups: Vec<_> = [("details", details), ("firmware", firmware)]
-            .into_iter()
-            .filter(|(_, rows)| !rows.is_empty())
-            .collect();
-        let width = widest(
-            rows.iter()
-                .map(|(title, _)| *title)
-                .chain(groups.iter().map(|(title, _)| *title)),
-        );
-        write_rows(&mut out, 4, width, &rows);
-        for (title, rows) in &groups {
+        write_rows(&mut out, 4, &rows);
+        for (title, rows) in [("details", details), ("firmware", firmware)] {
+            if rows.is_empty() {
+                continue;
+            }
             let _ = writeln!(out, "    {title}:");
-            write_rows(
-                &mut out,
-                6,
-                widest(rows.iter().map(|(title, _)| *title)),
-                rows,
-            );
+            write_rows(&mut out, 6, &rows);
         }
     }
     out
 }
 
-fn widest<'a>(titles: impl Iterator<Item = &'a str>) -> usize {
-    titles.map(|title| title.chars().count()).max().unwrap_or(0)
-}
-
-fn write_rows(out: &mut String, indent: usize, width: usize, rows: &[(&str, String)]) {
+fn write_rows(out: &mut String, indent: usize, rows: &[(&str, String)]) {
+    let width = rows
+        .iter()
+        .map(|(title, _)| title.chars().count())
+        .max()
+        .unwrap_or(0);
     for (title, value) in rows {
         let _ = writeln!(
             out,
@@ -756,8 +749,8 @@ mod tests {
             listing(&[module, drive]),
             "parts:\n\
              \x20 Memory  dmi-slot:LPCAMM2_0\n\
-             \x20   vendor:   Micron Technology\n\
-             \x20   model:    MTD16C20325N4FN023F1 YF\n\
+             \x20   vendor:  Micron Technology\n\
+             \x20   model:   MTD16C20325N4FN023F1 YF\n\
              \x20   details:\n\
              \x20     Capacity:          32 GB\n\
              \x20     Configured speed:  7467 MT/s\n\
@@ -766,7 +759,7 @@ mod tests {
              \x20   model:        WD_BLACK SN7100\n\
              \x20   part number:  SD PC SN7100S SDFPNSL-1T00\n\
              \x20   firmware:\n\
-             \x20     Firmware:  7612M000 2025-01-02\n"
+             \x20     Firmware:  7612M000 2 January 2025\n"
         );
     }
 
