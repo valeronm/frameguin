@@ -2,7 +2,7 @@
 //! read for the bill of materials alone.
 
 use crate::nvme::{self, Controller};
-use crate::part::{Detail, Firmware, Identity, Part, PartKind};
+use crate::part::{Detail, Firmware, FirmwareKind, Identity, Part, PartKind};
 use crate::udev::{self, PciNames};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -44,7 +44,7 @@ impl Drive {
                 serial: controller.serial.clone(),
                 id: format!("pci:{:04x}:{:04x}", controller.vendor, controller.device),
                 firmware: (!controller.firmware.is_empty())
-                    .then(|| Firmware::new("Firmware", &controller.firmware))
+                    .then(|| Firmware::new(FirmwareKind::Drive, &controller.firmware))
                     .into_iter()
                     .collect(),
                 details: controller
@@ -61,7 +61,7 @@ impl Drive {
 mod tests {
     use super::Drive;
     use crate::nvme::Controller;
-    use crate::part::{Detail, Firmware, Part, PartKind};
+    use crate::part::{Detail, Firmware, FirmwareKind, Part, PartKind};
     use crate::udev::PciNames;
 
     fn named() -> PciNames {
@@ -106,7 +106,10 @@ mod tests {
             [Detail::StorageCapacity(1_024_209_543_168)]
         );
         assert_eq!(identity.id, "pci:15b7:5045");
-        assert_eq!(identity.firmware, [Firmware::new("Firmware", "7612M000")]);
+        assert_eq!(
+            identity.firmware,
+            [Firmware::new(FirmwareKind::Drive, "7612M000")]
+        );
     }
 
     #[test]

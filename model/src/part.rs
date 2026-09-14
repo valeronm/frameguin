@@ -5,7 +5,7 @@
 
 use std::fmt::Write;
 
-use frameguin_wire::{self as wire, Detail, Identity, PartKind, VENDOR};
+use frameguin_wire::{self as wire, Detail, FirmwareKind, Identity, PartKind, VENDOR};
 
 use crate::control::battery::reading::{capacity, volts};
 use crate::date;
@@ -338,6 +338,18 @@ pub fn detail_row(detail: &Detail) -> (&'static str, String) {
     }
 }
 
+/// Named for what carries the firmware, as the part's user would.
+#[must_use]
+pub fn firmware_name(kind: FirmwareKind) -> String {
+    match kind {
+        FirmwareKind::Bios => "BIOS".to_owned(),
+        FirmwareKind::Ec => "EC".to_owned(),
+        FirmwareKind::PowerDelivery(controller) => format!("PD {controller}"),
+        FirmwareKind::Drive => "Firmware".to_owned(),
+        FirmwareKind::TouchController => "Controller".to_owned(),
+    }
+}
+
 /// A panel is sold as a ratio it need not exactly have.
 fn aspect(across: u16, down: u16) -> String {
     const NAMED: [((u16, u16), &str); 6] = [
@@ -421,25 +433,28 @@ pub fn listing(parts: &[Identity]) -> String {
                 .into_iter()
                 .filter(|field| !field.is_empty())
                 .collect();
-                (firmware.name.as_str(), stamped.join(" "))
+                (firmware_name(firmware.kind), stamped.join(" "))
             })
             .collect();
         write_rows(&mut out, 4, &rows);
-        for (title, rows) in [("details", details), ("firmware", firmware)] {
-            if rows.is_empty() {
-                continue;
-            }
-            let _ = writeln!(out, "    {title}:");
-            write_rows(&mut out, 6, &rows);
-        }
+        write_section(&mut out, "details", &details);
+        write_section(&mut out, "firmware", &firmware);
     }
     out
 }
 
-fn write_rows(out: &mut String, indent: usize, rows: &[(&str, String)]) {
+fn write_section(out: &mut String, title: &str, rows: &[(impl AsRef<str>, String)]) {
+    if rows.is_empty() {
+        return;
+    }
+    let _ = writeln!(out, "    {title}:");
+    write_rows(out, 6, rows);
+}
+
+fn write_rows(out: &mut String, indent: usize, rows: &[(impl AsRef<str>, String)]) {
     let width = rows
         .iter()
-        .map(|(title, _)| title.chars().count())
+        .map(|(title, _)| title.as_ref().chars().count())
         .max()
         .unwrap_or(0);
     for (title, value) in rows {
@@ -447,7 +462,7 @@ fn write_rows(out: &mut String, indent: usize, rows: &[(&str, String)]) {
             out,
             "{:indent$}{:<pad$}{value}",
             "",
-            format!("{title}:"),
+            format!("{}:", title.as_ref()),
             pad = width + 3
         );
     }
@@ -455,10 +470,13 @@ fn write_rows(out: &mut String, indent: usize, rows: &[(&str, String)]) {
 
 #[cfg(test)]
 mod tests {
-    use frameguin_wire::{self as wire, Detail, Firmware, Identity, PartKind, VENDOR};
+    use frameguin_wire::{
+        self as wire, Detail, Firmware, FirmwareKind, Identity, PartKind, VENDOR,
+    };
 
     use super::{
-        aspect, catalogue, detail_row, inventory, listing, maker, name, ordered, part_number,
+        aspect, catalogue, detail_row, firmware_name, inventory, listing, maker, name, ordered,
+        part_number,
     };
 
     fn part(kind: PartKind, id: &str) -> Identity {
@@ -741,7 +759,7 @@ mod tests {
             part_number: "SD PC SN7100S SDFPNSL-1T00".to_owned(),
             firmware: vec![Firmware {
                 built: "2025-01-02".to_owned(),
-                ..Firmware::new("Firmware", "7612M000")
+                ..Firmware::new(FirmwareKind::Drive, "7612M000")
             }],
             ..part(PartKind::Storage, "pci:15b7:5045")
         };
@@ -761,6 +779,11 @@ mod tests {
              \x20   firmware:\n\
              \x20     Firmware:  7612M000 2 January 2025\n"
         );
+    }
+
+    #[test]
+    fn a_pd_controller_is_named_by_its_number() {
+        assert_eq!(firmware_name(FirmwareKind::PowerDelivery(2)), "PD 2");
     }
 
     #[test]

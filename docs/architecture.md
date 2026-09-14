@@ -208,7 +208,7 @@ machine's bill of materials without caring what any entry does. `Identity`
 lives in `wire`, being what that caller receives: the daemon collects one
 per part at startup, `GetDevices` answers with the list, and the app's parts
 window draws it with the words `model::part` gives. Those words include
-every detail, label and value alike, so `hardware` sends numbers
+every detail, label and value alike, and every firmware's name, so `hardware` sends numbers
 rather than sentences, and the daemon's own listing, spelled by the same
 module, carries the words the window shows. Detection sees the identity
 anyway, so a device keeps it rather than reducing it to a bool, and a device

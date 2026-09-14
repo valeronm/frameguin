@@ -2,7 +2,7 @@
 //! materials iterates, asked through one trait because its caller does not
 //! care what any entry does.
 
-pub use frameguin_wire::{Detail, Firmware, Identity, PartKind};
+pub use frameguin_wire::{Detail, Firmware, FirmwareKind, Identity, PartKind};
 
 /// A HID part, from what its descriptor announces. The ids are the USB-IF
 /// registry's, but the space is HID's: the same ids arrive over I2C, and the

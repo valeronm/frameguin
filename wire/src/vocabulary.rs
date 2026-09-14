@@ -9,7 +9,8 @@
 //! and acts on it.
 //!
 //! An enum whose variants carry nothing serializes as `s`, so the wire format
-//! is the plain string the variant is named after.
+//! is the plain string the variant is named after. zvariant encodes an enum's
+//! fields only where every variant carries the same ones.
 
 use serde::{Deserialize, Serialize};
 use zbus::zvariant::{Type, Value};
@@ -395,9 +396,7 @@ pub enum PartKind {
 
 /// Something else a part announced about itself, each fact in its own unit.
 ///
-/// zvariant encodes an enum's fields only where every variant carries the
-/// same ones, so a detail crosses the bus as `(sv)`: the fact's name and its
-/// value.
+/// A detail crosses the bus as the fact's name and its value.
 #[derive(Type, Clone, PartialEq, Eq, Debug)]
 #[zvariant(crate = "zbus::zvariant", signature = "(sv)")]
 pub enum Detail {
@@ -534,12 +533,61 @@ impl<'de> Deserialize<'de> for Detail {
     }
 }
 
-/// One firmware a part runs, named for what carries it as the part's user
-/// would: `BIOS` and `EC` on the mainboard, `Controller` on a touch panel.
+/// What carries a firmware.
+///
+/// A kind crosses the bus as its name and the controller number, zero for a
+/// kind that has none.
+#[derive(Type, Clone, Copy, PartialEq, Eq, Debug)]
+#[zvariant(crate = "zbus::zvariant", signature = "(sy)")]
+pub enum FirmwareKind {
+    Bios,
+    Ec,
+    /// A USB-C power delivery controller, by the EC's controller number.
+    PowerDelivery(u8),
+    Drive,
+    TouchController,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+enum Carrier {
+    Bios,
+    Ec,
+    PowerDelivery,
+    Drive,
+    TouchController,
+}
+
+impl Serialize for FirmwareKind {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match *self {
+            Self::Bios => (Carrier::Bios, 0u8),
+            Self::Ec => (Carrier::Ec, 0),
+            Self::PowerDelivery(controller) => (Carrier::PowerDelivery, controller),
+            Self::Drive => (Carrier::Drive, 0),
+            Self::TouchController => (Carrier::TouchController, 0),
+        }
+        .serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for FirmwareKind {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let (carrier, controller) = <(Carrier, u8)>::deserialize(deserializer)?;
+        Ok(match carrier {
+            Carrier::Bios => Self::Bios,
+            Carrier::Ec => Self::Ec,
+            Carrier::PowerDelivery => Self::PowerDelivery(controller),
+            Carrier::Drive => Self::Drive,
+            Carrier::TouchController => Self::TouchController,
+        })
+    }
+}
+
 #[derive(Serialize, Deserialize, Type, Clone, PartialEq, Eq, Debug)]
 #[zvariant(crate = "zbus::zvariant")]
 pub struct Firmware {
-    pub name: String,
+    pub kind: FirmwareKind,
     /// As the vendor spells it.
     pub version: String,
     /// When the firmware was built: an ISO date, with the time where the
@@ -552,9 +600,9 @@ pub struct Firmware {
 
 impl Firmware {
     #[must_use]
-    pub fn new(name: &str, version: &str) -> Self {
+    pub fn new(kind: FirmwareKind, version: &str) -> Self {
         Self {
-            name: name.to_owned(),
+            kind,
             version: version.to_owned(),
             built: String::new(),
             builder: String::new(),
@@ -611,7 +659,7 @@ mod tests {
     use zbus::zvariant::serialized::Context;
     use zbus::zvariant::{LE, to_bytes};
 
-    use super::Detail;
+    use super::{Detail, FirmwareKind};
 
     #[test]
     fn every_detail_crosses_the_bus_as_itself() {
@@ -647,5 +695,19 @@ mod tests {
         let encoded = to_bytes(Context::new_dbus(LE, 0), &details).unwrap();
         let decoded: Vec<Detail> = encoded.deserialize().unwrap().0;
         assert_eq!(decoded, details);
+    }
+
+    #[test]
+    fn every_firmware_kind_crosses_the_bus_as_itself() {
+        let kinds = vec![
+            FirmwareKind::Bios,
+            FirmwareKind::Ec,
+            FirmwareKind::PowerDelivery(2),
+            FirmwareKind::Drive,
+            FirmwareKind::TouchController,
+        ];
+        let encoded = to_bytes(Context::new_dbus(LE, 0), &kinds).unwrap();
+        let decoded: Vec<FirmwareKind> = encoded.deserialize().unwrap().0;
+        assert_eq!(decoded, kinds);
     }
 }

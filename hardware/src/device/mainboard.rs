@@ -4,7 +4,7 @@
 use crate::build_info;
 use crate::dmi;
 use crate::ec::Ec;
-use crate::part::{Firmware, Identity, Part, PartKind};
+use crate::part::{Firmware, FirmwareKind, Identity, Part, PartKind};
 use crate::pd;
 
 pub(crate) struct Mainboard {
@@ -65,7 +65,7 @@ impl Mainboard {
 /// rather than whoever built it.
 fn bios() -> Option<Firmware> {
     Some(Firmware {
-        name: "BIOS".to_owned(),
+        kind: FirmwareKind::Bios,
         version: dmi::field("bios_version")?,
         built: dmi::bios_date().unwrap_or_default(),
         builder: String::new(),
@@ -77,29 +77,29 @@ fn bios() -> Option<Firmware> {
 fn ec_firmware(ec: Option<&Ec>) -> Option<Firmware> {
     let build = build_info::parse(&ec?.version().ok()?);
     Some(Firmware {
-        name: "EC".to_owned(),
+        kind: FirmwareKind::Ec,
         version: build.version,
         built: build.built,
         builder: build.builder,
     })
 }
 
-/// The USB-C power delivery controllers, named by the EC's controller
-/// number — the same number the port index divides by, two ports to a
+/// The USB-C power delivery controllers, by the EC's controller number —
+/// the same number the port index divides by, two ports to a
 /// controller. They are soldered to the board like the EC itself, so they
 /// are firmware it runs rather than parts of their own; the Laptop 16's
 /// third rides on whichever module fills the expansion bay, and is the one
 /// this misplaces.
 ///
-/// A controller keeps its number when an earlier one has no version, so a
-/// gap in what the EC answers is a gap in the names rather than a renaming
-/// of the controllers after it.
+/// A controller keeps its number when an earlier one has no version.
 fn pd_firmware(versions: &[[u8; pd::VERSION_LEN]]) -> Vec<Firmware> {
-    versions
-        .iter()
-        .enumerate()
-        .filter_map(|(index, blob)| {
-            Some(Firmware::new(&format!("PD {index}"), &pd::version(*blob)?))
+    (0..=u8::MAX)
+        .zip(versions)
+        .filter_map(|(controller, blob)| {
+            Some(Firmware::new(
+                FirmwareKind::PowerDelivery(controller),
+                &pd::version(*blob)?,
+            ))
         })
         .collect()
 }
@@ -107,7 +107,7 @@ fn pd_firmware(versions: &[[u8; pd::VERSION_LEN]]) -> Vec<Firmware> {
 #[cfg(test)]
 mod tests {
     use super::Mainboard;
-    use crate::part::{Firmware, Part, PartKind};
+    use crate::part::{Firmware, FirmwareKind, Part, PartKind};
     use crate::testing::PD_VERSION;
 
     #[test]
@@ -117,30 +117,32 @@ mod tests {
             frameguin_wire::BOARD_LAPTOP13_PRO_ULTRA_3,
             "FRANMJCP07",
             "",
-            vec![Firmware::new("BIOS", "03.02")],
+            vec![Firmware::new(FirmwareKind::Bios, "03.02")],
         );
         let identity = board.identity();
         assert_eq!(identity.kind, PartKind::Mainboard);
         assert_eq!(identity.part_number, "FRANMJCP07");
         assert_eq!(identity.id, "dmi-board:FRANMJCP07");
         assert_eq!(identity.model, frameguin_wire::BOARD_LAPTOP13_PRO_ULTRA_3);
-        assert_eq!(identity.firmware[0].name, "BIOS");
+        assert_eq!(identity.firmware[0].kind, FirmwareKind::Bios);
     }
 
     #[test]
     fn each_pd_controller_is_firmware_named_by_its_number() {
-        let firmware = super::pd_firmware(&[PD_VERSION, PD_VERSION]);
-        let named: Vec<(&str, &str)> = firmware
-            .iter()
-            .map(|f| (f.name.as_str(), f.version.as_str()))
-            .collect();
-        assert_eq!(named, [("PD 0", "1.0.0A"), ("PD 1", "1.0.0A")]);
+        assert_eq!(
+            super::pd_firmware(&[PD_VERSION, PD_VERSION]),
+            [
+                Firmware::new(FirmwareKind::PowerDelivery(0), "1.0.0A"),
+                Firmware::new(FirmwareKind::PowerDelivery(1), "1.0.0A"),
+            ]
+        );
     }
 
     #[test]
     fn a_controller_the_ec_never_saw_leaves_the_rest_their_numbers() {
-        let firmware = super::pd_firmware(&[[0; 8], PD_VERSION]);
-        assert_eq!(firmware.len(), 1);
-        assert_eq!(firmware[0].name, "PD 1");
+        assert_eq!(
+            super::pd_firmware(&[[0; 8], PD_VERSION]),
+            [Firmware::new(FirmwareKind::PowerDelivery(1), "1.0.0A")]
+        );
     }
 }

@@ -43,7 +43,7 @@ fn the_composite_signatures_are_the_ones_the_methods_declare() {
     // The pack's own report: cell voltages, alarms by name, and a temperature
     // in tenths of a degree.
     assert_eq!(BatteryCondition::SIGNATURE, "(auasn)");
-    assert_eq!(Identity::SIGNATURE, "(sssssssa(ssss)a(sv))");
+    assert_eq!(Identity::SIGNATURE, "(sssssssa((sy)sss)a(sv))");
 }
 
 #[test]

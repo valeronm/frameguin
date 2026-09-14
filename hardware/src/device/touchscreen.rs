@@ -5,7 +5,7 @@ use frameguin_wire::{DeviceResult, TouchscreenControl};
 
 use crate::lifetime::Lifetime;
 use crate::mirror::{Mirror, Mirrors};
-use crate::part::Firmware;
+use crate::part::{Firmware, FirmwareKind};
 use crate::restore::{Restorable, Wanted};
 use crate::touchscreen::{self, TouchSwitch};
 
@@ -34,7 +34,7 @@ impl Touchscreen {
         };
         let firmware = route
             .firmware(hid, controller)
-            .map(|version| Firmware::new("Controller", &version));
+            .map(|version| Firmware::new(FirmwareKind::TouchController, &version));
         (Some(Self::new(Box::new(route), mirrors)), firmware)
     }
 
