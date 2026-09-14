@@ -1,12 +1,5 @@
-//! The battery report: a window naming everything the EC says about the pack.
-//!
-//! Nothing here writes, so none of [`crate::window`]'s machinery applies — no
-//! sync guard, no debounce, no tray push — and keeping it apart is what stops
-//! that machinery being reached for out of habit when a row is added.
-//!
-//! Both front-ends open it, the window's status row and the tray's reading,
-//! and neither builds it: they activate `app.battery-details`, which lands
-//! here. That is what lets the tray open the report with no window built.
+//! The battery section: one row carrying the charge, and a page naming
+//! everything the EC says about the pack.
 //!
 //! What each value is *called* is `frameguin_model::control::battery::reading`'s;
 //! which rows there are and what fills them is this module's.
@@ -14,33 +7,23 @@
 use std::rc::Rc;
 
 use adw::prelude::*;
+use frameguin_model::control::battery::Battery;
 use frameguin_model::control::battery::reading::{
-    alarms_label, capacity, cell_spread, cell_voltages, charge_direction, charger_label, milliamps,
-    percent_label, power_label, retention_label, temperature, text_or_unknown, volts,
+    alarms_label, capacity, cell_spread, cell_voltages, charge_brief, charge_direction,
+    charger_label, milliamps, percent_label, power_label, retention_label, temperature,
+    text_or_unknown, volts,
 };
 use frameguin_model::date;
 use frameguin_wire::BatteryFeature;
 use gtk4 as gtk;
-use gtk4::gio;
-use gtk4::glib;
 
-use super::{Shell, value, value_row};
-use crate::daemon::Daemon;
+use super::{Sidebar, Target};
+use crate::bus::Bus;
 use crate::reading::{Feed, Reading, Wants, show_while_mapped};
+use crate::report::{described_value, value, value_row};
 
-/// The application action that opens the report, and the only way in — see
-/// this module's own doc. Spelled once here: the window's row addresses it
-/// with GTK's `app.` prefix and the tray activates it without one, and a name
-/// they disagreed about would be a row that silently does nothing.
-pub(crate) const ACTION: &str = "battery-details";
-
-/// The labels the report fills, and the rows that carry more than a label.
-///
 /// Every field is a descendant of the page the feed's subscription hangs on,
-/// and deliberately so: the subscription's closure holds this struct, so a
-/// field reaching back up the tree — the toast overlay above all — would make
-/// a loop that outlives the window it belongs to. What toasts is the fill
-/// below, which has the overlay in hand without this holding one.
+/// the subscription's closure holding this struct.
 struct Report {
     /// Carries the direction as its subtitle, and only the direction. The
     /// window's row and the tray's line name the rate there too, because
@@ -87,8 +70,8 @@ impl Report {
     /// leaves its rows as they were rather than blanking them, which is what
     /// keeps a single unlucky transfer from reading as a fault.
     fn show(&self, reading: &Reading) {
-        // This window is only reachable where a pack answered, so an absent
-        // block is a read that missed and leaves its rows standing.
+        // This page is only built where a pack answered, so an absent block
+        // is a read that missed.
         let Some(info) = &reading.info else {
             return;
         };
@@ -141,65 +124,43 @@ impl Report {
     }
 }
 
-/// A row whose title needs a second line to say what it measures against.
-fn described_value(group: &adw::PreferencesGroup, title: &str, subtitle: &str) -> gtk::Label {
-    let (row, value) = value_row(group, title);
-    row.set_subtitle(subtitle);
-    value
-}
+/// The pack's condition costs a transfer per cell, so only the page asks for
+/// it.
+pub(super) fn add(sidebar: &Rc<Sidebar>, feed: &Rc<Feed>, battery: &Battery<Bus>) {
+    let list = sidebar.section(None);
+    let page = adw::PreferencesPage::new();
+    let report = build_rows(&page);
+    let row = sidebar.add(&list, "Battery", &page);
 
-pub(super) fn action(daemon: Rc<Daemon>, feed: Rc<Feed>) -> gio::ActionEntry<adw::Application> {
-    super::action(ACTION, "Battery", 680, move |shell, page| {
-        build(shell, page, &daemon, &feed);
-    })
-}
+    let answering: gtk::ListBoxRow = row.clone().upcast();
+    sidebar.answer(move |target| (target == Target::Battery).then(|| answering.clone()));
 
-/// The rows, built and left to fill themselves.
-fn build(shell: Shell, page: &adw::PreferencesPage, daemon: &Rc<Daemon>, feed: &Rc<Feed>) {
-    let report = build_rows(page);
-    let page = page.clone();
-    let daemon = daemon.clone();
-    let feed = feed.clone();
-    glib::spawn_future_local(async move {
-        // Asked only for the rows that a pack can lack. The report is
-        // reachable only from a reading the board already has, so nothing else
-        // here is in question by the time this window exists — and an ask that
-        // fails leaves those rows out, which is the same as a pack without
-        // them.
-        let condition = daemon.controls().await.is_ok_and(|controls| {
-            controls
-                .battery
-                .as_ref()
-                .is_some_and(|battery| battery.has(BatteryFeature::Condition))
-        });
-        let wants = Wants {
-            battery: true,
-            condition,
-            ports: false,
-        };
-        // Both rows read the pack over I2C, so one feature answers for the
-        // pair.
-        report.temperature_row.set_visible(wants.condition);
-        report.spread_row.set_visible(wants.condition);
-        // Subscribed before the window is filled, so that filling it is the
-        // feed's own read rather than a second assembly of one here — two
-        // spellings of what a reading consists of would drift the first time
-        // it grows a part. The subscription hangs on the page rather than the
-        // window: it is the widget that unmaps with the report, and every row
-        // fed from here is inside it.
-        show_while_mapped(&feed, &page, wants, move |reading| report.show(reading));
-        // The one read here that announces a failure. From now on the feed
-        // reads on its own schedule, silently, as every repeating read in this
-        // app does.
-        if let Err(e) = feed.read().await {
-            shell.toast_error("Reading the battery", e);
+    let summary = Wants {
+        battery: true,
+        ..Wants::default()
+    };
+    sidebar.follow(feed, summary, move |reading| {
+        if let Some(info) = &reading.info {
+            row.set_subtitle(&charge_brief(info.state));
         }
     });
+
+    let condition = battery.has(BatteryFeature::Condition);
+    // Both rows read the pack over I2C, so one feature answers for the pair.
+    report.temperature_row.set_visible(condition);
+    report.spread_row.set_visible(condition);
+    let wants = Wants {
+        battery: true,
+        condition,
+        ports: false,
+    };
+    show_while_mapped(feed, &page, wants, move |reading| report.show(reading));
 }
 
-/// Every row of the report, added to `page` in the order they are read in.
+/// Every row of the page, added in the order they are read in. The first group
+/// goes untitled, the page's own title already naming it.
 fn build_rows(page: &adw::PreferencesPage) -> Rc<Report> {
-    let status_group = adw::PreferencesGroup::builder().title("Status").build();
+    let status_group = adw::PreferencesGroup::new();
     let (charge_row, charge) = value_row(&status_group, "Charge");
     let current = value(&status_group, "Current");
     let voltage = value(&status_group, "Voltage");

@@ -226,12 +226,22 @@ pub fn battery_summary(state: BatteryState) -> String {
     )
 }
 
+/// The charge and which way it is moving, without the rate.
+#[must_use]
+pub fn charge_brief(state: BatteryState) -> String {
+    format!(
+        "{} · {}",
+        percent_label(state.percent),
+        charge_direction(state)
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use frameguin_wire::{BatteryState, ChargeFlow};
 
     use super::{
-        battery_summary, capacity, charge_direction, charge_flow_label, power_label,
+        battery_summary, capacity, charge_brief, charge_direction, charge_flow_label, power_label,
         retention_label, volts, watt_hours,
     };
     use crate::testing::{CAPACITY, MILLIVOLTS, NOMINAL_MILLIVOLTS, state};
@@ -383,6 +393,14 @@ mod tests {
         assert_eq!(
             battery_summary(state(ChargeFlow::Charging, 2320)),
             "62% · Charging at 2.3 A (35.7 W)"
+        );
+    }
+
+    #[test]
+    fn the_brief_line_drops_the_rate() {
+        assert_eq!(
+            charge_brief(state(ChargeFlow::Charging, 2320)),
+            "62% · Charging"
         );
     }
 }

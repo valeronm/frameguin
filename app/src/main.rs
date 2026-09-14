@@ -27,6 +27,7 @@ use gtk4::glib;
 use crate::daemon::Daemon;
 use crate::failure::Notifier;
 use crate::reading::Feed;
+use crate::report::status::{self, Target};
 use crate::tray::{TrayEvent, TrayIcon, refresh_tray};
 use crate::window::{Sink, Ui, build_window};
 
@@ -39,9 +40,8 @@ struct AppState {
     window: RefCell<Option<(adw::ApplicationWindow, Rc<Ui>)>>,
     tray: RefCell<Option<ksni::blocking::Handle<TrayIcon>>>,
     daemon: Rc<Daemon>,
-    /// The pack's reading, taken once for however many windows show it. Here
-    /// because it belongs to neither of them: the report can be open with no
-    /// window built, and the window outlives any report.
+    /// Here rather than on either window: the status window can be open with
+    /// no main window built, and the main window outlives it.
     feed: Rc<Feed>,
 }
 
@@ -174,11 +174,10 @@ fn setup_tray(app: &adw::Application, state: Rc<AppState>) {
                         window::touchscreen::apply(sink, control, enabled).await;
                     }
                 }
-                // Through the action, like the window's row: the report has
-                // one way in, and a caller reaching past it is how two front-
-                // ends come to open a window differently.
-                TrayEvent::ShowBatteryDetails => app.activate_action(report::battery::ACTION, None),
-                TrayEvent::ShowPorts => app.activate_action(report::ports::ACTION, None),
+                TrayEvent::ShowBattery => app
+                    .activate_action(status::ACTION, Some(&status::target(Some(Target::Battery)))),
+                TrayEvent::ShowCharger => app
+                    .activate_action(status::ACTION, Some(&status::target(Some(Target::Charger)))),
                 TrayEvent::Quit => app.quit(),
             }
         }

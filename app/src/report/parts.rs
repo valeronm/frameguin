@@ -12,7 +12,7 @@ use gtk4 as gtk;
 use gtk4::gio;
 use gtk4::glib;
 
-use super::{Shell, value};
+use super::{Shell, collapse_when_narrow, value};
 use crate::daemon::Daemon;
 
 /// The application action that opens the window, and the only way in.
@@ -136,18 +136,6 @@ impl Panes {
             }
         });
     }
-}
-
-/// Below this the panes do not both fit, so the sidebar becomes a page the
-/// details are navigated back to.
-fn collapse_when_narrow(window: &adw::Window, split: &adw::NavigationSplitView) {
-    let narrow = adw::Breakpoint::new(adw::BreakpointCondition::new_length(
-        adw::BreakpointConditionLengthType::MaxWidth,
-        500.0,
-        adw::LengthUnit::Px,
-    ));
-    narrow.add_setter(split, "collapsed", Some(&true.to_value()));
-    window.add_breakpoint(narrow);
 }
 
 /// A row with nothing to say is left out rather than filled with a

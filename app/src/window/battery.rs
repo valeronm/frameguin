@@ -26,6 +26,7 @@ use gtk4 as gtk;
 use crate::board;
 use crate::bus::Bus;
 use crate::reading::{Wants, show_while_mapped};
+use crate::report::status::{self, Target};
 use crate::tray::TrayValues;
 use crate::window::widgets::{
     SliderWrites, build_scale, combo_selection, connect_combo, connect_slider_writes, report_row,
@@ -77,10 +78,18 @@ impl Group {
         let widget = adw::PreferencesGroup::builder().title("Power").build();
         // The two rows here that open something rather than setting
         // something.
-        let (state_row, state_percent) = report_row("Status", crate::report::battery::ACTION);
+        let (state_row, state_percent) = report_row(
+            "Status",
+            status::ACTION,
+            &status::target(Some(Target::Battery)),
+        );
         // Above the pack's own row: what is coming in is what decides what
         // the pack is doing, so it reads in the order the power arrives.
-        let (charger_row, charger) = report_row("Charger", crate::report::ports::ACTION);
+        let (charger_row, charger) = report_row(
+            "Charger",
+            status::ACTION,
+            &status::target(Some(Target::Charger)),
+        );
         widget.add(&charger_row);
         widget.add(&state_row);
         let limit_labels = with_custom_row(charge_limit_labels());
@@ -203,12 +212,9 @@ impl Group {
         });
     }
 
-    /// Subscribes the two rows nothing writes to: they follow devices that
-    /// move whether or not anyone touches the app. Fed rather than polled —
-    /// the report shows the same walk of the same block and the ports report
-    /// the same walk of the same ports, and a row reading for itself would
-    /// have two windows asking the EC separately for one answer (see
-    /// [`crate::reading`]).
+    /// Subscribes the rows nothing writes to: they follow devices that move
+    /// whether or not anyone touches the app. Fed rather than polled, for the
+    /// reason [`crate::reading`] gives.
     ///
     /// The feed deliberately tells the tray nothing: every push rebuilds and
     /// re-signals the whole menu, and the tray asks for its own reading when

@@ -27,9 +27,12 @@ impl<C: PortsControl> Ports<C> {
     }
 }
 
+/// An empty port, worded as the absence it is rather than as a kind of
+/// partner.
+pub const NOTHING_ATTACHED: &str = "Nothing attached";
+
 /// What is attached, in the words a reader would use for it. None for an
-/// empty port, which the caller words as the absence it is rather than as a
-/// kind of partner.
+/// empty port, which the caller words as [`NOTHING_ATTACHED`].
 #[must_use]
 pub fn partner_label(partner: PortPartner) -> Option<&'static str> {
     Some(match partner {
@@ -58,6 +61,19 @@ pub fn negotiated(port: &PortState) -> Option<String> {
         f64::from(port.milliamps) / 1000.0,
         watts(port),
     ))
+}
+
+/// One port on one line: what is attached, and the watts of its contract
+/// where one was negotiated.
+#[must_use]
+pub fn port_summary(port: &PortState) -> String {
+    let Some(partner) = partner_label(port.partner) else {
+        return NOTHING_ATTACHED.to_owned();
+    };
+    if port.millivolts == 0 || port.milliamps == 0 {
+        return partner.to_owned();
+    }
+    format!("{partner} · {:.0} W", watts(port))
 }
 
 fn watts(port: &PortState) -> f64 {
@@ -172,9 +188,11 @@ pub fn cc_label(cc: CcPolarity) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use frameguin_wire::{DeviceError, PortPartner};
+    use frameguin_wire::{DeviceError, PortPartner, PortState};
 
-    use super::{Ports, negotiated, partner_label, powering, supply_label, supply_summary};
+    use super::{
+        Ports, negotiated, partner_label, port_summary, powering, supply_label, supply_summary,
+    };
     use crate::testing::{Board, absent, port, ready};
 
     #[test]
@@ -255,5 +273,20 @@ mod tests {
     fn an_empty_port_is_worded_as_absence_rather_than_a_partner() {
         assert_eq!(partner_label(PortPartner::Nothing), None);
         assert_eq!(partner_label(PortPartner::Source), Some("Supplying power"));
+    }
+
+    #[test]
+    fn a_port_line_names_the_partner_and_the_watts_of_its_contract() {
+        assert_eq!(port_summary(&port(0)), "Supplying power · 100 W");
+        assert_eq!(port_summary(&port(1)), "Nothing attached");
+    }
+
+    #[test]
+    fn a_partner_with_no_contract_is_named_without_watts() {
+        let accessory = PortState {
+            partner: PortPartner::Audio,
+            ..port(1)
+        };
+        assert_eq!(port_summary(&accessory), "Audio accessory");
     }
 }

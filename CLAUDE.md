@@ -106,23 +106,31 @@ it and the non-obvious constraints.
   that only read, and the shell they share in its `mod.rs` — found by name or
   built, destroyed on close — so the single-instance rule is one private
   function rather than one copy per window, and nothing outside the tree can
-  borrow it. `report/battery.rs` is the battery report: no sync guard, no
-  debounce, no tray push, and every field it holds is a descendant of the
-  page its subscription hangs on, so nothing in it can reach back up the
-  widget tree and outlive the window. `report/parts.rs` is the inventory
-  `GetDevices` answers, drawn once per open since the list is fixed for the
-  daemon's run. `report/ports.rs` is what is plugged into each USB-C port,
-  redrawn whole on every reading because a port's rows come and go with what
-  is attached, and fed rather than polled like everything else that repeats:
-  the Power group's charger row shows the same read, which is what makes
-  the ports an extra on the feed below rather than this window's own timer.
-  Where a socket is on the machine is
+  borrow it. `report/parts.rs` is the inventory `GetDevices` answers, drawn
+  once per open since the list is fixed for the daemon's run.
+  `report/status/` is the status window: no sync guard, no debounce, no tray
+  push, a sidebar of sections beside the selected row's page. Its `mod.rs`
+  holds the window, the one selection across every section's list, and the
+  targets it can be opened on; each section is a module of its own, adding
+  its rows where the detected controls say the board has what it shows.
+  Whether a section's rows carry a summary is the section's call, made by
+  what its read costs: a summary is fed for as long as the window is on
+  screen whatever page is selected, where a page is fed only while the stack
+  shows it. Everything a subscription's closure holds is a descendant of the
+  widget it hangs on, so nothing in it can reach back up the widget tree and
+  outlive the window — which is why the sidebar holds the split view weakly.
+  A port's page is redrawn whole when its state moves, because its rows come
+  and go with what is attached, and fed rather than polled like everything
+  else that repeats: the Power group's charger row shows the same read,
+  which is what makes the ports an extra on the feed below rather than this
+  window's own timer. Where a socket is on the machine is
   `model::port`'s, curated per board and answering nothing for a board nobody
   measured: the EC's port number says which controller drives a port and not
   where it is, and a wrong position reads exactly like a right one.
   `reading.rs` is the
-  pack's reading, taken once for however many views show it: the status row
-  and the report render the same walk of the same block, and each polling for
+  machine's reading, taken once for however many views show it: the status
+  row and the status window render the same walk of the same block, and each
+  polling for
   itself made the EC answer twice and let the two windows sit a tick apart, so
   a view subscribes and the feed does the reading. What a view wants — the
   pack's block, its condition, the USB-C ports — is a field in `Wants` rather
@@ -136,7 +144,7 @@ it and the non-obvious constraints.
   `daemon.rs` is the app's
   end of the daemon — the bus connection and the detected controls, the two
   facts fixed for its run that every window wants — dialled and asked once,
-  so the window, the report and the tray share one of each, and two asking
+  so the windows and the tray share one of each, and two asking
   at once wait on one answer. It is named for the real thing the way
   `device` is, and holds no state of its own: what it caches is the daemon's
   answer. (`about.rs` dials for itself, deliberately: its report also runs from
@@ -161,23 +169,30 @@ it and the non-obvious constraints.
   that belong nowhere else: the command-line options and the actions no
   module of its own owns. The no-GTK rules are the ones nothing
   checks: an import is all it takes to lose one.
-- The two windows are reached differently, and which way is decided by whether
-  the window survives being closed. The main window hides rather than closing
+- Which window a thing goes in is decided by what kind of fact it is: the main
+  window holds what can be set, Parts what the hardware is — fixed for the
+  daemon's run and read once — and Status what the hardware is doing now,
+  read only while it is on screen. A new reading is a section in Status
+  rather than a window of its own or a row in the main window.
+- The main window and the reports are reached differently, and which way is
+  decided by whether the window survives being closed. The main window hides rather than closing
   wherever there is a tray to hide to, so its slot in `AppState` outlives it —
   and the slot is also where the tray finds the `Rc<Ui>` it reports presets
   into, so `window_for` builds it once and both front-ends take it from there.
   (Where the tray failed to spawn there is no second front-end to reach it,
   which is what keeps that slot honest in the session where the window really
-  is destroyed on close.) The report is destroyed on close, so a
+  is destroyed on close.) A report is destroyed on close, so a
   slot would hold a dead window: it goes through a `gio` action on the
   application instead, and finds an already-open copy in the application's own
   window list, which GTK keeps accurate for free. Where a window is opened
   from more than one place, the module owning it owns the `ActionEntry` too
   and keeps its builder private, so the action is not merely the agreed way in
-  but the only one that compiles — `report/battery.rs` does this because
-  both front-ends reach the report. `about.rs` does not, and needs not: only the
-  window's menu opens it, so `main.rs` holding that entry leaves nothing able
-  to drift.
+  but the only one that compiles — `report/status/` does this because both
+  front-ends reach it. Its action carries the page to open on, forwarded to
+  an action on the window it found or built, since only that window holds
+  the rows a target is settled against. `about.rs` does not, and needs not:
+  only the window's menu opens it, so `main.rs` holding that entry leaves
+  nothing able to drift.
 - Inside `hardware/`, the transport modules are drawn by how a control
   reaches the machine, so the filename answers which way: `ec.rs` the EC,
   `led.rs` the kernel's LED class, `touchpad.rs` the pad's own HID transport,

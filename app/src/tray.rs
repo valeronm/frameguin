@@ -28,13 +28,14 @@ use crate::daemon::Daemon;
 #[derive(Clone, Copy)]
 pub(crate) enum TrayEvent {
     Show,
-    /// The battery report, which the menu's own reading heads. Carries
-    /// nothing: the report reads for itself rather than being handed the
-    /// summary the menu happens to hold.
-    ShowBatteryDetails,
-    /// The USB-C ports report, which the menu's supply line heads. Carries
-    /// nothing, as [`TrayEvent::ShowBatteryDetails`] does.
-    ShowPorts,
+    /// The status window's battery page, which the menu's own reading heads.
+    /// Carries nothing: the window reads for itself rather than being handed
+    /// the summary the menu happens to hold.
+    ShowBattery,
+    /// The status window's page for the port powering the machine, which the
+    /// menu's supply line heads. Carries nothing, as
+    /// [`TrayEvent::ShowBattery`] does.
+    ShowCharger,
     Refresh,
     SetChargeLimit(u8),
     /// Already resolved to milliamps against the capacity the menu was drawn
@@ -236,8 +237,8 @@ fn radio_submenu(
 }
 
 impl TrayIcon {
-    /// The reading heading the battery group, and the way into the full
-    /// report. Gated on the reading itself: a board that has a pack still has
+    /// The reading heading the battery group, and the way into its status
+    /// page. Gated on the reading itself: a board that has a pack still has
     /// nothing to show until the first one arrives.
     ///
     /// Unnamed, unlike the supply below it: a percentage and a direction say
@@ -245,11 +246,11 @@ impl TrayIcon {
     fn battery_item(&self) -> Option<ksni::MenuItem<Self>> {
         Some(report_item(
             battery_summary(self.battery?),
-            TrayEvent::ShowBatteryDetails,
+            TrayEvent::ShowBattery,
         ))
     }
 
-    /// What is powering the machine, and the way into the ports report.
+    /// What is powering the machine, and the way into its port's status page.
     /// Gated on a reading, as the battery's line is: a board with ports still
     /// has nothing to say about them until one arrives.
     ///
@@ -265,7 +266,7 @@ impl TrayIcon {
         let supply = supply_summary(self.ports.as_ref()?, board::product());
         Some(report_item(
             format!("Charger: {supply}"),
-            TrayEvent::ShowPorts,
+            TrayEvent::ShowCharger,
         ))
     }
 

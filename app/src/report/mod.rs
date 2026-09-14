@@ -1,7 +1,7 @@
-//! The windows that only read — the battery report, the parts list — and
-//! the shell they share: a toast overlay filling the window, the page under
-//! a header bar most of them are drawn as, the row that names one value,
-//! and the one way such a window is opened.
+//! The windows that only read — the parts list, what the hardware is, and the
+//! status window, what it is doing — and the shell they share: a toast
+//! overlay filling the window, a page under a header bar, the row that names
+//! one value, and the one way such a window is opened.
 //!
 //! Such a window is destroyed on close, unlike the main window, which hides
 //! to the tray: a hidden window stays registered with the application and
@@ -10,9 +10,8 @@
 //! feed, which outlive any one window — and a second open finds the first
 //! by its name rather than in a slot a closed window would leave stale.
 
-pub(crate) mod battery;
 pub(crate) mod parts;
-pub(crate) mod ports;
+pub(crate) mod status;
 
 use std::rc::Rc;
 
@@ -28,17 +27,16 @@ use crate::reading::Feed;
 
 /// Every report's action, for the application to register together. An
 /// action rather than a handler on either caller because the tray, which
-/// builds no widgets and holds no window, opens the battery report too; and
+/// builds no widgets and holds no window, opens the status window too; and
 /// one list, because a report is reachable only through its action, so one
 /// left out would be a menu row that does nothing.
 pub(crate) fn actions(
     daemon: &Rc<Daemon>,
     feed: &Rc<Feed>,
-) -> [gio::ActionEntry<adw::Application>; 3] {
+) -> [gio::ActionEntry<adw::Application>; 2] {
     [
-        battery::action(daemon.clone(), feed.clone()),
         parts::action(daemon.clone()),
-        ports::action(feed.clone()),
+        status::action(daemon.clone(), feed.clone()),
     ]
 }
 
@@ -53,10 +51,8 @@ impl Shell {
     }
 }
 
-/// The action that opens one report: the window already open for it where
-/// there is one, and otherwise a fresh shell whose content `fill` builds.
-/// The one way in, so a report cannot build a window the lookup would not
-/// find — the window is named after the action, and only reports name one.
+/// The action that opens one report, for a report whose action carries no
+/// target.
 fn entry<W: IsA<gtk::Widget>>(
     action: &'static str,
     title: &'static str,
@@ -65,52 +61,50 @@ fn entry<W: IsA<gtk::Widget>>(
 ) -> gio::ActionEntry<adw::Application> {
     gio::ActionEntry::builder(action)
         .activate(move |app: &adw::Application, _, _| {
-            if let Some(open) = app
-                .windows()
-                .into_iter()
-                .find(|window| window.widget_name() == action)
-            {
-                open.present();
-                return;
-            }
-            let (width, height) = size;
-            let window = adw::Window::builder()
-                .application(app)
-                .title(title)
-                .default_width(width)
-                .default_height(height)
-                .build();
-            window.set_widget_name(action);
-            let toasts = adw::ToastOverlay::new();
-            let content = fill(
-                Shell {
-                    toasts: toasts.clone(),
-                },
-                &window,
-            );
-            toasts.set_child(Some(&content));
-            window.set_content(Some(&toasts));
-            window.present();
+            open(app, action, title, size, &fill);
         })
         .build()
 }
 
-/// A report drawn as one page of rows under a header bar.
-///
-/// `height` is what fits every group at the default font scale; re-measure
-/// when the rows change.
-fn action(
+/// The window already open for a report where there is one, and otherwise a
+/// fresh shell whose content `fill` builds — presented either way. The one way
+/// a report's window is made, so a report cannot build a window the lookup
+/// would not find: the window is named after the action, and only reports
+/// name one.
+fn open<W: IsA<gtk::Widget>>(
+    app: &adw::Application,
     action: &'static str,
     title: &'static str,
-    height: i32,
-    fill: impl Fn(Shell, &adw::PreferencesPage) + 'static,
-) -> gio::ActionEntry<adw::Application> {
-    entry(action, title, (420, height), move |shell, _| {
-        let page = adw::PreferencesPage::new();
-        let view = headed(&page);
-        fill(shell, &page);
-        view
-    })
+    size: (i32, i32),
+    fill: &impl Fn(Shell, &adw::Window) -> W,
+) -> gtk::Window {
+    if let Some(open) = app
+        .windows()
+        .into_iter()
+        .find(|window| window.widget_name() == action)
+    {
+        open.present();
+        return open;
+    }
+    let (width, height) = size;
+    let window = adw::Window::builder()
+        .application(app)
+        .title(title)
+        .default_width(width)
+        .default_height(height)
+        .build();
+    window.set_widget_name(action);
+    let toasts = adw::ToastOverlay::new();
+    let content = fill(
+        Shell {
+            toasts: toasts.clone(),
+        },
+        &window,
+    );
+    toasts.set_child(Some(&content));
+    window.set_content(Some(&toasts));
+    window.present();
+    window.upcast()
 }
 
 /// The window carries no titlebar of its own, so its controls sit in this
@@ -120,6 +114,17 @@ fn headed(content: &impl IsA<gtk::Widget>) -> adw::ToolbarView {
     view.add_top_bar(&adw::HeaderBar::new());
     view.set_content(Some(content));
     view
+}
+
+/// Below this width a sidebar and its content do not both fit.
+fn collapse_when_narrow(window: &adw::Window, split: &adw::NavigationSplitView) {
+    let narrow = adw::Breakpoint::new(adw::BreakpointCondition::new_length(
+        adw::BreakpointConditionLengthType::MaxWidth,
+        500.0,
+        adw::LengthUnit::Px,
+    ));
+    narrow.add_setter(split, "collapsed", Some(&true.to_value()));
+    window.add_breakpoint(narrow);
 }
 
 /// A row naming one value, and the label that carries it. Selectable,
@@ -146,4 +151,11 @@ fn value_row(group: &adw::PreferencesGroup, title: &str) -> (adw::ActionRow, gtk
 /// [`value_row`] beside this.
 fn value(group: &adw::PreferencesGroup, title: &str) -> gtk::Label {
     value_row(group, title).1
+}
+
+/// A row whose title needs a second line to say what it means.
+fn described_value(group: &adw::PreferencesGroup, title: &str, subtitle: &str) -> gtk::Label {
+    let (row, value) = value_row(group, title);
+    row.set_subtitle(subtitle);
+    value
 }

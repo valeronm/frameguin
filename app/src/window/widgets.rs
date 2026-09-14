@@ -13,18 +13,19 @@ use gtk4::glib;
 
 use super::Ui;
 
-/// A row that shows one value and opens a report, with the label carrying
-/// the value and the chevron saying it leads somewhere.
-///
-/// Named as an action rather than wired to a handler, so a row here and the
-/// tray's line reach the same report the same way and neither has to hold a
-/// bus connection to offer it.
-pub(crate) fn report_row(title: &str, action: &str) -> (adw::ActionRow, gtk::Label) {
+/// Named as an action rather than wired to a handler, so offering the report
+/// needs no bus connection.
+pub(crate) fn report_row(
+    title: &str,
+    action: &str,
+    target: &glib::Variant,
+) -> (adw::ActionRow, gtk::Label) {
     let row = adw::ActionRow::builder()
         .title(title)
         .activatable(true)
         .action_name(format!("app.{action}"))
         .build();
+    row.set_action_target_value(Some(target));
     let value = gtk::Label::new(None);
     row.add_suffix(&value);
     row.add_suffix(&gtk::Image::from_icon_name("go-next-symbolic"));

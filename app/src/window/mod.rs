@@ -30,7 +30,7 @@ use crate::bus::Bus;
 use crate::daemon::Daemon;
 use crate::failure::{self, Notifier};
 use crate::reading::Feed;
-use crate::report::parts;
+use crate::report::{parts, status};
 use crate::tray::{TrayIcon, TrayValues, tray_push};
 use crate::{APP_ID, autostart, board};
 
@@ -52,9 +52,6 @@ pub(crate) struct Ui {
     restore: adw::SwitchRow,
     tray: Option<ksni::blocking::Handle<TrayIcon>>,
     daemon: Rc<Daemon>,
-    /// Where the status row's reading comes from, shared with the battery
-    /// report so the two windows cost the EC one walk between them rather than
-    /// one apiece.
     feed: Rc<Feed>,
 }
 
@@ -261,10 +258,12 @@ pub(crate) fn build_window(
 
     let menu = gio::Menu::new();
     menu.append(Some("_Parts"), Some(&format!("app.{}", parts::ACTION)));
-    menu.append(
-        Some("_USB-C Ports"),
-        Some(&format!("app.{}", crate::report::ports::ACTION)),
+    let status_item = gio::MenuItem::new(Some("_Status"), None);
+    status_item.set_action_and_target_value(
+        Some(&format!("app.{}", status::ACTION)),
+        Some(&status::target(None)),
     );
+    menu.append_item(&status_item);
     menu.append(Some("_About Frameguin"), Some("app.about"));
     menu.append(Some("_Quit"), Some("app.quit"));
     let menu_button = gtk::MenuButton::builder()
