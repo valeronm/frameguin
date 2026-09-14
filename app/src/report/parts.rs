@@ -143,6 +143,20 @@ impl Panes {
 /// serial, and a column of "Unknown" is what teaches a reader to skip the
 /// column.
 fn details(part: &Identity) -> adw::PreferencesPage {
+    // Whole, so a field added to the identity cannot reach the window without
+    // a decision about it; the fields bound to `_` are read by the helpers
+    // below that take the whole part.
+    let Identity {
+        kind: _,
+        vendor: _,
+        vendor_name: _,
+        model: _,
+        part_number: _,
+        serial,
+        id: _,
+        firmware,
+        details,
+    } = part;
     let page = adw::PreferencesPage::new();
     let sold = catalogue(part);
     let group = adw::PreferencesGroup::builder()
@@ -156,12 +170,12 @@ fn details(part: &Identity) -> adw::PreferencesPage {
     }
     optional_value(&group, "Manufacturer", maker(part));
     optional_value(&group, "Part number", part_number(part, sold));
-    for detail in &part.details {
+    for detail in details {
         let (title, text) = detail_row(detail);
         optional_value(&group, title, &text);
     }
-    optional_value(&group, "Serial number", &part.serial);
-    for firmware in &part.firmware {
+    optional_value(&group, "Serial number", serial);
+    for firmware in firmware {
         optional_value(&group, &firmware.name, &firmware.version);
         optional_value(
             &group,
