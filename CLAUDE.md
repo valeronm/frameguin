@@ -32,11 +32,11 @@ it and the non-obvious constraints.
   crosses the bus uncompared, stays where it is read.
 - `io.github.valeronm.Frameguin1` is private to those two binaries rather than
   published API. They are built, installed and upgraded as one — `install.sh`
-  stops the app and the daemon and brings both back on the new build, and the
-  package does the same — so an app talking to a daemon of another version is
-  not a state this project has to work in, and nothing outside the pair is a
-  caller it answers for. Renaming a method, dropping one or respelling a
-  feature is a free change needing no deprecation window. (`busctl` against
+  stops the app and the daemon and brings both back on the new build — so an
+  app talking to a daemon of another version is not a state this project has
+  to work in, and nothing outside the pair is a caller it answers for.
+  Renaming a method, dropping one or respelling a feature is a free change
+  needing no deprecation window. (`busctl` against
   it stays a fine way to inspect a running daemon; it is a debugging tool, not
   a client the interface holds still for.) None of this loosens what `wire/`
   is for: the two ends still restate the interface separately, so within one
@@ -476,10 +476,7 @@ asserted and its reason a file away.
   in `rustfmt.toml` rather than inferred from each crate's own edition — so
   an edition bump cannot reformat the tree as a side effect. Run `cargo fmt`
   before pushing; nothing local enforces it.
-- `screenshot.png` and `screenshot-tray.png` are re-shot at release time,
-  not per commit: the installed package's metainfo serves both from `main`,
-  so `main` has to show the released window, not the tip's.
-- `packaging/changelog` is written at release time, not accumulated per
+- Release notes are written on the draft release, not accumulated per
   commit, so a change that will deserve a bullet owes nothing when it lands.
 - Cutting a release is `docs/release.md`.
 - Smoke test: run `target/debug/frameguin`. The app is single-instance, so a

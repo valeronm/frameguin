@@ -1,23 +1,18 @@
 #!/bin/bash
-# Builds target/dist/frameguin-<version>-<arch>-linux.tar.xz, for distributions
-# the .deb cannot serve. The tarball carries install.sh and the unrendered
-# data/ templates rather than a prepared tree, so a tarball install and a
-# checkout install run the same code and land in the same places.
-#
-# usage: build-tarball.sh [--expect <version>]
+# Builds target/dist/frameguin-<version>-<arch>-linux.tar.xz, the release
+# package. The tarball carries install.sh and the unrendered data/ templates
+# rather than a prepared tree, so a tarball install and a checkout install run
+# the same code and land in the same places.
 set -euo pipefail
-
-expected=""
-case "${1:-}" in
-    --expect) expected="${2:?--expect needs a version}" ;;
-    "") ;;
-    *) echo "usage: $(basename "$0") [--expect <version>]" >&2; exit 2 ;;
-esac
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$root"
 
-version="$(./packaging/check-version.sh "$expected")"
+version="$(sed -n '/^\[workspace\.package\]/,/^\[/ s/^version = "\(.*\)"/\1/p' Cargo.toml)"
+if [ -z "$version" ]; then
+    echo "no version in [workspace.package] of Cargo.toml" >&2
+    exit 1
+fi
 
 # --locked: a committed lock that disagrees with the manifest is a release
 # defect, and cargo would otherwise rewrite it here without saying so.
@@ -26,10 +21,9 @@ cargo build --release --workspace --locked
 name="frameguin-$version-$(uname -m)-linux"
 stage="target/dist/$name"
 rm -rf "$stage"
-mkdir -p "$stage/packaging"
+mkdir -p "$stage"
 
 install -m755 target/release/frameguin target/release/frameguin-daemon install.sh "$stage/"
-install -m755 packaging/render-data.sh "$stage/packaging/"
 cp -r data "$stage/data"
 cp README.md LICENSE "$stage/"
 

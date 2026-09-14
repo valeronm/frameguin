@@ -3,10 +3,6 @@
 #
 #   curl -fsSL https://raw.githubusercontent.com/valeronm/frameguin/main/packaging/get.sh | sh
 #
-# On Debian and Ubuntu prefer the .deb from the same release: it declares its
-# dependencies, so apt installs the GTK and polkit runtime for you and can
-# remove the package again as a unit.
-#
 # The download runs as you; only install.sh is run with sudo. Piping this into
 # `sudo sh` instead would fetch and unpack as root for no benefit.
 set -eu

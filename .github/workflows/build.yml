@@ -10,9 +10,9 @@ permissions:
 
 jobs:
   build:
-    # Pinned, not ubuntu-latest: cargo-deb derives Depends from the libraries
-    # present at build time, so the oldest release carrying the libadwaita 1.5
-    # the app needs is also the widest install target.
+    # Pinned, not ubuntu-latest: the binaries need the glibc they were built
+    # against or newer, and this is the oldest release carrying the
+    # libadwaita 1.5 the app needs.
     runs-on: ubuntu-24.04
     # A hung test would otherwise hold the job for GitHub's six hours.
     timeout-minutes: 30
@@ -20,42 +20,26 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Install build dependencies
-        # No debian/control to derive this from, so it is the same list README
-        # gives for building by hand; both have to change together.
         run: |
           sudo apt-get update
+          # The same list README gives for building by hand; both have to
+          # change together.
           sudo apt-get install -y --no-install-recommends \
             build-essential pkg-config \
-            libgtk-4-dev libadwaita-1-dev libudev-dev \
-            lintian appstream desktop-file-utils shellcheck
+            libgtk-4-dev libadwaita-1-dev libudev-dev
+          sudo apt-get install -y --no-install-recommends \
+            desktop-file-utils shellcheck
 
       - name: Install the toolchain pinned in mise.toml
         # so CI builds with the versions a developer builds with
-        id: toolchain
         run: |
           rust_version=$(sed -n 's/^rust = "\(.*\)"$/\1/p' mise.toml)
-          deb_version=$(sed -n 's/^"cargo:cargo-deb" = "\(.*\)"$/\1/p' mise.toml)
-          echo "deb=$deb_version" >>"$GITHUB_OUTPUT"
           rustup toolchain install "$rust_version" --profile minimal --component clippy,rustfmt
           rustup default "$rust_version"
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          # Also caches ~/.cargo/bin, so cargo-deb is built once per pin
-          # rather than on every push.
-          key: ${{ hashFiles('mise.toml') }}
           save-if: ${{ github.ref == 'refs/heads/main' }}
-
-      - name: Install cargo-deb
-        # Checks the binary rather than letting cargo install decide, which
-        # would rebuild whenever the cache restores ~/.cargo/bin without the
-        # bookkeeping in ~/.cargo/.crates.toml.
-        env:
-          DEB_VERSION: ${{ steps.toolchain.outputs.deb }}
-        run: |
-          if [ "$(cargo deb --version 2>/dev/null)" != "cargo-deb $DEB_VERSION" ]; then
-            cargo install cargo-deb --version "$DEB_VERSION" --locked
-          fi
 
       - name: Static checks
         # install.sh runs as root and get.sh is fetched straight into a shell,
@@ -65,34 +49,24 @@ jobs:
           # seconds rather than after clippy has built the workspace.
           cargo fmt --all --check
           shellcheck install.sh packaging/*.sh
+          desktop-file-validate data/*.desktop
           cargo clippy --workspace --release -- -D warnings
-          # Release so the dependency artifacts carry over to the packages
+          # Release so the dependency artifacts carry over to the tarball
           # built below, which is the only sharing on offer: clippy's build
           # above is fingerprinted under its own wrapper and reuses nothing.
           # The daemon's tests want zbus with its p2p feature, so zbus and
           # what sits above it are built once more for the test targets.
           cargo test --workspace --release
 
-      # Also runs lintian, appstreamcli and desktop-file-validate, and on a tag
-      # checks that every version the package carries matches the tag's.
-      - name: Build packages
-        run: |
-          if [ "$GITHUB_REF_TYPE" = tag ]; then
-            expect=(--expect "${GITHUB_REF_NAME#v}")
-          else
-            expect=()
-          fi
-          ./packaging/build-deb.sh "${expect[@]}"
-          ./packaging/build-tarball.sh "${expect[@]}"
+      - name: Build the tarball
+        run: ./packaging/build-tarball.sh
 
-      # Tags only: an untagged build carries the same version as the last
-      # release, so apt would refuse to install it over one.
+      # Tags only: the release job below is the one reader.
       - uses: actions/upload-artifact@v7
         if: github.ref_type == 'tag'
         with:
-          name: packages
+          name: tarball
           path: |
-            target/debian/*.deb
             target/dist/*.tar.xz
             target/dist/*.sha256
 
@@ -103,33 +77,22 @@ jobs:
     permissions:
       contents: write
     steps:
-      # Before the download: checkout cleans the workspace, which would take
-      # the artifacts with it. Only the changelog the notes are rendered from
-      # is needed here, so the default shallow fetch is enough.
-      - uses: actions/checkout@v7
-
       - uses: actions/download-artifact@v8
         with:
-          name: packages
+          name: tarball
           path: dist
 
-      - name: Create or update release
-        # update path: a moved tag (rebuilt release) replaces the assets and
-        # the notes instead of failing on the existing release
+      - name: Create a draft release or refresh its assets
+        # The notes are written by hand on the draft.
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           assets=$(find dist -type f)
-          # Outside dist, so it cannot be picked up as a release asset.
-          ./packaging/release-notes.sh >"$RUNNER_TEMP/notes.md"
           if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$GITHUB_REF_NAME" $assets --clobber --repo "$GITHUB_REPOSITORY"
-            gh release edit "$GITHUB_REF_NAME" \
-              --repo "$GITHUB_REPOSITORY" \
-              --notes-file "$RUNNER_TEMP/notes.md"
           else
             gh release create "$GITHUB_REF_NAME" $assets \
               --repo "$GITHUB_REPOSITORY" \
               --title "frameguin $GITHUB_REF_NAME" \
-              --notes-file "$RUNNER_TEMP/notes.md"
+              --draft
           fi

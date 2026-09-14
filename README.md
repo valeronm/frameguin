@@ -69,7 +69,7 @@ The others are shaped differently:
   Ultra Series 3), BIOS 03.02. Other Framework boards should work, and
   reports from them are welcome.
 - **GTK 4 with libadwaita 1.5 or newer** — Ubuntu 24.04, Debian 13, Fedora 40
-  or their equivalents. The `.deb` will refuse to install on anything older.
+  or their equivalents.
 - **A tray implementation, for the tray icon only.** The window works
   anywhere. KDE and Xfce have one natively; stock GNOME needs the
   [AppIndicator extension](https://extensions.gnome.org/extension/615/appindicator-support/)
@@ -78,22 +78,7 @@ The others are shaped differently:
 
 ## Install
 
-None of these needs a Rust toolchain or the `-dev` packages.
-
-### Debian and Ubuntu
-
-Take the `.deb` from the
-[latest release](https://github.com/valeronm/frameguin/releases/latest):
-
-```sh
-sudo apt install ./frameguin_*.deb
-```
-
-apt pulls in GTK 4, libadwaita and polkit. Prefer this over the tarball here:
-the two write competing copies under `/usr` and `/usr/local`, and dpkg only
-tracks its own — uninstall one before installing the other.
-
-### Anything else
+Neither way needs a Rust toolchain or the `-dev` packages.
 
 A tarball carrying the same installer the source build uses:
 
@@ -105,7 +90,8 @@ That downloads and unpacks as your user and runs only the installer under
 `sudo`. Read it first if you'd rather — it is
 [packaging/get.sh](packaging/get.sh).
 
-By hand, from the same release page: download
+By hand, from the
+[latest release](https://github.com/valeronm/frameguin/releases/latest): download
 `frameguin-<version>-x86_64-linux.tar.xz` and the `.sha256` beside it, then
 
 ```sh
@@ -122,26 +108,13 @@ Either way, launch with `frameguin` or from the app grid.
 
 ## Updating
 
-- **`.deb`** — download the new one and `sudo apt install ./frameguin_*.deb`.
 - **Tarball** — re-run the same `curl … | sh`.
 - **Source** — `git pull && cargo build --release && sudo ./install.sh`.
 
-All three are idempotent: they stop the daemon, replace the files, and
+Both are idempotent: they stop the daemon, replace the files, and
 restart the tray app if it was running.
 
 ## Uninstall
-
-Installed from the `.deb`:
-
-```sh
-sudo apt purge frameguin
-```
-
-`apt remove` keeps `/var/lib/frameguin`, the daemon's record of the settings
-the hardware cannot report back and of the ones it restores; only `apt
-purge` drops it.
-
-Installed from the tarball or from source:
 
 ```sh
 sudo /usr/local/libexec/frameguin-uninstall.sh
@@ -149,18 +122,20 @@ sudo /usr/local/libexec/frameguin-uninstall.sh
 
 That path follows the install prefix: `install.sh` puts a copy of itself
 there, so a `curl … | sh` install can be removed without re-downloading
-anything and a `PREFIX` install undoes itself. It also removes that state
-directory.
+anything and a `PREFIX` install undoes itself. It also removes
+`/var/lib/frameguin`, the daemon's record of the settings the hardware cannot
+report back and of the ones it restores.
 
-Then, either way:
+**Start at login** writes a desktop entry per user, and no uninstaller can
+reach another user's home directory, so each user who turned it on removes
+their own:
 
 ```sh
 rm -f ~/.config/autostart/io.github.valeronm.Frameguin.desktop
 ```
 
-**Start at login** writes that entry per user, and no uninstaller can reach
-another user's home directory. A leftover entry is harmless: it carries
-`TryExec`, so a session skips it once the binary is gone.
+A leftover entry is harmless: it carries `TryExec`, so a session skips it once
+the binary is gone.
 
 ## Troubleshooting
 
@@ -183,9 +158,6 @@ frameguin --debug-info
 # daemon logs
 sudo journalctl -u frameguin-daemon.service
 ```
-
-Two different prefixes on those first lines mean two installs are present and
-shadowing each other; see Uninstall.
 
 ## How it works
 
@@ -213,13 +185,10 @@ Cargo workspace:
 - `app/` (`frameguin`) — gtk4-rs + libadwaita GUI talking to the
   daemon over zbus.
 - `data/` — D-Bus system bus policy + activation file, systemd unit, polkit
-  policy, desktop entry, AppStream metainfo, icons. `*.in` files carry the
-  daemon's absolute path and are rendered per prefix by
-  `packaging/render-data.sh`.
-- `packaging/` — the `.deb` build (`build-deb.sh`, maintainer scripts,
-  Debian changelog), the tarball build (`build-tarball.sh`) and its
-  downloader (`get.sh`), and `check-version.sh`, which both builders run to
-  cross-check every place a version is written.
+  policy, desktop entry, icons. `*.in` files carry the daemon's absolute path
+  and are rendered per prefix by `install.sh`.
+- `packaging/` — the tarball build (`build-tarball.sh`) and its downloader
+  (`get.sh`).
 
 ### Security model
 
@@ -246,9 +215,9 @@ layered:
 
 ## Build from source
 
-`mise install` provides the pinned Rust toolchain and cargo-deb; without
-[mise](https://mise.jdx.dev), install Rust 1.97+ yourself and
-`cargo install cargo-deb`. Then the system libraries:
+`mise install` provides the pinned Rust toolchain; without
+[mise](https://mise.jdx.dev), install Rust 1.97+ yourself. Then the system
+libraries:
 
 ```sh
 # Debian and Ubuntu
@@ -266,16 +235,11 @@ This installs under `/usr/local`, the FHS slot for software outside the
 package manager. `PREFIX` moves the two binaries; polkit, D-Bus and the icon
 theme only read from fixed system directories, so those files stay put.
 
-### Building packages
+### Building the tarball
 
 ```sh
-./packaging/build-deb.sh                            # target/debian/
-./packaging/build-tarball.sh                        # target/dist/
+./packaging/build-tarball.sh    # target/dist/
 ```
-
-Both run `packaging/check-version.sh` first. The `.deb` build then lints its
-result: lintian over the package, appstreamcli over the metainfo,
-desktop-file-validate over the desktop entry.
 
 Every push to `main` and every pull request runs the same workflow a release
 does, without the release step. Cutting a release is

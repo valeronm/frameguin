@@ -15,8 +15,6 @@ use crate::board::dmi;
 use crate::bus::Bus;
 use crate::mapped;
 
-/// The unit an install writes, one spelling for the two places a package and
-/// a tarball put it.
 const DAEMON_UNIT: &str = "frameguin-daemon.service";
 /// Where a report is filed. `concat!` rather than a runtime format so the
 /// About window's link and the issue `report_issue` opens are one expression.
@@ -85,15 +83,9 @@ async fn unit_state(connection: &zbus::Connection) -> zbus::Result<String> {
         })
 }
 
-/// Which of an install's service files are actually on disk, for a report
-/// whose bus call failed: it separates nothing installed from a package
-/// install, a tarball install, or one of each shadowing the other. What it
-/// cannot separate is installed-and-not-starting, which is what `unit_state`
-/// asks systemd for beside it.
-///
-/// The libexec candidates include one derived from this binary's own prefix,
-/// because `install.sh` takes the prefix as a parameter — a `PREFIX=/opt`
-/// install would otherwise be reported as no install at all.
+/// Which of an install's service files are on disk, and whether the daemon the
+/// activation file names is, for a report whose bus call failed. It cannot
+/// separate installed-and-not-starting.
 fn installed_service_files() -> String {
     // Named for the bus, not for GTK: the activation file is the bus name's,
     // and the two being the same string today is a coincidence of spelling.
@@ -101,31 +93,15 @@ fn installed_service_files() -> String {
         "/usr/share/dbus-1/system-services/{}.service",
         frameguin_wire::BUS_NAME
     );
-    let own_libexec = std::env::current_exe()
-        .ok()
-        .and_then(|exe| {
-            let prefix = exe.parent()?.parent()?;
-            Some(
-                prefix
-                    .join("libexec/frameguin-daemon")
-                    .display()
-                    .to_string(),
-            )
-        })
-        // The two fixed libexec paths already cover /usr, so what is left is
-        // a prefix nothing else here would have looked in.
-        .filter(|path| !path.starts_with("/usr/"));
+    let activated_daemon = std::fs::read_to_string(&activation).ok().and_then(|text| {
+        text.lines()
+            .find_map(|line| line.strip_prefix("Exec="))
+            .map(str::to_string)
+    });
 
-    let candidates = [
-        activation,
-        format!("/etc/systemd/system/{DAEMON_UNIT}"),
-        format!("/usr/lib/systemd/system/{DAEMON_UNIT}"),
-        "/usr/libexec/frameguin-daemon".to_string(),
-        "/usr/local/libexec/frameguin-daemon".to_string(),
-    ];
-    let present: Vec<String> = candidates
+    let present: Vec<String> = [activation, format!("/etc/systemd/system/{DAEMON_UNIT}")]
         .into_iter()
-        .chain(own_libexec)
+        .chain(activated_daemon)
         .filter(|path| std::path::Path::new(path).exists())
         .collect();
     if present.is_empty() {
@@ -136,10 +112,7 @@ fn installed_service_files() -> String {
 }
 
 /// What a hardware report needs, behind the About window's copy button, so
-/// filing one does not require busctl. Both binaries report where they ran
-/// from: a mixed install has the app under one prefix and the daemon under
-/// another, and no version comparison would show it when the two trees hold
-/// the same release.
+/// filing one does not require busctl.
 #[expect(
     clippy::format_push_string,
     reason = "the allocation is immaterial in a report built once to fill a dialog"
@@ -157,9 +130,6 @@ pub(crate) async fn debug_info() -> String {
         Err(e) => format!("{name}: unavailable ({e})\n"),
     };
 
-    // The two binaries first and adjacent, since comparing their paths is
-    // what the report is read for; the hardware they found follows.
-    //
     // Dialled rather than taken from the app's shared connection: this also
     // runs from `--debug-info`, where there is no app to have one, and a
     // report of whether the daemon answers wants asking afresh.
@@ -253,6 +223,12 @@ pub(crate) fn show(parent: Option<&gtk::Window>) {
         Some(TRADEMARK_NOTICE),
     );
     about.add_legal_section(
+        "framework_lib",
+        None,
+        gtk::License::Custom,
+        Some(include_str!("../data/framework_lib/LICENSE.md")),
+    );
+    about.add_legal_section(
         "Tux",
         Some("© Larry Ewing, Simon Budig"),
         gtk::License::Custom,
@@ -278,7 +254,7 @@ const TRADEMARK_NOTICE: &str = "“Framework” and the gear logo are trademarks
     Computer Inc. Frameguin is a community project, not affiliated with or endorsed by \
     Framework Computer Inc.";
 
-const TUX_SVG: &[u8] = include_bytes!("../../data/tux/tux.svg");
+const TUX_SVG: &[u8] = include_bytes!("../data/tux/tux.svg");
 const TUX_DELAY: Duration = Duration::from_secs(10);
 const TUX_CLIMB_MILLISECONDS: u32 = 900;
 // Fractions of the icon's side, the hole's being where the icon's SVG draws it.

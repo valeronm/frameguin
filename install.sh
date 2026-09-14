@@ -33,10 +33,10 @@ prefix="${PREFIX:-$default_prefix}"
 built="$src/target/release"
 [ -x "$built/frameguin" ] || built="$src"
 
-# Staged outside the build tree so a sudo run leaves no root-owned files in it.
-staging="$(mktemp -d)"
-trap 'rm -rf "$staging"' EXIT
-data="$staging/data"
+data="$src/data"
+# Rendered outside the build tree so a sudo run leaves no root-owned files in it.
+rendered="$(mktemp -d)"
+trap 'rm -rf "$rendered"' EXIT
 
 # mode, source, destination triples — the single list both modes use. Kept as
 # separate elements rather than delimited strings so a path is never parsed.
@@ -48,17 +48,15 @@ files=(
     755 "$built/frameguin-daemon"              "$prefix/libexec/frameguin-daemon"
     755 "$built/frameguin"                     "$prefix/bin/frameguin"
     644 "$data/$app_id.conf"                   "/etc/dbus-1/system.d/$app_id.conf"
-    644 "$data/$app_id.service"                "/usr/share/dbus-1/system-services/$app_id.service"
-    # /etc, not /usr/lib: this is a local-admin install, and a packaged one
-    # must not find a competing unit shadowing its own.
-    644 "$data/frameguin-daemon.service"       "/etc/systemd/system/frameguin-daemon.service"
+    644 "$rendered/$app_id.service"            "/usr/share/dbus-1/system-services/$app_id.service"
+    # /etc, not /usr/lib: /usr/lib/systemd/system belongs to the package
+    # manager.
+    644 "$rendered/frameguin-daemon.service"   "/etc/systemd/system/frameguin-daemon.service"
     644 "$data/frameguin-restore.service"      "/etc/systemd/system/frameguin-restore.service"
     644 "$data/$app_id.policy"                 "/usr/share/polkit-1/actions/$app_id.policy"
     644 "$data/$app_id.desktop"                "/usr/share/applications/$app_id.desktop"
-    644 "$data/$app_id.metainfo.xml"           "/usr/share/metainfo/$app_id.metainfo.xml"
     644 "$data/icons/$app_id.svg"              "/usr/share/icons/hicolor/scalable/apps/$app_id.svg"
     644 "$data/icons/$app_id-symbolic.svg"     "/usr/share/icons/hicolor/symbolic/apps/$app_id-symbolic.svg"
-    644 "$data/frameguin.1"                    "$prefix/share/man/man1/frameguin.1"
 )
 
 if [ "${1:-}" = "--uninstall" ]; then
@@ -87,8 +85,8 @@ if [ ! -x "$built/frameguin-daemon" ] || [ ! -x "$built/frameguin" ]; then
     exit 1
 fi
 
-# The tarball carries no dependency metadata the way the .deb does, so a
-# missing GTK stack surfaces here rather than as a loader error at launch.
+# The tarball carries no dependency metadata, so a missing GTK stack surfaces
+# here rather than as a loader error at launch.
 missing="$(ldd "$built/frameguin" "$built/frameguin-daemon" |
     awk '/not found/ {print "  " $1}' | sort -u)"
 if [ -n "$missing" ]; then
@@ -103,8 +101,7 @@ if [ -n "$missing" ]; then
         echo "install the runtime libraries first:"
         case " ${ID:-} ${ID_LIKE:-} " in
             *" debian "*|*" ubuntu "*)
-                echo "  sudo apt install libgtk-4-1 libadwaita-1-0 polkitd"
-                echo "or install the .deb, which pulls them in itself." ;;
+                echo "  sudo apt install libgtk-4-1 libadwaita-1-0 polkitd" ;;
             *" fedora "*) echo "  sudo dnf install gtk4 libadwaita polkit" ;;
             *" arch "*)   echo "  sudo pacman -S gtk4 libadwaita polkit" ;;
             *" suse "*)   echo "  sudo zypper install libgtk-4-1 libadwaita-1-0 polkit" ;;
@@ -115,12 +112,11 @@ if [ -n "$missing" ]; then
     exit 1
 fi
 
-# Asked of the binary being installed rather than tracked here: it is the one
-# thing that always knows, and --version needs no display or environment.
-# Expects one line ending in the version; render-data.sh rejects an empty one.
-version="$("$built/frameguin" --version)"
-"$src/packaging/render-data.sh" "$data" \
-    LIBEXECDIR="$prefix/libexec" VERSION="${version##* }"
+# *.in templates carry the daemon's absolute path.
+for tmpl in "$data"/*.in; do
+    name="${tmpl##*/}"
+    sed "s|@LIBEXECDIR@|$prefix/libexec|g" "$tmpl" >"$rendered/${name%.in}"
+done
 
 # install runs once per file, so a source found missing mid-loop leaves the
 # files before it written.
@@ -132,20 +128,6 @@ for ((i = 0; i < ${#files[@]}; i += 3)); do
 done
 
 # Everything that can refuse has run; what follows is advisory.
-
-# The other prefix having an install is the mixed-install case, and here is
-# where it is created — the app can only report it afterwards, from a process
-# with no privilege to undo it.
-for other in /usr/bin/frameguin /usr/local/bin/frameguin; do
-    [ "$other" = "$prefix/bin/frameguin" ] && continue
-    [ -e "$other" ] || continue
-    echo "warning: $other is already installed; two installs shadow each other" >&2
-    if [ "$other" = /usr/bin/frameguin ]; then
-        echo "         remove it with: sudo apt purge frameguin" >&2
-    else
-        echo "         remove it with: sudo /usr/local/libexec/frameguin-uninstall.sh" >&2
-    fi
-done
 
 # Warn (but don't refuse — containers, CI, and pre-swap installs are all
 # legitimate) when this doesn't look like Framework hardware.
@@ -165,6 +147,8 @@ if [ -n "${SUDO_USER:-}" ] && pgrep -x -u "$SUDO_USER" frameguin >/dev/null 2>&1
 fi
 pkill -x frameguin 2>/dev/null || true
 
+# Installed by 0.3.1 and earlier releases.
+rm -f "/usr/share/metainfo/$app_id.metainfo.xml" "$prefix/share/man/man1/frameguin.1"
 for ((i = 0; i < ${#files[@]}; i += 3)); do
     install -Dm"${files[i]}" "${files[i + 1]}" "${files[i + 2]}"
 done

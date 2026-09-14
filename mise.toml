@@ -1,3 +1,2 @@
 [tools]
 rust = "1.97"
-"cargo:cargo-deb" = "3.7.0"

@@ -187,7 +187,6 @@ fn setup_tray(app: &adw::Application, state: Rc<AppState>) {
 fn main() -> glib::ExitCode {
     let app = adw::Application::builder().application_id(APP_ID).build();
 
-    // The line is parsed, not just read: it must end in the bare version.
     app.add_main_option(
         "version",
         b'V'.into(),
