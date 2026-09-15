@@ -13,6 +13,7 @@ pub(crate) mod battery;
 pub(crate) mod chassis;
 pub(crate) mod ports;
 pub(crate) mod power_led;
+pub(crate) mod privacy_switches;
 pub(crate) mod touchpad;
 pub(crate) mod touchscreen;
 
@@ -51,6 +52,7 @@ pub(crate) async fn serve_all(
         power_led,
         ports,
         chassis,
+        privacy_switches,
     } = devices;
     server.at(OBJECT_PATH, root).await?;
     serve_one(server, &service, battery).await?;
@@ -58,7 +60,8 @@ pub(crate) async fn serve_all(
     serve_one(server, &service, touchscreen).await?;
     serve_one(server, &service, power_led).await?;
     serve_one(server, &service, ports).await?;
-    serve_one(server, &service, chassis).await
+    serve_one(server, &service, chassis).await?;
+    serve_one(server, &service, privacy_switches).await
 }
 
 #[derive(Clone, Copy)]

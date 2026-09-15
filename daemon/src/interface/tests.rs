@@ -11,13 +11,14 @@ use frameguin_hardware::device::battery::Battery;
 use frameguin_hardware::device::chassis::Chassis;
 use frameguin_hardware::device::ports::Ports;
 use frameguin_hardware::device::power_led::PowerLed;
+use frameguin_hardware::device::privacy_switches::PrivacySwitches;
 use frameguin_hardware::device::touchpad::Touchpad;
 use frameguin_hardware::device::touchscreen::Touchscreen;
 use frameguin_hardware::mirror::Mirrors;
 use frameguin_hardware::part::Identity;
 use frameguin_hardware::restore::Restore;
 use frameguin_hardware::testing::{
-    Connectors, Cover, EC_BOOT, EcCharger, Gauge, Haptic, LedEc, Leds, Memory, Route,
+    Connectors, Cover, EC_BOOT, EcCharger, Gauge, Haptic, LedEc, Leds, Memory, Route, Sliders,
     battery_identity, block, display_identity, mirrors, touchpad_identity,
 };
 use frameguin_wire::{
@@ -83,6 +84,7 @@ impl Machine {
             )),
             ports: Ports::new(Arc::new(Connectors::default())),
             chassis: Chassis::new(Arc::new(Cover::default())),
+            privacy_switches: PrivacySwitches::new(Arc::new(Sliders::default())),
         }
     }
 }
@@ -242,6 +244,10 @@ fn every_getter_answers_through_its_proxy() {
         assert!(!ports[1].charging);
         assert_eq!(ports[1].partner, PortPartner::Nothing);
         assert_eq!(p.chassis.get_state().await.unwrap(), Cover::default().state);
+        assert_eq!(
+            p.privacy_switches.get_switches().await.unwrap(),
+            Sliders::default().switches
+        );
     });
 }
 
@@ -445,6 +451,7 @@ fn a_device_detection_did_not_find_is_not_on_the_bus() {
         assert!(p.power_led.get_brightness().await.is_ok());
         assert!(p.ports.get_ports().await.is_ok());
         assert!(p.chassis.get_state().await.is_ok());
+        assert!(p.privacy_switches.get_switches().await.is_ok());
     });
 }
 
@@ -477,5 +484,20 @@ fn a_board_without_the_chassis_commands_serves_no_chassis_interface() {
     peer.run(|p| async move {
         assert!(absent(p.chassis.get_state().await));
         assert!(p.ports.get_ports().await.is_ok());
+    });
+}
+
+#[test]
+fn a_board_without_the_privacy_command_serves_no_privacy_interface() {
+    let peer = serve_devices(
+        true,
+        Devices {
+            privacy_switches: None,
+            ..devices()
+        },
+    );
+    peer.run(|p| async move {
+        assert!(absent(p.privacy_switches.get_switches().await));
+        assert!(p.chassis.get_state().await.is_ok());
     });
 }

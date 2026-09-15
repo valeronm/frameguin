@@ -81,6 +81,10 @@ pub trait ChassisEc: Send + Sync {
     fn chassis(&self) -> DeviceResult<wire::ChassisState>;
 }
 
+pub trait PrivacyEc: Send + Sync {
+    fn privacy_switches(&self) -> DeviceResult<wire::PrivacyState>;
+}
+
 /// What the battery's device needs of the charger: the ceiling, and the
 /// current cap.
 pub trait Charger: Send + Sync {
@@ -323,6 +327,13 @@ impl ChassisEc for Ec {
             opened: status.total_opened,
             found_open: status.vtr_open_count,
         })
+    }
+}
+
+impl PrivacyEc for Ec {
+    fn privacy_switches(&self) -> DeviceResult<wire::PrivacyState> {
+        let (microphone, camera) = self.ec().get_privacy_info().map_err(device_error)?;
+        Ok(wire::PrivacyState { camera, microphone })
     }
 }
 

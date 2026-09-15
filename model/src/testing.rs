@@ -6,7 +6,7 @@ use frameguin_wire::{
     BatteryCondition, BatteryControl, BatteryFeature, BatteryInfo, BatteryState, CcPolarity,
     ChargeFlow, ChassisControl, ChassisState, ClickForce, DataRole, DeviceError, DeviceResult, Epr,
     NO_CHARGE_CURRENT_LIMIT, PortPartner, PortState, PortsControl, PowerLedControl, PowerLedLevel,
-    PowerRole, TouchpadControl, TouchscreenControl,
+    PowerRole, PrivacyState, PrivacySwitchesControl, TouchpadControl, TouchscreenControl,
 };
 
 /// A 4640 mAh pack, the Laptop 13's.
@@ -91,6 +91,7 @@ pub(crate) struct Board {
     pub(crate) power_led: Fault,
     pub(crate) ports: Fault,
     pub(crate) chassis: Fault,
+    pub(crate) privacy_switches: Fault,
     pub(crate) limit: Cell<u8>,
     pub(crate) cap: Cell<u32>,
     pub(crate) haptic_intensity: Cell<u8>,
@@ -109,6 +110,7 @@ impl Default for Board {
             power_led: Fault::default(),
             ports: Fault::default(),
             chassis: Fault::default(),
+            privacy_switches: Fault::default(),
             limit: Cell::new(100),
             cap: Cell::new(NO_CHARGE_CURRENT_LIMIT),
             haptic_intensity: Cell::new(50),
@@ -132,7 +134,8 @@ impl Board {
             touchscreen: Fault::failing(error.clone()),
             power_led: Fault::failing(error.clone()),
             ports: Fault::failing(error.clone()),
-            chassis: Fault::failing(error),
+            chassis: Fault::failing(error.clone()),
+            privacy_switches: Fault::failing(error),
             ..Self::default()
         })
     }
@@ -229,6 +232,15 @@ pub(crate) fn port(index: u8) -> PortState {
 impl PortsControl for Board {
     async fn ports(&self) -> DeviceResult<Vec<PortState>> {
         self.ports.read((0..4).map(port).collect())
+    }
+}
+
+impl PrivacySwitchesControl for Board {
+    async fn switches(&self) -> DeviceResult<PrivacyState> {
+        self.privacy_switches.read(PrivacyState {
+            camera: true,
+            microphone: false,
+        })
     }
 }
 

@@ -7,6 +7,7 @@
 mod battery;
 mod chassis;
 mod ports;
+mod privacy_switches;
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -115,6 +116,9 @@ fn build(
         }
         if controls.chassis.is_some() {
             chassis::add(&sidebar, &feed);
+        }
+        if controls.privacy_switches.is_some() {
+            privacy_switches::add(&sidebar, &feed);
         }
         if controls.ports.is_some() {
             ports::add(&sidebar, &feed);

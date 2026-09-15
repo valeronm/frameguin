@@ -34,7 +34,9 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
-use frameguin_wire::{BatteryCondition, BatteryInfo, ChassisState, DeviceResult, PortState};
+use frameguin_wire::{
+    BatteryCondition, BatteryInfo, ChassisState, DeviceResult, PortState, PrivacyState,
+};
 use gtk4 as gtk;
 use gtk4::glib;
 use gtk4::prelude::*;
@@ -81,6 +83,8 @@ pub(crate) struct Wants {
     /// Two host commands and no transfer past them: cheap enough for every
     /// tick.
     pub(crate) chassis: bool,
+    /// One host command, whose handler prints two lines to the EC console.
+    pub(crate) privacy_switches: bool,
 }
 
 impl Wants {
@@ -91,6 +95,7 @@ impl Wants {
             condition: self.condition || other.condition,
             ports: self.ports || other.ports,
             chassis: self.chassis || other.chassis,
+            privacy_switches: self.privacy_switches || other.privacy_switches,
         }
     }
 }
@@ -108,6 +113,7 @@ pub(crate) struct Reading {
     pub(crate) condition: Option<BatteryCondition>,
     pub(crate) ports: Option<Vec<PortState>>,
     pub(crate) chassis: Option<ChassisState>,
+    pub(crate) privacy_switches: Option<PrivacyState>,
 }
 
 type Show = dyn Fn(&Reading);
@@ -152,6 +158,15 @@ impl<'a> InFlight<'a> {
 impl Drop for InFlight<'_> {
     fn drop(&mut self) {
         self.0.set(self.0.get() - 1);
+    }
+}
+
+/// Raised rather than swallowed: a window showing only this extra has nothing
+/// else for its toast to be about.
+async fn wanted<T>(read: Option<impl Future<Output = DeviceResult<T>>>) -> DeviceResult<Option<T>> {
+    match read {
+        Some(read) => read.await.map(Some),
+        None => Ok(None),
     }
 }
 
@@ -276,10 +291,7 @@ impl Feed {
             .iter()
             .fold(Wants::default(), |wants, (_, view)| wants.with(view.wants));
         let battery = controls.battery.as_ref();
-        let info = match battery.filter(|_| wants.battery) {
-            Some(battery) => Some(battery.read().await?),
-            None => None,
-        };
+        let info = wanted(battery.filter(|_| wants.battery).map(|b| b.read())).await?;
         // Every read wants the block; the condition only on the reads that come
         // round to it. Subscribing rewinds the count, so the fill that follows
         // a view arriving is always one of them and the spacing only applies
@@ -292,22 +304,37 @@ impl Feed {
                 None => None,
             };
         // Asked of the ports control rather than the pack's: a board can have
-        // one and not the other. Its failure is raised rather than swallowed,
-        // unlike the condition's, because a window showing only the ports has
-        // nothing else for its toast to be about.
-        let ports = match controls.ports.as_ref().filter(|_| wants.ports) {
-            Some(ports) => Some(ports.read().await?),
-            None => None,
-        };
-        let chassis = match controls.chassis.as_ref().filter(|_| wants.chassis) {
-            Some(chassis) => Some(chassis.read().await?),
-            None => None,
-        };
+        // one and not the other.
+        let ports = wanted(
+            controls
+                .ports
+                .as_ref()
+                .filter(|_| wants.ports)
+                .map(|p| p.read()),
+        )
+        .await?;
+        let chassis = wanted(
+            controls
+                .chassis
+                .as_ref()
+                .filter(|_| wants.chassis)
+                .map(|c| c.read()),
+        )
+        .await?;
+        let privacy_switches = wanted(
+            controls
+                .privacy_switches
+                .as_ref()
+                .filter(|_| wants.privacy_switches)
+                .map(|s| s.read()),
+        )
+        .await?;
         let reading = Reading {
             info,
             condition,
             ports,
             chassis,
+            privacy_switches,
         };
         // Copied out of the list before anything is shown: a view may drop its
         // subscription from inside its own call, and the borrow would still be

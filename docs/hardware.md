@@ -76,6 +76,7 @@ Every heading in the file appears here.
   - [USB-C port persistence](#usb-c-port-persistence)
 - [Chassis and privacy switches](#chassis-and-privacy-switches)
   - [The chassis open switch](#the-chassis-open-switch)
+  - [The privacy switches](#the-privacy-switches)
 - [Sources](#sources)
 
 ## What survives what
@@ -1117,6 +1118,24 @@ while the machine was off and zeroes that count as it answers. The firmware
 keeps it for the BIOS to collect at POST, so a read from the host takes it
 away.
 
+### The privacy switches
+
+`EC_CMD_PRIVACY_SWITCHES_CHECK_MODE` (`0x3E14`) reports the levels of two
+pins as the camera and microphone switches, whose polarities are opposite —
+the camera's low when off, the microphone's high — and answers 1 for a device
+connected. The handler has no path for a board that wires something else to
+those pins, so a command that answers says nothing about what they carry.
+Every read prints two lines to the EC console, and every Framework EC branch
+carries the command, the 11th to 13th generation Intel boards' included.
+
+On the Laptop 13 Pro the microphone's pin follows its slider and the camera's
+does not: it reads 1 only while the camera is running, its LED lit, and 0 with
+the slider on and the camera idle. The Laptop Webcam Module (2nd Gen) on that
+machine reports no slider either, its UVC privacy control reading 0 in both
+positions. The 11th generation Intel board's pin table names the camera pin a
+monitor of the camera's power, which fits what the Pro shows; which boards, if
+any, carry the camera slider on that pin is untested.
+
 ## Sources
 
 - [FrameworkComputer/EmbeddedController](https://github.com/FrameworkComputer/EmbeddedController)
@@ -1134,7 +1153,8 @@ away.
   host command; the `ucsi_port_*.c` files the per-board connector maps; and
   each board's `project.conf` its controller count and whether the controllers
   are reset before an EC reboot. `chassis.c` under the same `src/` holds the
-  chassis switch's host commands and its counts.
+  chassis switch's host commands and its counts, and `board_host_command.c`
+  the privacy switches'.
   `driver/charger/` holds each charger part's
   driver, where a measured input current is read off the AMON pin against the
   ADC channels a board's devicetree declares. The default branch carries a

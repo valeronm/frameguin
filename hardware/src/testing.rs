@@ -11,10 +11,10 @@ use std::task::{Context, Poll, Waker};
 use frameguin_wire::{
     BatteryCondition, BatteryInfo, BatteryState, CcPolarity, ChargeFlow, ChassisState, ClickForce,
     DataRole, Detail, DeviceError, DeviceResult, Epr, Identity, PartKind, PortPartner, PortState,
-    PowerLedLevel, PowerRole,
+    PowerLedLevel, PowerRole, PrivacyState,
 };
 
-use crate::ec::{Charger, ChassisEc, Pack, PdPorts, PowerLedEc};
+use crate::ec::{Charger, ChassisEc, Pack, PdPorts, PowerLedEc, PrivacyEc};
 use crate::led::LedClass;
 use crate::lifetime::{EcBoot, Holders};
 use crate::mirror::Mirrors;
@@ -430,6 +430,33 @@ impl ChassisEc for Cover {
             return Err(DeviceError::Failed("invalid command".into()));
         }
         Ok(self.state)
+    }
+}
+
+pub struct Sliders {
+    pub switches: PrivacyState,
+    /// Firmware without the privacy switches command.
+    pub refusing: bool,
+}
+
+impl Default for Sliders {
+    fn default() -> Self {
+        Self {
+            switches: PrivacyState {
+                camera: true,
+                microphone: false,
+            },
+            refusing: false,
+        }
+    }
+}
+
+impl PrivacyEc for Sliders {
+    fn privacy_switches(&self) -> DeviceResult<PrivacyState> {
+        if self.refusing {
+            return Err(DeviceError::Failed("invalid command".into()));
+        }
+        Ok(self.switches)
     }
 }
 

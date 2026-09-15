@@ -38,7 +38,7 @@ const COUNT_CEILING: u8 = 255;
 #[must_use]
 pub fn times_label(count: u8) -> String {
     if count == COUNT_CEILING {
-        "255 or more".to_owned()
+        format!("{COUNT_CEILING} or more")
     } else {
         count.to_string()
     }

@@ -354,6 +354,14 @@ pub struct ChassisState {
     pub found_open: u8,
 }
 
+/// True where a switch leaves its device connected.
+#[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug)]
+#[zvariant(crate = "zbus::zvariant")]
+pub struct PrivacyState {
+    pub camera: bool,
+    pub microphone: bool,
+}
+
 /// One USB-C port, as the EC's copy of its controller's state has it.
 ///
 /// Every field is the EC's cache rather than the port itself, which matters

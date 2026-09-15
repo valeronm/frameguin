@@ -12,7 +12,7 @@
 use crate::error::DeviceResult;
 use crate::vocabulary::{
     BatteryCondition, BatteryFeature, BatteryInfo, ChassisState, ClickForce, PortState,
-    PowerLedLevel,
+    PowerLedLevel, PrivacyState,
 };
 
 pub trait TouchpadControl {
@@ -62,6 +62,10 @@ pub trait PortsControl {
 
 pub trait ChassisControl {
     async fn state(&self) -> DeviceResult<ChassisState>;
+}
+
+pub trait PrivacySwitchesControl {
+    async fn switches(&self) -> DeviceResult<PrivacyState>;
 }
 
 /// The battery: the pack the EC's block answers for, and the charger that

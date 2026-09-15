@@ -14,6 +14,7 @@ pub(crate) mod mainboard;
 pub(crate) mod memory;
 pub mod ports;
 pub mod power_led;
+pub mod privacy_switches;
 pub(crate) mod storage;
 pub mod touchpad;
 pub mod touchscreen;
@@ -27,6 +28,7 @@ use crate::device::mainboard::Mainboard;
 use crate::device::memory::Module;
 use crate::device::ports::Ports;
 use crate::device::power_led::PowerLed;
+use crate::device::privacy_switches::PrivacySwitches;
 use crate::device::storage::Drive;
 use crate::device::touchpad::Touchpad;
 use crate::device::touchscreen::Touchscreen;
@@ -45,6 +47,7 @@ pub struct Devices {
     pub power_led: Option<PowerLed>,
     pub ports: Option<Ports>,
     pub chassis: Option<Chassis>,
+    pub privacy_switches: Option<PrivacySwitches>,
 }
 
 pub struct Detected {
@@ -95,6 +98,7 @@ pub fn detect() -> Detected {
             power_led,
             ports: ec.as_ref().and_then(Ports::detect),
             chassis: ec.as_ref().and_then(Chassis::detect),
+            privacy_switches: ec.as_ref().and_then(PrivacySwitches::detect),
         },
         parts,
         restore: mirrors.restore(),

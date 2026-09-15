@@ -7,7 +7,8 @@
 use frameguin_wire::{
     BatteryCondition, BatteryControl, BatteryFeature, BatteryInfo, ChassisControl, ChassisState,
     ClickForce, DeviceResult, FrameguinProxy, PortState, PortsControl, PowerLedControl,
-    PowerLedLevel, Proxies, TouchpadControl, TouchscreenControl, proxy,
+    PowerLedLevel, PrivacyState, PrivacySwitchesControl, Proxies, TouchpadControl,
+    TouchscreenControl, proxy,
 };
 
 pub(crate) struct Bus {
@@ -100,6 +101,12 @@ impl PortsControl for Bus {
 impl ChassisControl for Bus {
     async fn state(&self) -> DeviceResult<ChassisState> {
         Ok(self.devices.chassis.get_state().await?)
+    }
+}
+
+impl PrivacySwitchesControl for Bus {
+    async fn switches(&self) -> DeviceResult<PrivacyState> {
+        Ok(self.devices.privacy_switches.get_switches().await?)
     }
 }
 
