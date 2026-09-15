@@ -344,6 +344,16 @@ pub enum Epr {
     Active,
 }
 
+#[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug)]
+#[zvariant(crate = "zbus::zvariant")]
+pub struct ChassisState {
+    pub open: bool,
+    /// Times the switch opened while the EC was running.
+    pub opened: u8,
+    /// Times the EC started with the chassis already open.
+    pub found_open: u8,
+}
+
 /// One USB-C port, as the EC's copy of its controller's state has it.
 ///
 /// Every field is the EC's cache rather than the port itself, which matters

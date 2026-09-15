@@ -11,7 +11,8 @@
 
 use crate::error::DeviceResult;
 use crate::vocabulary::{
-    BatteryCondition, BatteryFeature, BatteryInfo, ClickForce, PortState, PowerLedLevel,
+    BatteryCondition, BatteryFeature, BatteryInfo, ChassisState, ClickForce, PortState,
+    PowerLedLevel,
 };
 
 pub trait TouchpadControl {
@@ -57,6 +58,10 @@ pub trait PortsControl {
     /// Every port the EC answers for, in its own port order. Their number is
     /// fixed for the device's run.
     async fn ports(&self) -> DeviceResult<Vec<PortState>>;
+}
+
+pub trait ChassisControl {
+    async fn state(&self) -> DeviceResult<ChassisState>;
 }
 
 /// The battery: the pack the EC's block answers for, and the charger that

@@ -1,6 +1,7 @@
 //! One module per control: its detection, its read, its commands, its words.
 
 pub mod battery;
+pub mod chassis;
 pub mod ports;
 pub mod power_led;
 pub mod touchpad;
@@ -9,8 +10,8 @@ pub mod touchscreen;
 use std::rc::Rc;
 
 use frameguin_wire::{
-    BatteryControl, DeviceError, DeviceResult, PortsControl, PowerLedControl, TouchpadControl,
-    TouchscreenControl,
+    BatteryControl, ChassisControl, DeviceError, DeviceResult, PortsControl, PowerLedControl,
+    TouchpadControl, TouchscreenControl,
 };
 
 /// Whether a device is there, decided by the device's own path: a read the
@@ -72,10 +73,17 @@ pub struct Controls<C> {
     pub touchscreen: Option<Rc<touchscreen::Touchscreen<C>>>,
     pub power_led: Option<Rc<power_led::PowerLed<C>>>,
     pub ports: Option<Rc<ports::Ports<C>>>,
+    pub chassis: Option<Rc<chassis::Chassis<C>>>,
 }
 
-impl<C: BatteryControl + TouchpadControl + TouchscreenControl + PowerLedControl + PortsControl>
-    Controls<C>
+impl<
+    C: BatteryControl
+        + TouchpadControl
+        + TouchscreenControl
+        + PowerLedControl
+        + PortsControl
+        + ChassisControl,
+> Controls<C>
 {
     /// Asks each control's device to detect itself. Fails only where the
     /// device could not be asked at all — an absent device is an answer, not
@@ -89,9 +97,12 @@ impl<C: BatteryControl + TouchpadControl + TouchscreenControl + PowerLedControl 
                 .map(Rc::new),
             power_led: power_led::PowerLed::detect(control).await?.map(Rc::new),
             ports: ports::Ports::detect(control).await?.map(Rc::new),
+            chassis: chassis::Chassis::detect(control).await?.map(Rc::new),
         })
     }
 
+    /// Whether the main window has nothing to show: the readings only the
+    /// Status window carries are left out.
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.battery.is_none()
@@ -166,6 +177,7 @@ mod tests {
         assert!(controls.touchpad.is_some());
         assert!(controls.touchscreen.is_some());
         assert!(controls.power_led.is_some());
+        assert!(controls.chassis.is_some());
         assert!(!controls.is_empty());
     }
 
@@ -186,6 +198,7 @@ mod tests {
         assert!(controls.battery.is_some());
         assert!(controls.touchscreen.is_some());
         assert!(controls.power_led.is_some());
+        assert!(controls.chassis.is_some());
     }
 
     #[test]

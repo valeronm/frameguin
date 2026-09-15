@@ -5,6 +5,7 @@
 //! sync guard, no debounce, no tray push.
 
 mod battery;
+mod chassis;
 mod ports;
 
 use std::cell::{Cell, RefCell};
@@ -111,6 +112,9 @@ fn build(
         }
         if let Some(control) = &controls.battery {
             battery::add(&sidebar, &feed, control);
+        }
+        if controls.chassis.is_some() {
+            chassis::add(&sidebar, &feed);
         }
         if controls.ports.is_some() {
             ports::add(&sidebar, &feed);

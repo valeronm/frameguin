@@ -9,12 +9,12 @@ use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll, Waker};
 
 use frameguin_wire::{
-    BatteryCondition, BatteryInfo, BatteryState, CcPolarity, ChargeFlow, ClickForce, DataRole,
-    Detail, DeviceError, DeviceResult, Epr, Identity, PartKind, PortPartner, PortState,
+    BatteryCondition, BatteryInfo, BatteryState, CcPolarity, ChargeFlow, ChassisState, ClickForce,
+    DataRole, Detail, DeviceError, DeviceResult, Epr, Identity, PartKind, PortPartner, PortState,
     PowerLedLevel, PowerRole,
 };
 
-use crate::ec::{Charger, Pack, PdPorts, PowerLedEc};
+use crate::ec::{Charger, ChassisEc, Pack, PdPorts, PowerLedEc};
 use crate::led::LedClass;
 use crate::lifetime::{EcBoot, Holders};
 use crate::mirror::Mirrors;
@@ -402,6 +402,34 @@ impl PdPorts for Connectors {
 
     fn port_state(&self, index: u8) -> DeviceResult<Option<PortState>> {
         Ok((self.refusing_none || index < self.count).then(|| port(index)))
+    }
+}
+
+pub struct Cover {
+    pub state: ChassisState,
+    /// Firmware without the chassis commands.
+    pub refusing: bool,
+}
+
+impl Default for Cover {
+    fn default() -> Self {
+        Self {
+            state: ChassisState {
+                open: false,
+                opened: 2,
+                found_open: 1,
+            },
+            refusing: false,
+        }
+    }
+}
+
+impl ChassisEc for Cover {
+    fn chassis(&self) -> DeviceResult<ChassisState> {
+        if self.refusing {
+            return Err(DeviceError::Failed("invalid command".into()));
+        }
+        Ok(self.state)
     }
 }
 

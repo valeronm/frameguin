@@ -25,8 +25,9 @@ One meaning per word, and each word names one place in the tree.
   list, memory being one per slot.
 - **Control** — the facet "something that can be read, and usually set": one
   trait per device in `wire` — `BatteryControl`, `TouchpadControl`,
-  `TouchscreenControl`, `PowerLedControl`, `PortsControl` — with one
-  async fn per operation and three implementations, the device itself, the
+  `TouchscreenControl`, `PowerLedControl`, `PortsControl`,
+  `ChassisControl` — with one async fn per operation and three
+  implementations, the device itself, the
   bus, and a stub. A trait with only getters is a control all the same:
   `PortsControl` sets nothing, what a USB-C port does being settled between
   its controller and whatever is plugged in. `DeviceError` is the one error every control and every
@@ -83,8 +84,8 @@ came straight to it.
 ## Rows are layers, columns are devices
 
 A device — the battery, the power button LED, the haptic touchpad, the
-touch panel, the USB-C ports — is one column that crosses every layer the
-same way. A layer is one row that every device crosses. What a device must
+touch panel, the USB-C ports, the chassis — is one column that crosses every
+layer the same way. A layer is one row that every device crosses. What a device must
 not know lives in another column; what a layer must not link lives in
 another row.
 
@@ -94,7 +95,8 @@ a control trait with only getters is still a column, and stops where it runs
 out of things to be. The one row they put in a window sits in the Power
 group, that being the question it answers: what is coming in, beside what the
 pack is doing about it — which is why that group is named for the subject
-rather than for the battery whose control it otherwise holds.
+rather than for the battery whose control it otherwise holds. The chassis
+puts nothing in the main window at all; its column ends at the Status window.
 
 | Layer | Crate | Links | Owns | Must not know | Tested against |
 |---|---|---|---|---|---|
@@ -103,7 +105,7 @@ rather than for the battery whose control it otherwise holds.
 | Control traits | `wire` | zbus, serde | One trait per device, one async fn per operation; `DeviceError` | How an operation is reached | — |
 | Bus | `wire`, `app`, `daemon` | zbus, polkit | One proxy per interface and the vocabularies (`wire`); `Bus` implementing the traits over them (`app`); `Served<Device>` with the validate → skip → authorize → write order (`daemon`) | Anything that touches hardware (`wire`, `app`); which EC command a role sends (`daemon`) | Its own `wire` proxies over a socket pair, the devices on the same stubs |
 | Devices | `hardware` | `wire` | `detect()`, the control impl with its argument checks, the `Part` impl, mirrors under a declared lifetime, arbitrations | The bus, polkit | The stub per role and the store in memory, in `hardware::testing` |
-| Roles | `hardware` | — | One trait per hardware need: `Charger`, `Pack`, `PowerLedEc`, `LedClass`, `HapticPad`, `TouchSwitch`, `PdPorts`, `Store` | Who calls them | — |
+| Roles | `hardware` | — | One trait per hardware need: `Charger`, `Pack`, `PowerLedEc`, `LedClass`, `HapticPad`, `TouchSwitch`, `PdPorts`, `ChassisEc`, `Store` | Who calls them | — |
 | Transports | `hardware` | `framework_lib`, hidapi, libc | `Ec` and its lock, the sysfs LED node, the GPIO pad, the panel and touchpad HID, the SMBIOS table, the state file | Devices, policy, the bus | The machine |
 
 The two trait rows are the seams. A stub replaces the real thing at either,

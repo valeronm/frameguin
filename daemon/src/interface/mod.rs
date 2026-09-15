@@ -10,6 +10,7 @@
 //! directly gets the same refusals without this layer.
 
 pub(crate) mod battery;
+pub(crate) mod chassis;
 pub(crate) mod ports;
 pub(crate) mod power_led;
 pub(crate) mod touchpad;
@@ -49,13 +50,15 @@ pub(crate) async fn serve_all(
         touchscreen,
         power_led,
         ports,
+        chassis,
     } = devices;
     server.at(OBJECT_PATH, root).await?;
     serve_one(server, &service, battery).await?;
     serve_one(server, &service, touchpad).await?;
     serve_one(server, &service, touchscreen).await?;
     serve_one(server, &service, power_led).await?;
-    serve_one(server, &service, ports).await
+    serve_one(server, &service, ports).await?;
+    serve_one(server, &service, chassis).await
 }
 
 #[derive(Clone, Copy)]

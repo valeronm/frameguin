@@ -8,6 +8,7 @@
 //! and a caller linking this crate directly has already got past it.
 
 pub mod battery;
+pub mod chassis;
 pub(crate) mod display;
 pub(crate) mod mainboard;
 pub(crate) mod memory;
@@ -20,6 +21,7 @@ pub mod touchscreen;
 use std::sync::Arc;
 
 use crate::device::battery::Battery;
+use crate::device::chassis::Chassis;
 use crate::device::display::Display;
 use crate::device::mainboard::Mainboard;
 use crate::device::memory::Module;
@@ -42,6 +44,7 @@ pub struct Devices {
     pub touchscreen: Option<Touchscreen>,
     pub power_led: Option<PowerLed>,
     pub ports: Option<Ports>,
+    pub chassis: Option<Chassis>,
 }
 
 pub struct Detected {
@@ -91,6 +94,7 @@ pub fn detect() -> Detected {
             touchscreen,
             power_led,
             ports: ec.as_ref().and_then(Ports::detect),
+            chassis: ec.as_ref().and_then(Chassis::detect),
         },
         parts,
         restore: mirrors.restore(),

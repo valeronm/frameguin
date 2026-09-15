@@ -74,6 +74,8 @@ Every heading in the file appears here.
   - [A disabled controller keeps reporting what it last saw](#a-disabled-controller-keeps-reporting-what-it-last-saw)
   - [Disabling a controller's ports](#disabling-a-controllers-ports)
   - [USB-C port persistence](#usb-c-port-persistence)
+- [Chassis and privacy switches](#chassis-and-privacy-switches)
+  - [The chassis open switch](#the-chassis-open-switch)
 - [Sources](#sources)
 
 ## What survives what
@@ -1080,6 +1082,41 @@ walked on the machine, though, so the reboot column is an expectation and the
 mask [written back](#disabling-a-controllers-ports) is still the only recovery
 anything has demonstrated.
 
+## Chassis and privacy switches
+
+Switches the EC reads on its own pins and reports by host command.
+
+### The chassis open switch
+
+`EC_CMD_CHASSIS_OPEN_CHECK` (`0x3E0F`) reads the switch's pin on the spot,
+active low, and answers 1 for open. The Laptop 13 Pro's firmware reads it on
+the pin the Laptop 13 Intel Core Ultra board's devicetree names, which the
+Pro's includes.
+
+`EC_CMD_CHASSIS_INTRUSION` (`0x3E09`) reads four bytes of battery-backed RAM
+when both of its request bytes are zero, and writes instead when either is
+not: `0xCE` in the first zeroes both counts and stamps a marker, anything
+nonzero in the second clears the opened flag. Either write answers success
+with an empty response, which `framework_lib`'s typed send reports as a size
+error after the write has landed.
+
+- `chassis_ever_opened` is set by any opening and cleared only by that second
+  write, which nothing in the EC sends: a Laptop 13 Pro reads it 0 beside a
+  `vtr_open_count` of 1.
+- `coin_batt_ever_remove` is the marker's slot, `0xEC` once the counts have
+  been zeroed by command and 0 where they never were. `framework_lib` compares
+  it with 1, so its "coin cell ever removed" is false on every board.
+- `total_open_count` counts openings while the EC runs.
+- `vtr_open_count` counts the times the EC started with the chassis already
+  open.
+
+Both counts stop at 255.
+
+`EC_CMD_CHASSIS_COUNTER` (`0x3E15`) answers how many times the chassis opened
+while the machine was off and zeroes that count as it answers. The firmware
+keeps it for the BIOS to collect at POST, so a read from the host takes it
+away.
+
 ## Sources
 
 - [FrameworkComputer/EmbeddedController](https://github.com/FrameworkComputer/EmbeddedController)
@@ -1096,7 +1133,9 @@ anything has demonstrated.
   port-enable write and the reset path; `board_host_command.c` the port-state
   host command; the `ucsi_port_*.c` files the per-board connector maps; and
   each board's `project.conf` its controller count and whether the controllers
-  are reset before an EC reboot. `driver/charger/` holds each charger part's
+  are reset before an EC reboot. `chassis.c` under the same `src/` holds the
+  chassis switch's host commands and its counts.
+  `driver/charger/` holds each charger part's
   driver, where a measured input current is read off the AMON pin against the
   ADC channels a board's devicetree declares. The default branch carries a
   README mapping each system and CPU to its EC codename and the branch holding

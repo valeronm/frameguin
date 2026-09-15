@@ -134,7 +134,7 @@ pub(super) fn add(sidebar: &Rc<Sidebar>, feed: &Rc<Feed>, battery: &Battery<Bus>
     let wants = Wants {
         battery: true,
         condition,
-        ports: false,
+        ..Wants::default()
     };
     show_while_mapped(feed, &page, wants, move |reading| report.show(reading));
 }

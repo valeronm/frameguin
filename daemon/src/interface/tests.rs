@@ -8,6 +8,7 @@ use std::time::Duration;
 use async_io::Async;
 use frameguin_hardware::device::Devices;
 use frameguin_hardware::device::battery::Battery;
+use frameguin_hardware::device::chassis::Chassis;
 use frameguin_hardware::device::ports::Ports;
 use frameguin_hardware::device::power_led::PowerLed;
 use frameguin_hardware::device::touchpad::Touchpad;
@@ -16,8 +17,8 @@ use frameguin_hardware::mirror::Mirrors;
 use frameguin_hardware::part::Identity;
 use frameguin_hardware::restore::Restore;
 use frameguin_hardware::testing::{
-    Connectors, EC_BOOT, EcCharger, Gauge, Haptic, LedEc, Leds, Memory, Route, battery_identity,
-    block, display_identity, mirrors, touchpad_identity,
+    Connectors, Cover, EC_BOOT, EcCharger, Gauge, Haptic, LedEc, Leds, Memory, Route,
+    battery_identity, block, display_identity, mirrors, touchpad_identity,
 };
 use frameguin_wire::{
     BatteryFeature, ClickForce, DeviceError, FrameguinProxy, NO_CHARGE_CURRENT_LIMIT, PortPartner,
@@ -81,6 +82,7 @@ impl Machine {
                 mirrors,
             )),
             ports: Ports::new(Arc::new(Connectors::default())),
+            chassis: Chassis::new(Arc::new(Cover::default())),
         }
     }
 }
@@ -239,6 +241,7 @@ fn every_getter_answers_through_its_proxy() {
         assert_eq!(ports[0].partner, PortPartner::Source);
         assert!(!ports[1].charging);
         assert_eq!(ports[1].partner, PortPartner::Nothing);
+        assert_eq!(p.chassis.get_state().await.unwrap(), Cover::default().state);
     });
 }
 
@@ -441,6 +444,7 @@ fn a_device_detection_did_not_find_is_not_on_the_bus() {
         assert!(p.touchpad.get_click_force().await.is_ok());
         assert!(p.power_led.get_brightness().await.is_ok());
         assert!(p.ports.get_ports().await.is_ok());
+        assert!(p.chassis.get_state().await.is_ok());
     });
 }
 
@@ -458,5 +462,20 @@ fn a_board_with_no_ports_serves_no_ports_interface() {
     peer.run(|p| async move {
         assert!(absent(p.ports.get_ports().await));
         assert!(p.battery.get_charge_limit().await.is_ok());
+    });
+}
+
+#[test]
+fn a_board_without_the_chassis_commands_serves_no_chassis_interface() {
+    let peer = serve_devices(
+        true,
+        Devices {
+            chassis: None,
+            ..devices()
+        },
+    );
+    peer.run(|p| async move {
+        assert!(absent(p.chassis.get_state().await));
+        assert!(p.ports.get_ports().await.is_ok());
     });
 }

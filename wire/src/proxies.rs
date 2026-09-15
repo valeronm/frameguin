@@ -2,8 +2,8 @@
 //! name and path.
 
 use crate::vocabulary::{
-    BUS_NAME, BatteryCondition, BatteryFeature, BatteryInfo, ClickForce, Identity, OBJECT_PATH,
-    PortState, PowerLedLevel,
+    BUS_NAME, BatteryCondition, BatteryFeature, BatteryInfo, ChassisState, ClickForce, Identity,
+    OBJECT_PATH, PortState, PowerLedLevel,
 };
 
 /// Any of the proxies below, on the daemon's one name and path.
@@ -105,6 +105,15 @@ pub trait Ports {
     async fn get_ports(&self) -> zbus::Result<Vec<PortState>>;
 }
 
+/// Absent from the bus where the EC does not answer the chassis commands.
+#[zbus::proxy(
+    interface = "io.github.valeronm.Frameguin1.Chassis",
+    gen_blocking = false
+)]
+pub trait Chassis {
+    async fn get_state(&self) -> zbus::Result<ChassisState>;
+}
+
 /// Every device interface's proxy, dialled together: the one list of what
 /// the daemon can serve, so a caller at either end cannot hold a shorter
 /// one.
@@ -115,6 +124,7 @@ pub struct Proxies {
     pub touchscreen: TouchscreenProxy<'static>,
     pub power_led: PowerLedProxy<'static>,
     pub ports: PortsProxy<'static>,
+    pub chassis: ChassisProxy<'static>,
 }
 
 impl Proxies {
@@ -128,6 +138,7 @@ impl Proxies {
             touchscreen: proxy(conn).await?,
             power_led: proxy(conn).await?,
             ports: proxy(conn).await?,
+            chassis: proxy(conn).await?,
         })
     }
 }

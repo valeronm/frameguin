@@ -77,6 +77,10 @@ pub trait PdPorts: Send + Sync {
     fn port_state(&self, port: u8) -> DeviceResult<Option<wire::PortState>>;
 }
 
+pub trait ChassisEc: Send + Sync {
+    fn chassis(&self) -> DeviceResult<wire::ChassisState>;
+}
+
 /// What the battery's device needs of the charger: the ceiling, and the
 /// current cap.
 pub trait Charger: Send + Sync {
@@ -306,6 +310,19 @@ impl PdPorts for Ec {
             Err(EcError::Response(EcResponseStatus::InvalidParameter)) => Ok(None),
             Err(e) => Err(device_error(e)),
         }
+    }
+}
+
+impl ChassisEc for Ec {
+    /// `get_intrusion_status` sends the intrusion command with both clear
+    /// bytes zero, the one form of it that only reads.
+    fn chassis(&self) -> DeviceResult<wire::ChassisState> {
+        let status = self.ec().get_intrusion_status().map_err(device_error)?;
+        Ok(wire::ChassisState {
+            open: status.currently_open,
+            opened: status.total_opened,
+            found_open: status.vtr_open_count,
+        })
     }
 }
 

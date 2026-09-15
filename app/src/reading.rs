@@ -34,7 +34,7 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
-use frameguin_wire::{BatteryCondition, BatteryInfo, DeviceResult, PortState};
+use frameguin_wire::{BatteryCondition, BatteryInfo, ChassisState, DeviceResult, PortState};
 use gtk4 as gtk;
 use gtk4::glib;
 use gtk4::prelude::*;
@@ -63,9 +63,13 @@ const CONDITION_EVERY: u32 = 5;
 ///
 /// A set rather than a flag apiece in the signatures below: each extra is its
 /// own call to the daemon, over a connection whose calls block one another, so
-/// a view showing none of them must cost none of them — and a third extra
+/// a view showing none of them must cost none of them — and a new extra
 /// should be a field here rather than another parameter everywhere.
 #[derive(Clone, Copy, Default)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "each flag is an independent extra a view asks for; `with` merges them by OR, and no combination is invalid"
+)]
 pub(crate) struct Wants {
     /// The EC's battery block.
     pub(crate) battery: bool,
@@ -74,6 +78,9 @@ pub(crate) struct Wants {
     /// past its own host commands, so this rides the base cadence rather
     /// than being spaced the way the condition is.
     pub(crate) ports: bool,
+    /// Two host commands and no transfer past them: cheap enough for every
+    /// tick.
+    pub(crate) chassis: bool,
 }
 
 impl Wants {
@@ -83,6 +90,7 @@ impl Wants {
             battery: self.battery || other.battery,
             condition: self.condition || other.condition,
             ports: self.ports || other.ports,
+            chassis: self.chassis || other.chassis,
         }
     }
 }
@@ -99,6 +107,7 @@ pub(crate) struct Reading {
     pub(crate) info: Option<BatteryInfo>,
     pub(crate) condition: Option<BatteryCondition>,
     pub(crate) ports: Option<Vec<PortState>>,
+    pub(crate) chassis: Option<ChassisState>,
 }
 
 type Show = dyn Fn(&Reading);
@@ -290,10 +299,15 @@ impl Feed {
             Some(ports) => Some(ports.read().await?),
             None => None,
         };
+        let chassis = match controls.chassis.as_ref().filter(|_| wants.chassis) {
+            Some(chassis) => Some(chassis.read().await?),
+            None => None,
+        };
         let reading = Reading {
             info,
             condition,
             ports,
+            chassis,
         };
         // Copied out of the list before anything is shown: a view may drop its
         // subscription from inside its own call, and the borrow would still be

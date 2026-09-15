@@ -4,9 +4,9 @@ use std::task::{Context, Poll, Waker};
 
 use frameguin_wire::{
     BatteryCondition, BatteryControl, BatteryFeature, BatteryInfo, BatteryState, CcPolarity,
-    ChargeFlow, ClickForce, DataRole, DeviceError, DeviceResult, Epr, NO_CHARGE_CURRENT_LIMIT,
-    PortPartner, PortState, PortsControl, PowerLedControl, PowerLedLevel, PowerRole,
-    TouchpadControl, TouchscreenControl,
+    ChargeFlow, ChassisControl, ChassisState, ClickForce, DataRole, DeviceError, DeviceResult, Epr,
+    NO_CHARGE_CURRENT_LIMIT, PortPartner, PortState, PortsControl, PowerLedControl, PowerLedLevel,
+    PowerRole, TouchpadControl, TouchscreenControl,
 };
 
 /// A 4640 mAh pack, the Laptop 13's.
@@ -80,9 +80,9 @@ pub(crate) fn absent() -> DeviceError {
     DeviceError::Absent("no such interface".into())
 }
 
-/// A board of four columns, each answering as its own fault says and
-/// remembering what it was written. The one stub implementing all four
-/// traits: detecting the set at once asks for that, and a control asks only
+/// A board of every column, each answering as its own fault says and
+/// remembering what it was written. The one stub implementing every control
+/// trait: detecting the set at once asks for that, and a control asks only
 /// its own column.
 pub(crate) struct Board {
     pub(crate) battery: Fault,
@@ -90,6 +90,7 @@ pub(crate) struct Board {
     pub(crate) touchscreen: Fault,
     pub(crate) power_led: Fault,
     pub(crate) ports: Fault,
+    pub(crate) chassis: Fault,
     pub(crate) limit: Cell<u8>,
     pub(crate) cap: Cell<u32>,
     pub(crate) haptic_intensity: Cell<u8>,
@@ -107,6 +108,7 @@ impl Default for Board {
             touchscreen: Fault::default(),
             power_led: Fault::default(),
             ports: Fault::default(),
+            chassis: Fault::default(),
             limit: Cell::new(100),
             cap: Cell::new(NO_CHARGE_CURRENT_LIMIT),
             haptic_intensity: Cell::new(50),
@@ -129,7 +131,8 @@ impl Board {
             touchpad: Fault::failing(error.clone()),
             touchscreen: Fault::failing(error.clone()),
             power_led: Fault::failing(error.clone()),
-            ports: Fault::failing(error),
+            ports: Fault::failing(error.clone()),
+            chassis: Fault::failing(error),
             ..Self::default()
         })
     }
@@ -226,6 +229,16 @@ pub(crate) fn port(index: u8) -> PortState {
 impl PortsControl for Board {
     async fn ports(&self) -> DeviceResult<Vec<PortState>> {
         self.ports.read((0..4).map(port).collect())
+    }
+}
+
+impl ChassisControl for Board {
+    async fn state(&self) -> DeviceResult<ChassisState> {
+        self.chassis.read(ChassisState {
+            open: false,
+            opened: 2,
+            found_open: 1,
+        })
     }
 }
 
