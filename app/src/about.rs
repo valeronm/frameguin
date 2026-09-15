@@ -220,19 +220,23 @@ pub(crate) fn show(parent: Option<&gtk::Window>) {
         "Framework",
         None,
         gtk::License::Custom,
-        Some(TRADEMARK_NOTICE),
+        Some(&legal_markup(TRADEMARK_NOTICE)),
     );
     about.add_legal_section(
         "framework_lib",
         None,
         gtk::License::Custom,
-        Some(include_str!("../data/framework_lib/LICENSE.md")),
+        Some(&legal_markup(concat!(
+            include_str!("../data/framework_lib/COPYING"),
+            "\n",
+            include_str!("../data/framework_lib/LICENSE.md")
+        ))),
     );
     about.add_legal_section(
         "Tux",
-        Some("© Larry Ewing, Simon Budig"),
+        None,
         gtk::License::Custom,
-        Some(TUX_CREDIT),
+        Some(&legal_markup(include_str!("../data/tux/COPYING"))),
     );
 
     let filling = about.clone();
@@ -247,9 +251,28 @@ pub(crate) fn show(parent: Option<&gtk::Window>) {
     }
 }
 
-const TUX_CREDIT: &str = "Drawn by Larry Ewing with The GIMP, vectorized by Simon Budig, and \
-    redrawn by Garrett LeSage and IFo Hancroft. These drawings are copyrighted by Larry Ewing \
-    and Simon Budig, redistribution is free but has to include this README/Copyright notice.";
+// libadwaita renders a legal section as Pango markup in a wrapping label, and
+// the license files included here are hard-wrapped.
+fn legal_markup(text: &str) -> String {
+    text.split("\n\n")
+        .map(|paragraph| {
+            paragraph
+                .split_whitespace()
+                .map(|word| {
+                    let word = glib::markup_escape_text(word);
+                    if word.starts_with("https://") {
+                        format!("<a href=\"{word}\">{word}</a>")
+                    } else {
+                        word.to_string()
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(" ")
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
+
 const TRADEMARK_NOTICE: &str = "“Framework” and the gear logo are trademarks of Framework \
     Computer Inc. Frameguin is a community project, not affiliated with or endorsed by \
     Framework Computer Inc.";
@@ -435,6 +458,19 @@ fn tux_texture(height: f32) -> Option<gdk::Texture> {
 
 #[cfg(test)]
 mod tests {
+    use super::legal_markup;
+
+    #[test]
+    fn lines_join_urls_link_and_markup_characters_escape() {
+        assert_eq!(
+            legal_markup(
+                "Redrawn by Garrett LeSage & IFo Hancroft:\n   https://github.com/garrett/Tux\n\n<b>"
+            ),
+            "Redrawn by Garrett LeSage &amp; IFo Hancroft: \
+             <a href=\"https://github.com/garrett/Tux\">https://github.com/garrett/Tux</a>\n\n&lt;b&gt;"
+        );
+    }
+
     #[test]
     fn the_icon_still_draws_the_hole_tux_is_clipped_to() {
         let icon = include_str!("../../data/icons/io.github.valeronm.Frameguin.svg");

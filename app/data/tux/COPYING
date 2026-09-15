@@ -1,11 +1,8 @@
-tux.svg is Tux, the Linux penguin, as published on Wikimedia Commons:
+Tux, the Linux penguin, as published on Wikimedia Commons:
 https://commons.wikimedia.org/wiki/File:Tux.svg
 
-Original illustration by Larry Ewing (lewing@isc.tamu.edu), made with The
-GIMP. Its use is permitted provided Larry Ewing and The GIMP are attributed.
+Public domain (CC0): https://creativecommons.org/publicdomain/zero/1.0/
 
-Vectorized by Simon Budig, whose README accompanies this file as
-README.budig, as its copyright notice requires.
-
-Redrawn in Inkscape by Garrett LeSage and refined by IFo Hancroft, released
-into the public domain (CC0): https://github.com/garrett/Tux
+Tux was originally made by Larry Ewing in the GIMP, re-illustrated in vector
+by Garrett LeSage using Inkscape, and refined and cleaned up by IFo Hancroft:
+https://github.com/garrett/Tux
