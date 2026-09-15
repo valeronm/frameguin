@@ -100,9 +100,8 @@ and the privacy switches put nothing in the main window at all; their
 columns end at the Status window. The battery extender is a feature of the
 battery's column rather than a column of its own, and still takes a Status
 section beside the battery's: a section is drawn for what a reader looks
-for, not for the column behind it. By the same measure the keyboard deck, a
-feature of the chassis, is a row on the Chassis page, the deck being the cover
-the chassis switch watches.
+for, not for the column behind it. By the same measure the input deck, a
+feature of the chassis, is a row on the Chassis page.
 
 | Layer | Crate | Links | Owns | Must not know | Tested against |
 |---|---|---|---|---|---|

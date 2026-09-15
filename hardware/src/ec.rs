@@ -333,7 +333,7 @@ impl ChassisEc for Ec {
     }
 
     /// Any mode but `ReadOnly` sets the deck's detection mode, and forcing it
-    /// off cuts the keyboard and touchpad.
+    /// off cuts the deck's power.
     fn deck_state(&self) -> DeviceResult<wire::DeckState> {
         let request = EcRequestDeckState {
             mode: DeckStateMode::ReadOnly,

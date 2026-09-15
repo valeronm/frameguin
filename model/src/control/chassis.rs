@@ -1,4 +1,4 @@
-//! The chassis open switch and the keyboard deck: their reads, and the words a
+//! The chassis open switch and the input deck: their reads, and the words a
 //! reader needs for them.
 
 use std::rc::Rc;
@@ -49,9 +49,32 @@ pub fn deck_label(state: DeckState) -> &'static str {
     }
 }
 
-#[must_use]
-pub fn state_label(open: bool) -> &'static str {
+fn state_label(open: bool) -> &'static str {
     if open { "Open" } else { "Closed" }
+}
+
+/// On is the state of a deck detected as usual.
+#[must_use]
+pub fn chassis_summary(open: bool, deck: Option<DeckState>) -> String {
+    match deck {
+        Some(deck) if deck != DeckState::On => {
+            format!("{} · Input deck {}", state_label(open), deck_inline(deck))
+        }
+        _ => state_label(open).to_owned(),
+    }
+}
+
+/// [`deck_label`]'s words for the middle of a line.
+fn deck_inline(state: DeckState) -> &'static str {
+    match state {
+        DeckState::Off => "off",
+        DeckState::Disconnected => "not detected",
+        DeckState::TurningOn => "detecting",
+        DeckState::On => "on",
+        DeckState::ForceOff => "forced off",
+        DeckState::ForceOn => "forced on",
+        DeckState::NoDetection => "on without detection",
+    }
 }
 
 #[must_use]
@@ -75,7 +98,7 @@ pub fn times_label(count: u8) -> String {
 mod tests {
     use frameguin_wire::{ChassisFeature, DeckState, DeviceError};
 
-    use super::{Chassis, deck_label, open_now_label, state_label, times_label};
+    use super::{Chassis, chassis_summary, deck_label, open_now_label, state_label, times_label};
     use crate::testing::{Board, absent, ready};
 
     #[test]
@@ -96,6 +119,16 @@ mod tests {
         let error = DeviceError::Failed("no reply".into());
         let board = Board::failing(error.clone());
         assert_eq!(ready(Chassis::detect(&board)).err(), Some(error));
+    }
+
+    #[test]
+    fn the_summary_names_the_deck_only_when_it_is_not_on() {
+        assert_eq!(chassis_summary(false, Some(DeckState::On)), "Closed");
+        assert_eq!(chassis_summary(true, None), "Open");
+        assert_eq!(
+            chassis_summary(false, Some(DeckState::ForceOn)),
+            "Closed · Input deck forced on"
+        );
     }
 
     #[test]

@@ -78,7 +78,7 @@ Every heading in the file appears here.
 - [Chassis and privacy switches](#chassis-and-privacy-switches)
   - [The chassis open switch](#the-chassis-open-switch)
   - [The privacy switches](#the-privacy-switches)
-  - [The keyboard deck](#the-keyboard-deck)
+  - [The input deck](#the-input-deck)
 - [Sources](#sources)
 
 ## What survives what
@@ -1150,7 +1150,7 @@ anything has demonstrated.
 ## Chassis and privacy switches
 
 Switches the EC reads on its own pins and reports by host command, and the
-keyboard deck whose power it gates on detecting it.
+input deck whose power it gates on detecting it.
 
 ### The chassis open switch
 
@@ -1201,10 +1201,10 @@ positions. The 11th generation Intel board's pin table names the camera pin a
 monitor of the camera's power, which fits what the Pro shows; which boards, if
 any, carry the camera slider on that pin is untested.
 
-### The keyboard deck
+### The input deck
 
-The EC powers the keyboard and touchpad deck only once it detects it, polling
-every 10 ms while the host is on (`input_module_13.c`, `input_module.c` on the
+The EC powers the input deck only once it detects it, polling every 10 ms
+while the host is on (`input_module_13.c`, `input_module.c` on the
 Laptop 16). On a Laptop 13 the detection is the touchpad board's ID resistor
 read on an ADC pin, and its band depends on the deck's own rail: with the rail
 off an ID above 10 is no touchpad, with it on an ID below 1 is none. So the
@@ -1216,10 +1216,10 @@ no table in the firmware names those bands for these boards.
 off with the host, disconnected, turning on, on, forced off, forced on, or
 powered without detection. Its mode byte reads at 0 and writes otherwise: 1
 returns to detection, 2 forces the deck on, and 4 forces it off, cutting the
-keyboard and touchpad of a running machine. The mode is saved to flash
+deck's power on a running machine. The mode is saved to flash
 (`FLASH_FLAGS_INPUT_MODULE_POWER` in `board_function.c`), so a forced deck
-stays forced across an EC restart, and a deck forced on stays powered with its
-cover lifted. A usable machine reads on unless forced. Every Zephyr Framework
+stays forced across an EC restart, and a deck forced on stays powered whether
+or not it is detected. A usable machine reads on unless forced. Every Zephyr Framework
 branch carries the command; `hx20` and `hx30` do not.
 
 ## Sources
@@ -1242,7 +1242,7 @@ branch carries the command; `hx20` and `hx30` do not.
   chassis switch's host commands and its counts, `board_host_command.c`
   the privacy switches', `battery_extender.c` the battery extender and the
   charge limit's host command, and `input_module_13.c` the Laptop 13's
-  keyboard deck detection.
+  input deck detection.
   `driver/charger/` holds each charger part's
   driver, where a measured input current is read off the AMON pin against the
   ADC channels a board's devicetree declares. The default branch carries a

@@ -1,4 +1,4 @@
-//! The chassis open switch, and the keyboard deck's power state, read and
+//! The chassis open switch, and the input deck's power state, read and
 //! never set.
 
 use std::sync::Arc;

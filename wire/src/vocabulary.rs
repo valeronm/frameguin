@@ -392,7 +392,7 @@ pub enum ChassisFeature {
     Deck,
 }
 
-/// The EC's power state for the keyboard deck.
+/// The EC's power state for the input deck.
 #[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug)]
 #[zvariant(crate = "zbus::zvariant", signature = "s")]
 #[serde(rename_all = "kebab-case")]
