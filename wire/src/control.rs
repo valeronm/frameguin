@@ -11,8 +11,8 @@
 
 use crate::error::DeviceResult;
 use crate::vocabulary::{
-    BatteryCondition, BatteryFeature, BatteryInfo, ChassisState, ClickForce, PortState,
-    PowerLedLevel, PrivacyState,
+    BatteryCondition, BatteryFeature, BatteryInfo, ChassisState, ClickForce, ExtenderState,
+    PortState, PowerLedLevel, PrivacyState,
 };
 
 pub trait TouchpadControl {
@@ -102,4 +102,6 @@ pub trait BatteryControl {
     ///
     /// [`NO_CHARGE_CURRENT_LIMIT`]: crate::NO_CHARGE_CURRENT_LIMIT
     async fn set_charge_current_limit(&self, milliamps: u32) -> DeviceResult<bool>;
+    /// Offered only under [`BatteryFeature::Extender`].
+    async fn extender(&self) -> DeviceResult<ExtenderState>;
 }

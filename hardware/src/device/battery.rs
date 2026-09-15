@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use frameguin_wire::{
     BatteryCondition, BatteryControl, BatteryFeature, BatteryInfo, DeviceError, DeviceResult,
-    MIN_CHARGE_LIMIT, NO_CHARGE_CURRENT_LIMIT,
+    ExtenderState, MIN_CHARGE_LIMIT, NO_CHARGE_CURRENT_LIMIT,
 };
 
 use crate::ec::{Charger, Ec, Pack};
@@ -44,7 +44,8 @@ impl Battery {
     /// passthrough working, which nothing about a readable block promises.
     /// The current cap needs the command and the pack both: a limit is only
     /// ever expressed as a share of what the pack asks for, and the pack is
-    /// what this device's presence already vouches for.
+    /// what this device's presence already vouches for. The extender is
+    /// probed by its getter's own read.
     pub fn new(
         pack: Arc<dyn Pack>,
         charger: Arc<dyn Charger>,
@@ -60,6 +61,9 @@ impl Battery {
         }
         if charger.charge_current_limit_supported() {
             features.push(BatteryFeature::ChargeCurrentLimit);
+        }
+        if charger.extender().is_ok() {
+            features.push(BatteryFeature::Extender);
         }
         Self {
             pack,
@@ -176,6 +180,10 @@ impl BatteryControl for Battery {
         self.wanted_current_limit.set(cap.as_ref());
         Ok(true)
     }
+
+    async fn extender(&self) -> DeviceResult<ExtenderState> {
+        self.charger.extender()
+    }
 }
 
 #[cfg(test)]
@@ -189,11 +197,18 @@ mod tests {
     use crate::lifetime::EcBoot;
     use crate::mirror::{Mirrors, evidence_key};
     use crate::state::Store;
-    use crate::testing::{EC_BOOT, EC_RESTARTED, EcCharger, Gauge, Memory, block, mirrors, ready};
+    use crate::testing::{
+        EC_BOOT, EC_RESTARTED, EXTENDER, EcCharger, Gauge, Memory, block, mirrors, ready,
+    };
 
+    #[allow(
+        clippy::struct_excessive_bools,
+        reason = "each flag is one probe the stub answers or refuses; every combination is a board"
+    )]
     struct Machine {
         condition: bool,
         caps: bool,
+        extender: bool,
         refusing: bool,
         ec_boot: Option<EcBoot>,
     }
@@ -201,6 +216,7 @@ mod tests {
     const FULL: Machine = Machine {
         condition: true,
         caps: true,
+        extender: true,
         refusing: false,
         ec_boot: Some(EC_BOOT),
     };
@@ -231,6 +247,7 @@ mod tests {
         });
         let ec = Arc::new(EcCharger {
             caps: machine.caps,
+            extender: machine.extender,
             refusing: machine.refusing,
             ..EcCharger::default()
         });
@@ -250,13 +267,15 @@ mod tests {
             Ok(vec![
                 BatteryFeature::Condition,
                 BatteryFeature::ChargeLimit,
-                BatteryFeature::ChargeCurrentLimit
+                BatteryFeature::ChargeCurrentLimit,
+                BatteryFeature::Extender
             ])
         );
         let bare = over(
             &Machine {
                 condition: false,
                 caps: false,
+                extender: false,
                 ..FULL
             },
             &store,
@@ -266,6 +285,14 @@ mod tests {
             Ok(vec![BatteryFeature::ChargeLimit])
         );
         assert!(ready(bare.battery.condition()).is_err());
+        assert!(ready(bare.battery.extender()).is_err());
+    }
+
+    #[test]
+    fn the_extender_is_read_from_the_charger() {
+        let store = Arc::new(Memory::default());
+        let Bench { battery, .. } = over(&FULL, &store);
+        assert_eq!(ready(battery.extender()), Ok(EXTENDER));
     }
 
     #[test]

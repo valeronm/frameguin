@@ -1,18 +1,19 @@
 //! The battery: the pack, the two limits that shape its charging, and the
 //! presets and the figures behind them. What a reading is called is
-//! [`reading`]'s.
+//! [`reading`]'s, and what the extender holds the pack at [`extender`]'s.
 //!
 //! Row order is settled here. A control that caps something starts at the
 //! setting that caps nothing and tightens down the list; the row that
 //! reveals a slider trails the presets it extends.
 
+pub mod extender;
 pub mod reading;
 
 use std::rc::Rc;
 
 use frameguin_wire::{
     BatteryCondition, BatteryControl, BatteryFeature, BatteryInfo, DeviceResult as Result,
-    NO_CHARGE_CURRENT_LIMIT,
+    ExtenderState, NO_CHARGE_CURRENT_LIMIT,
 };
 
 use super::{Custom, names, present};
@@ -69,6 +70,10 @@ impl<C: BatteryControl> Battery<C> {
 
     pub async fn set_charge_current_limit(&self, milliamps: u32) -> Result<bool> {
         self.control.set_charge_current_limit(milliamps).await
+    }
+
+    pub async fn extender(&self) -> Result<ExtenderState> {
+        self.control.extender().await
     }
 }
 
@@ -176,10 +181,9 @@ pub fn charge_limit_at(row: usize) -> Option<u8> {
     CHARGE_PRESETS.get(row).copied()
 }
 
-/// Which preset row a ceiling sits on, and `None` when it matches none — the
-/// EC's own battery extender lowers the limit unasked, and guessing the
-/// nearest preset would misreport it. The tray's answer, its menu having no
-/// Custom row.
+/// Which preset row a ceiling sits on, and `None` when it matches none —
+/// `framework_tool` can set any value, and guessing the nearest preset would
+/// misreport it. The tray's answer, its menu having no Custom row.
 #[must_use]
 pub fn charge_limit_preset_row(percent: u8) -> Option<usize> {
     CHARGE_PRESETS.iter().position(|preset| *preset == percent)

@@ -18,8 +18,8 @@ use frameguin_hardware::mirror::Mirrors;
 use frameguin_hardware::part::Identity;
 use frameguin_hardware::restore::Restore;
 use frameguin_hardware::testing::{
-    Connectors, Cover, EC_BOOT, EcCharger, Gauge, Haptic, LedEc, Leds, Memory, Route, Sliders,
-    battery_identity, block, display_identity, mirrors, touchpad_identity,
+    Connectors, Cover, EC_BOOT, EXTENDER, EcCharger, Gauge, Haptic, LedEc, Leds, Memory, Route,
+    Sliders, battery_identity, block, display_identity, mirrors, touchpad_identity,
 };
 use frameguin_wire::{
     BatteryFeature, ClickForce, DeviceError, FrameguinProxy, NO_CHARGE_CURRENT_LIMIT, PortPartner,
@@ -217,7 +217,8 @@ fn every_getter_answers_through_its_proxy() {
             [
                 BatteryFeature::Condition,
                 BatteryFeature::ChargeLimit,
-                BatteryFeature::ChargeCurrentLimit
+                BatteryFeature::ChargeCurrentLimit,
+                BatteryFeature::Extender
             ]
         );
         assert_eq!(p.battery.get_charge_limit().await.unwrap(), 100);
@@ -225,6 +226,7 @@ fn every_getter_answers_through_its_proxy() {
             p.battery.get_charge_current_limit().await.unwrap(),
             NO_CHARGE_CURRENT_LIMIT
         );
+        assert_eq!(p.battery.get_extender().await.unwrap(), EXTENDER);
         assert_eq!(
             p.power_led.get_brightness().await.unwrap(),
             (55, PowerLedLevel::High)

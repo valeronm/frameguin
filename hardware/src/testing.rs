@@ -10,8 +10,8 @@ use std::task::{Context, Poll, Waker};
 
 use frameguin_wire::{
     BatteryCondition, BatteryInfo, BatteryState, CcPolarity, ChargeFlow, ChassisState, ClickForce,
-    DataRole, Detail, DeviceError, DeviceResult, Epr, Identity, PartKind, PortPartner, PortState,
-    PowerLedLevel, PowerRole, PrivacyState,
+    DataRole, Detail, DeviceError, DeviceResult, Epr, ExtenderStage, ExtenderState, Identity,
+    PartKind, PortPartner, PortState, PowerLedLevel, PowerRole, PrivacyState,
 };
 
 use crate::ec::{Charger, ChassisEc, Pack, PdPorts, PowerLedEc, PrivacyEc};
@@ -177,6 +177,15 @@ impl Pack for Gauge {
     }
 }
 
+/// An extender two days into its countdown.
+pub const EXTENDER: ExtenderState = ExtenderState {
+    enabled: true,
+    stage: ExtenderStage::Inactive,
+    trigger_days: 5,
+    first_stage_seconds: 3 * 86_400,
+    reset_minutes: 30,
+};
+
 /// A charger holding one ceiling, taking every cap unless told to refuse
 /// them, and logging what it took.
 pub struct EcCharger {
@@ -184,6 +193,7 @@ pub struct EcCharger {
     pub caps: bool,
     pub refusing: bool,
     pub written: Mutex<Vec<u32>>,
+    pub extender: bool,
 }
 
 impl Default for EcCharger {
@@ -193,6 +203,7 @@ impl Default for EcCharger {
             caps: true,
             refusing: false,
             written: Mutex::default(),
+            extender: true,
         }
     }
 }
@@ -217,6 +228,14 @@ impl Charger for EcCharger {
 
     fn charge_current_limit_supported(&self) -> bool {
         self.caps
+    }
+
+    fn extender(&self) -> DeviceResult<ExtenderState> {
+        if self.extender {
+            Ok(EXTENDER)
+        } else {
+            Err(DeviceError::Failed("invalid command".into()))
+        }
     }
 }
 

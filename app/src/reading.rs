@@ -35,7 +35,8 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use frameguin_wire::{
-    BatteryCondition, BatteryInfo, ChassisState, DeviceResult, PortState, PrivacyState,
+    BatteryCondition, BatteryFeature, BatteryInfo, ChassisState, DeviceResult, ExtenderState,
+    PortState, PrivacyState,
 };
 use gtk4 as gtk;
 use gtk4::glib;
@@ -85,6 +86,9 @@ pub(crate) struct Wants {
     pub(crate) chassis: bool,
     /// One host command, whose handler prints two lines to the EC console.
     pub(crate) privacy_switches: bool,
+    /// The extender and the charge limit its window is weighed against: two
+    /// host commands, cheap enough for every tick.
+    pub(crate) extender: bool,
 }
 
 impl Wants {
@@ -96,6 +100,7 @@ impl Wants {
             ports: self.ports || other.ports,
             chassis: self.chassis || other.chassis,
             privacy_switches: self.privacy_switches || other.privacy_switches,
+            extender: self.extender || other.extender,
         }
     }
 }
@@ -114,6 +119,9 @@ pub(crate) struct Reading {
     pub(crate) ports: Option<Vec<PortState>>,
     pub(crate) chassis: Option<ChassisState>,
     pub(crate) privacy_switches: Option<PrivacyState>,
+    pub(crate) extender: Option<ExtenderState>,
+    /// Read beside the extender, and None on a board with no charge limit.
+    pub(crate) charge_limit: Option<u8>,
 }
 
 type Show = dyn Fn(&Reading);
@@ -329,12 +337,21 @@ impl Feed {
                 .map(|s| s.read()),
         )
         .await?;
+        let extender = wanted(battery.filter(|_| wants.extender).map(|b| b.extender())).await?;
+        let charge_limit = wanted(
+            battery
+                .filter(|b| wants.extender && b.has(BatteryFeature::ChargeLimit))
+                .map(|b| b.charge_limit()),
+        )
+        .await?;
         let reading = Reading {
             info,
             condition,
             ports,
             chassis,
             privacy_switches,
+            extender,
+            charge_limit,
         };
         // Copied out of the list before anything is shown: a view may drop its
         // subscription from inside its own call, and the borrow would still be

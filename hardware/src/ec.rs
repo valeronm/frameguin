@@ -21,10 +21,11 @@ use framework_lib::chromium_ec::commands::{
     EcRequestReadPdVersionV1, FpLedBrightnessLevel,
 };
 use framework_lib::chromium_ec::i2c_passthrough::i2c_read;
-use framework_lib::chromium_ec::{CrosEc, EcError, EcResponseStatus, EcResult};
+use framework_lib::chromium_ec::{CrosEc, CrosEcDriver, EcError, EcResponseStatus, EcResult};
 use framework_lib::power;
 
 use crate::dmi;
+use crate::extender;
 use crate::lifetime::EcBoot;
 use crate::part::{self, Identity};
 use crate::pd;
@@ -85,8 +86,8 @@ pub trait PrivacyEc: Send + Sync {
     fn privacy_switches(&self) -> DeviceResult<wire::PrivacyState>;
 }
 
-/// What the battery's device needs of the charger: the ceiling, and the
-/// current cap.
+/// What the battery's device needs of the charger: the ceiling, the current
+/// cap, and the extender that lowers where a charged pack is held.
 pub trait Charger: Send + Sync {
     fn charge_limit(&self) -> DeviceResult<u8>;
     fn set_charge_limit(&self, percent: u8) -> DeviceResult<()>;
@@ -94,6 +95,7 @@ pub trait Charger: Send + Sync {
     /// Whether the firmware implements the current cap at all, there being
     /// no readback to probe it by.
     fn charge_current_limit_supported(&self) -> bool;
+    fn extender(&self) -> DeviceResult<wire::ExtenderState>;
 }
 
 /// An EC failure as a device raises it.
@@ -415,6 +417,15 @@ impl Charger for Ec {
     /// #180), so the firmware is asked about the command itself.
     fn charge_current_limit_supported(&self) -> bool {
         self.offers(EcCommands::ChargeCurrentLimit, 0)
+    }
+
+    fn extender(&self) -> DeviceResult<wire::ExtenderState> {
+        let raw = self
+            .ec()
+            .send_command(extender::COMMAND, 0, &extender::READ_REQUEST)
+            .map_err(device_error)?;
+        extender::state(&raw)
+            .ok_or_else(|| DeviceError::Failed("the EC answered no extender state".into()))
     }
 }
 

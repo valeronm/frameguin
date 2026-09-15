@@ -2,8 +2,8 @@
 //! name and path.
 
 use crate::vocabulary::{
-    BUS_NAME, BatteryCondition, BatteryFeature, BatteryInfo, ChassisState, ClickForce, Identity,
-    OBJECT_PATH, PortState, PowerLedLevel, PrivacyState,
+    BUS_NAME, BatteryCondition, BatteryFeature, BatteryInfo, ChassisState, ClickForce,
+    ExtenderState, Identity, OBJECT_PATH, PortState, PowerLedLevel, PrivacyState,
 };
 
 /// Any of the proxies below, on the daemon's one name and path.
@@ -93,6 +93,7 @@ pub trait Battery {
     async fn set_charge_limit(&self, percent: u8) -> zbus::Result<bool>;
     async fn get_charge_current_limit(&self) -> zbus::Result<u32>;
     async fn set_charge_current_limit(&self, milliamps: u32) -> zbus::Result<bool>;
+    async fn get_extender(&self) -> zbus::Result<ExtenderState>;
 }
 
 /// The USB-C ports, on their own interface at the same path and absent from

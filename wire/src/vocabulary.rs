@@ -63,7 +63,7 @@ pub const HAPTIC_INTENSITY_LEVELS: [u8; 5] = [0, 25, 50, 75, 100];
 
 /// What a battery offers past the block every pack answers with, each a
 /// separate question of the hardware: the pack's own report over the EC's
-/// passthrough, and the two limits the charger takes.
+/// passthrough, the two limits the charger takes, and the extender's state.
 #[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug)]
 #[zvariant(crate = "zbus::zvariant", signature = "s")]
 #[serde(rename_all = "kebab-case")]
@@ -76,6 +76,35 @@ pub enum BatteryFeature {
     Condition,
     ChargeLimit,
     ChargeCurrentLimit,
+    Extender,
+}
+
+/// How far the EC's battery extender has lowered the window it holds a
+/// charged pack in.
+#[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug)]
+#[zvariant(crate = "zbus::zvariant", signature = "s")]
+#[serde(rename_all = "kebab-case")]
+pub enum ExtenderStage {
+    /// Holding nothing of its own, whether counting down or switched off.
+    Inactive,
+    First,
+    Second,
+}
+
+/// Framework's battery extender as the EC reports it.
+#[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug)]
+#[zvariant(crate = "zbus::zvariant")]
+pub struct ExtenderState {
+    pub enabled: bool,
+    pub stage: ExtenderStage,
+    /// Days from the EC's start or the last reset to the first stage.
+    pub trigger_days: u16,
+    /// Seconds left until the first stage, and 0 where no countdown runs —
+    /// the first stage reached, or the extender switched off.
+    pub first_stage_seconds: u32,
+    /// Minutes continuously off the charger that return the extender to
+    /// [`ExtenderStage::Inactive`] and restart its countdown.
+    pub reset_minutes: u16,
 }
 
 /// Something wrong with the pack, as the pack itself judges it — named rather

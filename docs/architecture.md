@@ -97,7 +97,10 @@ group, that being the question it answers: what is coming in, beside what the
 pack is doing about it — which is why that group is named for the subject
 rather than for the battery whose control it otherwise holds. The chassis
 and the privacy switches put nothing in the main window at all; their
-columns end at the Status window.
+columns end at the Status window. The battery extender is a feature of the
+battery's column rather than a column of its own, and still takes a Status
+section beside the battery's: a section is drawn for what a reader looks
+for, not for the column behind it.
 
 | Layer | Crate | Links | Owns | Must not know | Tested against |
 |---|---|---|---|---|---|

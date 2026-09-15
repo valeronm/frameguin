@@ -5,7 +5,7 @@
 
 use frameguin_wire::{
     BatteryAlarm, BatteryCondition, BatteryFeature, BatteryInfo, BatteryState, ChargeFlow,
-    ClickForce, Identity, PartKind, PowerLedLevel,
+    ClickForce, ExtenderStage, ExtenderState, Identity, PartKind, PowerLedLevel,
 };
 use zbus::zvariant::serialized::Context;
 use zbus::zvariant::{LE, Type, to_bytes};
@@ -22,6 +22,7 @@ fn every_enum_crosses_the_bus_as_a_plain_string() {
     assert_eq!(ClickForce::SIGNATURE, "s");
     assert_eq!(ChargeFlow::SIGNATURE, "s");
     assert_eq!(BatteryAlarm::SIGNATURE, "s");
+    assert_eq!(ExtenderStage::SIGNATURE, "s");
 }
 
 /// The shapes the interface actually carries, as they appear in
@@ -43,6 +44,7 @@ fn the_composite_signatures_are_the_ones_the_methods_declare() {
     // The pack's own report: cell voltages, alarms by name, and a temperature
     // in tenths of a degree.
     assert_eq!(BatteryCondition::SIGNATURE, "(auasn)");
+    assert_eq!(ExtenderState::SIGNATURE, "(bsquq)");
     assert_eq!(Identity::SIGNATURE, "(sssssssa((sy)sss)a(sv))");
 }
 
@@ -74,6 +76,14 @@ fn battery_feature_names_are_kebab_case() {
         wire_string(BatteryFeature::ChargeCurrentLimit),
         "charge-current-limit"
     );
+    assert_eq!(wire_string(BatteryFeature::Extender), "extender");
+}
+
+#[test]
+fn extender_stage_names_are_kebab_case() {
+    assert_eq!(wire_string(ExtenderStage::Inactive), "inactive");
+    assert_eq!(wire_string(ExtenderStage::First), "first");
+    assert_eq!(wire_string(ExtenderStage::Second), "second");
 }
 
 #[test]

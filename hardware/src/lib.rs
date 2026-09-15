@@ -18,7 +18,8 @@
 //! kernel's `NVMe` class. `touchscreen` settles which of two routes a
 //! machine has, and is the role over either. `sbs` is the pack's own
 //! registers and what their words mean, `pd` what the EC's cached PD
-//! controller version means, `edid` what a panel's own block says it is,
+//! controller version means, `extender` what the battery extender command
+//! carries, `edid` what a panel's own block says it is,
 //! `state` the store for what cannot be read back and what was asked for,
 //! `lifetime` what holds a mirrored value and how to tell it still does,
 //! [`mirror`] the mirror a device reads and writes such a value through,
@@ -40,6 +41,7 @@ pub(crate) mod dmi;
 pub(crate) mod drm;
 pub(crate) mod ec;
 pub(crate) mod edid;
+pub(crate) mod extender;
 pub(crate) mod gpio;
 pub(crate) mod led;
 pub(crate) mod lifetime;

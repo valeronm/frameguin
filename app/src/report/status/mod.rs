@@ -5,6 +5,7 @@
 //! sync guard, no debounce, no tray push.
 
 mod battery;
+mod battery_extender;
 mod chassis;
 mod ports;
 mod privacy_switches;
@@ -13,6 +14,7 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use adw::prelude::*;
+use frameguin_wire::BatteryFeature;
 use gtk4 as gtk;
 use gtk4::gio;
 use gtk4::glib;
@@ -113,6 +115,9 @@ fn build(
         }
         if let Some(control) = &controls.battery {
             battery::add(&sidebar, &feed, control);
+            if control.has(BatteryFeature::Extender) {
+                battery_extender::add(&sidebar, &feed);
+            }
         }
         if controls.chassis.is_some() {
             chassis::add(&sidebar, &feed);

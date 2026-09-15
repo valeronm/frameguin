@@ -62,4 +62,8 @@ impl Served<Battery> {
         self.authorize(&header).await?;
         Ok(device.set_charge_current_limit(milliamps).await?)
     }
+
+    async fn get_extender(&self) -> fdo::Result<wire::ExtenderState> {
+        Ok(self.device().extender().await?)
+    }
 }

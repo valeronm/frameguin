@@ -6,8 +6,8 @@
 
 use frameguin_wire::{
     BatteryCondition, BatteryControl, BatteryFeature, BatteryInfo, ChassisControl, ChassisState,
-    ClickForce, DeviceResult, FrameguinProxy, PortState, PortsControl, PowerLedControl,
-    PowerLedLevel, PrivacyState, PrivacySwitchesControl, Proxies, TouchpadControl,
+    ClickForce, DeviceResult, ExtenderState, FrameguinProxy, PortState, PortsControl,
+    PowerLedControl, PowerLedLevel, PrivacyState, PrivacySwitchesControl, Proxies, TouchpadControl,
     TouchscreenControl, proxy,
 };
 
@@ -61,6 +61,10 @@ impl BatteryControl for Bus {
             .battery
             .set_charge_current_limit(milliamps)
             .await?)
+    }
+
+    async fn extender(&self) -> DeviceResult<ExtenderState> {
+        Ok(self.devices.battery.get_extender().await?)
     }
 }
 

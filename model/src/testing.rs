@@ -5,8 +5,9 @@ use std::task::{Context, Poll, Waker};
 use frameguin_wire::{
     BatteryCondition, BatteryControl, BatteryFeature, BatteryInfo, BatteryState, CcPolarity,
     ChargeFlow, ChassisControl, ChassisState, ClickForce, DataRole, DeviceError, DeviceResult, Epr,
-    NO_CHARGE_CURRENT_LIMIT, PortPartner, PortState, PortsControl, PowerLedControl, PowerLedLevel,
-    PowerRole, PrivacyState, PrivacySwitchesControl, TouchpadControl, TouchscreenControl,
+    ExtenderStage, ExtenderState, NO_CHARGE_CURRENT_LIMIT, PortPartner, PortState, PortsControl,
+    PowerLedControl, PowerLedLevel, PowerRole, PrivacyState, PrivacySwitchesControl,
+    TouchpadControl, TouchscreenControl,
 };
 
 /// A 4640 mAh pack, the Laptop 13's.
@@ -176,6 +177,16 @@ impl BatteryControl for Board {
         self.battery.write()?;
         self.cap.set(milliamps);
         Ok(true)
+    }
+
+    async fn extender(&self) -> DeviceResult<ExtenderState> {
+        self.battery.read(ExtenderState {
+            enabled: true,
+            stage: ExtenderStage::Inactive,
+            trigger_days: 5,
+            first_stage_seconds: 3 * 86_400,
+            reset_minutes: 30,
+        })
     }
 }
 

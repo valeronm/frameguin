@@ -51,6 +51,7 @@ Every heading in the file appears here.
 - [Charging](#charging)
   - [Charge limit](#charge-limit)
   - [Charge current limit](#charge-current-limit)
+  - [Battery extender](#battery-extender)
   - [The charger itself](#the-charger-itself)
   - [Charging persistence](#charging-persistence)
 - [Power button LED](#power-button-led)
@@ -376,6 +377,33 @@ design capacity in mAh is numerically the 1C current in mA.
 `framework_lib::set_charge_rate_limit` does exactly this and prints the result
 as "Design Current".
 
+### Battery extender
+
+Framework's own addition beside the charge limit, in `battery_extender.c`.
+Five days (`trigger_days`) after the EC starts or the extender last reset, it
+holds a charged pack at 90–95%, and two days later at 85–87%. A reset is 30
+minutes (`reset_minutes`) continuously off the charger: being on the charger
+pushes the reset's deadline forward every second, so only an unplugged stretch
+counts, and it returns the extender to holding nothing with its countdown
+restarted. The countdown itself runs whether or not a charger is attached.
+
+**It lowers the sustainer's window, never the charge limit.** Each stage holds
+the lower of its own window and the one the charge limit sets (the limit less
+five, to the limit), so a limit at or under 95% leaves the first stage nothing
+to change and one at or under 87% the second, and the charge limit command
+answers the value in BBRAM throughout. The `BATTERY_EXTENDER_STAGE1_VOLTAGE`
+and `STAGE2_VOLTAGE` macros beside it are defined on every Framework branch
+and used by nothing, so the charge voltage is not what it moves.
+
+`EC_CMD_BATTERY_EXTENDER` (0x3E24) reads the stage, whether the extender is
+switched off, both settings, and the time left to the first stage and to the
+reset; nothing reports the time left to the second stage. The read is
+sub-command 1 and the write 0, and the write takes the `disable` byte as
+given, so an all-zero request is a write that switches a disabled extender
+back on. `framework_lib` does not implement the command, so `framework_tool`
+cannot show any of it. Every Framework firmware branch carries the same
+handler, `hx20` and `hx30` included.
+
 ### The charger itself
 
 Which part it is decides what can be asked about the power coming in, and the
@@ -389,6 +417,21 @@ So the current arriving from the wall is a limit the EC set and never a
 reading, which is a separate absence from the ports having no current of their
 own — the charger sees one node behind all four of them, so even a reading
 here would not say which port carried it.
+
+`EC_CMD_CHARGE_STATE` (`0x00A0`) restates what other reads already carry. Its
+get-state sub-command copies the charge loop's cached values: whether a
+charger is attached and the pack's charge, both in the battery block, and
+three of the charger's own registers, which hold what it was told rather than
+anything it measured. On the Laptop 13 Pro the input current limit is 95% of
+the negotiated contract's current (`board_set_charge_limit`), and the charge
+current is the current the pack asks for, lowered to the charge current limit
+— it moves between 1C, 0.5C and nothing within seconds as the pack changes
+its request. The charge voltage is the voltage the pack asks for while it
+charges; while the loop asks for nothing, `charge_request` sets it to the
+pack's present voltage plus one charger step, since the ISL9238C driver the
+RAA489108 runs under selects `CHARGER_NARROW_VDC`, which keeps the system rail
+above the pack. The set-param sub-command writes the charger's voltage,
+current, input limit and options, refused only on locked firmware.
 
 ### Charging persistence
 
@@ -1173,8 +1216,9 @@ any, carry the camera slider on that pin is untested.
   host command; the `ucsi_port_*.c` files the per-board connector maps; and
   each board's `project.conf` its controller count and whether the controllers
   are reset before an EC reboot. `chassis.c` under the same `src/` holds the
-  chassis switch's host commands and its counts, and `board_host_command.c`
-  the privacy switches'.
+  chassis switch's host commands and its counts, `board_host_command.c`
+  the privacy switches', and `battery_extender.c` the battery extender and the
+  charge limit's host command.
   `driver/charger/` holds each charger part's
   driver, where a measured input current is read off the AMON pin against the
   ADC channels a board's devicetree declares. The default branch carries a
