@@ -296,7 +296,7 @@ fn scaled(bytes: u64, base: f64) -> String {
 }
 
 /// Only a decimal is trimmed: a whole number's trailing zeros are its value.
-fn trimmed(mut spelled: String) -> String {
+pub(crate) fn trimmed(mut spelled: String) -> String {
     if spelled.contains('.') {
         spelled.truncate(spelled.trim_end_matches('0').trim_end_matches('.').len());
     }

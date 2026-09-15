@@ -56,28 +56,39 @@ pub fn negotiated(port: &PortState) -> Option<String> {
         return None;
     }
     Some(format!(
-        "{:.1} V, {:.2} A ({:.0} W)",
+        "{:.1} V, {:.2} A ({})",
         f64::from(port.millivolts) / 1000.0,
         f64::from(port.milliamps) / 1000.0,
         watts(port),
     ))
 }
 
-/// One port on one line: what is attached, and the watts of its contract
-/// where one was negotiated.
+/// The port the machine draws its power through, named as that rather than as
+/// one more charger among those that may be attached.
+pub const POWERING_THE_MACHINE: &str = "Powering the machine";
+
+/// One port on one line: what is attached, named for powering the machine
+/// where it does, and the watts of its contract where one was negotiated.
 #[must_use]
 pub fn port_summary(port: &PortState) -> String {
     let Some(partner) = partner_label(port.partner) else {
         return NOTHING_ATTACHED.to_owned();
     };
+    let partner = if port.charging {
+        POWERING_THE_MACHINE
+    } else {
+        partner
+    };
     if port.millivolts == 0 || port.milliamps == 0 {
         return partner.to_owned();
     }
-    format!("{partner} · {:.0} W", watts(port))
+    format!("{partner} · {}", watts(port))
 }
 
-fn watts(port: &PortState) -> f64 {
-    f64::from(port.millivolts) * f64::from(port.milliamps) / 1_000_000.0
+/// A negotiated contract holds still between readings.
+fn watts(port: &PortState) -> String {
+    let watts = f64::from(port.millivolts) * f64::from(port.milliamps) / 1_000_000.0;
+    format!("{} W", crate::part::trimmed(format!("{watts:.1}")))
 }
 
 /// The port the machine is drawing its power through, and None where none
@@ -97,10 +108,7 @@ pub fn powering(ports: &[PortState]) -> Option<&PortState> {
 /// shows decided by its import. The word for the absence they do share.
 #[must_use]
 pub fn supply_label(ports: &[PortState]) -> String {
-    powering(ports).map_or_else(
-        || super::NO_SUPPLY.to_owned(),
-        |port| format!("{:.0} W", watts(port)),
-    )
+    powering(ports).map_or_else(|| super::NO_SUPPLY.to_owned(), watts)
 }
 
 /// Where the power is coming in, to sit under [`supply_label`]. None where
@@ -232,6 +240,17 @@ mod tests {
     }
 
     #[test]
+    fn a_contract_short_of_a_whole_watt_keeps_its_tenth() {
+        let usb = PortState {
+            millivolts: 5_000,
+            milliamps: 1_500,
+            ..port(0)
+        };
+        assert_eq!(negotiated(&usb).as_deref(), Some("5.0 V, 1.50 A (7.5 W)"));
+        assert_eq!(supply_label(&[usb]), "7.5 W");
+    }
+
+    #[test]
     fn a_port_that_negotiated_nothing_has_no_contract_to_show() {
         assert_eq!(negotiated(&port(1)), None);
     }
@@ -283,8 +302,17 @@ mod tests {
 
     #[test]
     fn a_port_line_names_the_partner_and_the_watts_of_its_contract() {
-        assert_eq!(port_summary(&port(0)), "Supplying power · 100 W");
+        let second_charger = PortState {
+            charging: false,
+            ..port(0)
+        };
+        assert_eq!(port_summary(&second_charger), "Supplying power · 100 W");
         assert_eq!(port_summary(&port(1)), "Nothing attached");
+    }
+
+    #[test]
+    fn the_port_the_machine_draws_from_is_named_for_that_among_chargers() {
+        assert_eq!(port_summary(&port(0)), "Powering the machine · 100 W");
     }
 
     #[test]

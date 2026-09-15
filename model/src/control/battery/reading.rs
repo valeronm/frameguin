@@ -19,7 +19,8 @@ pub fn amps(milliamps: u32) -> String {
 /// The rate as power, which is the figure a charger and a machine's draw are
 /// both rated in. `None` when the pack reports no voltage, for the reason a
 /// zero rate is dropped: the number would read as a fault rather than as a
-/// reading.
+/// reading. Always to a tenth: a rate moves between readings, and a tenth
+/// dropped whenever it is zero would jump the figure between whole and not.
 fn watts(state: BatteryState) -> Option<String> {
     (state.millivolts != 0).then(|| {
         let watts = f64::from(state.milliamps) * f64::from(state.millivolts) / 1_000_000.0;

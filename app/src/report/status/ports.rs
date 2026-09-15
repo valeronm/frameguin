@@ -11,8 +11,8 @@ use std::rc::Rc;
 
 use adw::prelude::*;
 use frameguin_model::control::ports::{
-    NOTHING_ATTACHED, cc_label, contract_label, data_role_label, epr_label, negotiated,
-    partner_label, port_summary, power_role_label, vconn_label,
+    NOTHING_ATTACHED, POWERING_THE_MACHINE, cc_label, contract_label, data_role_label, epr_label,
+    negotiated, partner_label, port_summary, power_role_label, vconn_label,
 };
 use frameguin_model::port;
 use frameguin_wire::PortState;
@@ -154,7 +154,7 @@ fn group(product: &str, state: &PortState) -> adw::PreferencesGroup {
         value(&group, "Negotiated").set_label(&contract);
     }
     if state.charging {
-        value(&group, "Powering the machine").set_label("Yes");
+        value(&group, POWERING_THE_MACHINE).set_label("Yes");
     }
     if state.video {
         value(&group, "DisplayPort").set_label("Connected");
