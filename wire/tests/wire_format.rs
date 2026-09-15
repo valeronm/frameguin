@@ -5,7 +5,8 @@
 
 use frameguin_wire::{
     BatteryAlarm, BatteryCondition, BatteryFeature, BatteryInfo, BatteryState, ChargeFlow,
-    ClickForce, ExtenderStage, ExtenderState, Identity, PartKind, PowerLedLevel,
+    ChassisFeature, ClickForce, DeckState, ExtenderStage, ExtenderState, Identity, PartKind,
+    PowerLedLevel,
 };
 use zbus::zvariant::serialized::Context;
 use zbus::zvariant::{LE, Type, to_bytes};
@@ -23,6 +24,8 @@ fn every_enum_crosses_the_bus_as_a_plain_string() {
     assert_eq!(ChargeFlow::SIGNATURE, "s");
     assert_eq!(BatteryAlarm::SIGNATURE, "s");
     assert_eq!(ExtenderStage::SIGNATURE, "s");
+    assert_eq!(ChassisFeature::SIGNATURE, "s");
+    assert_eq!(DeckState::SIGNATURE, "s");
 }
 
 /// The shapes the interface actually carries, as they appear in
@@ -77,6 +80,18 @@ fn battery_feature_names_are_kebab_case() {
         "charge-current-limit"
     );
     assert_eq!(wire_string(BatteryFeature::Extender), "extender");
+}
+
+#[test]
+fn chassis_feature_and_deck_state_names_are_kebab_case() {
+    assert_eq!(wire_string(ChassisFeature::Deck), "deck");
+    assert_eq!(wire_string(DeckState::Off), "off");
+    assert_eq!(wire_string(DeckState::Disconnected), "disconnected");
+    assert_eq!(wire_string(DeckState::TurningOn), "turning-on");
+    assert_eq!(wire_string(DeckState::On), "on");
+    assert_eq!(wire_string(DeckState::ForceOff), "force-off");
+    assert_eq!(wire_string(DeckState::ForceOn), "force-on");
+    assert_eq!(wire_string(DeckState::NoDetection), "no-detection");
 }
 
 #[test]

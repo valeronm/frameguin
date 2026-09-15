@@ -1,13 +1,15 @@
-//! The chassis open switch, read and never set.
+//! The chassis open switch, and the keyboard deck's power state, read and
+//! never set.
 
 use std::sync::Arc;
 
-use frameguin_wire::{ChassisControl, ChassisState, DeviceResult};
+use frameguin_wire::{ChassisControl, ChassisFeature, ChassisState, DeckState, DeviceResult};
 
 use crate::ec::{ChassisEc, Ec};
 
 pub struct Chassis {
     ec: Arc<dyn ChassisEc>,
+    features: Vec<ChassisFeature>,
 }
 
 impl Chassis {
@@ -16,9 +18,14 @@ impl Chassis {
     }
 
     /// None where the EC refuses the read, which is how firmware without the
-    /// chassis commands answers.
+    /// chassis commands answers. The deck is probed by its getter's own read.
     pub fn new(ec: Arc<dyn ChassisEc>) -> Option<Self> {
-        ec.chassis().ok().map(|_| Self { ec })
+        ec.chassis().ok()?;
+        let mut features = Vec::new();
+        if ec.deck_state().is_ok() {
+            features.push(ChassisFeature::Deck);
+        }
+        Some(Self { ec, features })
     }
 }
 
@@ -26,13 +33,21 @@ impl ChassisControl for Chassis {
     async fn state(&self) -> DeviceResult<ChassisState> {
         self.ec.chassis()
     }
+
+    async fn features(&self) -> DeviceResult<Vec<ChassisFeature>> {
+        Ok(self.features.clone())
+    }
+
+    async fn deck_state(&self) -> DeviceResult<DeckState> {
+        self.ec.deck_state()
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
 
-    use frameguin_wire::ChassisControl;
+    use frameguin_wire::{ChassisControl, ChassisFeature, DeckState};
 
     use super::Chassis;
     use crate::testing::{Cover, ready};
@@ -41,6 +56,18 @@ mod tests {
     fn a_chassis_the_ec_answers_for_reads_what_it_answered() {
         let chassis = Chassis::new(Arc::new(Cover::default())).expect("the EC answered");
         assert_eq!(ready(chassis.state()).unwrap(), Cover::default().state);
+        assert_eq!(ready(chassis.features()), Ok(vec![ChassisFeature::Deck]));
+        assert_eq!(ready(chassis.deck_state()), Ok(DeckState::On));
+    }
+
+    #[test]
+    fn an_ec_without_the_deck_command_offers_no_deck() {
+        let ec = Cover {
+            deck: None,
+            ..Cover::default()
+        };
+        let chassis = Chassis::new(Arc::new(ec)).expect("the EC answered");
+        assert_eq!(ready(chassis.features()), Ok(Vec::new()));
     }
 
     #[test]

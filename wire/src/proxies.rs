@@ -2,8 +2,9 @@
 //! name and path.
 
 use crate::vocabulary::{
-    BUS_NAME, BatteryCondition, BatteryFeature, BatteryInfo, ChassisState, ClickForce,
-    ExtenderState, Identity, OBJECT_PATH, PortState, PowerLedLevel, PrivacyState,
+    BUS_NAME, BatteryCondition, BatteryFeature, BatteryInfo, ChassisFeature, ChassisState,
+    ClickForce, DeckState, ExtenderState, Identity, OBJECT_PATH, PortState, PowerLedLevel,
+    PrivacyState,
 };
 
 /// Any of the proxies below, on the daemon's one name and path.
@@ -113,6 +114,8 @@ pub trait Ports {
 )]
 pub trait Chassis {
     async fn get_state(&self) -> zbus::Result<ChassisState>;
+    async fn get_features(&self) -> zbus::Result<Vec<ChassisFeature>>;
+    async fn get_deck_state(&self) -> zbus::Result<DeckState>;
 }
 
 /// Absent from the bus where the EC does not answer for the privacy switches.

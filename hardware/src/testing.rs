@@ -10,8 +10,8 @@ use std::task::{Context, Poll, Waker};
 
 use frameguin_wire::{
     BatteryCondition, BatteryInfo, BatteryState, CcPolarity, ChargeFlow, ChassisState, ClickForce,
-    DataRole, Detail, DeviceError, DeviceResult, Epr, ExtenderStage, ExtenderState, Identity,
-    PartKind, PortPartner, PortState, PowerLedLevel, PowerRole, PrivacyState,
+    DataRole, DeckState, Detail, DeviceError, DeviceResult, Epr, ExtenderStage, ExtenderState,
+    Identity, PartKind, PortPartner, PortState, PowerLedLevel, PowerRole, PrivacyState,
 };
 
 use crate::ec::{Charger, ChassisEc, Pack, PdPorts, PowerLedEc, PrivacyEc};
@@ -428,6 +428,8 @@ pub struct Cover {
     pub state: ChassisState,
     /// Firmware without the chassis commands.
     pub refusing: bool,
+    /// None for firmware without the deck state command.
+    pub deck: Option<DeckState>,
 }
 
 impl Default for Cover {
@@ -439,6 +441,7 @@ impl Default for Cover {
                 found_open: 1,
             },
             refusing: false,
+            deck: Some(DeckState::On),
         }
     }
 }
@@ -449,6 +452,11 @@ impl ChassisEc for Cover {
             return Err(DeviceError::Failed("invalid command".into()));
         }
         Ok(self.state)
+    }
+
+    fn deck_state(&self) -> DeviceResult<DeckState> {
+        self.deck
+            .ok_or_else(|| DeviceError::Failed("invalid command".into()))
     }
 }
 

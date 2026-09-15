@@ -4,10 +4,10 @@ use std::task::{Context, Poll, Waker};
 
 use frameguin_wire::{
     BatteryCondition, BatteryControl, BatteryFeature, BatteryInfo, BatteryState, CcPolarity,
-    ChargeFlow, ChassisControl, ChassisState, ClickForce, DataRole, DeviceError, DeviceResult, Epr,
-    ExtenderStage, ExtenderState, NO_CHARGE_CURRENT_LIMIT, PortPartner, PortState, PortsControl,
-    PowerLedControl, PowerLedLevel, PowerRole, PrivacyState, PrivacySwitchesControl,
-    TouchpadControl, TouchscreenControl,
+    ChargeFlow, ChassisControl, ChassisFeature, ChassisState, ClickForce, DataRole, DeckState,
+    DeviceError, DeviceResult, Epr, ExtenderStage, ExtenderState, NO_CHARGE_CURRENT_LIMIT,
+    PortPartner, PortState, PortsControl, PowerLedControl, PowerLedLevel, PowerRole, PrivacyState,
+    PrivacySwitchesControl, TouchpadControl, TouchscreenControl,
 };
 
 /// A 4640 mAh pack, the Laptop 13's.
@@ -262,6 +262,14 @@ impl ChassisControl for Board {
             opened: 2,
             found_open: 1,
         })
+    }
+
+    async fn features(&self) -> DeviceResult<Vec<ChassisFeature>> {
+        self.chassis.read(vec![ChassisFeature::Deck])
+    }
+
+    async fn deck_state(&self) -> DeviceResult<DeckState> {
+        self.chassis.read(DeckState::On)
     }
 }
 

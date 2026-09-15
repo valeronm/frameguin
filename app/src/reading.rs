@@ -35,8 +35,8 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use frameguin_wire::{
-    BatteryCondition, BatteryFeature, BatteryInfo, ChassisState, DeviceResult, ExtenderState,
-    PortState, PrivacyState,
+    BatteryCondition, BatteryFeature, BatteryInfo, ChassisState, DeckState, DeviceResult,
+    ExtenderState, PortState, PrivacyState,
 };
 use gtk4 as gtk;
 use gtk4::glib;
@@ -84,6 +84,8 @@ pub(crate) struct Wants {
     /// Two host commands and no transfer past them: cheap enough for every
     /// tick.
     pub(crate) chassis: bool,
+    /// One host command. The feed does not check that the chassis offers it.
+    pub(crate) deck: bool,
     /// One host command, whose handler prints two lines to the EC console.
     pub(crate) privacy_switches: bool,
     /// The extender and the charge limit its window is weighed against: two
@@ -99,6 +101,7 @@ impl Wants {
             condition: self.condition || other.condition,
             ports: self.ports || other.ports,
             chassis: self.chassis || other.chassis,
+            deck: self.deck || other.deck,
             privacy_switches: self.privacy_switches || other.privacy_switches,
             extender: self.extender || other.extender,
         }
@@ -118,6 +121,7 @@ pub(crate) struct Reading {
     pub(crate) condition: Option<BatteryCondition>,
     pub(crate) ports: Option<Vec<PortState>>,
     pub(crate) chassis: Option<ChassisState>,
+    pub(crate) deck: Option<DeckState>,
     pub(crate) privacy_switches: Option<PrivacyState>,
     pub(crate) extender: Option<ExtenderState>,
     /// Read beside the extender, and None on a board with no charge limit.
@@ -321,12 +325,12 @@ impl Feed {
                 .map(|p| p.read()),
         )
         .await?;
-        let chassis = wanted(
-            controls
-                .chassis
-                .as_ref()
-                .filter(|_| wants.chassis)
-                .map(|c| c.read()),
+        let chassis_control = controls.chassis.as_ref();
+        let chassis = wanted(chassis_control.filter(|_| wants.chassis).map(|c| c.read())).await?;
+        let deck = wanted(
+            chassis_control
+                .filter(|_| wants.deck)
+                .map(|c| c.deck_state()),
         )
         .await?;
         let privacy_switches = wanted(
@@ -349,6 +353,7 @@ impl Feed {
             condition,
             ports,
             chassis,
+            deck,
             privacy_switches,
             extender,
             charge_limit,

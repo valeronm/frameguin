@@ -100,7 +100,9 @@ and the privacy switches put nothing in the main window at all; their
 columns end at the Status window. The battery extender is a feature of the
 battery's column rather than a column of its own, and still takes a Status
 section beside the battery's: a section is drawn for what a reader looks
-for, not for the column behind it.
+for, not for the column behind it. By the same measure the keyboard deck, a
+feature of the chassis, is a row on the Chassis page, the deck being the cover
+the chassis switch watches.
 
 | Layer | Crate | Links | Owns | Must not know | Tested against |
 |---|---|---|---|---|---|
@@ -140,7 +142,8 @@ snapshot's movement under a refused write on the app's.
   spell alike.
 - **`model/src/control/<name>.rs`**, or `<name>/` where the words outgrow
   one file — `<Name><H: <Name>Control>` holding an
-  `Rc<H>`; `detect()` by its own first read; a `read()` answering what the
+  `Rc<H>`; `detect()` by its features where its interface carries them, and
+  otherwise by its own first read; a `read()` answering what the
   device reports — a `Snapshot` (`Copy`, `Send`, so the tray can hold one)
   where that is several values, the `wire` type itself where it is one;
   commands that call the hardware; the presets, rows and labels both
@@ -268,7 +271,8 @@ backlight, which the app never showed — the desktop already carries it on
 its own keys — was dropped rather than moved.
 
 A device detects itself at both ends — in `hardware` by its own probe, in
-`model` by its own first read, which an unregistered interface answers with
+`model` by its own first read (the feature list, where its interface carries
+one), which an unregistered interface answers with
 `DeviceError::Absent`, the one kind only the bus raises, so a present
 device's own `NotSupported` cannot read as absence. There is no capability
 list: presence is the interface being on the bus, and the features a device

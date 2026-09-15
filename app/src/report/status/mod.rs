@@ -119,8 +119,8 @@ fn build(
                 battery_extender::add(&sidebar, &feed);
             }
         }
-        if controls.chassis.is_some() {
-            chassis::add(&sidebar, &feed);
+        if let Some(control) = &controls.chassis {
+            chassis::add(&sidebar, &feed, control);
         }
         if controls.privacy_switches.is_some() {
             privacy_switches::add(&sidebar, &feed);

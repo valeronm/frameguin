@@ -383,6 +383,32 @@ pub struct ChassisState {
     pub found_open: u8,
 }
 
+/// What a chassis offers past its switch, each a separate question of the
+/// hardware.
+#[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug)]
+#[zvariant(crate = "zbus::zvariant", signature = "s")]
+#[serde(rename_all = "kebab-case")]
+pub enum ChassisFeature {
+    Deck,
+}
+
+/// The EC's power state for the keyboard deck.
+#[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug)]
+#[zvariant(crate = "zbus::zvariant", signature = "s")]
+#[serde(rename_all = "kebab-case")]
+pub enum DeckState {
+    /// The host is off.
+    Off,
+    /// Powered host, no deck detected.
+    Disconnected,
+    TurningOn,
+    On,
+    ForceOff,
+    ForceOn,
+    /// Powered with the host, no presence check.
+    NoDetection,
+}
+
 /// True where a switch leaves its device connected.
 #[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug)]
 #[zvariant(crate = "zbus::zvariant")]

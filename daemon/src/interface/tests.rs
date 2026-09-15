@@ -22,8 +22,8 @@ use frameguin_hardware::testing::{
     Sliders, battery_identity, block, display_identity, mirrors, touchpad_identity,
 };
 use frameguin_wire::{
-    BatteryFeature, ClickForce, DeviceError, FrameguinProxy, NO_CHARGE_CURRENT_LIMIT, PortPartner,
-    PowerLedLevel, Proxies, proxy,
+    BatteryFeature, ChassisFeature, ClickForce, DeckState, DeviceError, FrameguinProxy,
+    NO_CHARGE_CURRENT_LIMIT, PortPartner, PowerLedLevel, Proxies, proxy,
 };
 use futures_lite::future::{block_on, or};
 use zbus::{Connection, Guid, connection};
@@ -246,6 +246,11 @@ fn every_getter_answers_through_its_proxy() {
         assert!(!ports[1].charging);
         assert_eq!(ports[1].partner, PortPartner::Nothing);
         assert_eq!(p.chassis.get_state().await.unwrap(), Cover::default().state);
+        assert_eq!(
+            p.chassis.get_features().await.unwrap(),
+            [ChassisFeature::Deck]
+        );
+        assert_eq!(p.chassis.get_deck_state().await.unwrap(), DeckState::On);
         assert_eq!(
             p.privacy_switches.get_switches().await.unwrap(),
             Sliders::default().switches

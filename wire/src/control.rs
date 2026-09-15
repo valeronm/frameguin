@@ -11,8 +11,8 @@
 
 use crate::error::DeviceResult;
 use crate::vocabulary::{
-    BatteryCondition, BatteryFeature, BatteryInfo, ChassisState, ClickForce, ExtenderState,
-    PortState, PowerLedLevel, PrivacyState,
+    BatteryCondition, BatteryFeature, BatteryInfo, ChassisFeature, ChassisState, ClickForce,
+    DeckState, ExtenderState, PortState, PowerLedLevel, PrivacyState,
 };
 
 pub trait TouchpadControl {
@@ -62,6 +62,10 @@ pub trait PortsControl {
 
 pub trait ChassisControl {
     async fn state(&self) -> DeviceResult<ChassisState>;
+    /// What this chassis offers past its switch; fixed for the device's run.
+    async fn features(&self) -> DeviceResult<Vec<ChassisFeature>>;
+    /// Offered only under [`ChassisFeature::Deck`].
+    async fn deck_state(&self) -> DeviceResult<DeckState>;
 }
 
 pub trait PrivacySwitchesControl {

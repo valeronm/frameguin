@@ -5,10 +5,10 @@
 //! [`crate::daemon::Daemon`] for who holds it.
 
 use frameguin_wire::{
-    BatteryCondition, BatteryControl, BatteryFeature, BatteryInfo, ChassisControl, ChassisState,
-    ClickForce, DeviceResult, ExtenderState, FrameguinProxy, PortState, PortsControl,
-    PowerLedControl, PowerLedLevel, PrivacyState, PrivacySwitchesControl, Proxies, TouchpadControl,
-    TouchscreenControl, proxy,
+    BatteryCondition, BatteryControl, BatteryFeature, BatteryInfo, ChassisControl, ChassisFeature,
+    ChassisState, ClickForce, DeckState, DeviceResult, ExtenderState, FrameguinProxy, PortState,
+    PortsControl, PowerLedControl, PowerLedLevel, PrivacyState, PrivacySwitchesControl, Proxies,
+    TouchpadControl, TouchscreenControl, proxy,
 };
 
 pub(crate) struct Bus {
@@ -105,6 +105,14 @@ impl PortsControl for Bus {
 impl ChassisControl for Bus {
     async fn state(&self) -> DeviceResult<ChassisState> {
         Ok(self.devices.chassis.get_state().await?)
+    }
+
+    async fn features(&self) -> DeviceResult<Vec<ChassisFeature>> {
+        Ok(self.devices.chassis.get_features().await?)
+    }
+
+    async fn deck_state(&self) -> DeviceResult<DeckState> {
+        Ok(self.devices.chassis.get_deck_state().await?)
     }
 }
 

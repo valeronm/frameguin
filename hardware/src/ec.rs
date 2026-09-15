@@ -17,8 +17,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use frameguin_wire::{self as wire, DeviceError, DeviceResult};
 use framework_lib::chromium_ec::command::{EcCommands, EcRequestRaw};
 use framework_lib::chromium_ec::commands::{
-    EcRequestGetPdPortState, EcRequestGetUptimeInfo, EcRequestReadPdVersionV0,
-    EcRequestReadPdVersionV1, FpLedBrightnessLevel,
+    DeckStateMode, EcRequestDeckState, EcRequestGetPdPortState, EcRequestGetUptimeInfo,
+    EcRequestReadPdVersionV0, EcRequestReadPdVersionV1, FpLedBrightnessLevel,
 };
 use framework_lib::chromium_ec::i2c_passthrough::i2c_read;
 use framework_lib::chromium_ec::{CrosEc, CrosEcDriver, EcError, EcResponseStatus, EcResult};
@@ -80,6 +80,7 @@ pub trait PdPorts: Send + Sync {
 
 pub trait ChassisEc: Send + Sync {
     fn chassis(&self) -> DeviceResult<wire::ChassisState>;
+    fn deck_state(&self) -> DeviceResult<wire::DeckState>;
 }
 
 pub trait PrivacyEc: Send + Sync {
@@ -330,6 +331,18 @@ impl ChassisEc for Ec {
             found_open: status.vtr_open_count,
         })
     }
+
+    /// Any mode but `ReadOnly` sets the deck's detection mode, and forcing it
+    /// off cuts the keyboard and touchpad.
+    fn deck_state(&self) -> DeviceResult<wire::DeckState> {
+        let request = EcRequestDeckState {
+            mode: DeckStateMode::ReadOnly,
+        };
+        let raw = request.send_command(&self.ec()).map_err(device_error)?;
+        wire_deck_state(raw.deck_state).ok_or_else(|| {
+            DeviceError::Failed(format!("the EC answered deck state {}", raw.deck_state))
+        })
+    }
 }
 
 impl PrivacyEc for Ec {
@@ -483,6 +496,21 @@ fn wire_power_led_level(level: Option<&FpLedBrightnessLevel>, percent: u8) -> wi
     }
 }
 
+/// Not `framework_lib`'s `InputDeckState`, whose conversion panics on a state
+/// it does not know.
+fn wire_deck_state(raw: u8) -> Option<wire::DeckState> {
+    Some(match raw {
+        0 => wire::DeckState::Off,
+        1 => wire::DeckState::Disconnected,
+        2 => wire::DeckState::TurningOn,
+        3 => wire::DeckState::On,
+        4 => wire::DeckState::ForceOff,
+        5 => wire::DeckState::ForceOn,
+        6 => wire::DeckState::NoDetection,
+        _ => return None,
+    })
+}
+
 /// The moving part of the battery block in the wire's terms, taken from a
 /// block the caller already holds rather than read for itself — so a report
 /// and the reading inside it come from one walk.
@@ -553,7 +581,17 @@ fn charge_flow(
 
 #[cfg(test)]
 mod tests {
-    use super::{ChargeSignals, charge_flow, ec_power_led_level, wire, wire_power_led_level};
+    use super::{
+        ChargeSignals, charge_flow, ec_power_led_level, wire, wire_deck_state, wire_power_led_level,
+    };
+
+    #[test]
+    fn every_deck_state_the_firmware_defines_is_named_and_no_other() {
+        assert_eq!(wire_deck_state(3), Some(wire::DeckState::On));
+        assert_eq!(wire_deck_state(5), Some(wire::DeckState::ForceOn));
+        assert_eq!(wire_deck_state(6), Some(wire::DeckState::NoDetection));
+        assert_eq!(wire_deck_state(7), None);
+    }
 
     /// A charger attached and the pack held at its ceiling: the EC claiming
     /// no direction, nothing moving. Each case below names only what it
