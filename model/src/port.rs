@@ -3,14 +3,13 @@
 //!
 //! The EC numbers a port by which controller drives it and which of that
 //! controller's two connectors it is — nothing in that number says where the
-//! socket sits. The translation is a separate table inside the firmware, it
-//! differs between boards that are otherwise alike, and `framework_lib`'s
-//! one guess at it has this machine's ports on the right sides and front and
-//! rear the wrong way round on both. So the table below holds only what is
-//! known — measured one board at a time, or fixed by the controller a
-//! port's number names where only one socket can be behind it — and a port
-//! it does not place gets no position at all: a wrong "left rear" reads
-//! exactly like a right one, where a bare port number cannot mislead anyone.
+//! socket sits, and which socket a connector reaches differs between boards
+//! that are otherwise alike. So the table below holds only what is known: the
+//! side Framework's own controller table names for a controller, a full
+//! position where a board was measured, and the back where only one socket
+//! can be behind a controller. A port it does not place gets no position at
+//! all: a wrong "left rear" reads exactly like a right one, where a bare port
+//! number cannot mislead anyone.
 //!
 //! Positions are as seen from the keyboard with the lid open, which is the
 //! only viewpoint a window on that screen can mean. Turning the machine over
@@ -18,7 +17,10 @@
 //! that way is entered here flipped.
 
 use frameguin_wire::{
-    BOARD_LAPTOP13_PRO_ULTRA_3, BOARD_LAPTOP16_AMD_7040, BOARD_LAPTOP16_AMD_AI_300,
+    BOARD_LAPTOP12_13TH_GEN, BOARD_LAPTOP12_CORE_3, BOARD_LAPTOP13_11TH_GEN,
+    BOARD_LAPTOP13_12TH_GEN, BOARD_LAPTOP13_13TH_GEN, BOARD_LAPTOP13_AMD_7040,
+    BOARD_LAPTOP13_AMD_7040_UNSPACED, BOARD_LAPTOP13_AMD_AI_300, BOARD_LAPTOP13_PRO_ULTRA_3,
+    BOARD_LAPTOP13_ULTRA_1, BOARD_LAPTOP16_AMD_7040, BOARD_LAPTOP16_AMD_AI_300,
 };
 
 /// Declared in the order ports are listed, which the derived `Ord` follows.
@@ -26,6 +28,15 @@ use frameguin_wire::{
 enum Side {
     Left,
     Right,
+}
+
+impl Side {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Left => "Left",
+            Self::Right => "Right",
+        }
+    }
 }
 
 /// Declared rear to front, the order ports along one side are listed in.
@@ -40,65 +51,99 @@ enum Depth {
     Front,
 }
 
+impl Depth {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Rear => "rear",
+            Self::Middle => "middle",
+            Self::Front => "front",
+        }
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum Position {
-    /// The derived `Ord` compares side before depth.
-    Side { side: Side, depth: Depth },
+    /// The derived `Ord` compares side before depth. No depth is a side that
+    /// was named rather than measured.
+    Side { side: Side, depth: Option<Depth> },
     /// The Laptop 16's expansion bay, whose module carries a port of its own.
     Back,
 }
 
 impl Position {
-    const fn side(side: Side, depth: Depth) -> Self {
-        Self::Side { side, depth }
+    const fn at(side: Side, depth: Depth) -> Self {
+        Self::Side {
+            side,
+            depth: Some(depth),
+        }
     }
 
-    /// Spelled as a heading.
-    fn label(self) -> &'static str {
+    /// Spelled as a heading. A side alone carries the port's number, two
+    /// sockets on one side otherwise sharing a name.
+    fn label(self, index: u8) -> String {
         match self {
-            Self::Side { side, depth } => match (side, depth) {
-                (Side::Left, Depth::Rear) => "Left rear",
-                (Side::Left, Depth::Middle) => "Left middle",
-                (Side::Left, Depth::Front) => "Left front",
-                (Side::Right, Depth::Rear) => "Right rear",
-                (Side::Right, Depth::Middle) => "Right middle",
-                (Side::Right, Depth::Front) => "Right front",
-            },
-            Self::Back => "Back",
+            Self::Side { side, depth: None } => format!("{} · {}", side.label(), number(index)),
+            Self::Side {
+                side,
+                depth: Some(depth),
+            } => format!("{} {}", side.label(), depth.label()),
+            Self::Back => "Back".to_owned(),
         }
     }
 }
 
-/// The sockets of one board, in the EC's port order, None for one nobody
-/// has placed.
+/// The sockets of the boards named, in the EC's port order, None for one
+/// nobody has placed.
 struct Layout {
-    /// The board as its own firmware names it, matched whole — the product
-    /// name, which is what a caller passes in.
-    product: &'static str,
+    /// Each board by its DMI product name, matched whole.
+    products: &'static [&'static str],
     positions: &'static [Option<Position>],
 }
 
-/// The EC declares the bay's controller third, driving one port, so the bay
-/// is port 4 whatever the side slots turn out to be; those are unmeasured.
-const LAPTOP16: &[Option<Position>] = &[None, None, None, None, Some(Position::Back)];
+const RIGHT: Option<Position> = Some(Position::Side {
+    side: Side::Right,
+    depth: None,
+});
+const LEFT: Option<Position> = Some(Position::Side {
+    side: Side::Left,
+    depth: None,
+});
 
 const LAYOUTS: &[Layout] = &[
+    // Framework's own controller table — `framework_lib`'s `ccgx::device`,
+    // `PdPort::Right01` and `PdPort::Left23` — puts the first controller's
+    // ports on the right and the second's on the left, and names no front or
+    // rear.
     Layout {
-        product: BOARD_LAPTOP13_PRO_ULTRA_3,
+        products: &[
+            BOARD_LAPTOP13_11TH_GEN,
+            BOARD_LAPTOP13_12TH_GEN,
+            BOARD_LAPTOP13_13TH_GEN,
+            BOARD_LAPTOP13_ULTRA_1,
+            BOARD_LAPTOP13_AMD_7040,
+            BOARD_LAPTOP13_AMD_7040_UNSPACED,
+            BOARD_LAPTOP13_AMD_AI_300,
+            BOARD_LAPTOP12_13TH_GEN,
+            // framework-system gives this board the 13th-gen Laptop 12's PD
+            // layout.
+            BOARD_LAPTOP12_CORE_3,
+        ],
+        positions: &[RIGHT, RIGHT, LEFT, LEFT],
+    },
+    Layout {
+        products: &[BOARD_LAPTOP13_PRO_ULTRA_3],
         positions: &[
-            Some(Position::side(Side::Right, Depth::Front)),
-            Some(Position::side(Side::Right, Depth::Rear)),
-            Some(Position::side(Side::Left, Depth::Rear)),
-            Some(Position::side(Side::Left, Depth::Front)),
+            Some(Position::at(Side::Right, Depth::Front)),
+            Some(Position::at(Side::Right, Depth::Rear)),
+            Some(Position::at(Side::Left, Depth::Rear)),
+            Some(Position::at(Side::Left, Depth::Front)),
         ],
     },
+    // The same controller table's sides, and the EC declaring the bay's
+    // controller third, driving one port.
     Layout {
-        product: BOARD_LAPTOP16_AMD_7040,
-        positions: LAPTOP16,
-    },
-    Layout {
-        product: BOARD_LAPTOP16_AMD_AI_300,
-        positions: LAPTOP16,
+        products: &[BOARD_LAPTOP16_AMD_7040, BOARD_LAPTOP16_AMD_AI_300],
+        positions: &[RIGHT, RIGHT, LEFT, LEFT, Some(Position::Back)],
     },
 ];
 
@@ -107,7 +152,7 @@ const LAYOUTS: &[Layout] = &[
 fn position(product: &str, index: u8) -> Option<Position> {
     LAYOUTS
         .iter()
-        .find(|layout| layout.product == product)?
+        .find(|layout| layout.products.contains(&product))?
         .positions
         .get(usize::from(index))
         .copied()
@@ -120,13 +165,23 @@ fn position(product: &str, index: u8) -> Option<Position> {
 /// into its controllers and means nothing on the chassis.
 #[must_use]
 pub fn label(product: &str, index: u8) -> String {
-    position(product, index).map_or_else(|| number(index), |position| position.label().to_owned())
+    position(product, index).map_or_else(|| number(index), |position| position.label(index))
 }
 
-/// The key ports are listed by: left side then right, each rear to front,
-/// then by number where no position is known, and the back last — the side
-/// slots are the ports every such machine has, the bay's only the module
-/// fitted in it.
+/// What to call a port inside a line already separating its parts with
+/// ` · `, where a side alone takes its number after a comma instead.
+#[must_use]
+pub fn inline(product: &str, index: u8) -> String {
+    match position(product, index) {
+        Some(Position::Side { side, depth: None }) => format!("{}, port {index}", side.label()),
+        _ => label(product, index),
+    }
+}
+
+/// The key ports are listed by: left side then right, each rear to front
+/// where measured and by number where only the side is known, then by number
+/// where no position is known, and the back last — the side slots are the
+/// ports every such machine has, the bay's only the module fitted in it.
 #[must_use]
 pub fn order(product: &str, index: u8) -> impl Ord {
     let position = position(product, index);
@@ -140,11 +195,14 @@ pub fn order(product: &str, index: u8) -> impl Ord {
 
 /// The port's number as a line of its own, for showing under a [`label`]
 /// that named a position instead — the number is still what a reader has to
-/// match against a tool that only counts. None where the label is already
-/// the number, there being nothing to add.
+/// match against a tool that only counts. None where the label already
+/// carries the number.
 #[must_use]
 pub fn secondary(product: &str, index: u8) -> Option<String> {
-    position(product, index).map(|_| number(index))
+    match position(product, index)? {
+        Position::Side { depth: None, .. } => None,
+        _ => Some(number(index)),
+    }
 }
 
 fn number(index: u8) -> String {
@@ -153,12 +211,13 @@ fn number(index: u8) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{label, order, secondary};
+    use super::{inline, label, order, secondary};
 
+    use frameguin_wire::BOARD_LAPTOP13_AMD_AI_300 as SIDED;
     use frameguin_wire::BOARD_LAPTOP13_PRO_ULTRA_3 as MEASURED;
     use frameguin_wire::{BOARD_LAPTOP16_AMD_7040, BOARD_LAPTOP16_AMD_AI_300};
 
-    const UNMEASURED: &str = "Precision 5560";
+    const UNKNOWN: &str = "Precision 5560";
 
     fn listed(product: &str, indices: std::ops::Range<u8>) -> Vec<u8> {
         let mut indices: Vec<u8> = indices.collect();
@@ -194,16 +253,41 @@ mod tests {
     }
 
     #[test]
-    fn an_unmeasured_board_lists_by_number() {
-        assert_eq!(listed(UNMEASURED, 0..4), [0, 1, 2, 3]);
+    fn an_unknown_board_lists_by_number() {
+        assert_eq!(listed(UNKNOWN, 0..4), [0, 1, 2, 3]);
     }
 
-    /// The number is the whole name where there is no position, so nothing
-    /// repeats it underneath.
     #[test]
-    fn an_unmeasured_board_is_named_by_its_number_alone() {
-        assert_eq!(label(UNMEASURED, 0), "Port 0");
-        assert_eq!(secondary(UNMEASURED, 0), None);
+    fn an_unknown_board_is_named_by_its_number_alone() {
+        assert_eq!(label(UNKNOWN, 0), "Port 0");
+        assert_eq!(secondary(UNKNOWN, 0), None);
+    }
+
+    #[test]
+    fn a_board_known_by_its_sides_names_the_side_and_the_number_together() {
+        let names: Vec<String> = (0..4).map(|index| label(SIDED, index)).collect();
+        assert_eq!(
+            names,
+            [
+                "Right · Port 0",
+                "Right · Port 1",
+                "Left · Port 2",
+                "Left · Port 3"
+            ]
+        );
+        assert_eq!(secondary(SIDED, 2), None);
+    }
+
+    #[test]
+    fn inside_a_line_a_side_takes_its_number_after_a_comma() {
+        assert_eq!(inline(SIDED, 2), "Left, port 2");
+        assert_eq!(inline(MEASURED, 2), "Left rear");
+        assert_eq!(inline(UNKNOWN, 2), "Port 2");
+    }
+
+    #[test]
+    fn a_board_known_by_its_sides_lists_the_left_side_then_the_right_by_number() {
+        assert_eq!(listed(SIDED, 0..4), [2, 3, 0, 1]);
     }
 
     #[test]
@@ -213,16 +297,17 @@ mod tests {
     }
 
     #[test]
-    fn a_laptop_16_places_its_bay_port_at_the_back_and_leaves_its_sides_unplaced() {
+    fn a_laptop_16_places_its_bay_port_at_the_back_and_its_others_by_side() {
         for board in [BOARD_LAPTOP16_AMD_7040, BOARD_LAPTOP16_AMD_AI_300] {
             assert_eq!(label(board, 4), "Back");
             assert_eq!(secondary(board, 4).as_deref(), Some("Port 4"));
-            assert_eq!(label(board, 0), "Port 0");
+            assert_eq!(label(board, 0), "Right · Port 0");
+            assert_eq!(label(board, 3), "Left · Port 3");
         }
     }
 
     #[test]
-    fn the_back_lists_after_the_unplaced_ports() {
-        assert_eq!(listed(BOARD_LAPTOP16_AMD_7040, 0..5), [0, 1, 2, 3, 4]);
+    fn the_back_lists_after_the_sides() {
+        assert_eq!(listed(BOARD_LAPTOP16_AMD_7040, 0..5), [2, 3, 0, 1, 4]);
     }
 }

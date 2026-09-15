@@ -713,10 +713,11 @@ a manufacture year, stated or not. The year itself counts from 1990.
 **Only `eDP` connectors are the machine's own.** What is plugged into a
 USB-C port is a monitor rather than a part of the laptop.
 
-**Whether a connector still answers when the lid is shut is untested.** i915
-settles an eDP connector's status when it initializes the panel rather than
-from lid state, so a machine booting docked is expected to report it, but
-that has not been watched here.
+**The connector still answers when the lid is shut.** i915 settles an eDP
+connector's status when it initializes the panel rather than from lid state:
+booted docked on a DisplayPort monitor with the lid shut throughout,
+`card1-eDP-1` reads `connected` with its whole EDID. Its `enabled` reads
+`disabled`, the compositor having left the panel dark.
 
 ## Storage
 
@@ -962,8 +963,15 @@ one does.
 So no index-to-position table can be right for a whole family, and a tool
 shipping one is wrong on some boards with no way to notice. `framework_lib`
 ships one — a hardcoded match on the index with a single Laptop 16 special
-case — and on the Laptop 13 Pro it places every port on the correct side and
-reverses front against rear on both of them.
+case, printed since March 2026 only by `--pdports-chromebook`, its generic
+Chromium EC view — and on the Laptop 13 Pro it places every port on the
+correct side and reverses front against rear on both of them.
+
+Its controller table makes the narrower claim, and the one this project
+takes: `PdPort::Right01` and `PdPort::Left23` name the first controller's
+pair the right side's and the second's the left's on every Laptop board it
+knows, at the I²C addresses the EC's own build gives controllers 0 and 1
+(`0x42` or `0x08`, and `0x40`). It names no front or rear.
 
 ### The Laptop 13 Pro's ports
 
@@ -1024,6 +1032,18 @@ Nothing else on the machine holds the quantity either. The four ports pass
 through load switches into one adapter node before the charger, so no
 charger-side reading can be attributed to a port even in principle — and
 [the charger](#the-charger-itself) answers for none anyway.
+
+`EC_CMD_USB_PD_POWER_INFO` (`0x0103`), the charge manager's per-port answer,
+restates the contract rather than adding to it: Framework's PD code feeds the
+charge manager the voltage and current it keeps for
+`EC_CMD_GET_PD_PORT_STATE`, so a charger's row repeats the negotiated values
+and their product. Its `voltage_now` measures nothing on the Laptop 13 Pro,
+whose build sets `USB_PD_VBUS_MEASURE_NOT_PRESENT`: it reads 0 while charging
+and a constant 5 V on a port sourcing to a peripheral. `dualrole` is false on
+every port, each registered `CAP_DEDICATED`, and `current_max` is the current
+the machine offers a device — 1.5 A on an empty port and on one sourcing a
+Type-C peripheral alike. Of the Framework builds only `tulip`'s measures
+`voltage_now`, through its charger.
 
 ### A disabled controller keeps reporting what it last saw
 

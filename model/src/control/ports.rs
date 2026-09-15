@@ -121,7 +121,9 @@ pub fn supply_port(ports: &[PortState], product: &str) -> Option<String> {
 #[must_use]
 pub fn supply_summary(ports: &[PortState], product: &str) -> String {
     let supply = supply_label(ports);
-    supply_port(ports, product).map_or(supply.clone(), |port| format!("{supply} · {port}"))
+    powering(ports).map_or(supply.clone(), |port| {
+        format!("{supply} · {}", crate::port::inline(product, port.index))
+    })
 }
 
 /// Whether the link negotiated power delivery or is carrying power on
@@ -260,6 +262,10 @@ mod tests {
             "100 W · Right front"
         );
         assert_eq!(supply_summary(&ports, "Laptop 16"), "100 W · Port 0");
+        assert_eq!(
+            supply_summary(&ports, frameguin_wire::BOARD_LAPTOP13_AMD_AI_300),
+            "100 W · Right, port 0"
+        );
     }
 
     /// Nothing supplying means no port to name, and the separator would

@@ -130,7 +130,9 @@ it and the non-obvious constraints.
   placed: the EC's port number says which controller drives a port and not
   where it is, and a wrong position reads exactly like a right one. A port
   is placed by measuring it, or where the controller its number names can
-  have only one socket behind it, as the Laptop 16's bay controller does.
+  have only one socket behind it, as the Laptop 16's bay controller does;
+  its side alone is taken from Framework's own controller table in
+  `framework_lib`, which names a side per controller and nothing finer.
   `reading.rs` is the
   machine's reading, taken once for however many views show it: the status
   row and the status window render the same walk of the same block, and each
