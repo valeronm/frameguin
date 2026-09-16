@@ -204,11 +204,12 @@ it and the non-obvious constraints.
   `led.rs` the kernel's LED class, `touchpad.rs` the pad's own HID transport,
   `panel.rs` the touch panel's, `gpio.rs` a pad on the processor through the
   GPIO character device, `drm.rs` the kernel's DRM class, `nvme.rs` the
-  kernel's NVMe class. Two of those pairs need an arbitration, and the two
-  arbitrations are not alike: the power button LED has two possible drivers
-  and one at a time, so what is settled is a handover and the order to make
-  it in — and that lives in the device, `device/power_led.rs`, over the
-  `PowerLedEc` and `LedClass` roles, because the order is what a stub has to
+  kernel's NVMe class, `usb.rs` the kernel's USB bus. Two of those pairs
+  need an arbitration, and the two arbitrations are not alike: the power
+  button LED has two possible drivers and one at a time, so what is settled
+  is a handover and the order to make it in — and that lives in
+  the device, `device/power_led.rs`, over the `PowerLedEc` and
+  `LedClass` roles, because the order is what a stub has to
   be able to check; `touchscreen.rs` because the panel has two possible
   routes and a machine has only one, so what it settles is a precedence — and
   then the thing that precedence decides, which is whether the control can be

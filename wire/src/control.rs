@@ -11,8 +11,8 @@
 
 use crate::error::DeviceResult;
 use crate::vocabulary::{
-    BatteryCondition, BatteryFeature, BatteryInfo, ChassisFeature, ChassisState, ClickForce,
-    DeckState, ExtenderState, PortState, PowerLedLevel, PrivacyState,
+    Attached, BatteryCondition, BatteryFeature, BatteryInfo, ChassisFeature, ChassisState,
+    ClickForce, DeckState, ExtenderState, PortState, PowerLedLevel, PrivacyState,
 };
 
 pub trait TouchpadControl {
@@ -70,6 +70,12 @@ pub trait ChassisControl {
 
 pub trait PrivacySwitchesControl {
     async fn switches(&self) -> DeviceResult<PrivacyState>;
+}
+
+/// What is plugged straight into the machine's USB root ports. Read-only,
+/// and no board's layout: which socket a root port reaches is the reader's.
+pub trait UsbControl {
+    async fn attached(&self) -> DeviceResult<Vec<Attached>>;
 }
 
 /// The battery: the pack the EC's block answers for, and the charger that

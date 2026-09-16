@@ -35,7 +35,7 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use frameguin_wire::{
-    BatteryCondition, BatteryFeature, BatteryInfo, ChassisState, DeckState, DeviceResult,
+    Attached, BatteryCondition, BatteryFeature, BatteryInfo, ChassisState, DeckState, DeviceResult,
     ExtenderState, PortState, PrivacyState,
 };
 use gtk4 as gtk;
@@ -91,6 +91,8 @@ pub(crate) struct Wants {
     /// The extender and the charge limit its window is weighed against: two
     /// host commands, cheap enough for every tick.
     pub(crate) extender: bool,
+    /// The devices on the USB root ports: a walk of sysfs, no EC transfer.
+    pub(crate) usb: bool,
 }
 
 impl Wants {
@@ -104,6 +106,7 @@ impl Wants {
             deck: self.deck || other.deck,
             privacy_switches: self.privacy_switches || other.privacy_switches,
             extender: self.extender || other.extender,
+            usb: self.usb || other.usb,
         }
     }
 }
@@ -126,6 +129,7 @@ pub(crate) struct Reading {
     pub(crate) extender: Option<ExtenderState>,
     /// Read beside the extender, and None on a board with no charge limit.
     pub(crate) charge_limit: Option<u8>,
+    pub(crate) usb: Option<Vec<Attached>>,
 }
 
 type Show = dyn Fn(&Reading);
@@ -348,6 +352,14 @@ impl Feed {
                 .map(|b| b.charge_limit()),
         )
         .await?;
+        let usb = wanted(
+            controls
+                .usb
+                .as_ref()
+                .filter(|_| wants.usb)
+                .map(|u| u.read()),
+        )
+        .await?;
         let reading = Reading {
             info,
             condition,
@@ -357,6 +369,7 @@ impl Feed {
             privacy_switches,
             extender,
             charge_limit,
+            usb,
         };
         // Copied out of the list before anything is shown: a view may drop its
         // subscription from inside its own call, and the borrow would still be

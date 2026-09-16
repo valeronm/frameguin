@@ -14,12 +14,13 @@ use frameguin_hardware::device::power_led::PowerLed;
 use frameguin_hardware::device::privacy_switches::PrivacySwitches;
 use frameguin_hardware::device::touchpad::Touchpad;
 use frameguin_hardware::device::touchscreen::Touchscreen;
+use frameguin_hardware::device::usb::Usb;
 use frameguin_hardware::mirror::Mirrors;
 use frameguin_hardware::part::Identity;
 use frameguin_hardware::restore::Restore;
 use frameguin_hardware::testing::{
-    Connectors, Cover, EC_BOOT, EXTENDER, EcCharger, Gauge, Haptic, LedEc, Leds, Memory, Route,
-    Sliders, battery_identity, block, display_identity, mirrors, touchpad_identity,
+    Connectors, Cover, EC_BOOT, EXTENDER, EcCharger, Gauge, Haptic, Hub, LedEc, Leds, Memory,
+    Route, Sliders, battery_identity, block, display_identity, mirrors, touchpad_identity,
 };
 use frameguin_wire::{
     BatteryFeature, ChassisFeature, ClickForce, DeckState, DeviceError, FrameguinProxy,
@@ -85,6 +86,7 @@ impl Machine {
             ports: Ports::new(Arc::new(Connectors::default())),
             chassis: Chassis::new(Arc::new(Cover::default())),
             privacy_switches: PrivacySwitches::new(Arc::new(Sliders::default())),
+            usb: Usb::new(Arc::new(Hub::default())),
         }
     }
 }
@@ -255,6 +257,7 @@ fn every_getter_answers_through_its_proxy() {
             p.privacy_switches.get_switches().await.unwrap(),
             Sliders::default().switches
         );
+        assert_eq!(p.usb.get_attached().await.unwrap(), Hub::default().devices);
     });
 }
 
@@ -459,6 +462,7 @@ fn a_device_detection_did_not_find_is_not_on_the_bus() {
         assert!(p.ports.get_ports().await.is_ok());
         assert!(p.chassis.get_state().await.is_ok());
         assert!(p.privacy_switches.get_switches().await.is_ok());
+        assert!(p.usb.get_attached().await.is_ok());
     });
 }
 
@@ -506,5 +510,20 @@ fn a_board_without_the_privacy_command_serves_no_privacy_interface() {
     peer.run(|p| async move {
         assert!(absent(p.privacy_switches.get_switches().await));
         assert!(p.chassis.get_state().await.is_ok());
+    });
+}
+
+#[test]
+fn a_machine_without_a_usb_listing_serves_no_usb_interface() {
+    let peer = serve_devices(
+        true,
+        Devices {
+            usb: None,
+            ..devices()
+        },
+    );
+    peer.run(|p| async move {
+        assert!(absent(p.usb.get_attached().await));
+        assert!(p.ports.get_ports().await.is_ok());
     });
 }

@@ -126,7 +126,7 @@ fn build(
             privacy_switches::add(&sidebar, &feed);
         }
         if controls.ports.is_some() {
-            ports::add(&sidebar, &feed);
+            ports::add(&sidebar, &feed, controls.usb.is_some());
         }
         if sidebar.lists.borrow().is_empty() {
             sidebar.pages.add_child(

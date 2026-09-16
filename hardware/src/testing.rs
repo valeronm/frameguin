@@ -9,9 +9,10 @@ use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll, Waker};
 
 use frameguin_wire::{
-    BatteryCondition, BatteryInfo, BatteryState, CcPolarity, ChargeFlow, ChassisState, ClickForce,
-    DataRole, DeckState, Detail, DeviceError, DeviceResult, Epr, ExtenderStage, ExtenderState,
-    Identity, PartKind, PortPartner, PortState, PowerLedLevel, PowerRole, PrivacyState,
+    Attached, BatteryCondition, BatteryInfo, BatteryState, CcPolarity, ChargeFlow, ChassisState,
+    ClickForce, DataRole, DeckState, Detail, DeviceError, DeviceResult, Epr, ExtenderStage,
+    ExtenderState, Identity, PartKind, PortPartner, PortState, PowerLedLevel, PowerRole,
+    PrivacyState, UsbSpeed,
 };
 
 use crate::ec::{Charger, ChassisEc, Pack, PdPorts, PowerLedEc, PrivacyEc};
@@ -22,6 +23,7 @@ use crate::part;
 use crate::state::{self, Store};
 use crate::touchpad::HapticPad;
 use crate::touchscreen::TouchSwitch;
+use crate::usb::UsbTree;
 
 /// One PD controller's version blob, as a controller really answered: base
 /// `3.8.50.00A`, application `1.0.0A`.
@@ -522,5 +524,46 @@ impl TouchSwitch for Route {
             *level = enabled;
         }
         Ok(())
+    }
+}
+
+pub struct Hub {
+    pub devices: Vec<Attached>,
+    /// A machine whose USB bus cannot be listed.
+    pub refusing: bool,
+}
+
+impl Default for Hub {
+    fn default() -> Self {
+        Self {
+            devices: vec![
+                Attached {
+                    controller: "0000:00:0d.0".to_owned(),
+                    root_port: 2,
+                    vendor_id: 0x04c5,
+                    product_id: 0x2028,
+                    product: "iodd_ST400".to_owned(),
+                    speed: UsbSpeed::Super,
+                },
+                Attached {
+                    controller: "0000:00:14.0".to_owned(),
+                    root_port: 5,
+                    vendor_id: 0x32ac,
+                    product_id: 0x0002,
+                    product: "HDMI Expansion Card".to_owned(),
+                    speed: UsbSpeed::Full,
+                },
+            ],
+            refusing: false,
+        }
+    }
+}
+
+impl UsbTree for Hub {
+    fn root_devices(&self) -> DeviceResult<Vec<Attached>> {
+        if self.refusing {
+            return Err(DeviceError::Failed("no USB bus".into()));
+        }
+        Ok(self.devices.clone())
     }
 }

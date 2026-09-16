@@ -9,7 +9,10 @@
 //! position where a board was measured, and the back where only one socket
 //! can be behind a controller. A port it does not place gets no position at
 //! all: a wrong "left rear" reads exactly like a right one, where a bare port
-//! number cannot mislead anyone.
+//! number cannot mislead anyone. Beside a measured position sits the
+//! socket's wiring — the two USB root ports it reaches — which the kernel
+//! links to no connector on these boards, so a device is placed only where
+//! that was measured too.
 //!
 //! Positions are as seen from the keyboard with the lid open, which is the
 //! only viewpoint a window on that screen can mean. Turning the machine over
@@ -17,7 +20,7 @@
 //! that way is entered here flipped.
 
 use frameguin_wire::{
-    BOARD_LAPTOP12_13TH_GEN, BOARD_LAPTOP12_CORE_3, BOARD_LAPTOP13_11TH_GEN,
+    Attached, BOARD_LAPTOP12_13TH_GEN, BOARD_LAPTOP12_CORE_3, BOARD_LAPTOP13_11TH_GEN,
     BOARD_LAPTOP13_12TH_GEN, BOARD_LAPTOP13_13TH_GEN, BOARD_LAPTOP13_AMD_7040,
     BOARD_LAPTOP13_AMD_7040_UNSPACED, BOARD_LAPTOP13_AMD_AI_300, BOARD_LAPTOP13_PRO_ULTRA_3,
     BOARD_LAPTOP13_ULTRA_1, BOARD_LAPTOP16_AMD_7040, BOARD_LAPTOP16_AMD_AI_300,
@@ -92,12 +95,49 @@ impl Position {
     }
 }
 
+/// A root port as the kernel names it: its controller's PCI address and its
+/// number on that controller's root hub.
+#[derive(Clone, Copy)]
+struct RootPort {
+    controller: &'static str,
+    port: u8,
+}
+
+/// The two root ports one socket reaches, on separate controllers on Intel
+/// boards whose Type-C lanes run to the processor.
+#[derive(Clone, Copy)]
+struct Wiring {
+    superspeed: RootPort,
+    usb2: RootPort,
+}
+
+/// The chipset's USB controller on the Core Ultra Series 3.
+const PCH: &str = "0000:00:14.0";
+/// The processor's Type-C controller on the Core Ultra Series 3.
+const TCSS: &str = "0000:00:0d.0";
+
+const fn wiring(superspeed: u8, usb2: u8) -> Wiring {
+    Wiring {
+        superspeed: RootPort {
+            controller: TCSS,
+            port: superspeed,
+        },
+        usb2: RootPort {
+            controller: PCH,
+            port: usb2,
+        },
+    }
+}
+
 /// The sockets of the boards named, in the EC's port order, None for one
 /// nobody has placed.
 struct Layout {
     /// Each board by its DMI product name, matched whole.
     products: &'static [&'static str],
     positions: &'static [Option<Position>],
+    /// Each port's root ports, in the EC's port order, None for one nobody
+    /// measured.
+    wiring: &'static [Option<Wiring>],
 }
 
 const RIGHT: Option<Position> = Some(Position::Side {
@@ -129,6 +169,7 @@ const LAYOUTS: &[Layout] = &[
             BOARD_LAPTOP12_CORE_3,
         ],
         positions: &[RIGHT, RIGHT, LEFT, LEFT],
+        wiring: &[],
     },
     Layout {
         products: &[BOARD_LAPTOP13_PRO_ULTRA_3],
@@ -138,25 +179,61 @@ const LAYOUTS: &[Layout] = &[
             Some(Position::at(Side::Left, Depth::Rear)),
             Some(Position::at(Side::Left, Depth::Front)),
         ],
+        wiring: &[
+            Some(wiring(4, 3)),
+            Some(wiring(3, 2)),
+            Some(wiring(2, 5)),
+            Some(wiring(1, 4)),
+        ],
     },
     // The same controller table's sides, and the EC declaring the bay's
     // controller third, driving one port.
     Layout {
         products: &[BOARD_LAPTOP16_AMD_7040, BOARD_LAPTOP16_AMD_AI_300],
         positions: &[RIGHT, RIGHT, LEFT, LEFT, Some(Position::Back)],
+        wiring: &[],
     },
 ];
+
+fn layout(product: &str) -> Option<&'static Layout> {
+    LAYOUTS
+        .iter()
+        .find(|layout| layout.products.contains(&product))
+}
 
 /// Where port `index` is on `product`, and None on a board with no layout,
 /// for a port past its layout, and for one the layout leaves unplaced.
 fn position(product: &str, index: u8) -> Option<Position> {
-    LAYOUTS
-        .iter()
-        .find(|layout| layout.products.contains(&product))?
+    layout(product)?
         .positions
         .get(usize::from(index))
         .copied()
         .flatten()
+}
+
+/// Whether any socket on `product` has its root ports measured.
+#[must_use]
+pub fn wired(product: &str) -> bool {
+    layout(product).is_some_and(|layout| layout.wiring.iter().any(Option::is_some))
+}
+
+/// The devices on port `index`'s socket, its `SuperSpeed` half first, and
+/// none where the socket's wiring was not measured.
+#[must_use]
+pub fn attached<'a>(product: &str, index: u8, devices: &'a [Attached]) -> Vec<&'a Attached> {
+    let Some(wiring) = layout(product)
+        .and_then(|layout| layout.wiring.get(usize::from(index)))
+        .copied()
+        .flatten()
+    else {
+        return Vec::new();
+    };
+    let on = |root: RootPort| {
+        devices.iter().filter(move |device| {
+            device.controller == root.controller && device.root_port == root.port
+        })
+    };
+    on(wiring.superspeed).chain(on(wiring.usb2)).collect()
 }
 
 /// What to call a port: where it is, for a port that is placed, and its
@@ -211,11 +288,11 @@ fn number(index: u8) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{inline, label, order, secondary};
+    use super::{attached, inline, label, order, secondary, wired};
 
     use frameguin_wire::BOARD_LAPTOP13_AMD_AI_300 as SIDED;
     use frameguin_wire::BOARD_LAPTOP13_PRO_ULTRA_3 as MEASURED;
-    use frameguin_wire::{BOARD_LAPTOP16_AMD_7040, BOARD_LAPTOP16_AMD_AI_300};
+    use frameguin_wire::{Attached, BOARD_LAPTOP16_AMD_7040, BOARD_LAPTOP16_AMD_AI_300, UsbSpeed};
 
     const UNKNOWN: &str = "Precision 5560";
 
@@ -309,5 +386,66 @@ mod tests {
     #[test]
     fn the_back_lists_after_the_sides() {
         assert_eq!(listed(BOARD_LAPTOP16_AMD_7040, 0..5), [2, 3, 0, 1, 4]);
+    }
+
+    fn on(controller: &str, root_port: u8, product: &str) -> Attached {
+        Attached {
+            controller: controller.to_owned(),
+            root_port,
+            vendor_id: 0x32ac,
+            product_id: 0x0002,
+            product: product.to_owned(),
+            speed: UsbSpeed::Full,
+        }
+    }
+
+    #[test]
+    fn only_a_measured_board_is_wired() {
+        assert!(wired(MEASURED));
+        assert!(!wired(SIDED));
+        assert!(!wired(UNKNOWN));
+    }
+
+    #[test]
+    fn a_device_on_either_half_of_a_socket_lands_on_its_port() {
+        let devices = [
+            on("0000:00:14.0", 5, "card"),
+            on("0000:00:0d.0", 1, "drive"),
+        ];
+        let left_rear: Vec<&str> = attached(MEASURED, 2, &devices)
+            .iter()
+            .map(|d| d.product.as_str())
+            .collect();
+        assert_eq!(left_rear, ["card"]);
+        let left_front: Vec<&str> = attached(MEASURED, 3, &devices)
+            .iter()
+            .map(|d| d.product.as_str())
+            .collect();
+        assert_eq!(left_front, ["drive"]);
+    }
+
+    #[test]
+    fn a_hub_on_both_halves_lists_its_superspeed_half_first() {
+        let devices = [
+            on("0000:00:14.0", 3, "usb2"),
+            on("0000:00:0d.0", 4, "superspeed"),
+        ];
+        let right_front: Vec<&str> = attached(MEASURED, 0, &devices)
+            .iter()
+            .map(|d| d.product.as_str())
+            .collect();
+        assert_eq!(right_front, ["superspeed", "usb2"]);
+    }
+
+    #[test]
+    fn a_device_on_a_root_port_no_socket_lists_lands_nowhere() {
+        let devices = [on("0000:00:14.0", 6, "webcam")];
+        assert!((0..4).all(|index| attached(MEASURED, index, &devices).is_empty()));
+    }
+
+    #[test]
+    fn an_unwired_board_attaches_nothing() {
+        let devices = [on("0000:00:14.0", 5, "card")];
+        assert!(attached(SIDED, 2, &devices).is_empty());
     }
 }

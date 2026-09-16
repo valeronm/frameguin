@@ -7,12 +7,13 @@ pub mod power_led;
 pub mod privacy_switches;
 pub mod touchpad;
 pub mod touchscreen;
+pub mod usb;
 
 use std::rc::Rc;
 
 use frameguin_wire::{
     BatteryControl, ChassisControl, DeviceError, DeviceResult, PortsControl, PowerLedControl,
-    PrivacySwitchesControl, TouchpadControl, TouchscreenControl,
+    PrivacySwitchesControl, TouchpadControl, TouchscreenControl, UsbControl,
 };
 
 /// Whether a device is there, decided by the device's own path: a read the
@@ -76,6 +77,7 @@ pub struct Controls<C> {
     pub ports: Option<Rc<ports::Ports<C>>>,
     pub chassis: Option<Rc<chassis::Chassis<C>>>,
     pub privacy_switches: Option<Rc<privacy_switches::PrivacySwitches<C>>>,
+    pub usb: Option<Rc<usb::Usb<C>>>,
 }
 
 impl<
@@ -85,7 +87,8 @@ impl<
         + PowerLedControl
         + PortsControl
         + ChassisControl
-        + PrivacySwitchesControl,
+        + PrivacySwitchesControl
+        + UsbControl,
 > Controls<C>
 {
     /// Asks each control's device to detect itself. Fails only where the
@@ -104,6 +107,7 @@ impl<
             privacy_switches: privacy_switches::PrivacySwitches::detect(control)
                 .await?
                 .map(Rc::new),
+            usb: usb::Usb::detect(control).await?.map(Rc::new),
         })
     }
 
@@ -185,6 +189,7 @@ mod tests {
         assert!(controls.power_led.is_some());
         assert!(controls.chassis.is_some());
         assert!(controls.privacy_switches.is_some());
+        assert!(controls.usb.is_some());
         assert!(!controls.is_empty());
     }
 
@@ -207,6 +212,7 @@ mod tests {
         assert!(controls.power_led.is_some());
         assert!(controls.chassis.is_some());
         assert!(controls.privacy_switches.is_some());
+        assert!(controls.usb.is_some());
     }
 
     #[test]

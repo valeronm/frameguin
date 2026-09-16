@@ -18,6 +18,7 @@ pub mod privacy_switches;
 pub(crate) mod storage;
 pub mod touchpad;
 pub mod touchscreen;
+pub mod usb;
 
 use std::sync::Arc;
 
@@ -32,6 +33,7 @@ use crate::device::privacy_switches::PrivacySwitches;
 use crate::device::storage::Drive;
 use crate::device::touchpad::Touchpad;
 use crate::device::touchscreen::Touchscreen;
+use crate::device::usb::Usb;
 use crate::ec::Ec;
 use crate::lifetime::{self, Holders};
 use crate::mirror::Mirrors;
@@ -48,6 +50,7 @@ pub struct Devices {
     pub ports: Option<Ports>,
     pub chassis: Option<Chassis>,
     pub privacy_switches: Option<PrivacySwitches>,
+    pub usb: Option<Usb>,
 }
 
 pub struct Detected {
@@ -99,6 +102,7 @@ pub fn detect() -> Detected {
             ports: ec.as_ref().and_then(Ports::detect),
             chassis: ec.as_ref().and_then(Chassis::detect),
             privacy_switches: ec.as_ref().and_then(PrivacySwitches::detect),
+            usb: Usb::detect(),
         },
         parts,
         restore: mirrors.restore(),

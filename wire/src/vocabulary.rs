@@ -417,6 +417,39 @@ pub struct PrivacyState {
     pub microphone: bool,
 }
 
+/// The rate a USB link negotiated, as the kernel's `speed` attribute names
+/// it. `Unknown` is the arm for a `speed` string this vocabulary does not
+/// name.
+#[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug)]
+#[zvariant(crate = "zbus::zvariant", signature = "s")]
+#[serde(rename_all = "kebab-case")]
+pub enum UsbSpeed {
+    Low,
+    Full,
+    High,
+    Super,
+    SuperPlus,
+    SuperPlus2x2,
+    Unknown,
+}
+
+/// A USB device plugged straight into a root port, in its own words.
+///
+/// `controller` and `root_port` are what places it: the USB bus number is
+/// handed out in enumeration order and names no controller.
+#[derive(Serialize, Deserialize, Type, Clone, PartialEq, Eq, Debug)]
+#[zvariant(crate = "zbus::zvariant")]
+pub struct Attached {
+    /// The host controller's PCI address, `0000:00:14.0`.
+    pub controller: String,
+    pub root_port: u8,
+    pub vendor_id: u16,
+    pub product_id: u16,
+    /// Empty where the device announces none.
+    pub product: String,
+    pub speed: UsbSpeed,
+}
+
 /// One USB-C port, as the EC's copy of its controller's state has it.
 ///
 /// Every field is the EC's cache rather than the port itself, which matters
@@ -731,7 +764,7 @@ mod tests {
     use zbus::zvariant::serialized::Context;
     use zbus::zvariant::{LE, to_bytes};
 
-    use super::{Detail, FirmwareKind};
+    use super::{Attached, Detail, FirmwareKind, UsbSpeed};
 
     #[test]
     fn every_detail_crosses_the_bus_as_itself() {
@@ -781,5 +814,21 @@ mod tests {
         let encoded = to_bytes(Context::new_dbus(LE, 0), &kinds).unwrap();
         let decoded: Vec<FirmwareKind> = encoded.deserialize().unwrap().0;
         assert_eq!(decoded, kinds);
+    }
+
+    #[test]
+    fn an_attached_device_crosses_the_bus_as_itself() {
+        let attached = vec![Attached {
+            controller: "0000:00:14.0".to_owned(),
+            root_port: 5,
+            vendor_id: 0x32ac,
+            product_id: 0x0002,
+            product: "HDMI Expansion Card".to_owned(),
+            speed: UsbSpeed::Full,
+        }];
+        let ctxt = Context::new_dbus(LE, 0);
+        let bytes = to_bytes(ctxt, &attached).unwrap();
+        let (back, _): (Vec<Attached>, _) = bytes.deserialize().unwrap();
+        assert_eq!(back, attached);
     }
 }

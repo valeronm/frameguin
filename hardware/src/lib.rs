@@ -15,11 +15,11 @@
 //! `touchpad` the pad's own HID transport, `panel` the touch panel's,
 //! `gpio` a pad on the processor through the GPIO character device, `dmi`
 //! the firmware's SMBIOS table, `drm` the kernel's DRM class, `nvme` the
-//! kernel's `NVMe` class. `touchscreen` settles which of two routes a
-//! machine has, and is the role over either. `sbs` is the pack's own
-//! registers and what their words mean, `pd` what the EC's cached PD
-//! controller version means, `extender` what the battery extender command
-//! carries, `edid` what a panel's own block says it is,
+//! kernel's `NVMe` class, `usb` the kernel's USB bus. `touchscreen` settles
+//! which of two routes a machine has, and is the role over either. `sbs` is
+//! the pack's own registers and what their words mean, `pd` what the EC's
+//! cached PD controller version means, `extender` what the battery extender
+//! command carries, `edid` what a panel's own block says it is,
 //! `state` the store for what cannot be read back and what was asked for,
 //! `lifetime` what holds a mirrored value and how to tell it still does,
 //! [`mirror`] the mirror a device reads and writes such a value through,
@@ -56,6 +56,7 @@ pub(crate) mod state;
 pub(crate) mod touchpad;
 pub(crate) mod touchscreen;
 pub(crate) mod udev;
+pub(crate) mod usb;
 
 #[cfg(any(test, feature = "testing"))]
 pub mod testing;

@@ -2,9 +2,9 @@
 //! name and path.
 
 use crate::vocabulary::{
-    BUS_NAME, BatteryCondition, BatteryFeature, BatteryInfo, ChassisFeature, ChassisState,
-    ClickForce, DeckState, ExtenderState, Identity, OBJECT_PATH, PortState, PowerLedLevel,
-    PrivacyState,
+    Attached, BUS_NAME, BatteryCondition, BatteryFeature, BatteryInfo, ChassisFeature,
+    ChassisState, ClickForce, DeckState, ExtenderState, Identity, OBJECT_PATH, PortState,
+    PowerLedLevel, PrivacyState,
 };
 
 /// Any of the proxies below, on the daemon's one name and path.
@@ -127,6 +127,13 @@ pub trait PrivacySwitches {
     async fn get_switches(&self) -> zbus::Result<PrivacyState>;
 }
 
+/// Absent from the bus on a machine that is not a Framework one, or whose USB
+/// bus cannot be listed.
+#[zbus::proxy(interface = "io.github.valeronm.Frameguin1.Usb", gen_blocking = false)]
+pub trait Usb {
+    async fn get_attached(&self) -> zbus::Result<Vec<Attached>>;
+}
+
 /// Every device interface's proxy, dialled together: the one list of what
 /// the daemon can serve, so a caller at either end cannot hold a shorter
 /// one.
@@ -139,6 +146,7 @@ pub struct Proxies {
     pub ports: PortsProxy<'static>,
     pub chassis: ChassisProxy<'static>,
     pub privacy_switches: PrivacySwitchesProxy<'static>,
+    pub usb: UsbProxy<'static>,
 }
 
 impl Proxies {
@@ -154,6 +162,7 @@ impl Proxies {
             ports: proxy(conn).await?,
             chassis: proxy(conn).await?,
             privacy_switches: proxy(conn).await?,
+            usb: proxy(conn).await?,
         })
     }
 }

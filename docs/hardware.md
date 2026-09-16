@@ -71,6 +71,7 @@ Every heading in the file appears here.
   - [One controller to a pair of ports](#one-controller-to-a-pair-of-ports)
   - [The port index is electrical, not positional](#the-port-index-is-electrical-not-positional)
   - [The Laptop 13 Pro's ports](#the-laptop-13-pros-ports)
+  - [What sits in a slot](#what-sits-in-a-slot)
   - [A port's voltage is measured, its current is not reported](#a-ports-voltage-is-measured-its-current-is-not-reported)
   - [A disabled controller keeps reporting what it last saw](#a-disabled-controller-keeps-reporting-what-it-last-saw)
   - [Disabling a controller's ports](#disabling-a-controllers-ports)
@@ -1024,17 +1025,40 @@ CCG8 controllers, both reporting silicon ID `0x3E81`. Positions are as seen
 from the keyboard with the lid open; the machine turned over to read its
 underside gives the mirror image of every one of them.
 
-| Port | Controller | Slot |
-|---|---|---|
-| 0 | first, I²C `0x42` | right front |
-| 1 | first, I²C `0x42` | right rear |
-| 2 | second, I²C `0x40` | left rear |
-| 3 | second, I²C `0x40` | left front |
+| Port | Controller | Slot | USB 2.0 root port (`0000:00:14.0`) | SuperSpeed root port (`0000:00:0d.0`) |
+|---|---|---|---|---|
+| 0 | first, I²C `0x42` | right front | 3 | 4 |
+| 1 | first, I²C `0x42` | right rear | 2 | 3 |
+| 2 | second, I²C `0x40` | left rear | 5 | 2 |
+| 3 | second, I²C `0x40` | left front | 4 | 1 |
 
 Ports 1, 2 and 3 were each read off the machine, by attaching a source to one
 slot at a time and seeing which index reported the contract; port 0 is what is
 left once the other three are placed. None of it transfers to another board,
 which is the whole point of the section above.
+
+### What sits in a slot
+
+Measured on the same machine, by moving an HDMI expansion card and a USB 3
+drive through every slot.
+
+No root port carries a `connector` or `peer` link: all four Type-C
+connectors report the same ACPI `physical_location`
+(`unknown`/`upper`/`left`), so the kernel's port mapper matches nothing,
+and a slot's two halves sit on different controllers — the chipset's for
+USB 2.0, the processor's Type-C controller for SuperSpeed. The root ports'
+`location` attribute does pair the halves instead: `usb3-port5` and
+`usb2-port2` both read `0x80000004`, and so on per slot. That pairing
+predicted the three SuperSpeed ports after one was measured, and all three
+held. The kernel's own Type-C connector numbers follow neither the EC's
+order nor the USB order.
+
+The EC reports a card as a partner: the HDMI card as a sink with a 5 V /
+680 mA contract and VCONN on; the drive as a sink at 5 V / 1500 mA with no
+PD contract. A USB bus number (the `3` in `3-5`) is enumeration order and
+names no controller, so a slot is keyed by the controller's PCI address and
+root port. A device behind a USB-C card can be a hub, appearing on both
+halves of one slot.
 
 ### A port's voltage is measured, its current is not reported
 

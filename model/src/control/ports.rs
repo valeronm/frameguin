@@ -67,22 +67,23 @@ pub fn negotiated(port: &PortState) -> Option<String> {
 /// one more charger among those that may be attached.
 pub const POWERING_THE_MACHINE: &str = "Powering the machine";
 
-/// One port on one line: what is attached, named for powering the machine
-/// where it does, and the watts of its contract where one was negotiated.
+/// One port on one line: what is attached — the device in the slot where
+/// one was placed there, named for powering the machine where it does — and
+/// the watts of its contract where one was negotiated.
 #[must_use]
-pub fn port_summary(port: &PortState) -> String {
-    let Some(partner) = partner_label(port.partner) else {
+pub fn port_summary(port: &PortState, device: Option<&str>) -> String {
+    let partner = partner_label(port.partner);
+    let Some(lead) = (if port.charging && (partner.is_some() || device.is_some()) {
+        Some(POWERING_THE_MACHINE)
+    } else {
+        device.or(partner)
+    }) else {
         return NOTHING_ATTACHED.to_owned();
     };
-    let partner = if port.charging {
-        POWERING_THE_MACHINE
-    } else {
-        partner
-    };
     if port.millivolts == 0 || port.milliamps == 0 {
-        return partner.to_owned();
+        return lead.to_owned();
     }
-    format!("{partner} · {}", watts(port))
+    format!("{lead} · {}", watts(port))
 }
 
 /// A negotiated contract holds still between readings.
@@ -306,13 +307,16 @@ mod tests {
             charging: false,
             ..port(0)
         };
-        assert_eq!(port_summary(&second_charger), "Supplying power · 100 W");
-        assert_eq!(port_summary(&port(1)), "Nothing attached");
+        assert_eq!(
+            port_summary(&second_charger, None),
+            "Supplying power · 100 W"
+        );
+        assert_eq!(port_summary(&port(1), None), "Nothing attached");
     }
 
     #[test]
     fn the_port_the_machine_draws_from_is_named_for_that_among_chargers() {
-        assert_eq!(port_summary(&port(0)), "Powering the machine · 100 W");
+        assert_eq!(port_summary(&port(0), None), "Powering the machine · 100 W");
     }
 
     #[test]
@@ -321,6 +325,54 @@ mod tests {
             partner: PortPartner::Audio,
             ..port(1)
         };
-        assert_eq!(port_summary(&accessory), "Audio accessory");
+        assert_eq!(port_summary(&accessory, None), "Audio accessory");
+    }
+
+    #[test]
+    fn a_device_in_the_slot_leads_its_ports_summary() {
+        let card = PortState {
+            partner: PortPartner::Sink,
+            charging: false,
+            millivolts: 5_000,
+            milliamps: 680,
+            ..port(0)
+        };
+        assert_eq!(
+            port_summary(&card, Some("HDMI Expansion Card")),
+            "HDMI Expansion Card · 3.4 W"
+        );
+    }
+
+    #[test]
+    fn powering_the_machine_outranks_the_device_in_the_slot() {
+        assert_eq!(
+            port_summary(&port(0), Some("USB-C Hub")),
+            "Powering the machine · 100 W"
+        );
+    }
+
+    #[test]
+    fn an_empty_port_with_no_device_is_still_nothing_attached() {
+        assert_eq!(port_summary(&port(1), None), "Nothing attached");
+    }
+
+    #[test]
+    fn powering_the_machine_outranks_a_device_even_when_the_partner_is_nothing() {
+        let charger = PortState {
+            partner: PortPartner::Nothing,
+            ..port(0)
+        };
+        assert_eq!(
+            port_summary(&charger, Some("HDMI Expansion Card")),
+            "Powering the machine · 100 W"
+        );
+    }
+
+    #[test]
+    fn a_device_with_no_partner_and_no_contract_is_named_alone() {
+        assert_eq!(
+            port_summary(&port(1), Some("HDMI Expansion Card")),
+            "HDMI Expansion Card"
+        );
     }
 }

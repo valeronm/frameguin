@@ -16,6 +16,7 @@ pub(crate) mod power_led;
 pub(crate) mod privacy_switches;
 pub(crate) mod touchpad;
 pub(crate) mod touchscreen;
+pub(crate) mod usb;
 
 #[cfg(test)]
 mod tests;
@@ -53,6 +54,7 @@ pub(crate) async fn serve_all(
         ports,
         chassis,
         privacy_switches,
+        usb,
     } = devices;
     server.at(OBJECT_PATH, root).await?;
     serve_one(server, &service, battery).await?;
@@ -61,7 +63,8 @@ pub(crate) async fn serve_all(
     serve_one(server, &service, power_led).await?;
     serve_one(server, &service, ports).await?;
     serve_one(server, &service, chassis).await?;
-    serve_one(server, &service, privacy_switches).await
+    serve_one(server, &service, privacy_switches).await?;
+    serve_one(server, &service, usb).await
 }
 
 #[derive(Clone, Copy)]

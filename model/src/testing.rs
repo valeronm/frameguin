@@ -3,11 +3,12 @@ use std::rc::Rc;
 use std::task::{Context, Poll, Waker};
 
 use frameguin_wire::{
-    BatteryCondition, BatteryControl, BatteryFeature, BatteryInfo, BatteryState, CcPolarity,
-    ChargeFlow, ChassisControl, ChassisFeature, ChassisState, ClickForce, DataRole, DeckState,
-    DeviceError, DeviceResult, Epr, ExtenderStage, ExtenderState, NO_CHARGE_CURRENT_LIMIT,
-    PortPartner, PortState, PortsControl, PowerLedControl, PowerLedLevel, PowerRole, PrivacyState,
-    PrivacySwitchesControl, TouchpadControl, TouchscreenControl,
+    Attached, BatteryCondition, BatteryControl, BatteryFeature, BatteryInfo, BatteryState,
+    CcPolarity, ChargeFlow, ChassisControl, ChassisFeature, ChassisState, ClickForce, DataRole,
+    DeckState, DeviceError, DeviceResult, Epr, ExtenderStage, ExtenderState,
+    NO_CHARGE_CURRENT_LIMIT, PortPartner, PortState, PortsControl, PowerLedControl, PowerLedLevel,
+    PowerRole, PrivacyState, PrivacySwitchesControl, TouchpadControl, TouchscreenControl,
+    UsbControl, UsbSpeed,
 };
 
 /// A 4640 mAh pack, the Laptop 13's.
@@ -93,6 +94,7 @@ pub(crate) struct Board {
     pub(crate) ports: Fault,
     pub(crate) chassis: Fault,
     pub(crate) privacy_switches: Fault,
+    pub(crate) usb: Fault,
     pub(crate) limit: Cell<u8>,
     pub(crate) cap: Cell<u32>,
     pub(crate) haptic_intensity: Cell<u8>,
@@ -112,6 +114,7 @@ impl Default for Board {
             ports: Fault::default(),
             chassis: Fault::default(),
             privacy_switches: Fault::default(),
+            usb: Fault::default(),
             limit: Cell::new(100),
             cap: Cell::new(NO_CHARGE_CURRENT_LIMIT),
             haptic_intensity: Cell::new(50),
@@ -136,7 +139,8 @@ impl Board {
             power_led: Fault::failing(error.clone()),
             ports: Fault::failing(error.clone()),
             chassis: Fault::failing(error.clone()),
-            privacy_switches: Fault::failing(error),
+            privacy_switches: Fault::failing(error.clone()),
+            usb: Fault::failing(error),
             ..Self::default()
         })
     }
@@ -252,6 +256,19 @@ impl PrivacySwitchesControl for Board {
             camera: true,
             microphone: false,
         })
+    }
+}
+
+impl UsbControl for Board {
+    async fn attached(&self) -> DeviceResult<Vec<Attached>> {
+        self.usb.read(vec![Attached {
+            controller: "0000:00:14.0".to_owned(),
+            root_port: 5,
+            vendor_id: 0x32ac,
+            product_id: 0x0002,
+            product: "HDMI Expansion Card".to_owned(),
+            speed: UsbSpeed::Full,
+        }])
     }
 }
 

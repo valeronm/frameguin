@@ -4,7 +4,8 @@
 //!
 //! What each value is *called* is `frameguin_model::control::ports`'s, and
 //! where a socket is on the machine is `frameguin_model::port`'s — which
-//! answers for the boards it has been measured on and no others.
+//! answers for the boards it has been measured on and no others, asking for
+//! nothing on one nobody measured.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -14,8 +15,9 @@ use frameguin_model::control::ports::{
     NOTHING_ATTACHED, POWERING_THE_MACHINE, cc_label, contract_label, data_role_label, epr_label,
     negotiated, partner_label, port_summary, power_role_label, vconn_label,
 };
+use frameguin_model::control::usb::{device_name, speed_label};
 use frameguin_model::port;
-use frameguin_wire::PortState;
+use frameguin_wire::{Attached, PortState};
 use gtk4 as gtk;
 
 use super::{Sidebar, Target};
@@ -33,12 +35,18 @@ struct Port {
     index: u8,
     row: adw::ActionRow,
     page: adw::PreferencesPage,
-    drawn: RefCell<Option<(adw::PreferencesGroup, PortState)>>,
+    drawn: RefCell<Option<Drawn>>,
+}
+
+struct Drawn {
+    groups: Vec<adw::PreferencesGroup>,
+    state: PortState,
+    devices: Vec<Attached>,
 }
 
 /// The rows arrive with the first reading, which is what says how many ports
 /// there are.
-pub(super) fn add(sidebar: &Rc<Sidebar>, feed: &Rc<Feed>) {
+pub(super) fn add(sidebar: &Rc<Sidebar>, feed: &Rc<Feed>, usb: bool) {
     let section = Rc::new(Section {
         list: sidebar.section(Some("USB-C Ports")),
         ports: RefCell::default(),
@@ -54,12 +62,13 @@ pub(super) fn add(sidebar: &Rc<Sidebar>, feed: &Rc<Feed>) {
 
     let wants = Wants {
         ports: true,
+        usb: usb && port::wired(board::product()),
         ..Wants::default()
     };
     let showing = sidebar.clone();
     sidebar.follow(feed, wants, move |reading| {
         if let Some(ports) = &reading.ports {
-            section.show(&showing, ports);
+            section.show(&showing, ports, reading.usb.as_deref().unwrap_or_default());
         }
     });
 }
@@ -67,7 +76,7 @@ pub(super) fn add(sidebar: &Rc<Sidebar>, feed: &Rc<Feed>) {
 impl Section {
     /// The rows are rebuilt only where the set of ports changed, which on a
     /// board's fixed ports is the first reading alone.
-    fn show(&self, sidebar: &Sidebar, ports: &[PortState]) {
+    fn show(&self, sidebar: &Sidebar, ports: &[PortState], devices: &[Attached]) {
         let product = board::product();
         let mut ports: Vec<&PortState> = ports.iter().collect();
         ports.sort_by_key(|state| port::order(product, state.index));
@@ -87,6 +96,7 @@ impl Section {
                 .map(|state| {
                     let page = adw::PreferencesPage::new();
                     let row = sidebar.add(&self.list, &port::label(product, state.index), &page);
+                    row.set_use_markup(false);
                     Port {
                         index: state.index,
                         row,
@@ -98,7 +108,11 @@ impl Section {
             *self.ports.borrow_mut() = built;
         }
         for (port, state) in self.ports.borrow().iter().zip(&ports) {
-            port.draw(product, state);
+            let here: Vec<Attached> = port::attached(product, state.index, devices)
+                .into_iter()
+                .cloned()
+                .collect();
+            port.draw(product, state, here);
         }
         if !same {
             sidebar.settle();
@@ -113,7 +127,7 @@ impl Section {
                 port.drawn
                     .borrow()
                     .as_ref()
-                    .is_some_and(|(_, state)| state.charging)
+                    .is_some_and(|drawn| drawn.state.charging)
             })
             .or_else(|| ports.first())
             .map(|port| port.row.clone().upcast())
@@ -122,20 +136,32 @@ impl Section {
 
 impl Port {
     /// Redrawn whole: which rows a port has depends on what is plugged into
-    /// it. Skipped where the state is unchanged, a contract being negotiated
-    /// rather than measured and consecutive readings usually identical.
-    fn draw(&self, product: &str, state: &PortState) {
+    /// it. Skipped where neither the state nor the devices moved.
+    fn draw(&self, product: &str, state: &PortState, devices: Vec<Attached>) {
         let mut drawn = self.drawn.borrow_mut();
-        if drawn.as_ref().is_some_and(|(_, shown)| shown == state) {
+        if drawn
+            .as_ref()
+            .is_some_and(|shown| shown.state == *state && shown.devices == devices)
+        {
             return;
         }
-        if let Some((group, _)) = drawn.take() {
-            self.page.remove(&group);
+        if let Some(shown) = drawn.take() {
+            for group in shown.groups {
+                self.page.remove(&group);
+            }
         }
-        self.row.set_subtitle(&port_summary(state));
-        let group = group(product, state);
-        self.page.add(&group);
-        *drawn = Some((group, state.clone()));
+        let name = devices.first().map(device_name);
+        self.row.set_subtitle(&port_summary(state, name.as_deref()));
+        let mut groups = vec![group(product, state)];
+        groups.extend(devices.iter().map(device_group));
+        for group in &groups {
+            self.page.add(group);
+        }
+        *drawn = Some(Drawn {
+            groups,
+            state: state.clone(),
+            devices,
+        });
     }
 }
 
@@ -172,5 +198,13 @@ fn group(product: &str, state: &PortState) -> adw::PreferencesGroup {
     if let Some(epr) = epr_label(state.epr) {
         value(&group, "Extended power range").set_label(epr);
     }
+    group
+}
+
+fn device_group(device: &Attached) -> adw::PreferencesGroup {
+    let group = adw::PreferencesGroup::builder()
+        .title(device_name(device))
+        .build();
+    value(&group, "Link speed").set_label(speed_label(device.speed));
     group
 }
