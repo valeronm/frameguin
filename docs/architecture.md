@@ -40,8 +40,8 @@ One meaning per word, and each word names one place in the tree.
 - **Daemon**, on the app side — its end of the daemon: the connection and
   the controls detection registered, dialled and asked once for the run.
   `app/src/daemon.rs`, `Daemon`.
-- **Client control** — the app's side of one control: its read as a
-  `Snapshot`, its commands, its presets and words. `model/src/control/`,
+- **Client control** — the app's side of one control: its read, its
+  commands, its presets and words. `model/src/control/`,
   registered in `Controls`.
 - **Group** — the window's widgets for one control. `app/src/window/`.
 
@@ -52,8 +52,8 @@ real thing, and `GetDevices` is the inventory of devices as parts.
 
 `wire` declares one control trait per device — `TouchpadControl`, and the
 rest as they move — with one async fn per operation, and one error,
-`DeviceError`, whose variants are the kinds a D-Bus error comes in plus
-`Absent`. Everything that talks to a control talks through those traits, and
+`DeviceError`, whose variants are the kinds a D-Bus error comes in plus the
+two only the bus raises: `Absent` and `Unreachable`. Everything that talks to a control talks through those traits, and
 there are three implementations:
 
 - **Device** — `frameguin-hardware`, the library that links the hardware
@@ -108,7 +108,7 @@ feature of the chassis, is a row on the Chassis page.
 
 | Layer | Crate | Links | Owns | Must not know | Tested against |
 |---|---|---|---|---|---|
-| Groups, tray | `app` | GTK, libadwaita, ksni, `model` | Widgets, toasts, the sync guard, timers, the tray thread's copy of each value | Which daemon operation a command becomes; any preset's value | Kept thin; not tested |
+| Groups, tray | `app` | GTK, libadwaita, ksni, `model` | Widgets, toasts, the sync guard, timers, the tray thread's copy of each value | Which daemon operation a command becomes; any preset's value | Kept thin; the widgets not at all, a pure function beside them in place |
 | Client controls | `model` | `wire` | One object per control: its read, its commands, its presets and words — and, beside them, the words no one control owns, which are here because more than one view spells them and because this is the layer a test can reach | GTK, the bus, another control's trait | A stub of the control trait |
 | Control traits | `wire` | zbus, serde | One trait per device, one async fn per operation; `DeviceError` | How an operation is reached | — |
 | Bus | `wire`, `app`, `daemon` | zbus, polkit | One proxy per interface and the vocabularies (`wire`); `Bus` implementing the traits over them (`app`); `Served<Device>` with the validate → skip → authorize → write order (`daemon`) | Anything that touches hardware (`wire`, `app`); which EC command a role sends (`daemon`) | Its own `wire` proxies over a socket pair, the devices on the same stubs |
@@ -146,13 +146,14 @@ snapshot's movement under a refused write on the app's.
   one file — `<Name><H: <Name>Control>` holding an
   `Rc<H>`; `detect()` by its features where its interface carries them, and
   otherwise by its own first read; a `read()` answering what the
-  device reports — a `Snapshot` (`Copy`, `Send`, so the tray can hold one)
-  where that is several values, the `wire` type itself where it is one;
-  commands that call the hardware; the presets, rows and labels both
-  front-ends draw from; its defaults.
+  device reports — the `wire` type it travels in, or a `Snapshot` of its own
+  where the settings read together are plain values (`Copy`, `Send`, so the
+  tray can hold one); commands that call the hardware; the presets, rows
+  and labels both front-ends draw from; its defaults.
 - **`app/src/window/<name>.rs`** — the `PreferencesGroup`, `gate(control)`
-  showing it where the device is, `show(snapshot)` moving the widgets under
-  the sync guard, and handlers dispatching to the control's commands.
+  showing it where the device is, the functions moving its widgets to a
+  read under the sync guard, and handlers dispatching to the control's
+  commands.
 - **`app/src/tray.rs`** — one item per control, drawn from its snapshot and
   labels.
 
@@ -221,7 +222,8 @@ per part at startup, `GetDevices` answers with the list, and the app's parts
 window draws it with the words `model::part` gives. Those words include
 every detail, label and value alike, and every firmware's name, so `hardware` sends numbers
 rather than sentences, and the daemon's own listing, spelled by the same
-module, carries the words the window shows. Detection sees the identity
+module, names every detail and firmware as the window does, its own field
+keys aside. Detection sees the identity
 anyway, so a device keeps it rather than reducing it to a bool, and a device
 that is a part and nothing else — the mainboard, a memory module — is a
 device all the same.
@@ -275,8 +277,8 @@ its own keys — was dropped rather than moved.
 A device detects itself at both ends — in `hardware` by its own probe, in
 `model` by its own first read (the feature list, where its interface carries
 one), which an unregistered interface answers with
-`DeviceError::Absent`, the one kind only the bus raises, so a present
-device's own `NotSupported` cannot read as absence. There is no capability
+`DeviceError::Absent`, which only the bus raises, so a present device's own
+`NotSupported` cannot read as absence. There is no capability
 list: presence is the interface being on the bus, and the features a device
 offers beyond presence travel on its own interface. The root interface
 carries only what belongs to no device — the inventory, the daemon's

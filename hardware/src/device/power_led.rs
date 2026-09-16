@@ -11,7 +11,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_io::Timer;
-use frameguin_wire::{DeviceError, DeviceResult, PowerLedControl, PowerLedLevel};
+use frameguin_wire::{
+    DeviceError, DeviceResult, MIN_POWER_LED_BRIGHTNESS, PowerLedControl, PowerLedLevel,
+};
 
 use crate::ec::{Ec, PowerLedEc};
 use crate::led::{self, LedClass};
@@ -105,13 +107,14 @@ impl PowerLed {
         self.write_for(level).map(drop)
     }
 
-    /// The EC accepts 1-100; 0 is rejected (it will not let the host
-    /// extinguish the indicator) and 0xFF is the protocol's read sentinel.
+    /// 0xFF, past the top, is the protocol's read sentinel.
     pub fn check_brightness(percent: u8) -> DeviceResult<()> {
-        if (1..=100).contains(&percent) {
+        if (MIN_POWER_LED_BRIGHTNESS..=100).contains(&percent) {
             Ok(())
         } else {
-            Err(DeviceError::InvalidArgs("brightness must be 1-100".into()))
+            Err(DeviceError::InvalidArgs(format!(
+                "brightness must be {MIN_POWER_LED_BRIGHTNESS}-100"
+            )))
         }
     }
 

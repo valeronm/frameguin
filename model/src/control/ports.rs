@@ -143,6 +143,18 @@ pub fn supply_summary(ports: &[PortState], product: &str) -> String {
     })
 }
 
+/// None where the port is not the one powering the machine.
+#[must_use]
+pub fn powering_label(port: &PortState) -> Option<&'static str> {
+    port.charging.then_some("Yes")
+}
+
+/// `DisplayPort` alternate mode, and None where the port is not in it.
+#[must_use]
+pub fn display_port_label(port: &PortState) -> Option<&'static str> {
+    port.video.then_some("Connected")
+}
+
 /// Whether the link negotiated power delivery or is carrying power on
 /// Type-C's own terms.
 #[must_use]
@@ -200,8 +212,8 @@ mod tests {
     use frameguin_wire::{DataRole, DeviceError, PortPartner, PortState, PowerRole};
 
     use super::{
-        Ports, carried, data_role_label, partner_label, port_summary, power_role_label, powering,
-        supply_label, supply_summary,
+        Ports, carried, data_role_label, display_port_label, partner_label, port_summary,
+        power_role_label, powering, powering_label, supply_label, supply_summary,
     };
     use crate::testing::{Board, absent, port, ready};
 
@@ -403,5 +415,21 @@ mod tests {
         assert_eq!(data_role_label(DataRole::UpstreamFacing), "Host");
         assert_eq!(data_role_label(DataRole::Disconnected), "Disconnected");
         assert_eq!(data_role_label(DataRole::Unknown), "Unknown");
+    }
+
+    #[test]
+    fn only_the_port_powering_the_machine_says_so() {
+        assert_eq!(powering_label(&port(0)), Some("Yes"));
+        assert_eq!(powering_label(&port(1)), None);
+    }
+
+    #[test]
+    fn only_a_port_in_display_port_mode_says_so() {
+        let video = PortState {
+            video: true,
+            ..port(1)
+        };
+        assert_eq!(display_port_label(&video), Some("Connected"));
+        assert_eq!(display_port_label(&port(1)), None);
     }
 }

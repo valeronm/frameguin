@@ -12,8 +12,8 @@ use std::rc::Rc;
 
 use adw::prelude::*;
 use frameguin_model::control::ports::{
-    NOTHING_ATTACHED, POWERING_THE_MACHINE, carried, contract_label, data_role_label, epr_label,
-    partner_label, port_summary, power_role_label,
+    NOTHING_ATTACHED, POWERING_THE_MACHINE, carried, contract_label, data_role_label,
+    display_port_label, epr_label, partner_label, port_summary, power_role_label, powering_label,
 };
 use frameguin_model::control::usb::{capacity_label, device_name, network_label, speed_label};
 use frameguin_model::port;
@@ -175,11 +175,11 @@ fn connection_group(product: &str, state: &PortState) -> adw::PreferencesGroup {
     if state.partner == PortPartner::Nothing {
         return group;
     }
-    if state.charging {
-        value(&group, POWERING_THE_MACHINE).set_label("Yes");
+    if let Some(powering) = powering_label(state) {
+        value(&group, POWERING_THE_MACHINE).set_label(powering);
     }
-    if state.video {
-        value(&group, "DisplayPort").set_label("Connected");
+    if let Some(video) = display_port_label(state) {
+        value(&group, "DisplayPort").set_label(video);
     }
     if let Some(power) = power_role_label(state.partner, state.power_role) {
         value(&group, "Power role").set_label(power);

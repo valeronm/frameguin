@@ -5,7 +5,7 @@ use std::rc::Rc;
 
 use adw::prelude::*;
 use frameguin_model::control::Custom;
-use frameguin_model::control::power_led::{self, Snapshot, labels};
+use frameguin_model::control::power_led::{self, MIN_POWER_LED_BRIGHTNESS, Snapshot, labels};
 use frameguin_wire::PowerLedLevel;
 use gtk4 as gtk;
 
@@ -40,8 +40,8 @@ impl Group {
             .build();
         widget.add(&combo);
         let custom_row = adw::ActionRow::builder().title("Brightness").build();
-        // The EC accepts 1-100 for this LED; 0 is not a valid level.
-        let adjustment = gtk::Adjustment::new(1.0, 1.0, 100.0, 10.0, 10.0, 0.0);
+        let floor = f64::from(MIN_POWER_LED_BRIGHTNESS);
+        let adjustment = gtk::Adjustment::new(floor, floor, 100.0, 10.0, 10.0, 0.0);
         let scale = build_scale(&adjustment, |value| format!("{value:.0}%"));
         custom_row.add_suffix(&scale);
         custom_row.set_visible(false);

@@ -55,6 +55,10 @@ pub const NO_CHARGE_CURRENT_LIMIT: u32 = u32::MAX;
 /// see the other's copy.
 pub const MIN_CHARGE_LIMIT: u8 = 20;
 
+/// The lowest power LED brightness `SetBrightness` accepts, and so a slider's
+/// floor: the EC refuses 0, which would let the host put the indicator out.
+pub const MIN_POWER_LED_BRIGHTNESS: u8 = 1;
+
 /// Every intensity `SetHapticIntensity` accepts. The touchpad firmware
 /// implements five steps rather than the 0-100 its HID descriptor advertises,
 /// and this is the one control whose legal arguments the app cannot look up

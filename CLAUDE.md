@@ -154,6 +154,7 @@ it and the non-obvious constraints.
   what its subscribers want, so a row that has not subscribed is one the fill
   reads nothing for, and the fill is broadcast like a tick, so opening one
   window cannot leave another showing what it saw before.
+  `bus.rs` is every control trait answered by a call on the daemon.
   `daemon.rs` is the app's
   end of the daemon — the bus connection and the detected controls, the two
   facts fixed for its run that every window wants — dialled and asked once,
@@ -284,8 +285,10 @@ it and the non-obvious constraints.
   so a refused write leaves the window asserting a state the hardware never
   took. Correct it where both hold: the prior value is recoverable without a
   read, and the wrong assertion is one a reader acts on rather than merely
-  looks at. The touchscreen is the case that meets them, its prior value
-  being the negation and its wrong claim being "touch is off". The power LED
+  looks at. The touchscreen and the restore switch are the cases that meet
+  them, a switch's prior value being its negation — the touchscreen's wrong
+  claim is "touch is off", the restore switch's that a setting will come
+  back after a restart. The power LED
   meets the second and not the first — a level the kernel would not hand
   the LED back for reads as Off, and "lit" is a claim of the same kind — so
   it re-reads after every write rather than capturing anything. Everything

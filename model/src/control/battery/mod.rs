@@ -137,7 +137,7 @@ pub fn charge_speed_at(design_capacity: u32, row: usize) -> Option<u32> {
 
 /// Which preset row a limit sits on, and `None` when it matches no preset —
 /// `framework_tool` can set any value, and guessing the nearest would
-/// misreport it. The tray's answer, its menu having no Custom row.
+/// misreport it.
 #[must_use]
 pub fn charge_speed_preset_row(design_capacity: u32, milliamps: u32) -> Option<usize> {
     (0..CHARGE_SPEEDS.len()).find(|&row| charge_speed_at(design_capacity, row) == Some(milliamps))
@@ -183,7 +183,7 @@ pub fn charge_limit_at(row: usize) -> Option<u8> {
 
 /// Which preset row a ceiling sits on, and `None` when it matches none —
 /// `framework_tool` can set any value, and guessing the nearest preset would
-/// misreport it. The tray's answer, its menu having no Custom row.
+/// misreport it.
 #[must_use]
 pub fn charge_limit_preset_row(percent: u8) -> Option<usize> {
     CHARGE_PRESETS.iter().position(|preset| *preset == percent)

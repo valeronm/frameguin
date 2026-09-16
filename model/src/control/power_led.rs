@@ -7,6 +7,8 @@ use frameguin_wire::{DeviceResult as Result, PowerLedControl, PowerLedLevel};
 
 use super::{Custom, present};
 
+pub use frameguin_wire::MIN_POWER_LED_BRIGHTNESS;
+
 /// What the LED is set to: the level in force, and the percentage the EC
 /// lights it at — the one a preset resolved to, or the one dialled in.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -116,6 +118,13 @@ fn rank(level: PowerLedLevel) -> u8 {
     }
 }
 
+/// Which of [`PowerLed::presets`] a level sits on, and None for Custom, which
+/// no preset is.
+#[must_use]
+pub fn preset_row(presets: &[PowerLedLevel], level: PowerLedLevel) -> Option<usize> {
+    presets.iter().position(|&preset| preset == level)
+}
+
 #[must_use]
 pub fn level_label(level: PowerLedLevel) -> &'static str {
     match level {
@@ -141,7 +150,7 @@ pub fn labels(levels: &[PowerLedLevel]) -> Vec<String> {
 mod tests {
     use frameguin_wire::{DeviceError, PowerLedLevel};
 
-    use super::{Custom, PowerLed, Snapshot, rank};
+    use super::{Custom, PowerLed, Snapshot, preset_row, rank};
     use crate::testing::{Board, absent, ready};
 
     #[test]
@@ -208,6 +217,15 @@ mod tests {
         let led = PowerLed::new(Board::new(), PowerLedLevel::ALL.to_vec());
         assert!(!led.presets().contains(&PowerLedLevel::Custom));
         assert_eq!(led.presets().len(), PowerLedLevel::ALL.len() - 1);
+    }
+
+    #[test]
+    fn a_preset_is_found_on_its_row_and_custom_on_none() {
+        let led = PowerLed::new(Board::new(), PowerLedLevel::ALL.to_vec());
+        let presets = led.presets();
+        let row = preset_row(&presets, PowerLedLevel::Low).unwrap();
+        assert_eq!(presets[row], PowerLedLevel::Low);
+        assert_eq!(preset_row(&presets, PowerLedLevel::Custom), None);
     }
 
     #[test]

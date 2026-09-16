@@ -137,8 +137,14 @@ fn build(
                     .build(),
             );
         }
-        if let Err(e) = feed.read().await {
-            shell.toast_error("Reading the status", e);
+        if let Some(split) = sidebar.split.upgrade() {
+            let failure = match feed.fill(&split).await {
+                Ok((_, failure)) => failure,
+                Err(e) => Some(e),
+            };
+            if let Some(e) = failure {
+                shell.toast_error("Reading the status", e);
+            }
         }
         sidebar.filled.set(true);
         sidebar.settle();

@@ -189,11 +189,6 @@ impl ksni::Tray for TrayIcon {
     }
 }
 
-/// One shape for every preset menu the tray offers: a submenu named after the
-/// value in force, holding a radio group over the presets. `selected` is None
-/// when the hardware sits on no preset, which leaves the group unmarked and
-/// the title naming `unlisted` — the value's own spelling, where the control
-/// has one, and nothing where it hasn't or nothing has been read yet.
 /// One shape for every line that shows a reading and opens the report behind
 /// it, beside [`radio_submenu`] for the same reason: the convention is that
 /// such a line carries no state of its own and the report reads for itself.
@@ -206,6 +201,11 @@ fn report_item(label: String, open: TrayEvent) -> ksni::MenuItem<TrayIcon> {
     .into()
 }
 
+/// One shape for every preset menu the tray offers: a submenu named after the
+/// value in force, holding a radio group over the presets. `selected` is None
+/// when the hardware sits on no preset, which leaves the group unmarked and
+/// the title naming `unlisted` — the value's own spelling, where the control
+/// has one, and nothing where it hasn't or nothing has been read yet.
 fn radio_submenu(
     name: &str,
     selected: Option<usize>,
@@ -335,7 +335,7 @@ impl TrayIcon {
         let levels = self.power_led_presets.clone()?;
         let selected = self
             .power_led_level
-            .and_then(|level| levels.iter().position(|l| *l == level));
+            .and_then(|level| power_led::preset_row(&levels, level));
         let options = power_led::labels(&levels);
         Some(radio_submenu(
             "Power button LED",

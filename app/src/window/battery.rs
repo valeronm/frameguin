@@ -29,8 +29,8 @@ use crate::reading::{Wants, show_while_mapped};
 use crate::report::status::{self, Target};
 use crate::tray::TrayValues;
 use crate::window::widgets::{
-    SliderWrites, build_scale, combo_selection, connect_combo, connect_slider_writes, report_row,
-    reveal_under, scale_percent, select_row, string_list,
+    SliderWrites, build_scale, combo_selection, connect_combo, connect_slider_writes, reveal_under,
+    scale_percent, select_row, string_list,
 };
 use crate::window::{Sink, Ui};
 
@@ -45,6 +45,25 @@ pub(crate) type Ports = ports::Ports<Bus>;
 /// nothing would catch them drifting apart.
 pub(crate) fn shown(battery: Option<&Rc<Battery>>, ports: Option<&Rc<Ports>>) -> bool {
     battery.is_some() || ports.is_some()
+}
+
+/// Named as an action rather than wired to a handler, so offering the report
+/// needs no bus connection.
+fn report_row(
+    title: &str,
+    action: &str,
+    target: &gtk::glib::Variant,
+) -> (adw::ActionRow, gtk::Label) {
+    let row = adw::ActionRow::builder()
+        .title(title)
+        .activatable(true)
+        .action_name(format!("app.{action}"))
+        .build();
+    row.set_action_target_value(Some(target));
+    let value = gtk::Label::new(None);
+    row.add_suffix(&value);
+    row.add_suffix(&gtk::Image::from_icon_name("go-next-symbolic"));
+    (row, value)
 }
 
 pub(crate) struct Group {
@@ -328,8 +347,11 @@ impl Group {
     /// ports and no pack has a charger row and nothing else here, and the row
     /// would otherwise fill only where a pack answered.
     pub(crate) async fn load_fed(&self, ui: &Ui, values: &mut TrayValues) {
-        match ui.feed.read().await {
-            Ok(reading) => {
+        match ui.feed.fill(&self.widget).await {
+            Ok((reading, failure)) => {
+                if let Some(e) = failure {
+                    ui.toast_error("Reading the battery", e);
+                }
                 values.battery = reading.info.map(|info| info.state);
                 values.ports = reading.ports;
             }

@@ -19,9 +19,9 @@ fn cause(error: &zbus::Error) -> String {
     }
 }
 
-/// What a failed operation says, by the kind the daemon's interface answers
-/// with — so a caller can tell an argument it got wrong from hardware that
-/// is not there from a prompt that was declined — and the sentence for it.
+/// What a failed operation says, by kind — so a caller can tell an argument
+/// it got wrong from hardware that is not there from a prompt that was
+/// declined from a daemon that never answered — and the sentence for it.
 ///
 /// The one error every implementation of the control traits raises. The
 /// direct implementation raises the kind itself; over the bus the kind
@@ -39,6 +39,9 @@ pub enum DeviceError {
     /// only where it detected the device, so that reply is the device's
     /// absence and nothing else, and a device's `detect` reads it as such.
     Absent(String),
+    /// The daemon did not answer at all, which only the bus implementation
+    /// can tell.
+    Unreachable(String),
     Failed(String),
 }
 
@@ -49,6 +52,7 @@ impl fmt::Display for DeviceError {
             | Self::NotSupported(m)
             | Self::AccessDenied(m)
             | Self::Absent(m)
+            | Self::Unreachable(m)
             | Self::Failed(m) => f.write_str(m),
         }
     }
@@ -64,6 +68,12 @@ impl From<zbus::Error> for DeviceError {
             Fdo::NotSupported(m) => Self::NotSupported(m),
             Fdo::AccessDenied(m) => Self::AccessDenied(m),
             Fdo::UnknownInterface(m) => Self::Absent(m),
+            Fdo::NoReply(m)
+            | Fdo::ServiceUnknown(m)
+            | Fdo::NameHasNoOwner(m)
+            | Fdo::Timeout(m)
+            | Fdo::Disconnected(m) => Self::Unreachable(m),
+            Fdo::ZBus(e @ zbus::Error::InputOutput(_)) => Self::Unreachable(cause(&e)),
             Fdo::ZBus(e) => Self::Failed(cause(&e)),
             other => Self::Failed(other.to_string()),
         }
@@ -83,7 +93,7 @@ impl From<DeviceError> for zbus::fdo::Error {
             DeviceError::NotSupported(m) => Self::NotSupported(m),
             DeviceError::AccessDenied(m) => Self::AccessDenied(m),
             DeviceError::Absent(m) => Self::UnknownInterface(m),
-            DeviceError::Failed(m) => Self::Failed(m),
+            DeviceError::Unreachable(m) | DeviceError::Failed(m) => Self::Failed(m),
         }
     }
 }
@@ -92,21 +102,40 @@ pub type DeviceResult<T> = Result<T, DeviceError>;
 
 #[cfg(test)]
 mod tests {
-    use super::cause;
+    use super::{DeviceError, cause};
     use crate::vocabulary::OBJECT_PATH;
 
-    fn method_error(detail: Option<&str>) -> zbus::Error {
+    fn named_error(name: &str, detail: Option<&str>) -> zbus::Error {
         let reply = zbus::Message::method_call(OBJECT_PATH, "SetChargeLimit")
             .unwrap()
             .build(&())
             .unwrap();
         zbus::Error::MethodError(
-            "org.freedesktop.DBus.Error.AccessDenied"
-                .try_into()
-                .unwrap(),
+            name.try_into().unwrap(),
             detail.map(ToString::to_string),
             reply,
         )
+    }
+
+    fn method_error(detail: Option<&str>) -> zbus::Error {
+        named_error("org.freedesktop.DBus.Error.AccessDenied", detail)
+    }
+
+    #[test]
+    fn a_daemon_that_never_answered_is_unreachable() {
+        let error = named_error("org.freedesktop.DBus.Error.NoReply", Some("no reply"));
+        assert_eq!(
+            DeviceError::from(error),
+            DeviceError::Unreachable("no reply".into())
+        );
+    }
+
+    #[test]
+    fn a_refusal_the_daemon_sent_keeps_its_kind() {
+        assert_eq!(
+            DeviceError::from(method_error(Some("not authorized"))),
+            DeviceError::AccessDenied("not authorized".into())
+        );
     }
 
     /// Declining the polkit prompt is the failure every user meets, and the

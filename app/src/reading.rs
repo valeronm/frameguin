@@ -8,9 +8,10 @@
 //! shown and the feed does the reading: one timer, one call, every view fed
 //! from the same answer.
 //!
-//! That holds for a window filling itself too, which is why [`Feed::read`] is
-//! what fills one rather than a read beside it: a fill is broadcast like any
-//! tick, so opening a window cannot leave another showing what it saw before.
+//! That holds for a window filling itself too, which is why [`Feed::fill`]
+//! takes the feed's own read rather than one beside it: a fill is broadcast
+//! like any tick, so opening a window cannot leave another showing what it saw
+//! before.
 //!
 //! Nothing here needs a pack. The block is an absent extra on a board with
 //! none, the way a failed read is, and the ports are still read.
@@ -35,8 +36,8 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use frameguin_wire::{
-    Attached, BatteryCondition, BatteryFeature, BatteryInfo, ChassisState, DeckState, DeviceResult,
-    ExtenderState, PortState, PrivacyState,
+    Attached, BatteryCondition, BatteryFeature, BatteryInfo, ChassisState, DeckState, DeviceError,
+    DeviceResult, ExtenderState, PortState, PrivacyState,
 };
 use gtk4 as gtk;
 use gtk4::glib;
@@ -96,7 +97,7 @@ pub(crate) struct Wants {
 }
 
 impl Wants {
-    /// What the feed must read to satisfy every view at once.
+    /// Every extra either asks for.
     fn with(self, other: Self) -> Self {
         Self {
             battery: self.battery || other.battery,
@@ -134,13 +135,31 @@ pub(crate) struct Reading {
 
 type Show = dyn Fn(&Reading);
 
+/// An extra, as the field of [`Wants`] that asks for it.
+type Extra = fn(Wants) -> bool;
+
+type Failures = Vec<(Extra, DeviceError)>;
+
 /// Where one view wants the reading put, and what it needs read for it.
 struct View {
     wants: Wants,
+    /// Weak, the widget holding the subscription rather than the other way
+    /// round.
+    widget: glib::WeakRef<gtk::Widget>,
     /// Behind an `Rc` so a tick can take a copy and let go of the list before
     /// showing anything: a view is free to close its window, and so to
     /// unsubscribe, from inside the call that shows it.
     show: Rc<Show>,
+}
+
+impl View {
+    fn sits_in(&self, root: &gtk::Root) -> bool {
+        self.widget
+            .upgrade()
+            .and_then(|widget| widget.root())
+            .as_ref()
+            == Some(root)
+    }
 }
 
 /// A view's place in the feed, held for as long as it wants to be shown.
@@ -177,12 +196,37 @@ impl Drop for InFlight<'_> {
     }
 }
 
-/// Raised rather than swallowed: a window showing only this extra has nothing
-/// else for its toast to be about.
-async fn wanted<T>(read: Option<impl Future<Output = DeviceResult<T>>>) -> DeviceResult<Option<T>> {
-    match read {
-        Some(read) => read.await.map(Some),
-        None => Ok(None),
+struct Extras {
+    wants: Wants,
+    failures: Failures,
+}
+
+impl Extras {
+    /// None where no view wants `extra`, where the board has no device to
+    /// ask, where the read failed, and once the daemon has not answered.
+    async fn read<T>(
+        &mut self,
+        extra: Extra,
+        read: Option<impl Future<Output = DeviceResult<T>>>,
+    ) -> Option<T> {
+        if !extra(self.wants) || self.unreachable() {
+            return None;
+        }
+        match read?.await {
+            Ok(value) => Some(value),
+            Err(error) => {
+                self.failures.push((extra, error));
+                None
+            }
+        }
+    }
+
+    /// A daemon that left one call unanswered leaves every later call waiting
+    /// as long.
+    fn unreachable(&self) -> bool {
+        self.failures
+            .iter()
+            .any(|(_, error)| matches!(error, DeviceError::Unreachable(_)))
     }
 }
 
@@ -223,9 +267,14 @@ impl Feed {
 
     /// Registers a view, and starts the timer where this is the first.
     ///
-    /// Takes no reading of its own: whoever subscribes has just filled itself,
+    /// Takes no reading of its own: a window subscribes and then fills itself,
     /// and that read is the one placed to say so when it fails.
-    fn subscribe(self: &Rc<Self>, wants: Wants, show: Rc<Show>) -> Subscription {
+    fn subscribe(
+        self: &Rc<Self>,
+        wants: Wants,
+        widget: glib::WeakRef<gtk::Widget>,
+        show: Rc<Show>,
+    ) -> Subscription {
         let id = self.next_id.get();
         self.next_id.set(id + 1);
         // The next read serves a view that has seen nothing yet, so let it be
@@ -237,7 +286,14 @@ impl Feed {
         }
         let first = {
             let mut views = self.views.borrow_mut();
-            views.push((id, View { wants, show }));
+            views.push((
+                id,
+                View {
+                    wants,
+                    widget,
+                    show,
+                },
+            ));
             views.len() == 1
         };
         if first {
@@ -279,7 +335,8 @@ impl Feed {
             })));
     }
 
-    /// Takes one reading, shows it on every view, and hands it back.
+    /// Takes one reading, shows it on every view, and hands it back with the
+    /// failure the window `widget` sits in should announce.
     ///
     /// Reads what the subscribed views want and nothing else, so a window
     /// filling itself subscribes first.
@@ -288,78 +345,96 @@ impl Feed {
     /// than a second assembly beside it — and so any fill refreshes every
     /// other view at the same instant rather than leaving them a tick behind.
     ///
-    /// The error is for a caller filling a window, which is the one placed to
-    /// say so, and it is only ever raised for something a view asked for —
-    /// so a report's toast names what that report was reading. The tick above
-    /// drops it, silence being the rule for a read with a successor seconds
-    /// behind it. A device the board does not have is not a failure: its
-    /// field arrives as None, as one nobody asked for does.
-    pub(crate) async fn read(&self) -> DeviceResult<Reading> {
-        // Counted for the length of the read, however it leaves: the `?`s
-        // below are why this is a guard rather than a pair of writes, a read
-        // that returned early having otherwise locked the tick out for the
-        // rest of the process.
-        let _in_flight = InFlight::enter(&self.reading);
-        let controls = self.daemon.controls().await?;
-        let wants = self
-            .views
+    /// Raises only where the daemon's controls could not be had. The failure
+    /// beside the reading counts only the extras the window's own views asked
+    /// for: one only another window asked for is not this one's to announce.
+    pub(crate) async fn fill(
+        &self,
+        widget: &impl IsA<gtk::Widget>,
+    ) -> DeviceResult<(Reading, Option<DeviceError>)> {
+        let (reading, failures) = self.read().await?;
+        let asked = widget.root().map_or_else(Wants::default, |root| {
+            self.wanted(|view| view.sits_in(&root))
+        });
+        let failure = failures
+            .into_iter()
+            .find(|(extra, _)| extra(asked))
+            .map(|(_, error)| error);
+        Ok((reading, failure))
+    }
+
+    fn wanted(&self, keep: impl Fn(&View) -> bool) -> Wants {
+        self.views
             .borrow()
             .iter()
-            .fold(Wants::default(), |wants, (_, view)| wants.with(view.wants));
+            .filter(|(_, view)| keep(view))
+            .fold(Wants::default(), |wants, (_, view)| wants.with(view.wants))
+    }
+
+    /// Takes one reading, shows it on every view, and hands it back with the
+    /// extras that failed.
+    ///
+    /// Raises only where the daemon's controls could not be had; an extra
+    /// that failed arrives as None. A device the board does not have is not a
+    /// failure: its field arrives as None, as one nobody asked for does.
+    async fn read(&self) -> DeviceResult<(Reading, Failures)> {
+        // The `?` below returns early, and a count left raised would lock the
+        // tick out for the rest of the process.
+        let _in_flight = InFlight::enter(&self.reading);
+        let controls = self.daemon.controls().await?;
+        let wants = self.wanted(|_| true);
+        let mut extras = Extras {
+            wants,
+            failures: Vec::new(),
+        };
         let battery = controls.battery.as_ref();
-        let info = wanted(battery.filter(|_| wants.battery).map(|b| b.read())).await?;
+        let info = extras.read(|w| w.battery, battery.map(|b| b.read())).await;
         // Every read wants the block; the condition only on the reads that come
         // round to it. Subscribing rewinds the count, so the fill that follows
         // a view arriving is always one of them and the spacing only applies
         // to the repeats after it.
         let ticks = self.ticks.get();
         self.ticks.set(ticks.wrapping_add(1));
-        let condition =
-            match battery.filter(|_| wants.condition && ticks.is_multiple_of(CONDITION_EVERY)) {
-                Some(battery) => battery.condition().await.ok(),
-                None => None,
-            };
+        let condition = extras
+            .read(
+                |w| w.condition,
+                battery
+                    .filter(|_| ticks.is_multiple_of(CONDITION_EVERY))
+                    .map(|b| b.condition()),
+            )
+            .await;
         // Asked of the ports control rather than the pack's: a board can have
         // one and not the other.
-        let ports = wanted(
-            controls
-                .ports
-                .as_ref()
-                .filter(|_| wants.ports)
-                .map(|p| p.read()),
-        )
-        .await?;
+        let ports = extras
+            .read(|w| w.ports, controls.ports.as_ref().map(|p| p.read()))
+            .await;
         let chassis_control = controls.chassis.as_ref();
-        let chassis = wanted(chassis_control.filter(|_| wants.chassis).map(|c| c.read())).await?;
-        let deck = wanted(
-            chassis_control
-                .filter(|_| wants.deck)
-                .map(|c| c.deck_state()),
-        )
-        .await?;
-        let privacy_switches = wanted(
-            controls
-                .privacy_switches
-                .as_ref()
-                .filter(|_| wants.privacy_switches)
-                .map(|s| s.read()),
-        )
-        .await?;
-        let extender = wanted(battery.filter(|_| wants.extender).map(|b| b.extender())).await?;
-        let charge_limit = wanted(
-            battery
-                .filter(|b| wants.extender && b.has(BatteryFeature::ChargeLimit))
-                .map(|b| b.charge_limit()),
-        )
-        .await?;
-        let usb = wanted(
-            controls
-                .usb
-                .as_ref()
-                .filter(|_| wants.usb)
-                .map(|u| u.read()),
-        )
-        .await?;
+        let chassis = extras
+            .read(|w| w.chassis, chassis_control.map(|c| c.read()))
+            .await;
+        let deck = extras
+            .read(|w| w.deck, chassis_control.map(|c| c.deck_state()))
+            .await;
+        let privacy_switches = extras
+            .read(
+                |w| w.privacy_switches,
+                controls.privacy_switches.as_ref().map(|s| s.read()),
+            )
+            .await;
+        let extender = extras
+            .read(|w| w.extender, battery.map(|b| b.extender()))
+            .await;
+        let charge_limit = extras
+            .read(
+                |w| w.extender,
+                battery
+                    .filter(|b| b.has(BatteryFeature::ChargeLimit))
+                    .map(|b| b.charge_limit()),
+            )
+            .await;
+        let usb = extras
+            .read(|w| w.usb, controls.usb.as_ref().map(|u| u.read()))
+            .await;
         let reading = Reading {
             info,
             condition,
@@ -383,7 +458,7 @@ impl Feed {
         for show in showing {
             show(&reading);
         }
-        Ok(reading)
+        Ok((reading, extras.failures))
     }
 }
 
@@ -397,5 +472,8 @@ pub(crate) fn show_while_mapped(
 ) {
     let show: Rc<Show> = Rc::new(show);
     let feed = feed.clone();
-    while_mapped(widget, move || feed.subscribe(wants, show.clone()));
+    let weak = widget.upcast_ref::<gtk::Widget>().downgrade();
+    while_mapped(widget, move || {
+        feed.subscribe(wants, weak.clone(), show.clone())
+    });
 }
