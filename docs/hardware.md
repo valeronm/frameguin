@@ -1060,6 +1060,13 @@ names no controller, so a slot is keyed by the controller's PCI address and
 root port. A device behind a USB-C card can be a hub, appearing on both
 halves of one slot.
 
+Framework's own cards announce the names they are sold under, under
+Framework's USB vendor id: `32ac:0002` calls itself `HDMI Expansion Card`,
+`32ac:0003` `DisplayPort Expansion Card`, `32ac:0009` `SD Expansion Card`,
+each with `Framework` as its manufacturer. A card is therefore named by what
+it says about itself, and a table from ids to names would buy nothing while
+risking a wrong name for a third-party device sharing a bridge chip's ids.
+
 The HDMI and DisplayPort cards answer their firmware report, feature report
 `0xE0`, without the unlock `framework_lib`'s own version check sends first —
 that version check, taken as a whole, is what leaves the card in flashing

@@ -116,7 +116,7 @@ const PCH: &str = "0000:00:14.0";
 /// The processor's Type-C controller on the Core Ultra Series 3.
 const TCSS: &str = "0000:00:0d.0";
 
-const fn wiring(superspeed: u8, usb2: u8) -> Wiring {
+const fn pro_ultra_3(superspeed: u8, usb2: u8) -> Wiring {
     Wiring {
         superspeed: RootPort {
             controller: TCSS,
@@ -180,10 +180,10 @@ const LAYOUTS: &[Layout] = &[
             Some(Position::at(Side::Left, Depth::Front)),
         ],
         wiring: &[
-            Some(wiring(4, 3)),
-            Some(wiring(3, 2)),
-            Some(wiring(2, 5)),
-            Some(wiring(1, 4)),
+            Some(pro_ultra_3(4, 3)),
+            Some(pro_ultra_3(3, 2)),
+            Some(pro_ultra_3(2, 5)),
+            Some(pro_ultra_3(1, 4)),
         ],
     },
     // The same controller table's sides, and the EC declaring the bay's
