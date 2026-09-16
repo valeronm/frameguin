@@ -394,8 +394,10 @@ mod tests {
             root_port,
             vendor_id: 0x32ac,
             product_id: 0x0002,
+            manufacturer: "Framework".to_owned(),
             product: product.to_owned(),
             speed: UsbSpeed::Full,
+            firmware: String::new(),
         }
     }
 

@@ -266,8 +266,10 @@ impl UsbControl for Board {
             root_port: 5,
             vendor_id: 0x32ac,
             product_id: 0x0002,
+            manufacturer: "Framework".to_owned(),
             product: "HDMI Expansion Card".to_owned(),
             speed: UsbSpeed::Full,
+            firmware: String::new(),
         }])
     }
 }

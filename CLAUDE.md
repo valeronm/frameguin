@@ -224,7 +224,8 @@ it and the non-obvious constraints.
   `udev.rs` the words udev's database holds for an id sysfs gives bare — the
   record it cached for a device it processed, and the vendor list read
   directly for a part with no record of its own, a panel over DRM having the
-  GPU's —
+  GPU's — `ccg3.rs` what an HDMI or DisplayPort card's firmware report
+  means, apart from `usb.rs` so the decoding is testable without a card —
   `lifetime.rs` what
   holds a mirrored value and whether it still holds it, where `dmi.rs`
   answers for the machine, which is the difference between a fact a reboot or

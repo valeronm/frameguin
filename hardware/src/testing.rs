@@ -23,7 +23,7 @@ use crate::part;
 use crate::state::{self, Store};
 use crate::touchpad::HapticPad;
 use crate::touchscreen::TouchSwitch;
-use crate::usb::UsbTree;
+use crate::usb::{RootDevice, UsbTree};
 
 /// One PD controller's version blob, as a controller really answered: base
 /// `3.8.50.00A`, application `1.0.0A`.
@@ -531,6 +531,10 @@ pub struct Hub {
     pub devices: Vec<Attached>,
     /// A machine whose USB bus cannot be listed.
     pub refusing: bool,
+    /// What every card's firmware report answers.
+    pub firmware: Option<String>,
+    /// The device directories firmware was asked of.
+    pub asked: Mutex<Vec<PathBuf>>,
 }
 
 impl Default for Hub {
@@ -542,28 +546,49 @@ impl Default for Hub {
                     root_port: 2,
                     vendor_id: 0x04c5,
                     product_id: 0x2028,
+                    manufacturer: "iODD".to_owned(),
                     product: "iodd_ST400".to_owned(),
                     speed: UsbSpeed::Super,
+                    firmware: String::new(),
                 },
                 Attached {
                     controller: "0000:00:14.0".to_owned(),
                     root_port: 5,
                     vendor_id: 0x32ac,
                     product_id: 0x0002,
+                    manufacturer: "Framework".to_owned(),
                     product: "HDMI Expansion Card".to_owned(),
                     speed: UsbSpeed::Full,
+                    firmware: "3.0.10.06A".to_owned(),
                 },
             ],
             refusing: false,
+            firmware: Some("3.0.10.06A".to_owned()),
+            asked: Mutex::default(),
         }
     }
 }
 
 impl UsbTree for Hub {
-    fn root_devices(&self) -> DeviceResult<Vec<Attached>> {
+    fn root_devices(&self) -> DeviceResult<Vec<RootDevice>> {
         if self.refusing {
             return Err(DeviceError::Failed("no USB bus".into()));
         }
-        Ok(self.devices.clone())
+        Ok(self
+            .devices
+            .iter()
+            .map(|attached| RootDevice {
+                attached: Attached {
+                    firmware: String::new(),
+                    ..attached.clone()
+                },
+                path: PathBuf::from(format!("{}-{}", attached.controller, attached.root_port)),
+            })
+            .collect())
+    }
+
+    fn card_firmware(&self, device: &Path) -> Option<String> {
+        self.asked.lock().unwrap().push(device.to_owned());
+        self.firmware.clone()
     }
 }

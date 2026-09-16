@@ -2,39 +2,92 @@
 //! the attributes each announces.
 
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use frameguin_wire::{Attached, DeviceError, DeviceResult, UsbSpeed};
 
+use crate::ccg3;
+
 const DEVICES: &str = "/sys/bus/usb/devices";
+
+/// A device on a root port and the sysfs directory it was read from.
+pub struct RootDevice {
+    pub attached: Attached,
+    pub path: PathBuf,
+}
 
 /// What the USB device needs of the bus.
 pub trait UsbTree: Send + Sync {
     /// Every device directly on a root port, ordered by controller and port.
-    fn root_devices(&self) -> DeviceResult<Vec<Attached>>;
+    fn root_devices(&self) -> DeviceResult<Vec<RootDevice>>;
+    /// The running firmware of the CCG3 card whose device directory this is,
+    /// read by its firmware report alone; None where it did not answer.
+    fn card_firmware(&self, device: &Path) -> Option<String>;
 }
 
 pub(crate) struct Sysfs;
 
 impl UsbTree for Sysfs {
-    fn root_devices(&self) -> DeviceResult<Vec<Attached>> {
+    fn root_devices(&self) -> DeviceResult<Vec<RootDevice>> {
         let entries =
             fs::read_dir(DEVICES).map_err(|e| DeviceError::Failed(format!("{DEVICES}: {e}")))?;
-        let mut found: Vec<Attached> = entries
+        let mut found: Vec<RootDevice> = entries
             .flatten()
             .filter_map(|entry| {
                 let port = root_port(entry.file_name().to_str()?)?;
                 read(&entry.path(), port)
             })
             .collect();
-        found.sort_by(|a, b| (&a.controller, a.root_port).cmp(&(&b.controller, b.root_port)));
+        found.sort_by(|a, b| {
+            (&a.attached.controller, a.attached.root_port)
+                .cmp(&(&b.attached.controller, b.attached.root_port))
+        });
         Ok(found)
     }
+
+    fn card_firmware(&self, device: &Path) -> Option<String> {
+        let node = vendor_hidraw(device)?;
+        // hidapi's no-enumerate constructor panics once detection's own walk
+        // has created a context with discovery.
+        let api = hidapi::HidApi::new().ok()?;
+        let path = std::ffi::CString::new(format!("/dev/{node}")).ok()?;
+        let card = api.open_path(&path).ok()?;
+        let mut report = [0; ccg3::REPORT_LEN];
+        report[0] = ccg3::REPORT;
+        card.get_feature_report(&mut report).ok()?;
+        ccg3::active_version(&report)
+    }
+}
+
+/// The hidraw node of the device's interface whose report descriptor carries
+/// the card's vendor usage page.
+fn vendor_hidraw(device: &Path) -> Option<String> {
+    fs::read_dir(device)
+        .ok()?
+        .flatten()
+        .filter(|interface| interface.file_name().to_string_lossy().contains(':'))
+        .flat_map(|interface| {
+            fs::read_dir(interface.path())
+                .into_iter()
+                .flatten()
+                .flatten()
+        })
+        .filter(|hid| {
+            fs::read(hid.path().join("report_descriptor"))
+                .is_ok_and(|descriptor| ccg3::vendor_interface(&descriptor))
+        })
+        .find_map(|hid| {
+            fs::read_dir(hid.path().join("hidraw"))
+                .ok()?
+                .flatten()
+                .next()
+                .map(|node| node.file_name().to_string_lossy().into_owned())
+        })
 }
 
 /// A device whose ids do not read is skipped: the kernel is still
 /// enumerating it.
-fn read(link: &Path, root_port: u8) -> Option<Attached> {
+fn read(link: &Path, root_port: u8) -> Option<RootDevice> {
     let path = fs::canonicalize(link).ok()?;
     // `…/0000:00:14.0/usb3/3-5`: the root hub's parent is the controller.
     let controller = path.parent()?.parent()?.file_name()?.to_str()?.to_owned();
@@ -43,18 +96,23 @@ fn read(link: &Path, root_port: u8) -> Option<Attached> {
             .map(|text| text.trim().to_owned())
             .unwrap_or_default()
     };
-    Some(Attached {
-        controller,
-        root_port,
-        vendor_id: hex(&attribute("idVendor"))?,
-        product_id: hex(&attribute("idProduct"))?,
-        product: attribute("product"),
-        speed: speed(&attribute("speed")),
+    Some(RootDevice {
+        attached: Attached {
+            controller,
+            root_port,
+            vendor_id: hex(&attribute("idVendor"))?,
+            product_id: hex(&attribute("idProduct"))?,
+            manufacturer: attribute("manufacturer"),
+            product: attribute("product"),
+            speed: speed(&attribute("speed")),
+            firmware: String::new(),
+        },
+        path,
     })
 }
 
 /// The root port a device sits on, from its `bus-port` name; None for one
-/// behind a hub (`3-5.1`), an interface (`3-5:1.0`) or a root hub (`usb3`).
+/// behind a hub, an interface and a root hub alike.
 fn root_port(name: &str) -> Option<u8> {
     let (bus, port) = name.split_once('-')?;
     bus.parse::<u32>().ok()?;

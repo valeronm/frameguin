@@ -62,8 +62,10 @@ mod tests {
             root_port: 5,
             vendor_id: 0x04c5,
             product_id: 0x2028,
+            manufacturer: "iODD".to_owned(),
             product: product.to_owned(),
             speed: UsbSpeed::Super,
+            firmware: String::new(),
         }
     }
 

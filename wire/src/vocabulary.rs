@@ -446,8 +446,13 @@ pub struct Attached {
     pub vendor_id: u16,
     pub product_id: u16,
     /// Empty where the device announces none.
+    pub manufacturer: String,
+    /// Empty where the device announces none.
     pub product: String,
     pub speed: UsbSpeed,
+    /// The running firmware of a card whose version can be read without
+    /// writing to it, and empty for every other device.
+    pub firmware: String,
 }
 
 /// One USB-C port, as the EC's copy of its controller's state has it.
@@ -823,8 +828,10 @@ mod tests {
             root_port: 5,
             vendor_id: 0x32ac,
             product_id: 0x0002,
+            manufacturer: "Framework".to_owned(),
             product: "HDMI Expansion Card".to_owned(),
             speed: UsbSpeed::Full,
+            firmware: String::new(),
         }];
         let ctxt = Context::new_dbus(LE, 0);
         let bytes = to_bytes(ctxt, &attached).unwrap();

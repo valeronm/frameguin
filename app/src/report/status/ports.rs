@@ -205,6 +205,12 @@ fn device_group(device: &Attached) -> adw::PreferencesGroup {
     let group = adw::PreferencesGroup::builder()
         .title(device_name(device))
         .build();
+    if !device.manufacturer.is_empty() {
+        value(&group, "Manufacturer").set_label(&device.manufacturer);
+    }
     value(&group, "Link speed").set_label(speed_label(device.speed));
+    if !device.firmware.is_empty() {
+        value(&group, "Firmware").set_label(&device.firmware);
+    }
     group
 }

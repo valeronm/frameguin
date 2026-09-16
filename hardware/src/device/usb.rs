@@ -4,6 +4,7 @@
 use std::sync::Arc;
 
 use frameguin_wire::{Attached, DeviceResult, UsbControl};
+use framework_lib::ccgx::hid::{ALL_CARD_PIDS, FRAMEWORK_VID};
 
 use crate::dmi;
 use crate::usb::{Sysfs, UsbTree};
@@ -13,8 +14,7 @@ pub struct Usb {
 }
 
 impl Usb {
-    /// Behind the vendor check, so a machine that is not a Framework one
-    /// still answers with no controls.
+    /// A machine that is not a Framework one answers with no controls at all.
     pub(crate) fn detect() -> Option<Self> {
         dmi::is_framework().then_some(())?;
         Self::new(Arc::new(Sysfs))
@@ -27,8 +27,23 @@ impl Usb {
 }
 
 impl UsbControl for Usb {
+    /// A card swapped or reflashed between two readings must not be able to
+    /// report its predecessor's version.
     async fn attached(&self) -> DeviceResult<Vec<Attached>> {
-        self.tree.root_devices()
+        Ok(self
+            .tree
+            .root_devices()?
+            .into_iter()
+            .map(|found| {
+                let mut attached = found.attached;
+                if attached.vendor_id == FRAMEWORK_VID
+                    && ALL_CARD_PIDS.contains(&attached.product_id)
+                {
+                    attached.firmware = self.tree.card_firmware(&found.path).unwrap_or_default();
+                }
+                attached
+            })
+            .collect())
     }
 }
 
@@ -54,5 +69,27 @@ mod tests {
             ..Hub::default()
         };
         assert!(Usb::new(Arc::new(hub)).is_none());
+    }
+
+    #[test]
+    fn firmware_is_asked_of_framework_display_cards_alone() {
+        let hub = Arc::new(Hub::default());
+        let usb = Usb::new(hub.clone()).expect("the bus listed");
+        let attached = ready(usb.attached()).unwrap();
+        assert_eq!(hub.asked.lock().unwrap().len(), 1);
+        assert_eq!(attached[1].firmware, "3.0.10.06A");
+        assert_eq!(attached[0].firmware, "");
+    }
+
+    #[test]
+    fn a_card_whose_report_did_not_answer_is_still_attached() {
+        let hub = Hub {
+            firmware: None,
+            ..Hub::default()
+        };
+        let usb = Usb::new(Arc::new(hub)).expect("the bus listed");
+        let attached = ready(usb.attached()).unwrap();
+        assert_eq!(attached.len(), 2);
+        assert_eq!(attached[1].firmware, "");
     }
 }

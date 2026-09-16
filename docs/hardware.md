@@ -1060,6 +1060,14 @@ names no controller, so a slot is keyed by the controller's PCI address and
 root port. A device behind a USB-C card can be a hub, appearing on both
 halves of one slot.
 
+The HDMI and DisplayPort cards answer their firmware report, feature report
+`0xE0`, without the unlock `framework_lib`'s own version check sends first —
+that version check, taken as a whole, is what leaves the card in flashing
+mode. The unprompted report carries the signature `AA` rather than the `CY`
+an unlocked card answers with, and otherwise the same layout: a silicon id
+and a UID matching the USB serial, and a version matching `framework_tool
+--dp-hdmi-info`.
+
 ### A port's voltage is measured, its current is not reported
 
 Everything the EC serves about a port is the contract — the PDO the source
