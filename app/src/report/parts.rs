@@ -7,7 +7,7 @@ use std::rc::Rc;
 use adw::prelude::*;
 use frameguin_model::date;
 use frameguin_model::part::{
-    catalogue, detail_row, firmware_name, inventory, maker, name, part_number,
+    catalogue, detail_rows, firmware_name, inventory, maker, name, part_number,
 };
 use frameguin_wire::Identity;
 use gtk4 as gtk;
@@ -172,8 +172,7 @@ fn details(part: &Identity) -> adw::PreferencesPage {
     }
     optional_value(&group, "Manufacturer", maker(part));
     optional_value(&group, "Part number", part_number(part, sold));
-    for detail in details {
-        let (title, text) = detail_row(detail);
+    for (title, text) in detail_rows(details) {
         optional_value(&group, title, &text);
     }
     optional_value(&group, "Serial number", serial);

@@ -303,8 +303,24 @@ pub(crate) fn trimmed(mut spelled: String) -> String {
     spelled
 }
 
+/// Carries a pixel density row no detail holds, derived where a panel stated
+/// both its resolution and its size. The rest are the details in the order the
+/// part stated them.
 #[must_use]
-pub fn detail_row(detail: &Detail) -> (&'static str, String) {
+pub fn detail_rows(details: &[Detail]) -> Vec<(&'static str, String)> {
+    let mut rows = Vec::with_capacity(details.len());
+    for detail in details {
+        rows.push(detail_row(detail));
+        if let Detail::PanelSize { .. } = detail
+            && let Some(density) = density(details)
+        {
+            rows.push(("Pixel density", density));
+        }
+    }
+    rows
+}
+
+fn detail_row(detail: &Detail) -> (&'static str, String) {
     match detail {
         Detail::MemoryCapacity(bytes) => ("Capacity", scaled(*bytes, 1024.0)),
         Detail::StorageCapacity(bytes) => ("Capacity", scaled(*bytes, 1000.0)),
@@ -377,10 +393,27 @@ fn gcd(mut a: u16, mut b: u16) -> u16 {
 
 /// A panel is sold by the inches of its diagonal.
 fn diagonal(width: u16, height: u16) -> String {
-    const MILLIMETRES_PER_INCH: f64 = 25.4;
     let (across, down) = (f64::from(width), f64::from(height));
-    let inches = across.hypot(down) / MILLIMETRES_PER_INCH;
-    trimmed(format!("{inches:.1}"))
+    trimmed(format!("{:.1}", inches(across.hypot(down))))
+}
+
+fn density(details: &[Detail]) -> Option<String> {
+    let (across, down) = details.iter().find_map(|detail| match detail {
+        Detail::Resolution { across, down } => Some((*across, *down)),
+        _ => None,
+    })?;
+    let (width, height) = details.iter().find_map(|detail| match detail {
+        Detail::PanelSize { across, down } => Some((*across, *down)),
+        _ => None,
+    })?;
+    let pixels = f64::from(across).hypot(f64::from(down));
+    let diagonal = inches(f64::from(width).hypot(f64::from(height)));
+    Some(format!("{:.0} ppi", pixels / diagonal))
+}
+
+fn inches(millimetres: f64) -> f64 {
+    const MILLIMETRES_PER_INCH: f64 = 25.4;
+    millimetres / MILLIMETRES_PER_INCH
 }
 
 /// The machine's parts as the daemon's journal and the app's debug report
@@ -421,7 +454,7 @@ pub fn listing(parts: &[Identity]) -> String {
         .into_iter()
         .filter(|(_, value)| !value.is_empty())
         .collect();
-        let details: Vec<_> = details.iter().map(detail_row).collect();
+        let details = detail_rows(details);
         let firmware: Vec<_> = firmware
             .iter()
             .map(|firmware| {
@@ -475,8 +508,8 @@ mod tests {
     };
 
     use super::{
-        aspect, catalogue, detail_row, firmware_name, inventory, listing, maker, name, ordered,
-        part_number,
+        aspect, catalogue, detail_row, detail_rows, firmware_name, inventory, listing, maker, name,
+        ordered, part_number,
     };
 
     fn part(kind: PartKind, id: &str) -> Identity {
@@ -683,6 +716,33 @@ mod tests {
             detail_row(&size),
             ("Size", "13.5 inches (285 × 190 mm)".to_owned())
         );
+    }
+
+    #[test]
+    fn a_panel_stating_pixels_and_millimetres_is_measured_in_both() {
+        let panel = [
+            Detail::Resolution {
+                across: 2880,
+                down: 1920,
+            },
+            Detail::PanelSize {
+                across: 285,
+                down: 190,
+            },
+            Detail::ColourDepth(10),
+        ];
+        let rows = detail_rows(&panel);
+        assert_eq!(rows[2], ("Pixel density", "257 ppi".to_owned()));
+        assert_eq!(rows[3].0, "Colour depth");
+    }
+
+    #[test]
+    fn a_panel_stating_only_its_millimetres_carries_no_density() {
+        let unresolved = [Detail::PanelSize {
+            across: 285,
+            down: 190,
+        }];
+        assert_eq!(detail_rows(&unresolved).len(), 1);
     }
 
     #[test]
