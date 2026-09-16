@@ -3,8 +3,7 @@
 use std::rc::Rc;
 
 use frameguin_wire::{
-    CcPolarity, DataRole, DeviceResult as Result, Epr, PortPartner, PortState, PortsControl,
-    PowerRole,
+    DataRole, DeviceResult as Result, Epr, PortPartner, PortState, PortsControl, PowerRole,
 };
 
 use super::present;
@@ -47,11 +46,12 @@ pub fn partner_label(partner: PortPartner) -> Option<&'static str> {
     })
 }
 
-/// The negotiated supply as a person reads it — volts, amps and the watts
-/// they come to. None where nothing was negotiated, so a row is left out
-/// rather than showing a contract of zero.
+/// What the link carries as a person reads it — volts, amps and the watts
+/// they come to. A port with no power delivery contract still carries what
+/// Type-C's own resistors advertise. None where the port settled on
+/// nothing, a supply of zero being worth no row.
 #[must_use]
-pub fn negotiated(port: &PortState) -> Option<String> {
+pub fn carried(port: &PortState) -> Option<String> {
     if port.millivolts == 0 || port.milliamps == 0 {
         return None;
     }
@@ -69,7 +69,11 @@ pub const POWERING_THE_MACHINE: &str = "Powering the machine";
 
 /// One port on one line: what is attached — the device in the slot where
 /// one was placed there, named for powering the machine where it does — and
-/// the watts of its contract where one was negotiated.
+/// the watts it carries where it carries any.
+///
+/// A lead naming the device in the slot says nothing about which way its
+/// power goes. The arrow is the direction for the thing attached, not for
+/// the machine.
 #[must_use]
 pub fn port_summary(port: &PortState, device: Option<&str>) -> String {
     let partner = partner_label(port.partner);
@@ -83,10 +87,14 @@ pub fn port_summary(port: &PortState, device: Option<&str>) -> String {
     if port.millivolts == 0 || port.milliamps == 0 {
         return lead.to_owned();
     }
-    format!("{lead} · {}", watts(port))
+    let flow = match port.partner {
+        PortPartner::Sink => "↓ ",
+        PortPartner::Source => "↑ ",
+        _ => "",
+    };
+    format!("{lead} · {flow}{}", watts(port))
 }
 
-/// A negotiated contract holds still between readings.
 fn watts(port: &PortState) -> String {
     let watts = f64::from(port.millivolts) * f64::from(port.milliamps) / 1_000_000.0;
     format!("{} W", crate::part::trimmed(format!("{watts:.1}")))
@@ -146,28 +154,31 @@ pub fn contract_label(contract: bool) -> &'static str {
     }
 }
 
+/// What the far end does with power, read off the machine's own role, the
+/// two ends of a link being opposites. None where [`partner_label`] already
+/// says it.
 #[must_use]
-pub fn vconn_label(vconn: bool) -> &'static str {
-    if vconn { "On" } else { "Off" }
-}
-
-/// Which end of the link this machine is, said from the machine's side: a
-/// reader wants to know what their laptop is doing, not what the standard
-/// calls the role.
-#[must_use]
-pub fn power_role_label(role: PowerRole) -> &'static str {
-    match role {
-        PowerRole::Sink => "Taking power",
-        PowerRole::Source => "Giving power",
-        PowerRole::Unknown => "Unknown",
+pub fn power_role_label(partner: PortPartner, role: PowerRole) -> Option<&'static str> {
+    if matches!(
+        (partner, role),
+        (PortPartner::Sink, PowerRole::Source) | (PortPartner::Source, PowerRole::Sink)
+    ) {
+        return None;
     }
+    Some(match role {
+        PowerRole::Sink => "Supplying power",
+        PowerRole::Source => "Drawing power",
+        PowerRole::Unknown => "Unknown",
+    })
 }
 
+/// Which end drives the data link, said of the far end, the machine's own
+/// role being what the EC reports.
 #[must_use]
 pub fn data_role_label(role: DataRole) -> &'static str {
     match role {
-        DataRole::UpstreamFacing => "Device",
-        DataRole::DownstreamFacing => "Host",
+        DataRole::UpstreamFacing => "Host",
+        DataRole::DownstreamFacing => "Peripheral",
         DataRole::Disconnected => "Disconnected",
         DataRole::Unknown => "Unknown",
     }
@@ -184,25 +195,13 @@ pub fn epr_label(epr: Epr) -> Option<&'static str> {
     }
 }
 
-/// The plug's orientation. The debug variants are the same two channels
-/// reached through a debug accessory, so they name the channel and say so.
-#[must_use]
-pub fn cc_label(cc: CcPolarity) -> &'static str {
-    match cc {
-        CcPolarity::Cc1 => "CC1",
-        CcPolarity::Cc2 => "CC2",
-        CcPolarity::Cc1Debug => "CC1 (debug)",
-        CcPolarity::Cc2Debug => "CC2 (debug)",
-        CcPolarity::Unknown => "Unknown",
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use frameguin_wire::{DeviceError, PortPartner, PortState};
+    use frameguin_wire::{DataRole, DeviceError, PortPartner, PortState, PowerRole};
 
     use super::{
-        Ports, negotiated, partner_label, port_summary, powering, supply_label, supply_summary,
+        Ports, carried, data_role_label, partner_label, port_summary, power_role_label, powering,
+        supply_label, supply_summary,
     };
     use crate::testing::{Board, absent, port, ready};
 
@@ -233,11 +232,8 @@ mod tests {
     }
 
     #[test]
-    fn a_negotiated_contract_reads_as_volts_amps_and_watts() {
-        assert_eq!(
-            negotiated(&port(0)).as_deref(),
-            Some("20.0 V, 5.00 A (100 W)")
-        );
+    fn what_a_link_carries_reads_as_volts_amps_and_watts() {
+        assert_eq!(carried(&port(0)).as_deref(), Some("20.0 V, 5.00 A (100 W)"));
     }
 
     #[test]
@@ -247,13 +243,13 @@ mod tests {
             milliamps: 1_500,
             ..port(0)
         };
-        assert_eq!(negotiated(&usb).as_deref(), Some("5.0 V, 1.50 A (7.5 W)"));
+        assert_eq!(carried(&usb).as_deref(), Some("5.0 V, 1.50 A (7.5 W)"));
         assert_eq!(supply_label(&[usb]), "7.5 W");
     }
 
     #[test]
-    fn a_port_that_negotiated_nothing_has_no_contract_to_show() {
-        assert_eq!(negotiated(&port(1)), None);
+    fn a_port_that_settled_on_nothing_carries_nothing_to_show() {
+        assert_eq!(carried(&port(1)), None);
     }
 
     #[test]
@@ -309,14 +305,17 @@ mod tests {
         };
         assert_eq!(
             port_summary(&second_charger, None),
-            "Supplying power · 100 W"
+            "Supplying power · ↑ 100 W"
         );
         assert_eq!(port_summary(&port(1), None), "Nothing attached");
     }
 
     #[test]
     fn the_port_the_machine_draws_from_is_named_for_that_among_chargers() {
-        assert_eq!(port_summary(&port(0), None), "Powering the machine · 100 W");
+        assert_eq!(
+            port_summary(&port(0), None),
+            "Powering the machine · ↑ 100 W"
+        );
     }
 
     #[test]
@@ -339,7 +338,7 @@ mod tests {
         };
         assert_eq!(
             port_summary(&card, Some("HDMI Expansion Card")),
-            "HDMI Expansion Card · 3.4 W"
+            "HDMI Expansion Card · ↓ 3.4 W"
         );
     }
 
@@ -347,7 +346,7 @@ mod tests {
     fn powering_the_machine_outranks_the_device_in_the_slot() {
         assert_eq!(
             port_summary(&port(0), Some("USB-C Hub")),
-            "Powering the machine · 100 W"
+            "Powering the machine · ↑ 100 W"
         );
     }
 
@@ -374,5 +373,35 @@ mod tests {
             port_summary(&port(1), Some("HDMI Expansion Card")),
             "HDMI Expansion Card"
         );
+    }
+
+    #[test]
+    fn a_power_role_the_partner_already_gave_is_left_unsaid() {
+        assert_eq!(power_role_label(PortPartner::Sink, PowerRole::Source), None);
+        assert_eq!(power_role_label(PortPartner::Source, PowerRole::Sink), None);
+    }
+
+    #[test]
+    fn a_power_role_names_what_the_far_end_does_and_not_the_machine() {
+        assert_eq!(
+            power_role_label(PortPartner::Sink, PowerRole::Sink),
+            Some("Supplying power")
+        );
+        assert_eq!(
+            power_role_label(PortPartner::Audio, PowerRole::Source),
+            Some("Drawing power")
+        );
+        assert_eq!(
+            power_role_label(PortPartner::Sink, PowerRole::Unknown),
+            Some("Unknown")
+        );
+    }
+
+    #[test]
+    fn a_data_role_names_what_the_far_end_is_and_not_the_machine() {
+        assert_eq!(data_role_label(DataRole::DownstreamFacing), "Peripheral");
+        assert_eq!(data_role_label(DataRole::UpstreamFacing), "Host");
+        assert_eq!(data_role_label(DataRole::Disconnected), "Disconnected");
+        assert_eq!(data_role_label(DataRole::Unknown), "Unknown");
     }
 }

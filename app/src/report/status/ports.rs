@@ -12,18 +12,18 @@ use std::rc::Rc;
 
 use adw::prelude::*;
 use frameguin_model::control::ports::{
-    NOTHING_ATTACHED, POWERING_THE_MACHINE, cc_label, contract_label, data_role_label, epr_label,
-    negotiated, partner_label, port_summary, power_role_label, vconn_label,
+    NOTHING_ATTACHED, POWERING_THE_MACHINE, carried, contract_label, data_role_label, epr_label,
+    partner_label, port_summary, power_role_label,
 };
 use frameguin_model::control::usb::{device_name, speed_label};
 use frameguin_model::port;
-use frameguin_wire::{Attached, PortState};
+use frameguin_wire::{Attached, PortPartner, PortState};
 use gtk4 as gtk;
 
 use super::{Sidebar, Target};
 use crate::board;
 use crate::reading::{Feed, Wants};
-use crate::report::{described_value, value};
+use crate::report::value;
 
 /// The section's rows, one per port the last reading carried.
 struct Section {
@@ -152,7 +152,8 @@ impl Port {
         }
         let name = devices.first().map(device_name);
         self.row.set_subtitle(&port_summary(state, name.as_deref()));
-        let mut groups = vec![group(product, state)];
+        let mut groups = vec![connection_group(product, state)];
+        groups.extend(contract_group(state));
         groups.extend(devices.iter().map(device_group));
         for group in &groups {
             self.page.add(group);
@@ -165,19 +166,14 @@ impl Port {
     }
 }
 
-/// Untitled, the page's own title already naming where the port is.
-fn group(product: &str, state: &PortState) -> adw::PreferencesGroup {
+fn connection_group(product: &str, state: &PortState) -> adw::PreferencesGroup {
     let group = adw::PreferencesGroup::new();
+    group.set_title(partner_label(state.partner).unwrap_or(NOTHING_ATTACHED));
     if let Some(number) = port::secondary(product, state.index) {
         value(&group, "Port").set_label(&number);
     }
-    let Some(partner) = partner_label(state.partner) else {
-        group.set_description(Some(NOTHING_ATTACHED));
+    if state.partner == PortPartner::Nothing {
         return group;
-    };
-    value(&group, "Attached").set_label(partner);
-    if let Some(contract) = negotiated(state) {
-        value(&group, "Negotiated").set_label(&contract);
     }
     if state.charging {
         value(&group, POWERING_THE_MACHINE).set_label("Yes");
@@ -185,20 +181,31 @@ fn group(product: &str, state: &PortState) -> adw::PreferencesGroup {
     if state.video {
         value(&group, "DisplayPort").set_label("Connected");
     }
-    value(&group, "Power role").set_label(power_role_label(state.power_role));
+    if let Some(power) = power_role_label(state.partner, state.power_role) {
+        value(&group, "Power role").set_label(power);
+    }
     value(&group, "Data role").set_label(data_role_label(state.data_role));
-    value(&group, "Contract").set_label(contract_label(state.contract));
-    value(&group, "Orientation").set_label(cc_label(state.cc));
-    described_value(
-        &group,
-        "VCONN",
-        "Whether this port powers the chips inside the cable or accessory",
-    )
-    .set_label(vconn_label(state.vconn));
-    if let Some(epr) = epr_label(state.epr) {
+    group
+}
+
+fn contract_group(state: &PortState) -> Option<adw::PreferencesGroup> {
+    if state.partner == PortPartner::Nothing {
+        return None;
+    }
+    let supply = carried(state);
+    let epr = epr_label(state.epr);
+    if supply.is_none() && epr.is_none() {
+        return None;
+    }
+    let group = adw::PreferencesGroup::new();
+    group.set_title(contract_label(state.contract));
+    if let Some(supply) = supply {
+        value(&group, "Supply").set_label(&supply);
+    }
+    if let Some(epr) = epr {
         value(&group, "Extended power range").set_label(epr);
     }
-    group
+    Some(group)
 }
 
 fn device_group(device: &Attached) -> adw::PreferencesGroup {
