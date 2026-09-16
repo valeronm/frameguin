@@ -68,6 +68,12 @@ One bullet per change a user can see, never one per commit: most of a range is
 refactors, module splits and formatting, and a release names none of them. The
 test is whether someone who never reads the repo would notice.
 
+Dropping the invisible commits is not enough. A bullet stands above the range
+rather than beside it: the commits that together built one thing a reader
+reaches — a page, a section, a reading — are one bullet between them, so a
+release of twelve can have four. A page whose bullets can each be matched to a
+commit is the log rewritten, however plainly each one reads on its own.
+
 Describe plainly what the app gained or lost, with no clause setting it
 against what it did before: a page where each bullet carries an "instead of"
 reads as one sentence repeated.
