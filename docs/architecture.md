@@ -114,7 +114,7 @@ feature of the chassis, is a row on the Chassis page.
 | Bus | `wire`, `app`, `daemon` | zbus, polkit | One proxy per interface and the vocabularies (`wire`); `Bus` implementing the traits over them (`app`); `Served<Device>` with the validate → skip → authorize → write order (`daemon`) | Anything that touches hardware (`wire`, `app`); which EC command a role sends (`daemon`) | Its own `wire` proxies over a socket pair, the devices on the same stubs |
 | Devices | `hardware` | `wire` | `detect()`, the control impl with its argument checks, the `Part` impl, mirrors under a declared lifetime, arbitrations | The bus, polkit | The stub per role and the store in memory, in `hardware::testing` |
 | Roles | `hardware` | — | One trait per hardware need: `Charger`, `Pack`, `PowerLedEc`, `LedClass`, `HapticPad`, `TouchSwitch`, `PdPorts`, `ChassisEc`, `PrivacyEc`, `Store`, `UsbTree` | Who calls them | — |
-| Transports | `hardware` | `framework_lib`, hidapi, libc | `Ec` and its lock, the sysfs LED node, the GPIO pad, the panel and touchpad HID, the SMBIOS table, the state file, the sysfs USB tree | Devices, policy, the bus | The machine |
+| Transports | `hardware` | `framework_lib`, hidapi, libc | `Ec` and its lock, the sysfs LED node, the GPIO pad, the panel and touchpad HID, the SMBIOS table, the state file, the sysfs USB tree, the net class | Devices, policy, the bus | The machine |
 
 The two trait rows are the seams. A stub replaces the real thing at either,
 which is what makes the logic on both sides testable: the skip rule, a mirror's

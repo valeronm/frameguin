@@ -4,9 +4,9 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use frameguin_wire::{Attached, DeviceError, DeviceResult, UsbSpeed};
+use frameguin_wire::{Attached, DeviceError, DeviceResult, NetworkLink, UsbSpeed};
 
-use crate::ccg3;
+use crate::{ccg3, net};
 
 const DEVICES: &str = "/sys/bus/usb/devices";
 
@@ -23,6 +23,9 @@ pub trait UsbTree: Send + Sync {
     /// The running firmware of the CCG3 card whose device directory this is,
     /// read by its firmware report alone; None where it did not answer.
     fn card_firmware(&self, device: &Path) -> Option<String>;
+    /// The network interfaces of the device whose directory this is, ordered
+    /// by interface name.
+    fn network(&self, device: &Path) -> Vec<NetworkLink>;
 }
 
 pub(crate) struct Sysfs;
@@ -57,32 +60,27 @@ impl UsbTree for Sysfs {
         card.get_feature_report(&mut report).ok()?;
         ccg3::active_version(&report)
     }
+
+    fn network(&self, device: &Path) -> Vec<NetworkLink> {
+        let mut links: Vec<NetworkLink> = interfaces(device)
+            .flat_map(|interface| entries(&interface.join("net")))
+            .map(|interface| net::link(&interface))
+            .collect();
+        links.sort_by(|a, b| a.interface.cmp(&b.interface));
+        links
+    }
 }
 
 /// The hidraw node of the device's interface whose report descriptor carries
 /// the card's vendor usage page.
 fn vendor_hidraw(device: &Path) -> Option<String> {
-    fs::read_dir(device)
-        .ok()?
-        .flatten()
-        .filter(|interface| interface.file_name().to_string_lossy().contains(':'))
-        .flat_map(|interface| {
-            fs::read_dir(interface.path())
-                .into_iter()
-                .flatten()
-                .flatten()
-        })
+    interfaces(device)
+        .flat_map(|interface| entries(&interface))
         .filter(|hid| {
-            fs::read(hid.path().join("report_descriptor"))
+            fs::read(hid.join("report_descriptor"))
                 .is_ok_and(|descriptor| ccg3::vendor_interface(&descriptor))
         })
-        .find_map(|hid| {
-            fs::read_dir(hid.path().join("hidraw"))
-                .ok()?
-                .flatten()
-                .next()
-                .map(|node| node.file_name().to_string_lossy().into_owned())
-        })
+        .find_map(|hid| entries(&hid.join("hidraw")).next().map(|node| name(&node)))
 }
 
 /// A device whose ids do not read is skipped: the kernel is still
@@ -106,9 +104,30 @@ fn read(link: &Path, root_port: u8) -> Option<RootDevice> {
             product: attribute("product"),
             speed: speed(&attribute("speed")),
             firmware: String::new(),
+            network: Vec::new(),
         },
         path,
     })
+}
+
+/// A USB interface's directory is named with a colon, `2-2:1.0`.
+fn interfaces(device: &Path) -> impl Iterator<Item = PathBuf> + use<> {
+    entries(device).filter(|interface| name(interface).contains(':'))
+}
+
+/// Empty where the directory does not read.
+fn entries(dir: &Path) -> impl Iterator<Item = PathBuf> + use<> {
+    fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|entry| entry.path())
+}
+
+fn name(path: &Path) -> String {
+    path.file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default()
 }
 
 /// The root port a device sits on, from its `bus-port` name; None for one

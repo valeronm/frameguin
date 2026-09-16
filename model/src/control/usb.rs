@@ -3,7 +3,9 @@
 
 use std::rc::Rc;
 
-use frameguin_wire::{Attached, DeviceResult as Result, UsbControl, UsbSpeed};
+use frameguin_wire::{
+    Attached, DeviceResult as Result, LinkState, NetworkLink, UsbControl, UsbSpeed,
+};
 
 use super::present;
 
@@ -50,11 +52,51 @@ pub fn speed_label(speed: UsbSpeed) -> &'static str {
     }
 }
 
+#[must_use]
+pub fn network_label(link: &NetworkLink) -> String {
+    match (link.state, link.megabits) {
+        (LinkState::Down, _) => "Switched off".to_owned(),
+        (LinkState::NoCarrier, _) => "No cable".to_owned(),
+        (LinkState::Up, 0) => "Connected".to_owned(),
+        (LinkState::Up, m) if m >= 1000 && m % 100 == 0 => {
+            format!("{} Gbps", f64::from(m) / 1000.0)
+        }
+        (LinkState::Up, m) => format!("{m} Mbps"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use frameguin_wire::{Attached, UsbSpeed};
+    use frameguin_wire::{Attached, LinkState, NetworkLink, UsbSpeed};
 
-    use super::{device_name, speed_label};
+    use super::{device_name, network_label, speed_label};
+
+    fn link(state: LinkState, megabits: u32) -> NetworkLink {
+        NetworkLink {
+            interface: "enp0s13f0u2".to_owned(),
+            mac: "00:e0:4c:68:02:00".to_owned(),
+            state,
+            megabits,
+        }
+    }
+
+    #[test]
+    fn a_link_that_is_up_reads_in_the_unit_its_rate_is_sold_in() {
+        assert_eq!(network_label(&link(LinkState::Up, 1000)), "1 Gbps");
+        assert_eq!(network_label(&link(LinkState::Up, 2500)), "2.5 Gbps");
+        assert_eq!(network_label(&link(LinkState::Up, 100)), "100 Mbps");
+    }
+
+    #[test]
+    fn a_link_with_no_rate_reads_as_connected() {
+        assert_eq!(network_label(&link(LinkState::Up, 0)), "Connected");
+    }
+
+    #[test]
+    fn a_link_that_is_not_up_says_why() {
+        assert_eq!(network_label(&link(LinkState::NoCarrier, 0)), "No cable");
+        assert_eq!(network_label(&link(LinkState::Down, 0)), "Switched off");
+    }
 
     fn device(product: &str) -> Attached {
         Attached {
@@ -66,6 +108,7 @@ mod tests {
             product: product.to_owned(),
             speed: UsbSpeed::Super,
             firmware: String::new(),
+            network: Vec::new(),
         }
     }
 

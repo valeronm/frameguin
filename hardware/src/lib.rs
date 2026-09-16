@@ -48,6 +48,7 @@ pub(crate) mod gpio;
 pub(crate) mod led;
 pub(crate) mod lifetime;
 pub mod mirror;
+pub(crate) mod net;
 pub(crate) mod nvme;
 pub(crate) mod panel;
 pub mod part;

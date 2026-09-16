@@ -11,8 +11,8 @@ use std::task::{Context, Poll, Waker};
 use frameguin_wire::{
     Attached, BatteryCondition, BatteryInfo, BatteryState, CcPolarity, ChargeFlow, ChassisState,
     ClickForce, DataRole, DeckState, Detail, DeviceError, DeviceResult, Epr, ExtenderStage,
-    ExtenderState, Identity, PartKind, PortPartner, PortState, PowerLedLevel, PowerRole,
-    PrivacyState, UsbSpeed,
+    ExtenderState, Identity, LinkState, NetworkLink, PartKind, PortPartner, PortState,
+    PowerLedLevel, PowerRole, PrivacyState, UsbSpeed,
 };
 
 use crate::ec::{Charger, ChassisEc, Pack, PdPorts, PowerLedEc, PrivacyEc};
@@ -550,6 +550,23 @@ impl Default for Hub {
                     product: "iodd_ST400".to_owned(),
                     speed: UsbSpeed::Super,
                     firmware: String::new(),
+                    network: Vec::new(),
+                },
+                Attached {
+                    controller: "0000:00:0d.0".to_owned(),
+                    root_port: 3,
+                    vendor_id: 0x0bda,
+                    product_id: 0x8153,
+                    manufacturer: "Realtek".to_owned(),
+                    product: "USB 10/100/1000 LAN".to_owned(),
+                    speed: UsbSpeed::Super,
+                    firmware: String::new(),
+                    network: vec![NetworkLink {
+                        interface: "enp0s13f0u3".to_owned(),
+                        mac: "00:e0:4c:68:02:00".to_owned(),
+                        state: LinkState::Up,
+                        megabits: 1000,
+                    }],
                 },
                 Attached {
                     controller: "0000:00:14.0".to_owned(),
@@ -560,6 +577,7 @@ impl Default for Hub {
                     product: "HDMI Expansion Card".to_owned(),
                     speed: UsbSpeed::Full,
                     firmware: "3.0.10.06A".to_owned(),
+                    network: Vec::new(),
                 },
             ],
             refusing: false,
@@ -580,9 +598,10 @@ impl UsbTree for Hub {
             .map(|attached| RootDevice {
                 attached: Attached {
                     firmware: String::new(),
+                    network: Vec::new(),
                     ..attached.clone()
                 },
-                path: PathBuf::from(format!("{}-{}", attached.controller, attached.root_port)),
+                path: hub_path(attached),
             })
             .collect())
     }
@@ -591,4 +610,16 @@ impl UsbTree for Hub {
         self.asked.lock().unwrap().push(device.to_owned());
         self.firmware.clone()
     }
+
+    fn network(&self, device: &Path) -> Vec<NetworkLink> {
+        self.devices
+            .iter()
+            .find(|attached| hub_path(attached) == device)
+            .map(|attached| attached.network.clone())
+            .unwrap_or_default()
+    }
+}
+
+fn hub_path(attached: &Attached) -> PathBuf {
+    PathBuf::from(format!("{}-{}", attached.controller, attached.root_port))
 }

@@ -270,6 +270,7 @@ impl UsbControl for Board {
             product: "HDMI Expansion Card".to_owned(),
             speed: UsbSpeed::Full,
             firmware: String::new(),
+            network: Vec::new(),
         }])
     }
 }

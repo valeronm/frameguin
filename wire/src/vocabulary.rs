@@ -433,7 +433,7 @@ pub enum UsbSpeed {
     Unknown,
 }
 
-/// A USB device plugged straight into a root port, in its own words.
+/// A USB device plugged straight into a root port.
 ///
 /// `controller` and `root_port` are what places it: the USB bus number is
 /// handed out in enumeration order and names no controller.
@@ -453,6 +453,31 @@ pub struct Attached {
     /// The running firmware of a card whose version can be read without
     /// writing to it, and empty for every other device.
     pub firmware: String,
+    pub network: Vec<NetworkLink>,
+}
+
+/// Whether a network interface carries a link, as the kernel's net class
+/// reports it.
+#[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug)]
+#[zvariant(crate = "zbus::zvariant", signature = "s")]
+#[serde(rename_all = "kebab-case")]
+pub enum LinkState {
+    /// The interface is administratively down.
+    Down,
+    NoCarrier,
+    Up,
+}
+
+#[derive(Serialize, Deserialize, Type, Clone, PartialEq, Eq, Debug)]
+#[zvariant(crate = "zbus::zvariant")]
+pub struct NetworkLink {
+    /// The kernel's name for it, `enp0s13f0u2`.
+    pub interface: String,
+    /// `00:e0:4c:68:02:00`; empty where it did not read.
+    pub mac: String,
+    pub state: LinkState,
+    /// Zero unless the link is `Up` and the driver reports a rate.
+    pub megabits: u32,
 }
 
 /// One USB-C port, as the EC's copy of its controller's state has it.
@@ -769,7 +794,7 @@ mod tests {
     use zbus::zvariant::serialized::Context;
     use zbus::zvariant::{LE, to_bytes};
 
-    use super::{Attached, Detail, FirmwareKind, UsbSpeed};
+    use super::{Attached, Detail, FirmwareKind, LinkState, NetworkLink, UsbSpeed};
 
     #[test]
     fn every_detail_crosses_the_bus_as_itself() {
@@ -832,6 +857,12 @@ mod tests {
             product: "HDMI Expansion Card".to_owned(),
             speed: UsbSpeed::Full,
             firmware: String::new(),
+            network: vec![NetworkLink {
+                interface: "enp0s13f0u2".to_owned(),
+                mac: "00:e0:4c:68:02:00".to_owned(),
+                state: LinkState::Up,
+                megabits: 1000,
+            }],
         }];
         let ctxt = Context::new_dbus(LE, 0);
         let bytes = to_bytes(ctxt, &attached).unwrap();

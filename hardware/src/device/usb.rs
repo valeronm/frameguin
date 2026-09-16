@@ -36,6 +36,7 @@ impl UsbControl for Usb {
             .into_iter()
             .map(|found| {
                 let mut attached = found.attached;
+                attached.network = self.tree.network(&found.path);
                 if attached.vendor_id == FRAMEWORK_VID
                     && ALL_CARD_PIDS.contains(&attached.product_id)
                 {
@@ -77,8 +78,9 @@ mod tests {
         let usb = Usb::new(hub.clone()).expect("the bus listed");
         let attached = ready(usb.attached()).unwrap();
         assert_eq!(hub.asked.lock().unwrap().len(), 1);
-        assert_eq!(attached[1].firmware, "3.0.10.06A");
+        assert_eq!(attached[2].firmware, "3.0.10.06A");
         assert_eq!(attached[0].firmware, "");
+        assert_eq!(attached[1].firmware, "");
     }
 
     #[test]
@@ -89,7 +91,7 @@ mod tests {
         };
         let usb = Usb::new(Arc::new(hub)).expect("the bus listed");
         let attached = ready(usb.attached()).unwrap();
-        assert_eq!(attached.len(), 2);
-        assert_eq!(attached[1].firmware, "");
+        assert_eq!(attached.len(), 3);
+        assert_eq!(attached[2].firmware, "");
     }
 }
