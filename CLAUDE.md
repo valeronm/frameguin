@@ -125,7 +125,14 @@ it and the non-obvious constraints.
   and go with what is attached, and fed rather than polled like everything
   else that repeats: the Power group's charger row shows the same read,
   which is what makes the ports an extra on the feed below rather than this
-  window's own timer. Where a socket is on the machine is
+  window's own timer. That page says everything of the thing attached, so a
+  reading the EC answers for the machine — its power role, its data role —
+  is inverted before it is worded: the page carries the attached device's
+  own readings beside them, and one screen with two subjects reads as a
+  contradiction rather than as two facts. Its groups are the connection and
+  what the contract adds, headed by the contract type, because the volts and
+  amps read alike whether power delivery settled them or Type-C's own
+  resistors advertised them. Where a socket is on the machine is
   `model::port`'s, curated per board and answering nothing for a port nobody
   placed: the EC's port number says which controller drives a port and not
   where it is, and a wrong position reads exactly like a right one. A port

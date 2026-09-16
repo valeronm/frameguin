@@ -73,6 +73,9 @@ Every heading in the file appears here.
   - [The Laptop 13 Pro's ports](#the-laptop-13-pros-ports)
   - [What sits in a slot](#what-sits-in-a-slot)
   - [A port's voltage is measured, its current is not reported](#a-ports-voltage-is-measured-its-current-is-not-reported)
+  - [A supply without a contract](#a-supply-without-a-contract)
+  - [VCONN is the supplying end's to provide](#vconn-is-the-supplying-ends-to-provide)
+  - [The data role idles at upstream-facing](#the-data-role-idles-at-upstream-facing)
   - [A disabled controller keeps reporting what it last saw](#a-disabled-controller-keeps-reporting-what-it-last-saw)
   - [Disabling a controller's ports](#disabling-a-controllers-ports)
   - [USB-C port persistence](#usb-c-port-persistence)
@@ -1078,9 +1081,10 @@ and a UID matching the USB serial, and a version matching `framework_tool
 ### A port's voltage is measured, its current is not reported
 
 Everything the EC serves about a port is the contract — the PDO the source
-offers and the RDO the machine requested — and none of it is a measurement: a
-port under a 20 V 5 A contract reports 5 A whether it is carrying that or a
-tenth of it. The controllers hold registers that would be measurements, a
+offers and the RDO the machine requested — or, where no contract was made,
+[Type-C's own advertisement](#a-supply-without-a-contract); none of it is a
+measurement, and a port under a 20 V 5 A contract reports 5 A whether it is
+carrying that or a tenth of it. The controllers hold registers that would be measurements, a
 connector's register block being `0x1000` for a controller's first and
 `0x2000` for its second:
 
@@ -1127,6 +1131,45 @@ every port, each registered `CAP_DEDICATED`, and `current_max` is the current
 the machine offers a device — 1.5 A on an empty port and on one sourcing a
 Type-C peripheral alike. Of the Framework builds only `tulip`'s measures
 `voltage_now`, through its charger.
+
+### A supply without a contract
+
+`pd_state` is a flag rather than a state. `framework_lib` only ever tests it
+against zero and prints Yes or No for it, where `c_state`, `power_role` and
+`data_role` each get a Cypress enum of their own.
+
+Zero does not mean no power. A port sourcing to a Type-C peripheral with
+`pd_state` zero reported 5.0 V and 1.50 A — the current the machine offers
+over Type-C's own CC resistor, the same 1.5 A
+[`EC_CMD_USB_PD_POWER_INFO`](#a-ports-voltage-is-measured-its-current-is-not-reported)
+gives for an empty port. No power delivery message was exchanged to produce
+it.
+
+So the voltage and current a port reports say nothing about which of the two
+settled them, and they read alike either way: the flag beside them is what
+tells them apart.
+
+### VCONN is the supplying end's to provide
+
+`vconn` says whether this machine is powering the chips inside the cable or
+accessory, not whether the cable has any. A port drawing 28 V at 5 A under
+an extended-range contract read it false — a current that requires an
+electronically marked cable, whose marker the charger at the other end is
+what powers.
+
+So the field answers only for a port the machine sources, and cannot say
+whether the cable on the port the machine charges through carries a marker.
+
+### The data role idles at upstream-facing
+
+`data_role` reads `0` — upstream-facing, the machine as the peripheral — on
+every empty port. A port under a 20 V contract read the same, while the
+ports with devices on them read `1`. The `2` the field holds for a
+disconnected link appeared on none of them.
+
+So a `0` on an attached port cannot be told from the value an idle one
+carries, and anything rendering it as the far end being a host will say so
+for a plain charger.
 
 ### A disabled controller keeps reporting what it last saw
 
