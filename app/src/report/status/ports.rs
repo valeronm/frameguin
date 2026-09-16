@@ -15,7 +15,7 @@ use frameguin_model::control::ports::{
     NOTHING_ATTACHED, POWERING_THE_MACHINE, carried, contract_label, data_role_label, epr_label,
     partner_label, port_summary, power_role_label,
 };
-use frameguin_model::control::usb::{device_name, network_label, speed_label};
+use frameguin_model::control::usb::{capacity_label, device_name, network_label, speed_label};
 use frameguin_model::port;
 use frameguin_wire::{Attached, PortPartner, PortState};
 use gtk4 as gtk;
@@ -222,6 +222,9 @@ fn device_group(device: &Attached) -> adw::PreferencesGroup {
         if !link.mac.is_empty() {
             value(&group, "MAC address").set_label(&link.mac);
         }
+    }
+    for &bytes in &device.storage {
+        value(&group, "Capacity").set_label(&capacity_label(bytes));
     }
     if !device.firmware.is_empty() {
         value(&group, "Firmware").set_label(&device.firmware);

@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use frameguin_wire::{Attached, DeviceError, DeviceResult, NetworkLink, UsbSpeed};
 
-use crate::{ccg3, net};
+use crate::{ccg3, net, scsi};
 
 const DEVICES: &str = "/sys/bus/usb/devices";
 
@@ -26,6 +26,8 @@ pub trait UsbTree: Send + Sync {
     /// The network interfaces of the device whose directory this is, ordered
     /// by interface name.
     fn network(&self, device: &Path) -> Vec<NetworkLink>;
+    /// The capacity of each disk of the device whose directory this is.
+    fn storage(&self, device: &Path) -> Vec<u64>;
 }
 
 pub(crate) struct Sysfs;
@@ -62,19 +64,28 @@ impl UsbTree for Sysfs {
     }
 
     fn network(&self, device: &Path) -> Vec<NetworkLink> {
-        let mut links: Vec<NetworkLink> = interfaces(device)
+        let mut links: Vec<NetworkLink> = addressed(device)
             .flat_map(|interface| entries(&interface.join("net")))
             .map(|interface| net::link(&interface))
             .collect();
         links.sort_by(|a, b| a.interface.cmp(&b.interface));
         links
     }
+
+    fn storage(&self, device: &Path) -> Vec<u64> {
+        addressed(device)
+            .flat_map(|interface| prefixed(&interface, "host"))
+            .flat_map(|host| prefixed(&host, "target"))
+            .flat_map(|target| addressed(&target))
+            .filter_map(|disk| scsi::capacity(&disk))
+            .collect()
+    }
 }
 
 /// The hidraw node of the device's interface whose report descriptor carries
 /// the card's vendor usage page.
 fn vendor_hidraw(device: &Path) -> Option<String> {
-    interfaces(device)
+    addressed(device)
         .flat_map(|interface| entries(&interface))
         .filter(|hid| {
             fs::read(hid.join("report_descriptor"))
@@ -105,14 +116,20 @@ fn read(link: &Path, root_port: u8) -> Option<RootDevice> {
             speed: speed(&attribute("speed")),
             firmware: String::new(),
             network: Vec::new(),
+            storage: Vec::new(),
         },
         path,
     })
 }
 
-/// A USB interface's directory is named with a colon, `2-2:1.0`.
-fn interfaces(device: &Path) -> impl Iterator<Item = PathBuf> + use<> {
-    entries(device).filter(|interface| name(interface).contains(':'))
+/// A USB interface's directory and a SCSI device's are named by an address
+/// with a colon, `2-2:1.0` and `1:0:0:2`.
+fn addressed(dir: &Path) -> impl Iterator<Item = PathBuf> + use<> {
+    entries(dir).filter(|child| name(child).contains(':'))
+}
+
+fn prefixed(dir: &Path, prefix: &'static str) -> impl Iterator<Item = PathBuf> + use<> {
+    entries(dir).filter(move |entry| name(entry).starts_with(prefix))
 }
 
 /// Empty where the directory does not read.

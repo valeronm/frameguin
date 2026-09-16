@@ -295,6 +295,11 @@ fn scaled(bytes: u64, base: f64) -> String {
     format!("{} {}", trimmed(format!("{value:.decimals$}")), UNITS[unit])
 }
 
+/// A drive is sold in decimal units.
+pub(crate) fn storage_capacity(bytes: u64) -> String {
+    scaled(bytes, 1000.0)
+}
+
 /// Only a decimal is trimmed: a whole number's trailing zeros are its value.
 pub(crate) fn trimmed(mut spelled: String) -> String {
     if spelled.contains('.') {
@@ -323,7 +328,7 @@ pub fn detail_rows(details: &[Detail]) -> Vec<(&'static str, String)> {
 fn detail_row(detail: &Detail) -> (&'static str, String) {
     match detail {
         Detail::MemoryCapacity(bytes) => ("Capacity", scaled(*bytes, 1024.0)),
-        Detail::StorageCapacity(bytes) => ("Capacity", scaled(*bytes, 1000.0)),
+        Detail::StorageCapacity(bytes) => ("Capacity", storage_capacity(*bytes)),
         Detail::DesignCapacity {
             milliamp_hours,
             millivolts,

@@ -454,6 +454,8 @@ pub struct Attached {
     /// writing to it, and empty for every other device.
     pub firmware: String,
     pub network: Vec<NetworkLink>,
+    /// In bytes, one per disk.
+    pub storage: Vec<u64>,
 }
 
 /// Whether a network interface carries a link, as the kernel's net class
@@ -863,6 +865,7 @@ mod tests {
                 state: LinkState::Up,
                 megabits: 1000,
             }],
+            storage: vec![2_000_398_934_016],
         }];
         let ctxt = Context::new_dbus(LE, 0);
         let bytes = to_bytes(ctxt, &attached).unwrap();

@@ -271,6 +271,7 @@ impl UsbControl for Board {
             speed: UsbSpeed::Full,
             firmware: String::new(),
             network: Vec::new(),
+            storage: Vec::new(),
         }])
     }
 }

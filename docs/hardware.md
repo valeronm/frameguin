@@ -1071,16 +1071,25 @@ it says about itself, and a table from ids to names would buy nothing while
 risking a wrong name for a third-party device sharing a bridge chip's ids.
 
 A network adapter's interface sits in the net class under its USB
-interface — a Realtek RTL8153 (`0bda:8153`, driver `r8152`) at
-`2-2/2-2:1.0/net/enp0s13f0u2` — so its link is read beside the device
+interface (`2-2:1.0/net/<interface>`), so its link is read beside the device
 rather than matched to it by name. The kernel refuses to read `carrier` on an
 interface switched off with `ip link set … down`, and `speed` on a driver that
 keeps no rate, which `iwlwifi` does even with its link up. With the cable out,
 `carrier` reads `0` where `operstate` reads `down` exactly as for an interface
 switched off, so only `carrier` tells the two apart. `speed` and `duplex` are
-the driver's to answer, each on its own call, and `r8152` reads six PHY
-registers per call, each a USB control transfer; the rest are the kernel's own
-record.
+the driver's to answer, each on its own call, and some USB Ethernet drivers
+(`r8152`, for one) read the PHY's registers over USB control transfers on
+every call; the rest are the kernel's own record.
+
+A storage bridge's disks sit as SCSI devices under its USB interface
+(`2-3:1.0/host1/target1:0:0/1:0:0:N`), and not every one is a disk that
+holds something. A bridge can present, beside the drive, a CD emulation of
+peripheral type `5` with a size of its own, and an image slot of type `0` and
+size `0` while nothing is loaded into it, as a card reader's slot is while it
+holds no card. So a capacity is a device of type
+`0` whose size is not `0`: the type alone would count the empty slot, the size
+alone the CD emulation. `size` is the block layer's count of 512-byte sectors,
+kept by the kernel, so reading it does not reach the drive.
 
 The HDMI and DisplayPort cards answer their firmware report, feature report
 `0xE0`, without the unlock `framework_lib`'s own version check sends first —

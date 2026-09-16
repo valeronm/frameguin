@@ -551,6 +551,7 @@ impl Default for Hub {
                     speed: UsbSpeed::Super,
                     firmware: String::new(),
                     network: Vec::new(),
+                    storage: vec![2_000_398_934_016],
                 },
                 Attached {
                     controller: "0000:00:0d.0".to_owned(),
@@ -567,6 +568,7 @@ impl Default for Hub {
                         state: LinkState::Up,
                         megabits: 1000,
                     }],
+                    storage: Vec::new(),
                 },
                 Attached {
                     controller: "0000:00:14.0".to_owned(),
@@ -578,6 +580,7 @@ impl Default for Hub {
                     speed: UsbSpeed::Full,
                     firmware: "3.0.10.06A".to_owned(),
                     network: Vec::new(),
+                    storage: Vec::new(),
                 },
             ],
             refusing: false,
@@ -599,6 +602,7 @@ impl UsbTree for Hub {
                 attached: Attached {
                     firmware: String::new(),
                     network: Vec::new(),
+                    storage: Vec::new(),
                     ..attached.clone()
                 },
                 path: hub_path(attached),
@@ -612,11 +616,23 @@ impl UsbTree for Hub {
     }
 
     fn network(&self, device: &Path) -> Vec<NetworkLink> {
+        self.at(device)
+            .map(|attached| attached.network.clone())
+            .unwrap_or_default()
+    }
+
+    fn storage(&self, device: &Path) -> Vec<u64> {
+        self.at(device)
+            .map(|attached| attached.storage.clone())
+            .unwrap_or_default()
+    }
+}
+
+impl Hub {
+    fn at(&self, device: &Path) -> Option<&Attached> {
         self.devices
             .iter()
             .find(|attached| hub_path(attached) == device)
-            .map(|attached| attached.network.clone())
-            .unwrap_or_default()
     }
 }
 

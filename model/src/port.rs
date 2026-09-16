@@ -399,6 +399,7 @@ mod tests {
             speed: UsbSpeed::Full,
             firmware: String::new(),
             network: Vec::new(),
+            storage: Vec::new(),
         }
     }
 

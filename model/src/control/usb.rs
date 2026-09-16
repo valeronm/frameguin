@@ -8,6 +8,7 @@ use frameguin_wire::{
 };
 
 use super::present;
+use crate::part;
 
 pub struct Usb<C> {
     control: Rc<C>,
@@ -65,6 +66,11 @@ pub fn network_label(link: &NetworkLink) -> String {
     }
 }
 
+#[must_use]
+pub fn capacity_label(bytes: u64) -> String {
+    part::storage_capacity(bytes)
+}
+
 #[cfg(test)]
 mod tests {
     use frameguin_wire::{Attached, LinkState, NetworkLink, UsbSpeed};
@@ -109,6 +115,7 @@ mod tests {
             speed: UsbSpeed::Super,
             firmware: String::new(),
             network: Vec::new(),
+            storage: Vec::new(),
         }
     }
 

@@ -37,6 +37,7 @@ impl UsbControl for Usb {
             .map(|found| {
                 let mut attached = found.attached;
                 attached.network = self.tree.network(&found.path);
+                attached.storage = self.tree.storage(&found.path);
                 if attached.vendor_id == FRAMEWORK_VID
                     && ALL_CARD_PIDS.contains(&attached.product_id)
                 {

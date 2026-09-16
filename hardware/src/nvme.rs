@@ -4,11 +4,9 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-const CLASS: &str = "/sys/class/nvme";
+use crate::block;
 
-/// The unit the kernel counts a block device's `size` in, whatever the
-/// drive's own block size.
-const SECTOR: u64 = 512;
+const CLASS: &str = "/sys/class/nvme";
 
 /// What a controller announces, trimmed of the padding its fixed-width
 /// fields carry.
@@ -59,7 +57,7 @@ fn read(controller: &Path) -> Option<Controller> {
 }
 
 fn capacity(controller: &Path) -> Option<u64> {
-    let sectors: u64 = fs::read_dir(controller)
+    let bytes: u64 = fs::read_dir(controller)
         .ok()?
         .flatten()
         .filter(|entry| {
@@ -68,9 +66,9 @@ fn capacity(controller: &Path) -> Option<u64> {
                 .to_str()
                 .is_some_and(|name| name.starts_with("nvme"))
         })
-        .filter_map(|entry| attribute(&entry.path(), "size")?.parse::<u64>().ok())
+        .filter_map(|entry| block::bytes(&entry.path()))
         .sum();
-    (sectors != 0).then_some(sectors * SECTOR)
+    (bytes != 0).then_some(bytes)
 }
 
 fn attribute(dir: &Path, name: &str) -> Option<String> {

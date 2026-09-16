@@ -212,8 +212,9 @@ it and the non-obvious constraints.
   `panel.rs` the touch panel's, `gpio.rs` a pad on the processor through the
   GPIO character device, `drm.rs` the kernel's DRM class, `nvme.rs` the
   kernel's NVMe class, `usb.rs` the kernel's USB bus, `net.rs` the
-  kernel's net class. Two of those pairs
-  need an arbitration, and the two arbitrations are not alike: the power
+  kernel's net class, `scsi.rs` the kernel's SCSI class, `block.rs` the
+  kernel's block layer. Two of those pairs need an
+  arbitration, and the two arbitrations are not alike: the power
   button LED has two possible drivers and one at a time, so what is settled
   is a handover and the order to make it in — and that lives in
   the device, `device/power_led.rs`, over the `PowerLedEc` and
@@ -384,7 +385,9 @@ rather than here, since they stay true whoever is talking to the hardware;
 what belongs here is what they force on *this* code. The exception is a
 finding that is the evidence for a rule stated here, like the touchscreen's
 version read under the probe rule — separating those would leave the rule
-asserted and its reason a file away.
+asserted and its reason a file away. A finding about a peripheral plugged
+into the machine is stated for the kind of device and what it does, not for
+the product it was read from.
 
 - The daemon opens `Ec` behind the DMI vendor check, never constructing it
   speculatively: `CrosEc::new()` panics outright where `framework_lib`

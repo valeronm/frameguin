@@ -36,6 +36,7 @@
     reason = "a workspace-private crate with one caller; its signatures are the contract"
 )]
 
+pub(crate) mod block;
 pub(crate) mod build_info;
 pub(crate) mod ccg3;
 pub mod device;
@@ -55,6 +56,7 @@ pub mod part;
 pub(crate) mod pd;
 pub mod restore;
 pub(crate) mod sbs;
+pub(crate) mod scsi;
 pub(crate) mod state;
 pub(crate) mod touchpad;
 pub(crate) mod touchscreen;
