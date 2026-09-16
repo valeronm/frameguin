@@ -1099,6 +1099,28 @@ an unlocked card answers with, and otherwise the same layout: a silicon id
 and a UID matching the USB serial, and a version matching `framework_tool
 --dp-hdmi-info`.
 
+A DRM connector does not name a slot. The connectors are the processor's
+Type-C display outputs, each naming its own in its AUX channel (`card0-DP-1`
+is `AUX USBC1/DDI TC1/PHY TC1`, and so on to TC4), and a single USB-C
+DisplayPort monitor came up on `DP-1` in the left rear, left front and right
+front slots alike, so the board hands an output to whichever slot asks for
+one. Nothing in sysfs records the pairing: the connectors' ACPI nodes carry
+no position, and the kernel's Type-C port has no DisplayPort device or
+connector link. The EC's per-port `video` flag says which slots carry
+DisplayPort, but not which connector each one got.
+
+The EC has no say in that pairing either. `EC_CMD_GET_PD_PORT_STATE`'s
+`pd_alt_mode_status` is the controller's `DP_ALT_MODE_CONFIG` register
+(`0x102B` in a connector's block), read live on every request and passed on
+untouched. DisplayPort mode belongs on its bit 1, but the controller's stack
+moves it to bit 0 on a port without Thunderbolt mode enabled, so the EC's own
+check masks both, as the `video` flag does. The board builds with
+`CONFIG_USB_PD_ALTMODE_INTEL=n`, so the EC does not program the processor's
+Type-C mux: the controllers enter the mode themselves, and which TC output a
+slot gets is settled past the EC. What the EC adds is a timeout for
+Framework's own HDMI and DisplayPort cards: one that identifies itself but has
+not entered DisplayPort mode 30 seconds later has its port's mux set to safe.
+
 ### A port's voltage is measured, its current is not reported
 
 Everything the EC serves about a port is the contract — the PDO the source
