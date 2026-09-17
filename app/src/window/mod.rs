@@ -119,32 +119,47 @@ impl Ui {
         self.charging_led.watch(self);
     }
 
-    /// Re-reads every detected control and moves the widgets to match,
-    /// pushing the same values to the tray along with what each control
-    /// offers. Each write goes through [`Ui::sync`], so a reload can't echo
-    /// back as a setter call. The tray's copies are collected and handed over
-    /// in one go at the end: each push blocks on the tray's thread and
-    /// rebuilds its whole menu, which would be wasted once per control on a
-    /// menu nobody has opened.
+    /// Re-reads every tab's controls and moves the widgets to match, pushing
+    /// the same values to the tray along with what each control offers.
+    /// Each write goes through [`Ui::sync`], so a reload can't echo back as a
+    /// setter call. The tray's copies are collected and handed over in one go
+    /// at the end: each push blocks on the tray's thread and rebuilds its
+    /// whole menu, which would be wasted once per control on a menu nobody
+    /// has opened.
     async fn load_values(&self, controls: &Controls<Bus>) {
         let mut values = TrayValues::offered(controls);
         self.load_fed(&mut values).await;
-        if let Some(battery) = &controls.battery {
-            self.battery.load(self, battery, &mut values).await;
-        }
-        if let Some(power_led) = &controls.power_led {
-            self.power_led.load(self, power_led, &mut values).await;
-        }
-        if let Some(charging_led) = &controls.charging_led {
-            self.charging_led.load(self, charging_led).await;
-        }
-        if let Some(touchpad) = &controls.touchpad {
-            self.touchpad.load(self, touchpad).await;
-        }
-        if let Some(touchscreen) = &controls.touchscreen {
-            self.touchscreen.load(self, touchscreen, &mut values).await;
+        for kind in TabKind::ALL {
+            for member in kind.members(self.groups()) {
+                member.load(self, controls, &mut values).await;
+            }
         }
         self.sync_tray(values);
+    }
+
+    /// One tab's share of [`Ui::load_values`], for the tab coming on screen.
+    /// The feed is read only where the tab shows fed rows: with none of its
+    /// own on screen, a fill would read for another window's rows instead.
+    async fn load_tab(&self, kind: TabKind, controls: &Controls<Bus>) {
+        let mut values = TrayValues::default();
+        let members = kind.members(self.groups());
+        if members.iter().any(Member::has_fed_rows) {
+            self.load_fed(&mut values).await;
+        }
+        for member in members {
+            member.load(self, controls, &mut values).await;
+        }
+        self.sync_tray(values);
+    }
+
+    fn groups(&self) -> Groups<'_> {
+        Groups {
+            battery: &self.battery,
+            power_led: &self.power_led,
+            charging_led: &self.charging_led,
+            touchpad: &self.touchpad,
+            touchscreen: &self.touchscreen,
+        }
     }
 
     /// Fills the fed rows on screen in one read, and hands the tray what they
@@ -236,23 +251,138 @@ impl Sink<'_> {
 /// Recorded where its groups are added, so whether the tab shows cannot
 /// disagree with what it holds.
 struct Tab {
+    kind: TabKind,
     page: adw::ViewStackPage,
     groups: Vec<adw::PreferencesGroup>,
 }
 
-fn add_tab(
-    stack: &adw::ViewStack,
-    title: &str,
-    icon: &str,
-    groups: &[&adw::PreferencesGroup],
-) -> Tab {
+#[derive(Clone, Copy)]
+pub(super) enum TabKind {
+    Power,
+    Input,
+    Lights,
+}
+
+impl TabKind {
+    /// In the order the switcher shows them.
+    const ALL: [Self; 3] = [Self::Power, Self::Input, Self::Lights];
+
+    /// The one list of what a tab holds, which both building the tab and
+    /// loading it read.
+    fn members(self, groups: Groups<'_>) -> Vec<Member<'_>> {
+        match self {
+            Self::Power => vec![Member::Battery(groups.battery)],
+            Self::Input => vec![
+                Member::Touchpad(groups.touchpad),
+                Member::Touchscreen(groups.touchscreen),
+            ],
+            Self::Lights => vec![
+                Member::PowerLed(groups.power_led),
+                Member::ChargingLed(groups.charging_led),
+            ],
+        }
+    }
+
+    const fn title(self) -> &'static str {
+        match self {
+            Self::Power => "Power",
+            Self::Input => "Input",
+            Self::Lights => "Lights",
+        }
+    }
+
+    const fn icon(self) -> &'static str {
+        match self {
+            Self::Power => "battery-symbolic",
+            Self::Input => "input-touchpad-symbolic",
+            Self::Lights => "display-brightness-symbolic",
+        }
+    }
+}
+
+/// Every group a tab can hold, borrowed from wherever they were built.
+#[derive(Clone, Copy)]
+struct Groups<'a> {
+    battery: &'a battery::Group,
+    power_led: &'a power_led::Group,
+    charging_led: &'a charging_led::Group,
+    touchpad: &'a touchpad::Group,
+    touchscreen: &'a touchscreen::Group,
+}
+
+enum Member<'a> {
+    Battery(&'a battery::Group),
+    PowerLed(&'a power_led::Group),
+    ChargingLed(&'a charging_led::Group),
+    Touchpad(&'a touchpad::Group),
+    Touchscreen(&'a touchscreen::Group),
+}
+
+impl Member<'_> {
+    fn widgets(&self) -> Vec<&adw::PreferencesGroup> {
+        match self {
+            Self::Battery(group) => vec![&group.state, &group.limits],
+            Self::PowerLed(group) => vec![&group.widget],
+            Self::ChargingLed(group) => vec![&group.widget],
+            Self::Touchpad(group) => vec![&group.widget],
+            Self::Touchscreen(group) => vec![&group.widget],
+        }
+    }
+
+    fn has_fed_rows(&self) -> bool {
+        match self {
+            Self::Battery(group) => group.has_fed_rows(),
+            Self::ChargingLed(group) => group.has_fed_rows(),
+            Self::PowerLed(_) | Self::Touchpad(_) | Self::Touchscreen(_) => false,
+        }
+    }
+
+    /// Loads the group where its control is.
+    async fn load(&self, ui: &Ui, controls: &Controls<Bus>, values: &mut TrayValues) {
+        match self {
+            Self::Battery(group) => {
+                if let Some(battery) = &controls.battery {
+                    group.load(ui, battery, values).await;
+                }
+            }
+            Self::PowerLed(group) => {
+                if let Some(power_led) = &controls.power_led {
+                    group.load(ui, power_led, values).await;
+                }
+            }
+            Self::ChargingLed(group) => {
+                if let Some(charging_led) = &controls.charging_led {
+                    group.load(ui, charging_led).await;
+                }
+            }
+            Self::Touchpad(group) => {
+                if let Some(touchpad) = &controls.touchpad {
+                    group.load(ui, touchpad).await;
+                }
+            }
+            Self::Touchscreen(group) => {
+                if let Some(touchscreen) = &controls.touchscreen {
+                    group.load(ui, touchscreen, values).await;
+                }
+            }
+        }
+    }
+}
+
+fn add_tab(stack: &adw::ViewStack, kind: TabKind, groups: Groups<'_>) -> Tab {
     let page = adw::PreferencesPage::new();
-    for group in groups {
-        page.add(*group);
+    let widgets: Vec<adw::PreferencesGroup> = kind
+        .members(groups)
+        .iter()
+        .flat_map(|member| member.widgets().into_iter().cloned())
+        .collect();
+    for widget in &widgets {
+        page.add(widget);
     }
     Tab {
-        page: stack.add_titled_with_icon(&page, None, title, icon),
-        groups: groups.iter().map(|&group| group.clone()).collect(),
+        kind,
+        page: stack.add_titled_with_icon(&page, None, kind.title(), kind.icon()),
+        groups: widgets,
     }
 }
 
@@ -290,26 +420,17 @@ pub(crate) fn build_window(
     let power_led = power_led::Group::build();
     let charging_led = charging_led::Group::build();
     let stack = adw::ViewStack::new();
-    let tabs = vec![
-        add_tab(
-            &stack,
-            "Power",
-            "battery-symbolic",
-            &[&battery.state, &battery.limits],
-        ),
-        add_tab(
-            &stack,
-            "Input",
-            "input-touchpad-symbolic",
-            &[&touchpad.widget, &touchscreen.widget],
-        ),
-        add_tab(
-            &stack,
-            "Lights",
-            "display-brightness-symbolic",
-            &[&power_led.widget, &charging_led.widget],
-        ),
-    ];
+    let groups = Groups {
+        battery: &battery,
+        power_led: &power_led,
+        charging_led: &charging_led,
+        touchpad: &touchpad,
+        touchscreen: &touchscreen,
+    };
+    let tabs = TabKind::ALL
+        .into_iter()
+        .map(|kind| add_tab(&stack, kind, groups))
+        .collect();
 
     let preferences = preferences::Group::build();
 

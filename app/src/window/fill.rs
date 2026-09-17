@@ -8,7 +8,7 @@ use adw::prelude::*;
 use gtk4 as gtk;
 use gtk4::{gdk, glib};
 
-use super::Ui;
+use super::{TabKind, Ui};
 use crate::mapped::{Once, while_mapped};
 use crate::{about, board};
 
@@ -285,7 +285,7 @@ impl Init {
     /// behind the app's back — so a shown tab reloads rather than trusting
     /// what it read at startup. Nothing while there is no answer yet, a fill
     /// in flight loading every value itself, or a board with no controls.
-    async fn reload(&self) {
+    async fn reload(&self, kind: TabKind) {
         if !self.answered.get() || self.filling.get() {
             return;
         }
@@ -295,7 +295,7 @@ impl Init {
             return;
         };
         if !controls.is_empty() {
-            self.ui.load_values(&controls).await;
+            self.ui.load_tab(kind, &controls).await;
         }
     }
 
@@ -444,9 +444,10 @@ pub(super) fn attach(window: &adw::ApplicationWindow, ui: &Rc<Ui>, empty: EmptyP
     // subscribe only once it is shown.
     for tab in &ui.tabs {
         let shown = init.clone();
+        let kind = tab.kind;
         tab.page
             .child()
-            .connect_map(move |_| shown.spawn(async |init| init.reload().await));
+            .connect_map(move |_| shown.spawn(async move |init| init.reload(kind).await));
     }
     // Nothing is lost by the countdown stopping with the window off screen:
     // the map asks again the moment anyone looks, which is also when an

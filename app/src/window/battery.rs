@@ -184,6 +184,10 @@ impl Group {
         self.speed_combo.set_visible(speed);
     }
 
+    pub(crate) fn has_fed_rows(&self) -> bool {
+        self.state.is_visible()
+    }
+
     /// Shows a battery reading. No `sync` guard and no `Custom` question,
     /// unlike every other show here: nothing on this row writes back, so
     /// there is no handler to hold off.

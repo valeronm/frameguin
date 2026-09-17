@@ -67,6 +67,10 @@ impl Group {
         });
     }
 
+    pub(crate) fn has_fed_rows(&self) -> bool {
+        self.widget.is_visible() && self.side_row.is_visible()
+    }
+
     pub(crate) async fn load(&self, ui: &Ui, control: &ChargingLed) {
         match control.read().await {
             Ok(enabled) => show_switch(ui, &self.switch, enabled),
