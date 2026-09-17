@@ -36,8 +36,8 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use frameguin_wire::{
-    Attached, BatteryCondition, BatteryFeature, BatteryInfo, ChassisState, DeckState, DeviceError,
-    DeviceResult, ExtenderState, PortState, PrivacyState,
+    Attached, BatteryCondition, BatteryFeature, BatteryInfo, ChargingLedFeature, ChargingLedSide,
+    ChassisState, DeckState, DeviceError, DeviceResult, ExtenderState, PortState, PrivacyState,
 };
 use gtk4 as gtk;
 use gtk4::glib;
@@ -94,6 +94,8 @@ pub(crate) struct Wants {
     pub(crate) extender: bool,
     /// The devices on the USB root ports: a walk of sysfs, no EC transfer.
     pub(crate) usb: bool,
+    /// Two host commands, cheap enough for every tick.
+    pub(crate) charging_led_side: bool,
 }
 
 impl Wants {
@@ -108,6 +110,7 @@ impl Wants {
             privacy_switches: self.privacy_switches || other.privacy_switches,
             extender: self.extender || other.extender,
             usb: self.usb || other.usb,
+            charging_led_side: self.charging_led_side || other.charging_led_side,
         }
     }
 }
@@ -131,12 +134,67 @@ pub(crate) struct Reading {
     /// Read beside the extender, and None on a board with no charge limit.
     pub(crate) charge_limit: Option<u8>,
     pub(crate) usb: Option<Vec<Attached>>,
+    pub(crate) charging_led_side: Option<ChargingLedSide>,
 }
 
 type Show = dyn Fn(&Reading);
 
-/// An extra, as the field of [`Wants`] that asks for it.
-type Extra = fn(Wants) -> bool;
+/// An extra: the field of [`Wants`] that asks for it, and what a toast calls
+/// reading it.
+#[derive(Clone, Copy)]
+struct Extra {
+    wanted: fn(Wants) -> bool,
+    attempt: &'static str,
+}
+
+impl Extra {
+    const BATTERY: Self = Self {
+        wanted: |w| w.battery,
+        attempt: "Reading the battery",
+    };
+    const CONDITION: Self = Self {
+        wanted: |w| w.condition,
+        attempt: "Reading the battery's condition",
+    };
+    const PORTS: Self = Self {
+        wanted: |w| w.ports,
+        attempt: "Reading the USB-C ports",
+    };
+    const CHASSIS: Self = Self {
+        wanted: |w| w.chassis,
+        attempt: "Reading the chassis",
+    };
+    const DECK: Self = Self {
+        wanted: |w| w.deck,
+        attempt: "Reading the input deck",
+    };
+    const PRIVACY_SWITCHES: Self = Self {
+        wanted: |w| w.privacy_switches,
+        attempt: "Reading the privacy switches",
+    };
+    const EXTENDER: Self = Self {
+        wanted: |w| w.extender,
+        attempt: "Reading the battery extender",
+    };
+    const CHARGE_LIMIT: Self = Self {
+        wanted: |w| w.extender,
+        attempt: "Reading the charge limit",
+    };
+    const USB: Self = Self {
+        wanted: |w| w.usb,
+        attempt: "Reading the USB devices",
+    };
+    const CHARGING_LED_SIDE: Self = Self {
+        wanted: |w| w.charging_led_side,
+        attempt: "Reading the charging LED's side",
+    };
+}
+
+/// An extra's read that failed, with what a toast calls the attempt.
+pub(crate) struct Failure {
+    pub(crate) attempt: &'static str,
+    pub(crate) error: DeviceError,
+}
 
 type Failures = Vec<(Extra, DeviceError)>;
 
@@ -209,7 +267,7 @@ impl Extras {
         extra: Extra,
         read: Option<impl Future<Output = DeviceResult<T>>>,
     ) -> Option<T> {
-        if !extra(self.wants) || self.unreachable() {
+        if !(extra.wanted)(self.wants) || self.unreachable() {
             return None;
         }
         match read?.await {
@@ -351,15 +409,18 @@ impl Feed {
     pub(crate) async fn fill(
         &self,
         widget: &impl IsA<gtk::Widget>,
-    ) -> DeviceResult<(Reading, Option<DeviceError>)> {
+    ) -> DeviceResult<(Reading, Option<Failure>)> {
         let (reading, failures) = self.read().await?;
         let asked = widget.root().map_or_else(Wants::default, |root| {
             self.wanted(|view| view.sits_in(&root))
         });
         let failure = failures
             .into_iter()
-            .find(|(extra, _)| extra(asked))
-            .map(|(_, error)| error);
+            .find(|(extra, _)| (extra.wanted)(asked))
+            .map(|(extra, error)| Failure {
+                attempt: extra.attempt,
+                error,
+            });
         Ok((reading, failure))
     }
 
@@ -388,7 +449,7 @@ impl Feed {
             failures: Vec::new(),
         };
         let battery = controls.battery.as_ref();
-        let info = extras.read(|w| w.battery, battery.map(|b| b.read())).await;
+        let info = extras.read(Extra::BATTERY, battery.map(|b| b.read())).await;
         // Every read wants the block; the condition only on the reads that come
         // round to it. Subscribing rewinds the count, so the fill that follows
         // a view arriving is always one of them and the spacing only applies
@@ -397,7 +458,7 @@ impl Feed {
         self.ticks.set(ticks.wrapping_add(1));
         let condition = extras
             .read(
-                |w| w.condition,
+                Extra::CONDITION,
                 battery
                     .filter(|_| ticks.is_multiple_of(CONDITION_EVERY))
                     .map(|b| b.condition()),
@@ -406,34 +467,44 @@ impl Feed {
         // Asked of the ports control rather than the pack's: a board can have
         // one and not the other.
         let ports = extras
-            .read(|w| w.ports, controls.ports.as_ref().map(|p| p.read()))
+            .read(Extra::PORTS, controls.ports.as_ref().map(|p| p.read()))
             .await;
         let chassis_control = controls.chassis.as_ref();
         let chassis = extras
-            .read(|w| w.chassis, chassis_control.map(|c| c.read()))
+            .read(Extra::CHASSIS, chassis_control.map(|c| c.read()))
             .await;
         let deck = extras
-            .read(|w| w.deck, chassis_control.map(|c| c.deck_state()))
+            .read(Extra::DECK, chassis_control.map(|c| c.deck_state()))
             .await;
         let privacy_switches = extras
             .read(
-                |w| w.privacy_switches,
+                Extra::PRIVACY_SWITCHES,
                 controls.privacy_switches.as_ref().map(|s| s.read()),
             )
             .await;
         let extender = extras
-            .read(|w| w.extender, battery.map(|b| b.extender()))
+            .read(Extra::EXTENDER, battery.map(|b| b.extender()))
             .await;
         let charge_limit = extras
             .read(
-                |w| w.extender,
+                Extra::CHARGE_LIMIT,
                 battery
                     .filter(|b| b.has(BatteryFeature::ChargeLimit))
                     .map(|b| b.charge_limit()),
             )
             .await;
         let usb = extras
-            .read(|w| w.usb, controls.usb.as_ref().map(|u| u.read()))
+            .read(Extra::USB, controls.usb.as_ref().map(|u| u.read()))
+            .await;
+        let charging_led_side = extras
+            .read(
+                Extra::CHARGING_LED_SIDE,
+                controls
+                    .charging_led
+                    .as_ref()
+                    .filter(|l| l.has(ChargingLedFeature::Side))
+                    .map(|l| l.side()),
+            )
             .await;
         let reading = Reading {
             info,
@@ -445,6 +516,7 @@ impl Feed {
             extender,
             charge_limit,
             usb,
+            charging_led_side,
         };
         // Copied out of the list before anything is shown: a view may drop its
         // subscription from inside its own call, and the borrow would still be

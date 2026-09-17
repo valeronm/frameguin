@@ -15,7 +15,7 @@ use frameguin_wire::{
     PowerLedLevel, PowerRole, PrivacyState, UsbSpeed,
 };
 
-use crate::ec::{Charger, ChassisEc, Pack, PdPorts, PowerLedEc, PrivacyEc};
+use crate::ec::{Charger, ChassisEc, Pack, PdPorts, PowerLedEc, PrivacyEc, SideEnables};
 use crate::led::LedClass;
 use crate::lifetime::{EcBoot, Holders};
 use crate::mirror::Mirrors;
@@ -244,6 +244,10 @@ impl Charger for EcCharger {
 /// Every write the EC and the kernel took, in the order they took them.
 pub type Log = Arc<Mutex<Vec<String>>>;
 
+pub fn writes(log: &Log) -> Vec<String> {
+    log.lock().unwrap().clone()
+}
+
 /// An EC holding one level, logging every write, and refusing them all
 /// once told to.
 pub struct LedEc {
@@ -338,6 +342,27 @@ impl LedClass for Leds {
         *self.dark.lock().unwrap() = false;
         self.log.lock().unwrap().push("release".into());
         Ok(())
+    }
+}
+
+/// An EC answering for the charging LED's side enables, or refusing them
+/// where they are None.
+pub struct Sides {
+    pub enables: Option<(bool, bool)>,
+}
+
+impl Default for Sides {
+    fn default() -> Self {
+        Self {
+            enables: Some((true, false)),
+        }
+    }
+}
+
+impl SideEnables for Sides {
+    fn side_enables(&self) -> DeviceResult<(bool, bool)> {
+        self.enables
+            .ok_or_else(|| DeviceError::Failed("no such GPIO".into()))
     }
 }
 

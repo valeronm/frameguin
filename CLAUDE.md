@@ -289,10 +289,12 @@ it and the non-obvious constraints.
   looks at. The touchscreen and the restore switch are the cases that meet
   them, a switch's prior value being its negation — the touchscreen's wrong
   claim is "touch is off", the restore switch's that a setting will come
-  back after a restart. The power LED
-  meets the second and not the first — a level the kernel would not hand
-  the LED back for reads as Off, and "lit" is a claim of the same kind — so
-  it re-reads after every write rather than capturing anything. Everything
+  back after a restart. The two EC LEDs
+  meet the second and not the first — a level the kernel would not hand
+  the power LED back for reads as Off, a charging LED the kernel took half
+  a handover for is lit on neither account, and "lit" is a claim of the
+  same kind — so each re-reads after every write rather than capturing
+  anything. Everything
   else here would have to capture a value before the write or re-read after
   it, for a stale row that outlives nothing worse than the next reload.
 - The tray offers one menu item per control, not per value, and every control

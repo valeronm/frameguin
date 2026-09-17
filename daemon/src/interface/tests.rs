@@ -8,6 +8,7 @@ use std::time::Duration;
 use async_io::Async;
 use frameguin_hardware::device::Devices;
 use frameguin_hardware::device::battery::Battery;
+use frameguin_hardware::device::charging_led::ChargingLed;
 use frameguin_hardware::device::chassis::Chassis;
 use frameguin_hardware::device::ports::Ports;
 use frameguin_hardware::device::power_led::PowerLed;
@@ -20,11 +21,12 @@ use frameguin_hardware::part::Identity;
 use frameguin_hardware::restore::Restore;
 use frameguin_hardware::testing::{
     Connectors, Cover, EC_BOOT, EXTENDER, EcCharger, Gauge, Haptic, Hub, LedEc, Leds, Memory,
-    Route, Sliders, battery_identity, block, display_identity, mirrors, touchpad_identity,
+    Route, Sides, Sliders, battery_identity, block, display_identity, mirrors, touchpad_identity,
 };
 use frameguin_wire::{
-    BatteryFeature, ChassisFeature, ClickForce, DeckState, DeviceError, FrameguinProxy,
-    NO_CHARGE_CURRENT_LIMIT, PortPartner, PowerLedLevel, Proxies, proxy,
+    BatteryFeature, ChargingLedFeature, ChargingLedSide, ChassisFeature, ClickForce, DeckState,
+    DeviceError, FrameguinProxy, NO_CHARGE_CURRENT_LIMIT, PortPartner, PowerLedLevel, Proxies,
+    proxy,
 };
 use futures_lite::future::{block_on, or};
 use zbus::{Connection, Guid, connection};
@@ -83,6 +85,7 @@ impl Machine {
                 Box::new(Leds::default()),
                 mirrors,
             )),
+            charging_led: ChargingLed::new(Box::new(Leds::default()), Arc::new(Sides::default())),
             ports: Ports::new(Arc::new(Connectors::default())),
             chassis: Chassis::new(Arc::new(Cover::default())),
             privacy_switches: PrivacySwitches::new(Arc::new(Sliders::default())),
@@ -234,6 +237,15 @@ fn every_getter_answers_through_its_proxy() {
             (55, PowerLedLevel::High)
         );
         assert_eq!(p.power_led.get_levels().await.unwrap(), PowerLedLevel::ALL);
+        assert!(p.charging_led.get_enabled().await.unwrap());
+        assert_eq!(
+            p.charging_led.get_features().await.unwrap(),
+            [ChargingLedFeature::Side]
+        );
+        assert_eq!(
+            p.charging_led.get_side().await.unwrap(),
+            ChargingLedSide::Left
+        );
         assert_eq!(p.touchpad.get_haptic_intensity().await.unwrap(), 75);
         assert_eq!(
             p.touchpad.get_click_force().await.unwrap(),
@@ -285,6 +297,14 @@ fn every_setter_writes_when_polkit_allows() {
             p.power_led.get_brightness().await.unwrap().1,
             PowerLedLevel::Off
         );
+        p.charging_led.set_enabled(false).await.unwrap();
+        assert!(!p.charging_led.get_enabled().await.unwrap());
+        assert_eq!(
+            p.charging_led.get_side().await.unwrap(),
+            ChargingLedSide::Neither
+        );
+        p.charging_led.set_enabled(true).await.unwrap();
+        assert!(p.charging_led.get_enabled().await.unwrap());
         p.touchpad.set_haptic_intensity(25).await.unwrap();
         assert_eq!(p.touchpad.get_haptic_intensity().await.unwrap(), 25);
         p.touchpad.set_click_force(ClickForce::High).await.unwrap();
@@ -315,6 +335,8 @@ fn a_refused_write_leaves_the_device_untouched() {
             p.power_led.get_brightness().await.unwrap(),
             (55, PowerLedLevel::High)
         );
+        assert!(denied(p.charging_led.set_enabled(false).await));
+        assert!(p.charging_led.get_enabled().await.unwrap());
         assert!(denied(p.touchpad.set_haptic_intensity(25).await));
         assert!(denied(p.touchpad.set_click_force(ClickForce::High).await));
         assert_eq!(p.touchpad.get_haptic_intensity().await.unwrap(), 75);
@@ -344,6 +366,7 @@ fn a_bad_argument_and_a_write_in_place_never_reach_polkit() {
         assert!(invalid(p.power_led.set_level(PowerLedLevel::Custom).await));
         assert!(invalid(p.touchpad.set_haptic_intensity(33).await));
         p.touchscreen.set_enabled(true).await.unwrap();
+        p.charging_led.set_enabled(true).await.unwrap();
     });
 }
 
@@ -459,6 +482,7 @@ fn a_device_detection_did_not_find_is_not_on_the_bus() {
         assert!(p.touchscreen.get_enabled().await.is_ok());
         assert!(p.touchpad.get_click_force().await.is_ok());
         assert!(p.power_led.get_brightness().await.is_ok());
+        assert!(p.charging_led.get_enabled().await.is_ok());
         assert!(p.ports.get_ports().await.is_ok());
         assert!(p.chassis.get_state().await.is_ok());
         assert!(p.privacy_switches.get_switches().await.is_ok());

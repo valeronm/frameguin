@@ -6,7 +6,6 @@
 //! mechanism; this is the arbitration: which one holds it now, and taking
 //! the LED back before any write the EC has to be the one to make.
 
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -23,7 +22,8 @@ use crate::state::Stored;
 
 const KEY_BRIGHTNESS: &str = "power_led";
 
-/// What the LED was asked for, by whichever setter asked.
+/// What the LED was asked for, by whichever setter asked. Never off: an LED
+/// darkened for the night is not meant to stay dark past a restart.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Brightness {
     Level(PowerLedLevel),
@@ -38,7 +38,7 @@ impl Stored for Brightness {
                 .then_some(Self::Percent(percent));
         }
         PowerLedLevel::from_name(value)
-            .filter(|level| level.is_settable())
+            .filter(|level| level.is_settable() && *level != PowerLedLevel::Off)
             .map(Self::Level)
     }
 
@@ -60,7 +60,7 @@ const LEVEL_SETTLE: Duration = Duration::from_millis(150);
 /// both ways of a level being impossible are answered by the resolving.
 enum Write {
     Level(PowerLedLevel),
-    Dark(PathBuf),
+    Dark,
 }
 
 pub struct PowerLed {
@@ -74,7 +74,11 @@ impl PowerLed {
     /// The LED the EC answers for, by the getter's own read.
     pub(crate) fn detect(ec: &Arc<Ec>, mirrors: &Mirrors) -> Option<Self> {
         ec.power_led_level().ok()?;
-        Some(Self::new(ec.clone(), Box::new(led::Sysfs), mirrors))
+        Some(Self::new(
+            ec.clone(),
+            Box::new(led::Sysfs::power()),
+            mirrors,
+        ))
     }
 
     /// Which levels the board has is settled here, once: the fixed levels on
@@ -120,9 +124,13 @@ impl PowerLed {
 
     fn write_for(&self, level: PowerLedLevel) -> DeviceResult<Write> {
         match level {
-            PowerLedLevel::Off => self.leds.controllable().map(Write::Dark).ok_or_else(|| {
-                DeviceError::NotSupported("no kernel LED node for the power LED".into())
-            }),
+            PowerLedLevel::Off => self
+                .leds
+                .controllable()
+                .map(|_| Write::Dark)
+                .ok_or_else(|| {
+                    DeviceError::NotSupported("no kernel LED node for the power LED".into())
+                }),
             PowerLedLevel::Custom => Err(DeviceError::InvalidArgs(
                 "custom is what the EC reports after a percentage write, not a level to set".into(),
             )),
@@ -141,11 +149,11 @@ impl PowerLed {
     /// The EC has the level by then, so a swallowed refusal would report a
     /// brightness the dark LED never shows.
     async fn release(&self) -> DeviceResult<()> {
-        let Some(dir) = self.leds.held_dark() else {
+        if self.leds.held_dark().is_none() {
             return Ok(());
-        };
+        }
         Timer::after(LEVEL_SETTLE).await;
-        self.leds.release(&dir).map_err(|e| {
+        self.leds.release_held().map_err(|e| {
             DeviceError::Failed(format!("the EC took the write but the LED stays off: {e}"))
         })
     }
@@ -154,10 +162,12 @@ impl PowerLed {
 impl Restorable for PowerLed {
     async fn remember(&self) -> DeviceResult<()> {
         let (percent, level) = self.brightness().await?;
-        self.wanted.set(Some(&match level {
-            PowerLedLevel::Custom => Brightness::Percent(percent),
-            level => Brightness::Level(level),
-        }));
+        let wanted = match level {
+            PowerLedLevel::Off => None,
+            PowerLedLevel::Custom => Some(Brightness::Percent(percent)),
+            level => Some(Brightness::Level(level)),
+        };
+        self.wanted.set(wanted.as_ref());
         Ok(())
     }
 
@@ -188,14 +198,18 @@ impl PowerLedControl for PowerLed {
     /// here rather than in each caller's memory of it, since an EC-driven
     /// write that skipped it would never be seen.
     async fn set_level(&self, level: PowerLedLevel) -> DeviceResult<()> {
-        match self.write_for(level)? {
-            Write::Dark(dir) => self.leds.darken(&dir)?,
+        let wanted = match self.write_for(level)? {
+            Write::Dark => {
+                self.leds.hold_dark()?;
+                None
+            }
             Write::Level(level) => {
                 self.ec.set_power_led_level(level)?;
                 self.release().await?;
+                Some(Brightness::Level(level))
             }
-        }
-        self.wanted.set(Some(&Brightness::Level(level)));
+        };
+        self.wanted.set(wanted.as_ref());
         Ok(())
     }
 
@@ -216,7 +230,7 @@ mod tests {
 
     use super::{Brightness, KEY_BRIGHTNESS, PowerLed, Restorable};
     use crate::mirror::Mirrors;
-    use crate::testing::{LedEc, Leds, Log, Memory, mirrors, ready};
+    use crate::testing::{LedEc, Leds, Log, Memory, mirrors, ready, writes};
 
     enum Refusing {
         Neither,
@@ -283,7 +297,7 @@ mod tests {
         ready(led.set_level(PowerLedLevel::Off)).unwrap();
         let Bench { led, log } = over_mirrors(&FULL, &mirrors);
         ready(led.restore()).unwrap();
-        assert_eq!(writes(&log), ["darken"]);
+        assert!(writes(&log).is_empty());
     }
 
     #[test]
@@ -310,14 +324,7 @@ mod tests {
         );
         ready(led.set_level(PowerLedLevel::Off)).unwrap();
         ready(led.remember()).unwrap();
-        assert_eq!(
-            mirrors.wanted::<Brightness>(KEY_BRIGHTNESS).current(),
-            Some(Brightness::Level(PowerLedLevel::Off))
-        );
-    }
-
-    fn writes(log: &Log) -> Vec<String> {
-        log.lock().unwrap().clone()
+        assert_eq!(mirrors.wanted::<Brightness>(KEY_BRIGHTNESS).current(), None);
     }
 
     #[test]

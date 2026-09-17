@@ -8,6 +8,7 @@
 //! and a caller linking this crate directly has already got past it.
 
 pub mod battery;
+pub mod charging_led;
 pub mod chassis;
 pub(crate) mod display;
 pub(crate) mod mainboard;
@@ -23,6 +24,7 @@ pub mod usb;
 use std::sync::Arc;
 
 use crate::device::battery::Battery;
+use crate::device::charging_led::ChargingLed;
 use crate::device::chassis::Chassis;
 use crate::device::display::Display;
 use crate::device::mainboard::Mainboard;
@@ -47,6 +49,7 @@ pub struct Devices {
     pub touchpad: Option<Touchpad>,
     pub touchscreen: Option<Touchscreen>,
     pub power_led: Option<PowerLed>,
+    pub charging_led: Option<ChargingLed>,
     pub ports: Option<Ports>,
     pub chassis: Option<Chassis>,
     pub privacy_switches: Option<PrivacySwitches>,
@@ -99,6 +102,7 @@ pub fn detect() -> Detected {
             touchpad,
             touchscreen,
             power_led,
+            charging_led: ec.as_ref().and_then(ChargingLed::detect),
             ports: ec.as_ref().and_then(Ports::detect),
             chassis: ec.as_ref().and_then(Chassis::detect),
             privacy_switches: ec.as_ref().and_then(PrivacySwitches::detect),

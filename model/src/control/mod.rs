@@ -1,6 +1,7 @@
 //! One module per control: its detection, its read, its commands, its words.
 
 pub mod battery;
+pub mod charging_led;
 pub mod chassis;
 pub mod ports;
 pub mod power_led;
@@ -12,8 +13,8 @@ pub mod usb;
 use std::rc::Rc;
 
 use frameguin_wire::{
-    BatteryControl, ChassisControl, DeviceError, DeviceResult, PortsControl, PowerLedControl,
-    PrivacySwitchesControl, TouchpadControl, TouchscreenControl, UsbControl,
+    BatteryControl, ChargingLedControl, ChassisControl, DeviceError, DeviceResult, PortsControl,
+    PowerLedControl, PrivacySwitchesControl, TouchpadControl, TouchscreenControl, UsbControl,
 };
 
 /// Whether a device is there, decided by the device's own path: a read the
@@ -74,6 +75,7 @@ pub struct Controls<C> {
     pub touchpad: Option<Rc<touchpad::Touchpad<C>>>,
     pub touchscreen: Option<Rc<touchscreen::Touchscreen<C>>>,
     pub power_led: Option<Rc<power_led::PowerLed<C>>>,
+    pub charging_led: Option<Rc<charging_led::ChargingLed<C>>>,
     pub ports: Option<Rc<ports::Ports<C>>>,
     pub chassis: Option<Rc<chassis::Chassis<C>>>,
     pub privacy_switches: Option<Rc<privacy_switches::PrivacySwitches<C>>>,
@@ -85,6 +87,7 @@ impl<
         + TouchpadControl
         + TouchscreenControl
         + PowerLedControl
+        + ChargingLedControl
         + PortsControl
         + ChassisControl
         + PrivacySwitchesControl
@@ -102,6 +105,9 @@ impl<
                 .await?
                 .map(Rc::new),
             power_led: power_led::PowerLed::detect(control).await?.map(Rc::new),
+            charging_led: charging_led::ChargingLed::detect(control)
+                .await?
+                .map(Rc::new),
             ports: ports::Ports::detect(control).await?.map(Rc::new),
             chassis: chassis::Chassis::detect(control).await?.map(Rc::new),
             privacy_switches: privacy_switches::PrivacySwitches::detect(control)
@@ -119,6 +125,7 @@ impl<
             && self.touchpad.is_none()
             && self.touchscreen.is_none()
             && self.power_led.is_none()
+            && self.charging_led.is_none()
             && self.ports.is_none()
     }
 }
@@ -187,6 +194,7 @@ mod tests {
         assert!(controls.touchpad.is_some());
         assert!(controls.touchscreen.is_some());
         assert!(controls.power_led.is_some());
+        assert!(controls.charging_led.is_some());
         assert!(controls.chassis.is_some());
         assert!(controls.privacy_switches.is_some());
         assert!(controls.usb.is_some());

@@ -139,7 +139,7 @@ fn build(
         }
         if let Some(split) = sidebar.split.upgrade() {
             let failure = match feed.fill(&split).await {
-                Ok((_, failure)) => failure,
+                Ok((_, failure)) => failure.map(|failure| failure.error),
                 Err(e) => Some(e),
             };
             if let Some(e) = failure {

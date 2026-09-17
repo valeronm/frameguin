@@ -19,7 +19,8 @@ Computer Inc. Licensed under the [MIT License](LICENSE).
   a ceiling on how full the battery charges, and a cap on the charging rate.
 - **Input** — the touchpad's haptic click intensity and click force, and
   switching the touchscreen off.
-- **Lights** — the power button LED's brightness as a level or a percentage.
+- **Lights** — the power button LED's brightness as a level or a percentage,
+  switching the charging LED off, and which side's charging LED is lit.
 - **Readings** — what is attached to each USB-C port, what it negotiated,
   and which one is powering the machine.
 
@@ -31,7 +32,8 @@ the panel's enable is a line the firmware re-asserts rather than a setting
 anything stores. **Restore settings**, in Preferences, has the daemon put each of them back
 after a restart or a resume, to whatever they were when it was switched on
 or last set here since; switching it off forgets them, and the next restart
-is the firmware's again.
+is the firmware's again. An LED switched off is the exception: either one
+lights again at the next restart whatever the switch says.
 
 The power button LED and the fingerprint reader share one button. What the
 app reaches is the LED's brightness; nothing here touches the reader.

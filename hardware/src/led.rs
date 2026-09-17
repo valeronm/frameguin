@@ -1,22 +1,22 @@
-//! The power LED through the kernel's LED class — the one control that does
-//! not reach the hardware through the EC.
+//! The EC's LEDs through the kernel's LED class, which is how either is
+//! switched off.
 //!
 //! Nothing here talks to `framework_lib`: the EC has no off for the power
 //! LED (its level command rejects 0, and its BBRAM slot reads a 0 back as
 //! full brightness), so off is the kernel holding the LED instead.
 //!
-//! What the device needs of it is [`LedClass`]; [`Sysfs`] is the class
+//! What a device needs of it is [`LedClass`]; [`Sysfs`] is the class
 //! itself.
 
 use std::path::{Path, PathBuf};
 
-use frameguin_wire::DeviceResult;
+use frameguin_wire::{DeviceError, DeviceResult};
 
-/// The kernel's account of the power LED and the two writes that move it,
-/// each addressed by the node the account named.
+/// The kernel's account of one LED and the two writes that move it, each
+/// addressed by the node the account named.
 pub trait LedClass: Send + Sync {
-    /// The node for a power LED this could take and give back, whatever
-    /// state it is in now.
+    /// The node for the LED this could take and give back, whatever state it
+    /// is in now.
     fn controllable(&self) -> Option<PathBuf>;
     /// That same node, but only while the kernel is holding the LED dark in
     /// the exact arrangement [`LedClass::darken`] leaves.
@@ -25,14 +25,75 @@ pub trait LedClass: Send + Sync {
     fn darken(&self, dir: &Path) -> DeviceResult<()>;
     /// Gives the LED back to the EC.
     fn release(&self, dir: &Path) -> DeviceResult<()>;
+
+    /// Refused where the kernel has no node to hold the LED with.
+    fn hold_dark(&self) -> DeviceResult<()> {
+        let dir = self.controllable().ok_or_else(|| {
+            DeviceError::NotSupported("the kernel has no node to hold this LED with".into())
+        })?;
+        self.darken(&dir)
+    }
+
+    /// Releases only an LED held dark: one parked lit on another trigger is
+    /// somebody else's.
+    fn release_held(&self) -> DeviceResult<()> {
+        self.held_dark().map_or(Ok(()), |dir| self.release(&dir))
+    }
 }
 
-/// The LED class under `/sys/class/leds`.
-pub(crate) struct Sysfs;
+/// One of the EC's LEDs under `/sys/class/leds`, None where the kernel has
+/// no node for it that could be darkened and handed back.
+///
+/// Found once: the kernel names the node when its driver probes, and the only
+/// re-probe is a reboot, which the daemon does not outlive.
+pub(crate) struct Sysfs {
+    dir: Option<PathBuf>,
+    released_at: &'static str,
+}
+
+impl Sysfs {
+    /// Released at a nonzero brightness, so the kernel's record stops saying
+    /// dark once nothing holds the LED dark; the power LED's one colour lights
+    /// at the duty its level already set.
+    pub(crate) fn power() -> Self {
+        Self::find("power", "1")
+    }
+
+    /// Released at zero: a nonzero write lights the first colour on both
+    /// sides until the EC's policy takes the LED back on its next tick. The
+    /// record left at zero is not read as dark, the trigger no longer being
+    /// `none`.
+    pub(crate) fn charging() -> Self {
+        Self::find("charging", "0")
+    }
+
+    /// The node's name carries the LED's colour, and which colours an LED
+    /// has is a board's business, so it is found by the function it ends with
+    /// rather than by one board's spelling of it. A node offering no auto
+    /// trigger is not a control: it could be darkened and never released.
+    fn find(function: &str, released_at: &'static str) -> Self {
+        let suffix = format!(":{function}");
+        let dir = std::fs::read_dir("/sys/class/leds")
+            .ok()
+            .and_then(|entries| {
+                entries.filter_map(Result::ok).find_map(|entry| {
+                    let name = entry.file_name();
+                    let name = name.to_str()?;
+                    (name.starts_with("chromeos:") && name.ends_with(&suffix)).then(|| entry.path())
+                })
+            })
+            .filter(|dir| {
+                dir.join("brightness").exists()
+                    && std::fs::read_to_string(dir.join("trigger"))
+                        .is_ok_and(|listed| triggers(&listed).any(|(name, _)| name == AUTO_TRIGGER))
+            });
+        Self { dir, released_at }
+    }
+}
 
 impl LedClass for Sysfs {
     fn controllable(&self) -> Option<PathBuf> {
-        power_node().map(|(dir, _)| dir)
+        self.dir.clone()
     }
 
     /// A LED parked on some third trigger is somebody else's and not ours to
@@ -44,7 +105,8 @@ impl LedClass for Sysfs {
     /// straight to the EC (`ectool led`) passes unseen, while a host reboot
     /// re-probes the driver and re-attaches the trigger, which reads as on.
     fn held_dark(&self) -> Option<PathBuf> {
-        let (dir, listed) = power_node()?;
+        let dir = self.dir.clone()?;
+        let listed = std::fs::read_to_string(dir.join("trigger")).ok()?;
         let held_dark = active_in(&listed) == Some(NO_TRIGGER)
             && std::fs::read_to_string(dir.join("brightness"))
                 .is_ok_and(|value| value.trim() == "0");
@@ -66,14 +128,12 @@ impl LedClass for Sysfs {
         Ok(())
     }
 
-    /// The brightness goes first and only has to be nonzero: the EC reads it
-    /// as on-or-off and lights the colour at the level's own duty, so this
-    /// restores no value — it stops the kernel's record saying dark once
-    /// nothing is holding the LED dark. Writing it after the trigger instead
-    /// would be a host command against a LED the EC had just taken back,
-    /// undoing the handover.
+    /// The brightness goes first: the EC reads it as on-or-off and lights the
+    /// colour at the duty it holds for that colour, so this restores no value.
+    /// Writing it after the trigger instead would be a host command against a
+    /// LED the EC had just taken back, undoing the handover.
     fn release(&self, dir: &Path) -> DeviceResult<()> {
-        std::fs::write(dir.join("brightness"), "1")?;
+        std::fs::write(dir.join("brightness"), self.released_at)?;
         std::fs::write(dir.join("trigger"), AUTO_TRIGGER)?;
         Ok(())
     }
@@ -102,30 +162,6 @@ fn triggers(listed: &str) -> impl Iterator<Item = (&str, bool)> {
 
 fn active_in(listed: &str) -> Option<&str> {
     triggers(listed).find_map(|(name, active)| active.then_some(name))
-}
-
-/// The kernel's node for the EC's power LED, with the `trigger` listing that
-/// vouched for it — every question asked of that file is answered from the
-/// one read.
-///
-/// This is the LED the EC's `FP_LED` commands dim, and it counts only when it
-/// is one this daemon can both darken and hand back. Its name carries the
-/// LED's colour, and which colours a power LED has is a board's business, so
-/// find it by the function it ends with rather than by one board's spelling
-/// of it. A node offering no auto trigger is not a control: it could be
-/// darkened and never released.
-fn power_node() -> Option<(PathBuf, String)> {
-    let dir = std::fs::read_dir("/sys/class/leds")
-        .ok()?
-        .find_map(|entry| {
-            let entry = entry.ok()?;
-            let name = entry.file_name();
-            let name = name.to_str()?;
-            (name.starts_with("chromeos:") && name.ends_with(":power")).then(|| entry.path())
-        })?;
-    let listed = std::fs::read_to_string(dir.join("trigger")).ok()?;
-    (dir.join("brightness").exists() && triggers(&listed).any(|(name, _)| name == AUTO_TRIGGER))
-        .then_some((dir, listed))
 }
 
 #[cfg(test)]

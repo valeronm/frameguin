@@ -10,6 +10,7 @@
 //! directly gets the same refusals without this layer.
 
 pub(crate) mod battery;
+pub(crate) mod charging_led;
 pub(crate) mod chassis;
 pub(crate) mod ports;
 pub(crate) mod power_led;
@@ -51,6 +52,7 @@ pub(crate) async fn serve_all(
         touchpad,
         touchscreen,
         power_led,
+        charging_led,
         ports,
         chassis,
         privacy_switches,
@@ -61,6 +63,7 @@ pub(crate) async fn serve_all(
     serve_one(server, &service, touchpad).await?;
     serve_one(server, &service, touchscreen).await?;
     serve_one(server, &service, power_led).await?;
+    serve_one(server, &service, charging_led).await?;
     serve_one(server, &service, ports).await?;
     serve_one(server, &service, chassis).await?;
     serve_one(server, &service, privacy_switches).await?;

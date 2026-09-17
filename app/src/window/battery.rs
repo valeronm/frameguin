@@ -39,15 +39,6 @@ pub(crate) type Battery = battery::Battery<Bus>;
 /// The other device the state group draws a row for.
 pub(crate) type Ports = ports::Ports<Bus>;
 
-/// Whether the state group has anything to draw, which either of its two devices
-/// is enough for.
-///
-/// Named because the arms that gate on it would otherwise each spell it and
-/// nothing would catch them drifting apart.
-pub(crate) fn shown(battery: Option<&Rc<Battery>>, ports: Option<&Rc<Ports>>) -> bool {
-    battery.is_some() || ports.is_some()
-}
-
 /// Named as an action rather than wired to a handler, so offering the report
 /// needs no bus connection.
 fn report_row(
@@ -181,7 +172,7 @@ impl Group {
     /// draws two devices' rows. Narrower than the whole set, which would let
     /// these groups gate on a device that is not their own.
     pub(crate) fn gate(&self, control: Option<&Rc<Battery>>, ports: Option<&Rc<Ports>>) {
-        self.state.set_visible(shown(control, ports));
+        self.state.set_visible(control.is_some() || ports.is_some());
         self.charger_row.set_visible(ports.is_some());
         let has = |feature| control.is_some_and(|battery| battery.has(feature));
         let (limit, speed) = (
@@ -344,31 +335,6 @@ impl Group {
                 .adjustment()
                 .set_upper(top.max(f64::from(MIN_CUSTOM_CHARGE_MA)));
         });
-    }
-
-    /// Fills the two fed rows, and pushes what they show to the tray.
-    ///
-    /// Read here as well as fed: the feed's first tick is a couple of seconds
-    /// after the window appears, and an empty row until then reads as a
-    /// control that failed rather than one still filling. It paints nothing
-    /// itself — the read is broadcast before it returns, so the subscription
-    /// [`Group::watch`] took has already shown it — and what is left is the
-    /// tray's copies and the capacity, which the rows cannot carry.
-    ///
-    /// Apart from [`Group::load`] because it reads no control: a board with
-    /// ports and no pack has a charger row and nothing else here, and the row
-    /// would otherwise fill only where a pack answered.
-    pub(crate) async fn load_fed(&self, ui: &Ui, values: &mut TrayValues) {
-        match ui.feed.fill(&self.state).await {
-            Ok((reading, failure)) => {
-                if let Some(e) = failure {
-                    ui.toast_error("Reading the battery", e);
-                }
-                values.battery = reading.info.map(|info| info.state);
-                values.ports = reading.ports;
-            }
-            Err(e) => ui.toast_error("Reading the battery", e),
-        }
     }
 
     /// The limits' reload: the ceiling and the speed with their

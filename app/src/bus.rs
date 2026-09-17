@@ -5,10 +5,11 @@
 //! [`crate::daemon::Daemon`] for who holds it.
 
 use frameguin_wire::{
-    Attached, BatteryCondition, BatteryControl, BatteryFeature, BatteryInfo, ChassisControl,
-    ChassisFeature, ChassisState, ClickForce, DeckState, DeviceResult, ExtenderState,
-    FrameguinProxy, PortState, PortsControl, PowerLedControl, PowerLedLevel, PrivacyState,
-    PrivacySwitchesControl, Proxies, TouchpadControl, TouchscreenControl, UsbControl, proxy,
+    Attached, BatteryCondition, BatteryControl, BatteryFeature, BatteryInfo, ChargingLedControl,
+    ChargingLedFeature, ChargingLedSide, ChassisControl, ChassisFeature, ChassisState, ClickForce,
+    DeckState, DeviceResult, ExtenderState, FrameguinProxy, PortState, PortsControl,
+    PowerLedControl, PowerLedLevel, PrivacyState, PrivacySwitchesControl, Proxies, TouchpadControl,
+    TouchscreenControl, UsbControl, proxy,
 };
 
 pub(crate) struct Bus {
@@ -93,6 +94,24 @@ impl TouchscreenControl for Bus {
 
     async fn set_enabled(&self, enabled: bool) -> DeviceResult<()> {
         Ok(self.devices.touchscreen.set_enabled(enabled).await?)
+    }
+}
+
+impl ChargingLedControl for Bus {
+    async fn enabled(&self) -> DeviceResult<bool> {
+        Ok(self.devices.charging_led.get_enabled().await?)
+    }
+
+    async fn set_enabled(&self, enabled: bool) -> DeviceResult<()> {
+        Ok(self.devices.charging_led.set_enabled(enabled).await?)
+    }
+
+    async fn features(&self) -> DeviceResult<Vec<ChargingLedFeature>> {
+        Ok(self.devices.charging_led.get_features().await?)
+    }
+
+    async fn side(&self) -> DeviceResult<ChargingLedSide> {
+        Ok(self.devices.charging_led.get_side().await?)
     }
 }
 

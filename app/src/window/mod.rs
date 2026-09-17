@@ -11,6 +11,7 @@
 //! its handlers dispatch.
 
 pub(crate) mod battery;
+mod charging_led;
 mod fill;
 pub(crate) mod power_led;
 mod preferences;
@@ -46,6 +47,7 @@ pub(crate) struct Ui {
     tabs: Vec<Tab>,
     battery: battery::Group,
     power_led: power_led::Group,
+    charging_led: charging_led::Group,
     touchpad: touchpad::Group,
     touchscreen: touchscreen::Group,
     preferences: preferences::Group,
@@ -84,6 +86,7 @@ impl Ui {
         self.battery
             .gate(controls.battery.as_ref(), controls.ports.as_ref());
         self.power_led.gate(controls.power_led.as_ref());
+        self.charging_led.gate(controls.charging_led.as_ref());
         self.touchpad.gate(controls.touchpad.as_ref());
         self.touchscreen.gate(controls.touchscreen.as_ref());
         let mut shown = 0;
@@ -113,6 +116,7 @@ impl Ui {
     /// already the gate.
     fn watch(self: &Rc<Self>) {
         self.battery.watch(self);
+        self.charging_led.watch(self);
     }
 
     /// Re-reads every detected control and moves the widgets to match,
@@ -124,16 +128,15 @@ impl Ui {
     /// menu nobody has opened.
     async fn load_values(&self, controls: &Controls<Bus>) {
         let mut values = TrayValues::offered(controls);
-        // Read through the feed rather than from a control, so it fills on a
-        // board that has either of the two devices its rows show.
-        if battery::shown(controls.battery.as_ref(), controls.ports.as_ref()) {
-            self.battery.load_fed(self, &mut values).await;
-        }
+        self.load_fed(&mut values).await;
         if let Some(battery) = &controls.battery {
             self.battery.load(self, battery, &mut values).await;
         }
         if let Some(power_led) = &controls.power_led {
             self.power_led.load(self, power_led, &mut values).await;
+        }
+        if let Some(charging_led) = &controls.charging_led {
+            self.charging_led.load(self, charging_led).await;
         }
         if let Some(touchpad) = &controls.touchpad {
             self.touchpad.load(self, touchpad).await;
@@ -142,6 +145,28 @@ impl Ui {
             self.touchscreen.load(self, touchscreen, &mut values).await;
         }
         self.sync_tray(values);
+    }
+
+    /// Fills the fed rows on screen in one read, and hands the tray what they
+    /// show.
+    ///
+    /// Read here as well as fed: the feed's first tick is a couple of seconds
+    /// after the window appears, and an empty row until then reads as a
+    /// control that failed rather than one still filling. It paints nothing
+    /// itself — the read is broadcast before it returns, so the subscriptions
+    /// [`Ui::watch`] took have already shown it. A row on a tab not shown is
+    /// unmapped and so unsubscribed, which leaves it out of the read.
+    async fn load_fed(&self, values: &mut TrayValues) {
+        match self.feed.fill(&self.stack).await {
+            Ok((reading, failure)) => {
+                if let Some(failure) = failure {
+                    self.toast_error(failure.attempt, failure.error);
+                }
+                values.battery = reading.info.map(|info| info.state);
+                values.ports = reading.ports;
+            }
+            Err(e) => self.toast_error("Reading the hardware", e),
+        }
     }
 
     async fn load_preferences(&self) {
@@ -156,6 +181,9 @@ impl Ui {
         }
         if let Some(power_led) = &controls.power_led {
             self.power_led.connect(self, power_led);
+        }
+        if let Some(charging_led) = &controls.charging_led {
+            self.charging_led.connect(self, charging_led);
         }
         if let Some(touchpad) = &controls.touchpad {
             self.touchpad.connect(self, touchpad);
@@ -260,6 +288,7 @@ pub(crate) fn build_window(
     let touchpad = touchpad::Group::build();
     let touchscreen = touchscreen::Group::build();
     let power_led = power_led::Group::build();
+    let charging_led = charging_led::Group::build();
     let stack = adw::ViewStack::new();
     let tabs = vec![
         add_tab(
@@ -278,7 +307,7 @@ pub(crate) fn build_window(
             &stack,
             "Lights",
             "display-brightness-symbolic",
-            &[&power_led.widget],
+            &[&power_led.widget, &charging_led.widget],
         ),
     ];
 
@@ -320,6 +349,7 @@ pub(crate) fn build_window(
         tabs,
         battery,
         power_led,
+        charging_led,
         touchpad,
         touchscreen,
         preferences,

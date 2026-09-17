@@ -11,8 +11,9 @@
 
 use crate::error::DeviceResult;
 use crate::vocabulary::{
-    Attached, BatteryCondition, BatteryFeature, BatteryInfo, ChassisFeature, ChassisState,
-    ClickForce, DeckState, ExtenderState, PortState, PowerLedLevel, PrivacyState,
+    Attached, BatteryCondition, BatteryFeature, BatteryInfo, ChargingLedFeature, ChargingLedSide,
+    ChassisFeature, ChassisState, ClickForce, DeckState, ExtenderState, PortState, PowerLedLevel,
+    PrivacyState,
 };
 
 pub trait TouchpadControl {
@@ -46,6 +47,19 @@ pub trait PowerLedControl {
     async fn levels(&self) -> DeviceResult<Vec<PowerLedLevel>>;
     async fn set_level(&self, level: PowerLedLevel) -> DeviceResult<()>;
     async fn set_brightness(&self, percent: u8) -> DeviceResult<()>;
+}
+
+/// The charge indicator: on while the EC's policy drives it, off while the
+/// host holds it dark.
+pub trait ChargingLedControl {
+    async fn enabled(&self) -> DeviceResult<bool>;
+    /// Off also silences every fault the EC signals on this LED.
+    async fn set_enabled(&self, enabled: bool) -> DeviceResult<()>;
+    /// What this LED offers past its switch; fixed for the device's run.
+    async fn features(&self) -> DeviceResult<Vec<ChargingLedFeature>>;
+    /// Offered only under [`ChargingLedFeature::Side`]. `Neither` while the
+    /// LED is held dark, whatever the sides' enables say.
+    async fn side(&self) -> DeviceResult<ChargingLedSide>;
 }
 
 /// The machine's USB-C ports: one device answering for all of them, since

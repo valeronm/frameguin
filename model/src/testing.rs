@@ -4,11 +4,11 @@ use std::task::{Context, Poll, Waker};
 
 use frameguin_wire::{
     Attached, BatteryCondition, BatteryControl, BatteryFeature, BatteryInfo, BatteryState,
-    CcPolarity, ChargeFlow, ChassisControl, ChassisFeature, ChassisState, ClickForce, DataRole,
-    DeckState, DeviceError, DeviceResult, Epr, ExtenderStage, ExtenderState,
-    NO_CHARGE_CURRENT_LIMIT, PortPartner, PortState, PortsControl, PowerLedControl, PowerLedLevel,
-    PowerRole, PrivacyState, PrivacySwitchesControl, TouchpadControl, TouchscreenControl,
-    UsbControl, UsbSpeed,
+    CcPolarity, ChargeFlow, ChargingLedControl, ChargingLedFeature, ChargingLedSide,
+    ChassisControl, ChassisFeature, ChassisState, ClickForce, DataRole, DeckState, DeviceError,
+    DeviceResult, Epr, ExtenderStage, ExtenderState, NO_CHARGE_CURRENT_LIMIT, PortPartner,
+    PortState, PortsControl, PowerLedControl, PowerLedLevel, PowerRole, PrivacyState,
+    PrivacySwitchesControl, TouchpadControl, TouchscreenControl, UsbControl, UsbSpeed,
 };
 
 /// A 4640 mAh pack, the Laptop 13's.
@@ -91,6 +91,7 @@ pub(crate) struct Board {
     pub(crate) touchpad: Fault,
     pub(crate) touchscreen: Fault,
     pub(crate) power_led: Fault,
+    pub(crate) charging_led: Fault,
     pub(crate) ports: Fault,
     pub(crate) chassis: Fault,
     pub(crate) privacy_switches: Fault,
@@ -102,6 +103,7 @@ pub(crate) struct Board {
     pub(crate) enabled: Cell<bool>,
     pub(crate) percent: Cell<u8>,
     pub(crate) level: Cell<PowerLedLevel>,
+    pub(crate) lit: Cell<bool>,
 }
 
 impl Default for Board {
@@ -111,6 +113,7 @@ impl Default for Board {
             touchpad: Fault::default(),
             touchscreen: Fault::default(),
             power_led: Fault::default(),
+            charging_led: Fault::default(),
             ports: Fault::default(),
             chassis: Fault::default(),
             privacy_switches: Fault::default(),
@@ -122,6 +125,7 @@ impl Default for Board {
             enabled: Cell::new(true),
             percent: Cell::new(55),
             level: Cell::new(PowerLedLevel::High),
+            lit: Cell::new(true),
         }
     }
 }
@@ -137,6 +141,7 @@ impl Board {
             touchpad: Fault::failing(error.clone()),
             touchscreen: Fault::failing(error.clone()),
             power_led: Fault::failing(error.clone()),
+            charging_led: Fault::failing(error.clone()),
             ports: Fault::failing(error.clone()),
             chassis: Fault::failing(error.clone()),
             privacy_switches: Fault::failing(error.clone()),
@@ -326,6 +331,26 @@ impl PowerLedControl for Board {
         self.percent.set(percent);
         self.level.set(PowerLedLevel::Custom);
         Ok(())
+    }
+}
+
+impl ChargingLedControl for Board {
+    async fn enabled(&self) -> DeviceResult<bool> {
+        self.charging_led.read(self.lit.get())
+    }
+
+    async fn set_enabled(&self, enabled: bool) -> DeviceResult<()> {
+        self.charging_led.write()?;
+        self.lit.set(enabled);
+        Ok(())
+    }
+
+    async fn features(&self) -> DeviceResult<Vec<ChargingLedFeature>> {
+        self.charging_led.read(vec![ChargingLedFeature::Side])
+    }
+
+    async fn side(&self) -> DeviceResult<ChargingLedSide> {
+        self.charging_led.read(ChargingLedSide::Left)
     }
 }
 

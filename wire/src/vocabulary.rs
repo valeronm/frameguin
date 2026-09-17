@@ -413,6 +413,26 @@ pub enum DeckState {
     NoDetection,
 }
 
+/// What a charging LED offers past its switch.
+#[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug)]
+#[zvariant(crate = "zbus::zvariant", signature = "s")]
+#[serde(rename_all = "kebab-case")]
+pub enum ChargingLedFeature {
+    /// Which of the chassis's indicators is lit.
+    Side,
+}
+
+/// Which of the charge indicators on the chassis's two sides is lit.
+#[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug)]
+#[zvariant(crate = "zbus::zvariant", signature = "s")]
+#[serde(rename_all = "kebab-case")]
+pub enum ChargingLedSide {
+    Neither,
+    Left,
+    Right,
+    Both,
+}
+
 /// True where a switch leaves its device connected.
 #[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug)]
 #[zvariant(crate = "zbus::zvariant")]

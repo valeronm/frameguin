@@ -2,9 +2,9 @@
 //! name and path.
 
 use crate::vocabulary::{
-    Attached, BUS_NAME, BatteryCondition, BatteryFeature, BatteryInfo, ChassisFeature,
-    ChassisState, ClickForce, DeckState, ExtenderState, Identity, OBJECT_PATH, PortState,
-    PowerLedLevel, PrivacyState,
+    Attached, BUS_NAME, BatteryCondition, BatteryFeature, BatteryInfo, ChargingLedFeature,
+    ChargingLedSide, ChassisFeature, ChassisState, ClickForce, DeckState, ExtenderState, Identity,
+    OBJECT_PATH, PortState, PowerLedLevel, PrivacyState,
 };
 
 /// Any of the proxies below, on the daemon's one name and path.
@@ -80,6 +80,19 @@ pub trait PowerLed {
     async fn set_brightness(&self, percent: u8) -> zbus::Result<()>;
 }
 
+/// Absent from the bus where the kernel has no node for the charging LED that
+/// it could hand back to the EC.
+#[zbus::proxy(
+    interface = "io.github.valeronm.Frameguin1.ChargingLed",
+    gen_blocking = false
+)]
+pub trait ChargingLed {
+    async fn get_enabled(&self) -> zbus::Result<bool>;
+    async fn set_enabled(&self, enabled: bool) -> zbus::Result<()>;
+    async fn get_features(&self) -> zbus::Result<Vec<ChargingLedFeature>>;
+    async fn get_side(&self) -> zbus::Result<ChargingLedSide>;
+}
+
 /// The battery, on its own interface at the same path and absent from the
 /// bus where no pack answered in the EC's block.
 #[zbus::proxy(
@@ -143,6 +156,7 @@ pub struct Proxies {
     pub touchpad: TouchpadProxy<'static>,
     pub touchscreen: TouchscreenProxy<'static>,
     pub power_led: PowerLedProxy<'static>,
+    pub charging_led: ChargingLedProxy<'static>,
     pub ports: PortsProxy<'static>,
     pub chassis: ChassisProxy<'static>,
     pub privacy_switches: PrivacySwitchesProxy<'static>,
@@ -159,6 +173,7 @@ impl Proxies {
             touchpad: proxy(conn).await?,
             touchscreen: proxy(conn).await?,
             power_led: proxy(conn).await?,
+            charging_led: proxy(conn).await?,
             ports: proxy(conn).await?,
             chassis: proxy(conn).await?,
             privacy_switches: proxy(conn).await?,

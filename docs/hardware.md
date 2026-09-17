@@ -546,6 +546,13 @@ the kernel noticing, and the record silently becomes wrong — though never
 under a running host, the restart taking the machine down and the reboot
 re-probing the driver (both below), so nothing running can read it stale.
 
+The record is readable only while the host holds the LED. The driver
+registers `chromeos-auto` as a hardware-controlled trigger, and the LED
+class answers a `brightness` read with `ENODATA` while such a trigger is
+active; with the trigger at `none` it reads the value last written.
+So the file answers whether the host holds the LED dark, and never whether
+the EC's policy has it lit.
+
 ### Power button LED persistence
 
 Nothing set from the OS survives a reboot, and each mechanism below sees to
@@ -614,6 +621,22 @@ the active charge port — a port at the back indicates on the right, the
 firmware's stated reason being Lot 6 — and darkens both while discharging. A
 host that takes the LED gets both: the EC's tick raises both enables whenever
 auto is off, and which side is lit is not something a host command can steer.
+That includes the handback: a nonzero brightness written just before the auto
+trigger lights both sides until the policy's next tick, 200 ms at most, where
+a zero one leaves them dark.
+
+**Which side is lit can be read; the colour cannot.** The enables are
+ordinary EC GPIOs, `left_side` and `right_side` in the devicetree, and
+`EC_CMD_GPIO_GET` reads a pin by name on a locked EC — only setting one is
+refused there. Because the tick raises both whenever auto is off, the pins
+say "both" for a LED the host holds dark. The colour has no read at all:
+`EC_CMD_LED_CONTROL` answers only the fixed range, `EC_CMD_PWM_GET_DUTY`
+answers only for the keyboard and display backlights, and the policy's
+choice lives in the EC's RAM. It can be derived from what the policy
+weighs — the charge state, the active port, the charge level, the chipset
+state — and that derivation matched the LED in the idle (white) and
+charging (amber) states, but it cannot see a fault pattern pre-empting
+them.
 
 **It is not only a charge indicator.** The EC pre-empts the charge pattern to
 raise faults on this LED, each a blink pattern with no other channel to reach

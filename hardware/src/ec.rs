@@ -7,9 +7,9 @@
 //! lock issues both against the guard it already holds, as
 //! `Ec::set_charge_current_limit` does.
 //!
-//! Two devices are deliberately absent: the power LED's off, which the
-//! kernel arbitrates ([`crate::led`]), and the haptic touchpad, which
-//! `framework_lib` drives over HID ([`crate::touchpad`]).
+//! Deliberately absent: the LEDs' off, which the kernel arbitrates
+//! ([`crate::led`]), and the haptic touchpad, which `framework_lib` drives
+//! over HID ([`crate::touchpad`]).
 
 use std::sync::{Mutex, MutexGuard, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -85,6 +85,12 @@ pub trait ChassisEc: Send + Sync {
 
 pub trait PrivacyEc: Send + Sync {
     fn privacy_switches(&self) -> DeviceResult<wire::PrivacyState>;
+}
+
+/// The enables of the two indicators behind the charging LED's one id, left
+/// then right.
+pub trait SideEnables: Send + Sync {
+    fn side_enables(&self) -> DeviceResult<(bool, bool)>;
 }
 
 /// What the battery's device needs of the charger: the ceiling, the current
@@ -349,6 +355,22 @@ impl PrivacyEc for Ec {
     fn privacy_switches(&self) -> DeviceResult<wire::PrivacyState> {
         let (microphone, camera) = self.ec().get_privacy_info().map_err(device_error)?;
         Ok(wire::PrivacyState { camera, microphone })
+    }
+}
+
+/// The pins as Framework's devicetrees name them; a board naming them
+/// otherwise has the EC refuse the read.
+const LEFT_SIDE_GPIO: &str = "left_side";
+const RIGHT_SIDE_GPIO: &str = "right_side";
+
+impl SideEnables for Ec {
+    /// Reading a pin by name is allowed on a locked EC, where setting one is
+    /// not.
+    fn side_enables(&self) -> DeviceResult<(bool, bool)> {
+        let ec = self.ec();
+        let left = ec.get_gpio(LEFT_SIDE_GPIO).map_err(device_error)?;
+        let right = ec.get_gpio(RIGHT_SIDE_GPIO).map_err(device_error)?;
+        Ok((left, right))
     }
 }
 
