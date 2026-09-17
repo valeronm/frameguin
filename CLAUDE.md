@@ -297,13 +297,14 @@ it and the non-obvious constraints.
   anything. Everything
   else here would have to capture a value before the write or re-read after
   it, for a stale row that outlives nothing worse than the next reload.
-- The tray offers one menu item per control, not per value, and every control
-  takes the same shape: a submenu over the states it offers, named after the
-  one in force. A value dialled in from the window is not among them, so no
-  row is marked — but whether the title still names it is the control's own
-  call, and they differ deliberately: the charge ones spell the raw value,
-  since a menu that said nothing about a limit set from the window would be
-  worse than one naming a row it cannot mark. Two-state controls go through
+- The tray holds what gets changed on the move or several times a day — the
+  charging, the touchscreen — and leaves a setting picked once and kept, such
+  as an LED's level, to the window. It offers one item per control, not
+  per value, and every item takes the same shape: a submenu over the states
+  it offers, named after the one in force. A value dialled in from the window
+  is not among them, so no row is marked, and the title spells the raw value
+  instead — a menu that said nothing about a limit set from the window would
+  be worse than one naming a row it cannot mark. Two-state controls go through
   the same shape rather than drawing a checkmark; `touchscreen_item` carries
   why. What a row sends is a *state*, never a gesture: a click saying only
   "toggle" would invert whatever
@@ -434,8 +435,8 @@ the product it was read from.
   told about, so both front ends can show a value the firmware has already
   moved. The window
   re-reads on being mapped; the tray asks when its menu opens, which is a
-  request it cannot wait for, so the first menu after such a change still
-  draws the old value and the one after it is right.
+  request it cannot wait for, so the menu opens on the old value and the
+  host redraws it, still open, when the fresh one is pushed.
 - A device never sees evidence, only its value or its absence. What
   evidence is and how it is weighed is `lifetime.rs`, keyed on the one
   `Lifetime` the device declared; *when* — witnessed before the write, kept

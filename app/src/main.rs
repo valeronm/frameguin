@@ -160,13 +160,6 @@ fn setup_tray(app: &adw::Application, state: Rc<AppState>) {
                         .await;
                     }
                 }
-                TrayEvent::SetPowerLedLevel(level) => {
-                    if let Ok(controls) = state.daemon.controls().await
-                        && let Some(control) = &controls.power_led
-                    {
-                        window::power_led::apply(sink, control, level).await;
-                    }
-                }
                 TrayEvent::SetTouchscreen(enabled) => {
                     if let Ok(controls) = state.daemon.controls().await
                         && let Some(control) = &controls.touchscreen

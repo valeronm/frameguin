@@ -13,9 +13,8 @@ use frameguin_model::control::battery::{
     reading::{amps, battery_summary, percent_label},
 };
 use frameguin_model::control::ports::supply_summary;
-use frameguin_model::control::power_led;
 use frameguin_model::control::touchscreen::{state_at, state_labels, state_row};
-use frameguin_wire::{BatteryFeature, BatteryState, PortState, PowerLedLevel};
+use frameguin_wire::{BatteryFeature, BatteryState, PortState};
 
 use crate::APP_ID;
 use crate::board;
@@ -41,7 +40,6 @@ pub(crate) enum TrayEvent {
     /// Already resolved to milliamps against the capacity the menu was drawn
     /// from, so applying it needs nothing the window has to supply.
     SetChargeSpeed(u32),
-    SetPowerLedLevel(PowerLedLevel),
     /// The state to move to, which is what the row that was clicked names.
     /// The menu's mark can be a moment stale — the pad is where the truth is
     /// and a suspend moves it — so "off" has to still mean off when it
@@ -72,13 +70,6 @@ pub(crate) struct TrayIcon {
     /// stays out: a fraction then has no rate to show or to send.
     charge_current_limit: Option<u32>,
     design_capacity: Option<u32>,
-    /// The levels the LED's board has that a click can apply, pushed in with
-    /// the detected controls; None until then, which a machine with no LED to
-    /// set never changes.
-    power_led_presets: Option<Vec<PowerLedLevel>>,
-    /// Current power button LED level, pushed in from the app; Custom marks no
-    /// radio option.
-    power_led_level: Option<PowerLedLevel>,
     /// Whether the touch panel is on, pushed in from the app; None until the
     /// first read, which a machine with no panel to switch never makes.
     touchscreen: Option<bool>,
@@ -95,8 +86,6 @@ impl TrayIcon {
             charge_limit: None,
             charge_current_limit: None,
             design_capacity: None,
-            power_led_presets: None,
-            power_led_level: None,
             touchscreen: None,
         }
     }
@@ -124,13 +113,10 @@ impl ksni::Tray for TrayIcon {
     }
 
     /// The menu renders from values pushed in earlier, which the EC and other
-    /// tools can invalidate at any time, so opening it asks for fresh ones.
-    /// Asking is all it can do: ksni publishes the menu the moment this
-    /// returns, so the values land after the menu that needed them and the
-    /// open menu keeps whatever it drew with. They are in place for the next
-    /// open, which is why a control something else moved — the touchscreen
-    /// across a lid, a limit the EC's extender lowered — reads one menu
-    /// behind rather than staying wrong.
+    /// tools can invalidate at any time.
+    ///
+    /// ksni answers the host before `refresh_tray` has read anything, and the
+    /// host redraws a menu still open from the `tray_push` that follows.
     fn menu_about_to_show(&mut self) {
         self.send(TrayEvent::Refresh);
     }
@@ -149,7 +135,7 @@ impl ksni::Tray for TrayIcon {
     /// have been.
     fn menu(&self) -> Vec<ksni::MenuItem<Self>> {
         use ksni::menu::StandardItem;
-        let groups: [Vec<ksni::MenuItem<Self>>; 5] = [
+        let groups: [Vec<ksni::MenuItem<Self>>; 4] = [
             vec![
                 StandardItem {
                     label: "Open".into(),
@@ -167,7 +153,6 @@ impl ksni::Tray for TrayIcon {
             .into_iter()
             .flatten()
             .collect(),
-            self.power_led_level_item().into_iter().collect(),
             self.touchscreen_item().into_iter().collect(),
             vec![
                 StandardItem {
@@ -330,25 +315,6 @@ impl TrayIcon {
         ))
     }
 
-    /// Gated on the presets having arrived: the LED's device answers for
-    /// itself, and which levels it has is part of that answer.
-    fn power_led_level_item(&self) -> Option<ksni::MenuItem<Self>> {
-        let levels = self.power_led_presets.clone()?;
-        let selected = self
-            .power_led_level
-            .and_then(|level| power_led::preset_row(&levels, level));
-        let options = power_led::labels(&levels);
-        Some(radio_submenu(
-            "Power button LED",
-            selected,
-            None,
-            options,
-            move |tray, row| {
-                tray.send(TrayEvent::SetPowerLedLevel(levels[row]));
-            },
-        ))
-    }
-
     /// Two states named as presets, through the same submenu the rest use.
     /// A checkmark would say as much in less room, but it draws in a column
     /// the submenus around it do not have, so the row sits out of line with
@@ -384,12 +350,31 @@ pub(crate) struct TrayValues {
     pub(crate) charge_limit: Option<u8>,
     pub(crate) design_capacity: Option<u32>,
     pub(crate) charge_current_limit: Option<u32>,
-    pub(crate) power_led_presets: Option<Vec<PowerLedLevel>>,
-    pub(crate) power_led_level: Option<PowerLedLevel>,
     pub(crate) touchscreen: Option<bool>,
 }
 
 impl TrayValues {
+    /// A field added to the struct fails to build here until it is checked
+    /// too.
+    fn is_empty(&self) -> bool {
+        let Self {
+            battery,
+            battery_features,
+            ports,
+            charge_limit,
+            design_capacity,
+            charge_current_limit,
+            touchscreen,
+        } = self;
+        battery.is_none()
+            && battery_features.is_none()
+            && ports.is_none()
+            && charge_limit.is_none()
+            && design_capacity.is_none()
+            && charge_current_limit.is_none()
+            && touchscreen.is_none()
+    }
+
     /// What the board offers: what each detected control has to say about
     /// its rows. Pushed once, the answer being fixed for the daemon's run.
     pub(crate) fn offered(controls: &Controls<Bus>) -> Self {
@@ -398,7 +383,6 @@ impl TrayValues {
                 .battery
                 .as_ref()
                 .map(|battery| battery.features().to_vec()),
-            power_led_presets: controls.power_led.as_ref().map(|led| led.presets()),
             ..Self::default()
         }
     }
@@ -417,13 +401,6 @@ impl TrayValues {
         }
     }
 
-    pub(crate) fn power_led_level(level: PowerLedLevel) -> Self {
-        Self {
-            power_led_level: Some(level),
-            ..Self::default()
-        }
-    }
-
     pub(crate) fn touchscreen(enabled: bool) -> Self {
         Self {
             touchscreen: Some(enabled),
@@ -437,6 +414,9 @@ impl TrayValues {
 /// caller knows travels in one `update`, because each one blocks on the tray's
 /// thread and makes it rebuild and re-signal the whole menu.
 pub(crate) fn tray_push(handle: &ksni::blocking::Handle<TrayIcon>, values: TrayValues) {
+    if values.is_empty() {
+        return;
+    }
     handle.update(move |tray| {
         tray.battery = values.battery.or(tray.battery);
         tray.battery_features = values.battery_features.or(tray.battery_features.take());
@@ -444,8 +424,6 @@ pub(crate) fn tray_push(handle: &ksni::blocking::Handle<TrayIcon>, values: TrayV
         tray.charge_limit = values.charge_limit.or(tray.charge_limit);
         tray.design_capacity = values.design_capacity.or(tray.design_capacity);
         tray.charge_current_limit = values.charge_current_limit.or(tray.charge_current_limit);
-        tray.power_led_presets = values.power_led_presets.or(tray.power_led_presets.take());
-        tray.power_led_level = values.power_led_level.or(tray.power_led_level);
         tray.touchscreen = values.touchscreen.or(tray.touchscreen);
     });
 }
@@ -484,9 +462,6 @@ pub(crate) async fn refresh_tray(handle: &ksni::blocking::Handle<TrayIcon>, daem
     }
     if let Some(ports) = &controls.ports {
         values.ports = ports.read().await.ok();
-    }
-    if let Some(led) = &controls.power_led {
-        values.power_led_level = led.read().await.ok().map(|snapshot| snapshot.level);
     }
     if let Some(touchscreen) = &controls.touchscreen {
         values.touchscreen = touchscreen.read().await.ok();

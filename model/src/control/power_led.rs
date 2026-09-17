@@ -58,16 +58,6 @@ impl<C: PowerLedControl> PowerLed<C> {
         &self.rows
     }
 
-    /// The tray's rows: the window's, less the one no click can apply.
-    #[must_use]
-    pub fn presets(&self) -> Vec<PowerLedLevel> {
-        self.rows
-            .iter()
-            .copied()
-            .filter(|level| level.is_settable())
-            .collect()
-    }
-
     /// Which row a level sits on; None for one this board does not list.
     /// Private because a level is not on its own an answer to which row to
     /// show: the EC names the level by deducing it from the percentage it
@@ -118,15 +108,7 @@ fn rank(level: PowerLedLevel) -> u8 {
     }
 }
 
-/// Which of [`PowerLed::presets`] a level sits on, and None for Custom, which
-/// no preset is.
-#[must_use]
-pub fn preset_row(presets: &[PowerLedLevel], level: PowerLedLevel) -> Option<usize> {
-    presets.iter().position(|&preset| preset == level)
-}
-
-#[must_use]
-pub fn level_label(level: PowerLedLevel) -> &'static str {
+fn level_label(level: PowerLedLevel) -> &'static str {
     match level {
         PowerLedLevel::Auto => "Auto",
         PowerLedLevel::Off => "Off",
@@ -150,7 +132,7 @@ pub fn labels(levels: &[PowerLedLevel]) -> Vec<String> {
 mod tests {
     use frameguin_wire::{DeviceError, PowerLedLevel};
 
-    use super::{Custom, PowerLed, Snapshot, preset_row, rank};
+    use super::{Custom, PowerLed, Snapshot, rank};
     use crate::testing::{Board, absent, ready};
 
     #[test]
@@ -210,22 +192,6 @@ mod tests {
         );
         assert_eq!(led.row(PowerLedLevel::Auto), None);
         assert_eq!(led.at(3), None);
-    }
-
-    #[test]
-    fn the_presets_are_the_rows_less_custom() {
-        let led = PowerLed::new(Board::new(), PowerLedLevel::ALL.to_vec());
-        assert!(!led.presets().contains(&PowerLedLevel::Custom));
-        assert_eq!(led.presets().len(), PowerLedLevel::ALL.len() - 1);
-    }
-
-    #[test]
-    fn a_preset_is_found_on_its_row_and_custom_on_none() {
-        let led = PowerLed::new(Board::new(), PowerLedLevel::ALL.to_vec());
-        let presets = led.presets();
-        let row = preset_row(&presets, PowerLedLevel::Low).unwrap();
-        assert_eq!(presets[row], PowerLedLevel::Low);
-        assert_eq!(preset_row(&presets, PowerLedLevel::Custom), None);
     }
 
     #[test]

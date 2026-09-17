@@ -1,5 +1,5 @@
-//! The Power button LED group: a combo over the levels the board has, the
-//! slider its Custom row reveals, and the one write both front-ends make.
+//! The Power button LED group: a combo over the levels the board has, and the
+//! slider its Custom row reveals.
 
 use std::rc::Rc;
 
@@ -10,12 +10,11 @@ use frameguin_wire::PowerLedLevel;
 use gtk4 as gtk;
 
 use crate::bus::Bus;
-use crate::tray::TrayValues;
+use crate::window::Ui;
 use crate::window::widgets::{
     SliderWrites, build_scale, connect_combo, connect_slider_writes, reveal_under, scale_percent,
     select_row, string_list,
 };
-use crate::window::{Sink, Ui};
 
 pub(crate) type PowerLed = power_led::PowerLed<Bus>;
 
@@ -69,12 +68,9 @@ impl Group {
         }
     }
 
-    pub(crate) async fn load(&self, ui: &Ui, control: &PowerLed, values: &mut TrayValues) {
+    pub(crate) async fn load(&self, ui: &Ui, control: &PowerLed) {
         match control.read().await {
-            Ok(snapshot) => {
-                self.show(ui, control, snapshot, Custom::Rederive);
-                values.power_led_level = Some(snapshot.level);
-            }
+            Ok(snapshot) => self.show(ui, control, snapshot, Custom::Rederive),
             Err(e) => ui.toast_error("Reading the power button LED", e),
         }
     }
@@ -106,20 +102,16 @@ impl Group {
     }
 
     pub(crate) fn connect(&self, ui: &Rc<Ui>, control: &Rc<PowerLed>) {
-        // Slider: a raw percentage write; only reachable while the level is
-        // Custom, so combo and tray already reflect it.
+        // Only reachable while the combo sits on Custom.
         connect_slider_writes(
             ui,
             control,
             &self.scale,
             scale_percent,
-            |ui, control, percent| async move { apply_brightness(&ui, &control, percent).await },
+            |ui, control, percent| async move { write_brightness(&ui, &control, percent).await },
             SliderWrites::Live,
         );
 
-        // Combo: presets write the level and re-read so the slider carries
-        // the percentage the preset resolved to; Custom reveals the slider
-        // and applies its value, making the EC state actually custom.
         let at_control = control.clone();
         connect_combo(
             ui,
@@ -130,39 +122,22 @@ impl Group {
                 let percent = scale_percent(ui.power_led.scale.value());
                 async move {
                     if level == PowerLedLevel::Custom {
-                        apply_brightness(&ui, &control, percent).await;
+                        write_brightness(&ui, &control, percent).await;
                         return;
                     }
-                    apply(Sink::Window(&ui), &control, level).await;
+                    if let Err(e) = control.set_level(level).await {
+                        ui.toast_error("Setting the power button LED level", e);
+                    }
+                    ui.power_led.reload(&ui, &control, Custom::Rederive).await;
                 }
             },
         );
     }
 }
 
-/// The one write for a preset. The window's combo and the tray's row both
-/// come here, so neither can drift from the other on what it reports or what
-/// it tells the tray. Custom is not a preset: the EC reports it after a raw
-/// percentage write, which goes through [`apply_brightness`] instead.
-pub(crate) async fn apply(sink: Sink<'_>, control: &PowerLed, level: PowerLedLevel) {
-    match control.set_level(level).await {
-        Ok(()) => sink.push_tray(TrayValues::power_led_level(level)),
-        Err(e) => sink.toast_error("Setting the power button LED level", e),
-    }
-    if let Sink::Window(ui) = sink {
-        ui.power_led.reload(ui, control, Custom::Rederive).await;
-    }
-}
-
-/// The one write for a custom percentage. Any raw percentage leaves the EC
-/// reporting "custom", so this owns that consequence rather than leaving
-/// each caller to remember it.
-async fn apply_brightness(ui: &Ui, control: &PowerLed, percent: u8) {
+async fn write_brightness(ui: &Ui, control: &PowerLed, percent: u8) {
     let custom = match control.set_brightness(percent).await {
-        Ok(()) => {
-            ui.sync_tray(TrayValues::power_led_level(PowerLedLevel::Custom));
-            Custom::Keep
-        }
+        Ok(()) => Custom::Keep,
         Err(e) => {
             ui.toast_error("Setting the power button LED brightness", e);
             Custom::Rederive

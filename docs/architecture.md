@@ -148,14 +148,15 @@ snapshot's movement under a refused write on the app's.
   otherwise by its own first read; a `read()` answering what the
   device reports — the `wire` type it travels in, or a `Snapshot` of its own
   where the settings read together are plain values (`Copy`, `Send`, so the
-  tray can hold one); commands that call the hardware; the presets, rows
-  and labels both front-ends draw from; its defaults.
+  tray can hold one where it shows the control); commands that call the
+  hardware; the presets, rows and labels the front-ends showing it draw
+  from; its defaults.
 - **`app/src/window/<name>.rs`** — the `PreferencesGroup`, `gate(control)`
   showing it where the device is, the functions moving its widgets to a
   read under the sync guard, and handlers dispatching to the control's
   commands; `window/mod.rs` places the group on a tab with `add_tab`.
-- **`app/src/tray.rs`** — one item per control, drawn from its snapshot and
-  labels.
+- **`app/src/tray.rs`** — for a control the menu offers, one item, drawn
+  from its snapshot and labels.
 
 ### The daemon's side
 
@@ -252,7 +253,7 @@ in one that exists, with a stub in `hardware::testing` for any role it
 adds; its interface in the daemon, and its field in `device::Devices` with
 the line in `device::detect()` that fills it, which is what puts it on the
 bus and in front of the proxies in `interface/tests.rs`; the client control
-in `model`; the group; the tray item. What another device shares is a line in a struct or a fan-out — the
+in `model`; the group; the tray item, where the menu offers it. What another device shares is a line in a struct or a fan-out — the
 `Devices`, `Proxies` and `Controls` fields, the window's `gate`, `watch`,
 `load_values` and `connect_handlers` arms, the daemon's `each_restorable` line
 for a device with a wanted value — never a body. Adding a part with

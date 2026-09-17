@@ -347,7 +347,7 @@ impl Member<'_> {
             }
             Self::PowerLed(group) => {
                 if let Some(power_led) = &controls.power_led {
-                    group.load(ui, power_led, values).await;
+                    group.load(ui, power_led).await;
                 }
             }
             Self::ChargingLed(group) => {

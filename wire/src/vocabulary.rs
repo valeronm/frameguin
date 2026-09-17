@@ -282,9 +282,8 @@ impl PowerLedLevel {
         Self::Custom,
     ];
 
-    /// Whether a setter takes this level. A predicate rather than a second
-    /// list, so that a caller offering only what it can apply cannot be made
-    /// wrong by where a level sits in [`Self::ALL`].
+    /// Whether a setter takes this level: Custom is the EC's name for a
+    /// percentage no other level matches, never a level it can be sent.
     #[must_use]
     pub const fn is_settable(self) -> bool {
         !matches!(self, Self::Custom)
