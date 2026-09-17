@@ -10,6 +10,17 @@ use frameguin_wire::{
     PortState, PortsControl, PowerLedControl, PowerLedLevel, PowerRole, PrivacyState,
     PrivacySwitchesControl, TouchpadControl, TouchscreenControl, UsbControl, UsbSpeed,
 };
+use frameguin_wire::{Board, VENDOR};
+
+use crate::port::Placement;
+
+/// Where a Framework board of that product name has its ports.
+pub(crate) fn placed(product: &str) -> Placement {
+    Placement::of(&Board {
+        vendor: VENDOR.to_owned(),
+        product: product.to_owned(),
+    })
+}
 
 /// A 4640 mAh pack, the Laptop 13's.
 pub(crate) const CAPACITY: u32 = 4640;
@@ -82,11 +93,11 @@ pub(crate) fn absent() -> DeviceError {
     DeviceError::Absent("no such interface".into())
 }
 
-/// A board of every column, each answering as its own fault says and
+/// A machine of every column, each answering as its own fault says and
 /// remembering what it was written. The one stub implementing every control
 /// trait: detecting the set at once asks for that, and a control asks only
 /// its own column.
-pub(crate) struct Board {
+pub(crate) struct Machine {
     pub(crate) battery: Fault,
     pub(crate) touchpad: Fault,
     pub(crate) touchscreen: Fault,
@@ -106,7 +117,7 @@ pub(crate) struct Board {
     pub(crate) lit: Cell<bool>,
 }
 
-impl Default for Board {
+impl Default for Machine {
     fn default() -> Self {
         Self {
             battery: Fault::default(),
@@ -130,7 +141,7 @@ impl Default for Board {
     }
 }
 
-impl Board {
+impl Machine {
     pub(crate) fn new() -> Rc<Self> {
         Rc::new(Self::default())
     }
@@ -151,7 +162,7 @@ impl Board {
     }
 }
 
-impl BatteryControl for Board {
+impl BatteryControl for Machine {
     async fn info(&self) -> DeviceResult<BatteryInfo> {
         self.battery.read(block())
     }
@@ -199,7 +210,7 @@ impl BatteryControl for Board {
     }
 }
 
-impl TouchpadControl for Board {
+impl TouchpadControl for Machine {
     async fn haptic_intensity(&self) -> DeviceResult<u8> {
         self.touchpad.read(self.haptic_intensity.get())
     }
@@ -249,13 +260,13 @@ pub(crate) fn port(index: u8) -> PortState {
     }
 }
 
-impl PortsControl for Board {
+impl PortsControl for Machine {
     async fn ports(&self) -> DeviceResult<Vec<PortState>> {
         self.ports.read((0..4).map(port).collect())
     }
 }
 
-impl PrivacySwitchesControl for Board {
+impl PrivacySwitchesControl for Machine {
     async fn switches(&self) -> DeviceResult<PrivacyState> {
         self.privacy_switches.read(PrivacyState {
             camera: true,
@@ -264,7 +275,7 @@ impl PrivacySwitchesControl for Board {
     }
 }
 
-impl UsbControl for Board {
+impl UsbControl for Machine {
     async fn attached(&self) -> DeviceResult<Vec<Attached>> {
         self.usb.read(vec![Attached {
             controller: "0000:00:14.0".to_owned(),
@@ -281,7 +292,7 @@ impl UsbControl for Board {
     }
 }
 
-impl ChassisControl for Board {
+impl ChassisControl for Machine {
     async fn state(&self) -> DeviceResult<ChassisState> {
         self.chassis.read(ChassisState {
             open: false,
@@ -299,7 +310,7 @@ impl ChassisControl for Board {
     }
 }
 
-impl TouchscreenControl for Board {
+impl TouchscreenControl for Machine {
     async fn enabled(&self) -> DeviceResult<bool> {
         self.touchscreen.read(self.enabled.get())
     }
@@ -311,7 +322,7 @@ impl TouchscreenControl for Board {
     }
 }
 
-impl PowerLedControl for Board {
+impl PowerLedControl for Machine {
     async fn brightness(&self) -> DeviceResult<(u8, PowerLedLevel)> {
         self.power_led.read((self.percent.get(), self.level.get()))
     }
@@ -334,7 +345,7 @@ impl PowerLedControl for Board {
     }
 }
 
-impl ChargingLedControl for Board {
+impl ChargingLedControl for Machine {
     async fn enabled(&self) -> DeviceResult<bool> {
         self.charging_led.read(self.lit.get())
     }

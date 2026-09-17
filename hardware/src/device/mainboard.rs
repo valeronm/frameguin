@@ -1,6 +1,8 @@
 //! The mainboard, as the firmware's DMI fields describe it: a part the
 //! daemon reads and never sets, carrying the firmware it runs.
 
+use frameguin_wire::Board;
+
 use crate::build_info;
 use crate::dmi;
 use crate::ec::Ec;
@@ -21,7 +23,7 @@ impl Mainboard {
     /// The board, named by its own part number, on any machine that
     /// publishes one. `ec` is None where there is no Framework EC, which
     /// costs the board its EC version and nothing else.
-    pub(crate) fn detect(ec: Option<&Ec>) -> Option<Self> {
+    pub(crate) fn detect(board: &Board, ec: Option<&Ec>) -> Option<Self> {
         let firmware = [bios(), ec_firmware(ec)]
             .into_iter()
             .flatten()
@@ -29,7 +31,7 @@ impl Mainboard {
             .collect();
         Some(Self::new(
             &dmi::field("board_vendor").unwrap_or_default(),
-            &dmi::product().unwrap_or_default(),
+            &board.product,
             &dmi::field("board_name")?,
             &dmi::field("board_serial").unwrap_or_default(),
             firmware,
@@ -37,11 +39,11 @@ impl Mainboard {
     }
 
     /// `product` is the machine the board is sold for, which is how the
-    /// board's generation is spoken of; `board` is its own part number.
+    /// board's generation is spoken of.
     fn new(
         vendor: &str,
         product: &str,
-        board: &str,
+        part_number: &str,
         serial: &str,
         firmware: Vec<Firmware>,
     ) -> Self {
@@ -51,9 +53,9 @@ impl Mainboard {
                 vendor: vendor.to_owned(),
                 vendor_name: String::new(),
                 model: product.to_owned(),
-                part_number: board.to_owned(),
+                part_number: part_number.to_owned(),
                 serial: serial.to_owned(),
-                id: format!("dmi-board:{board}"),
+                id: format!("dmi-board:{part_number}"),
                 firmware,
                 details: Vec::new(),
             },

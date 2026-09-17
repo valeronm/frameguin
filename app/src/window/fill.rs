@@ -6,11 +6,12 @@ use std::time::Duration;
 
 use adw::prelude::*;
 use gtk4 as gtk;
-use gtk4::{gdk, glib};
+use gtk4::glib;
 
-use super::{TabKind, Ui};
+use super::{TabKind, Ui, widgets};
+use crate::about;
+use crate::daemon::Detected;
 use crate::mapped::{Once, while_mapped};
-use crate::{about, board};
 
 /// How long the window waits before asking an unreachable daemon again, and
 /// the ceiling the wait doubles up to. Bounded rather than endless-fast: the
@@ -33,9 +34,8 @@ const EMPTY_ICON_PIXELS: u8 = 32;
 /// with none is worth reporting. An empty window that does not say which
 /// leaves all three looking like the app failing to start.
 enum Empty {
-    /// Carries the vendor the machine names itself with, so every variant
-    /// arrives self-describing and the page's text costs no sysfs read of
-    /// its own.
+    /// Carries the vendor the daemon reported, so every variant arrives
+    /// self-describing.
     NoHardware(String),
     DaemonUnavailable(String),
     NoControls,
@@ -92,20 +92,11 @@ pub(super) fn build_empty_page(
     status.add_css_class("compact");
     // Compact is libadwaita's smallest, and still larger than this page wants:
     // the icon is a label on a sentence, not the subject of the screen. The
-    // rule is scoped to a class of this app's own so it cannot reach another
-    // status page, and it names the image node because the size is the icon
+    // rule names the image node because the size is the icon
     // theme's to choose otherwise.
-    let icon_css = gtk::CssProvider::new();
-    icon_css.load_from_data(&format!(
+    widgets::add_css(&format!(
         ".{EMPTY_ICON_CLASS} image {{ -gtk-icon-size: {EMPTY_ICON_PIXELS}px; }}"
     ));
-    if let Some(display) = gdk::Display::default() {
-        gtk::style_context_add_provider_for_display(
-            &display,
-            &icon_css,
-            gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
-        );
-    }
     status.add_css_class(EMPTY_ICON_CLASS);
     stack.add_named(&status, Some(EMPTY_PAGE));
 
@@ -192,8 +183,12 @@ impl EmptyPage {
                 icon: "computer-symbolic",
                 title: "No Framework hardware detected",
                 description: Some(format!(
-                    "Frameguin controls the hardware of Framework laptops. \
-                     This machine reports itself as “{vendor}”."
+                    "Frameguin controls the hardware of Framework laptops. This machine {}.",
+                    if vendor.is_empty() {
+                        "does not say whose it is".to_owned()
+                    } else {
+                        format!("reports itself as “{vendor}”")
+                    }
                 )),
                 detail: None,
                 // Working as designed on someone else's laptop, so there is
@@ -374,8 +369,8 @@ impl Init {
         // what a window answering for itself costs, and that handle outlives
         // any of them. The answer reaching it here is also what spares the
         // report a detection of its own.
-        let controls = match ui.daemon.controls().await {
-            Ok(controls) => controls,
+        let Detected { controls, board } = match ui.daemon.detected().await {
+            Ok(detected) => detected,
             Err(e) => {
                 // The page is replaced by the retry that succeeds, so the
                 // failure is also written where it stays.
@@ -383,18 +378,17 @@ impl Init {
                 return Some(Empty::DaemonUnavailable(e.to_string()));
             }
         };
-        ui.gate(&controls);
+        ui.gate(&controls, &board);
         // Set whatever the answer was: what a later map needs to know is
         // that this daemon has said its piece, not what it said.
         self.answered.set(true);
         if controls.is_empty() {
-            // The daemon gates its EC on the same vendor string the app
-            // reads, so an empty answer is expected on anything else and says
-            // nothing about the board; only a Framework answering with none
-            // is a finding.
-            return Some(match board::detected() {
+            // The daemon gates its EC on the vendor it reports, so an empty
+            // answer is expected on anything else and says nothing about the
+            // board; only a Framework answering with none is a finding.
+            return Some(match board.framework_product() {
                 Some(_) => Empty::NoControls,
-                None => Empty::NoHardware(board::dmi("sys_vendor")),
+                None => Empty::NoHardware(board.vendor.clone()),
             });
         }
         // Back to the controls, for a run that got here after an earlier one

@@ -57,11 +57,11 @@ mod tests {
     use frameguin_wire::{ChargingLedFeature, ChargingLedSide, DeviceError};
 
     use super::ChargingLed;
-    use crate::testing::{Board, absent, ready};
+    use crate::testing::{Machine, absent, ready};
 
     #[test]
     fn a_led_the_hardware_answers_for_is_detected_with_its_features() {
-        let led = ready(ChargingLed::detect(&Board::new()))
+        let led = ready(ChargingLed::detect(&Machine::new()))
             .unwrap()
             .expect("the board answered");
         assert!(led.has(ChargingLedFeature::Side));
@@ -70,24 +70,24 @@ mod tests {
 
     #[test]
     fn a_led_the_hardware_does_not_serve_is_absent() {
-        let board = Board::failing(absent());
-        assert!(ready(ChargingLed::detect(&board)).unwrap().is_none());
+        let machine = Machine::failing(absent());
+        assert!(ready(ChargingLed::detect(&machine)).unwrap().is_none());
     }
 
     #[test]
     fn hardware_that_cannot_be_asked_is_not_an_absent_led() {
         let error = DeviceError::Failed("no reply".into());
-        let board = Board::failing(error.clone());
-        assert_eq!(ready(ChargingLed::detect(&board)).err(), Some(error));
+        let machine = Machine::failing(error.clone());
+        assert_eq!(ready(ChargingLed::detect(&machine)).err(), Some(error));
     }
 
     #[test]
     fn a_write_reaches_the_hardware_and_a_refusal_leaves_it() {
-        let board = Board::new();
-        let led = ready(ChargingLed::detect(&board)).unwrap().unwrap();
+        let machine = Machine::new();
+        let led = ready(ChargingLed::detect(&machine)).unwrap().unwrap();
         ready(led.set_enabled(false)).unwrap();
         assert_eq!(ready(led.read()), Ok(false));
-        board.charging_led.refuse();
+        machine.charging_led.refuse();
         assert_eq!(
             ready(led.set_enabled(true)),
             Err(DeviceError::AccessDenied("not authorized".into()))

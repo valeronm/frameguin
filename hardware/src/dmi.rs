@@ -5,6 +5,8 @@
 
 use std::path::PathBuf;
 
+use frameguin_wire::Board;
+
 const ID: &str = "/sys/class/dmi/id";
 const ENTRIES: &str = "/sys/firmware/dmi/entries";
 
@@ -43,22 +45,17 @@ fn iso(stamped: &str) -> Option<String> {
     Some(format!("{year}-{month:02}-{day:02}"))
 }
 
-/// Without `/dev/cros_ec`, `framework_lib` falls back to raw port I/O; on a
-/// non-Framework EC every command spin-waits to a timeout, stalling the
-/// daemon's start for tens of seconds. Don't touch the EC unless the
-/// firmware says this is the hardware it belongs to.
-pub(crate) fn is_framework() -> bool {
-    field("sys_vendor").as_deref() == Some(frameguin_wire::VENDOR)
-}
-
-/// The mainboard as its firmware names it, and never anything plugged into
+/// The machine as its firmware names it, and never anything plugged into
 /// it.
 ///
 /// Read here rather than taken from `framework_lib`, whose `get_platform`
 /// answers with a type its crate keeps private and so unnameable from
-/// outside. The string this matches is the one that library maps too.
-pub(crate) fn product() -> Option<String> {
-    field("product_name")
+/// outside. The product string is the one that library maps too.
+pub(crate) fn board() -> Board {
+    Board {
+        vendor: field("sys_vendor").unwrap_or_default(),
+        product: field("product_name").unwrap_or_default(),
+    }
 }
 
 /// The formatted area the spec lays out by offset, and the string table

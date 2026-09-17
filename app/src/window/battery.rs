@@ -21,10 +21,10 @@ use frameguin_model::control::battery::{
     with_custom_row,
 };
 use frameguin_model::control::ports::{self, supply_label, supply_port};
+use frameguin_model::port::Placement;
 use frameguin_wire::{BatteryFeature, BatteryState, PortState};
 use gtk4 as gtk;
 
-use crate::board;
 use crate::bus::Bus;
 use crate::reading::{Wants, show_while_mapped};
 use crate::report::status::{self, Target};
@@ -83,6 +83,8 @@ pub(crate) struct Group {
     /// is the 1C current, which is what turns the combo's fractions into the
     /// milliamps the daemon takes.
     design_capacity: Cell<Option<u32>>,
+    /// Where the ports are, set when gated.
+    placement: Cell<Placement>,
 }
 
 impl Group {
@@ -161,6 +163,7 @@ impl Group {
             speed_combo,
             speed_scale,
             design_capacity: Cell::default(),
+            placement: Cell::default(),
         }
     }
 
@@ -172,6 +175,8 @@ impl Group {
     /// draws two devices' rows. Narrower than the whole set, which would let
     /// these groups gate on a device that is not their own.
     pub(crate) fn gate(&self, control: Option<&Rc<Battery>>, ports: Option<&Rc<Ports>>) {
+        self.placement
+            .set(ports.map(|ports| ports.placement()).unwrap_or_default());
         self.state.set_visible(control.is_some() || ports.is_some());
         self.charger_row.set_visible(ports.is_some());
         let has = |feature| control.is_some_and(|battery| battery.has(feature));
@@ -200,10 +205,9 @@ impl Group {
     /// comes in on, and is cleared where nothing does — a port number left
     /// standing under "Disconnected" would name the port that stopped.
     fn show_charger(&self, ports: &[PortState]) {
-        let product = board::product();
         self.charger.set_label(&supply_label(ports));
         self.charger_row
-            .set_subtitle(&supply_port(ports, product).unwrap_or_default());
+            .set_subtitle(&supply_port(ports, self.placement.get()).unwrap_or_default());
     }
 
     /// Moves the charge-limit widgets onto a ceiling without writing it back,

@@ -26,6 +26,47 @@ pub(super) fn scale_percent(value: f64) -> u8 {
     value.round().clamp(0.0, 100.0) as u8
 }
 
+const CAPTIONED_CLASS: &str = "frameguin-captioned";
+/// libadwaita spaces a page's description from the top and from the first
+/// group as far as it spaces groups apart, which reads as a heading of its
+/// own rather than a caption.
+const CAPTION_PULL_PIXELS: u8 = 12;
+
+/// Style rules above the theme's, for the whole display: a rule not scoped
+/// to a class the app sets restyles every matching widget in the app.
+pub(super) fn add_css(rules: &str) {
+    let css = gtk::CssProvider::new();
+    css.load_from_data(rules);
+    if let Some(display) = gdk::Display::default() {
+        gtk::style_context_add_provider_for_display(
+            &display,
+            &css,
+            gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
+        );
+    }
+}
+
+/// A page whose description is a caption: drawn closer to what it heads, and
+/// centred where the running libadwaita has the property, which is newer
+/// than the one this builds against.
+pub(super) fn captioned_page() -> adw::PreferencesPage {
+    static STYLED: std::sync::Once = std::sync::Once::new();
+    // Only the page's own description carries the class; a group's does not.
+    STYLED.call_once(|| {
+        add_css(&format!(
+            "preferencespage.{CAPTIONED_CLASS} label.description {{ \
+             margin-top: -{CAPTION_PULL_PIXELS}px; \
+             margin-bottom: -{CAPTION_PULL_PIXELS}px; }}"
+        ));
+    });
+    let page = adw::PreferencesPage::new();
+    page.add_css_class(CAPTIONED_CLASS);
+    if page.find_property("description-centered").is_some() {
+        page.set_property("description-centered", true);
+    }
+    page
+}
+
 /// The chrome every slider shares, so a change to how one reads doesn't have
 /// to be made once per slider. `format` renders the value in the control's
 /// own unit, which is the only part that differs.

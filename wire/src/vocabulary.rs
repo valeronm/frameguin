@@ -18,12 +18,7 @@ use zbus::zvariant::{Type, Value};
 pub const BUS_NAME: &str = "io.github.valeronm.Frameguin";
 pub const OBJECT_PATH: &str = "/io/github/valeronm/Frameguin";
 
-/// The DMI `sys_vendor` of the hardware this is for. Both ends test it and
-/// neither can see the other's answer: the daemon gates opening the EC on it,
-/// the app titles its window from it, and a pair that disagreed would either
-/// name a board whose every control errors or deny one that works. A string
-/// both ends must agree on, like the haptic steps below — reading it is each
-/// end's own business, spelling it is not.
+/// The DMI `sys_vendor` of the hardware this is for.
 pub const VENDOR: &str = "Framework";
 
 // A board's DMI `product_name`, in the firmware's own spelling, matched
@@ -767,6 +762,23 @@ impl Firmware {
             built: String::new(),
             builder: String::new(),
         }
+    }
+}
+
+/// The machine as its firmware names it: the DMI `sys_vendor` and
+/// `product_name`, each empty where the firmware left it out.
+#[derive(Serialize, Deserialize, Type, Clone, PartialEq, Eq, Debug, Default)]
+#[zvariant(crate = "zbus::zvariant")]
+pub struct Board {
+    pub vendor: String,
+    pub product: String,
+}
+
+impl Board {
+    /// The product name, and None on a machine that is not this hardware.
+    #[must_use]
+    pub fn framework_product(&self) -> Option<&str> {
+        (self.vendor == VENDOR).then_some(self.product.as_str())
     }
 }
 

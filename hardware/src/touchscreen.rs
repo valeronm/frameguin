@@ -16,7 +16,7 @@
 //! whether a write can be skipped as already in place — is read off that one
 //! answer rather than decided again per call site.
 
-use frameguin_wire::DeviceResult;
+use frameguin_wire::{Board, DeviceResult};
 use framework_lib::touchscreen::{HX_PID, HX_VID};
 
 use crate::{gpio, panel};
@@ -69,8 +69,11 @@ const GATED_CONTROLLERS: [(u16, u16); 1] = [(HX_VID, HX_PID)];
 ///
 /// The panel needs nothing added: the command is the controller's own, so
 /// finding the controller is the whole question.
-pub(crate) fn find(hid: &hidapi::HidApi) -> Option<(Route, &hidapi::DeviceInfo)> {
-    if let Some(pad) = gpio::touchscreen() {
+pub(crate) fn find<'a>(
+    hid: &'a hidapi::HidApi,
+    board: &Board,
+) -> Option<(Route, &'a hidapi::DeviceInfo)> {
+    if let Some(pad) = gpio::touchscreen(board) {
         let controller = gated_controller(hid)?;
         return pad.level().is_ok().then_some((Route::Pad(pad), controller));
     }

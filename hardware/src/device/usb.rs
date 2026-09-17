@@ -3,10 +3,9 @@
 
 use std::sync::Arc;
 
-use frameguin_wire::{Attached, DeviceResult, UsbControl};
+use frameguin_wire::{Attached, Board, DeviceResult, UsbControl};
 use framework_lib::ccgx::hid::{ALL_CARD_PIDS, FRAMEWORK_VID};
 
-use crate::dmi;
 use crate::usb::{Sysfs, UsbTree};
 
 pub struct Usb {
@@ -15,8 +14,8 @@ pub struct Usb {
 
 impl Usb {
     /// A machine that is not a Framework one answers with no controls at all.
-    pub(crate) fn detect() -> Option<Self> {
-        dmi::is_framework().then_some(())?;
+    pub(crate) fn detect(board: &Board) -> Option<Self> {
+        board.framework_product()?;
         Self::new(Arc::new(Sysfs))
     }
 

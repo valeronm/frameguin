@@ -2,7 +2,7 @@
 //! name and path.
 
 use crate::vocabulary::{
-    Attached, BUS_NAME, BatteryCondition, BatteryFeature, BatteryInfo, ChargingLedFeature,
+    Attached, BUS_NAME, BatteryCondition, BatteryFeature, BatteryInfo, Board, ChargingLedFeature,
     ChargingLedSide, ChassisFeature, ChassisState, ClickForce, DeckState, ExtenderState, Identity,
     OBJECT_PATH, PortState, PowerLedLevel, PrivacyState,
 };
@@ -32,6 +32,8 @@ pub trait Frameguin {
     /// Every part detection found, mainboard first; fixed for the daemon's
     /// run.
     async fn get_devices(&self) -> zbus::Result<Vec<Identity>>;
+    /// The machine the daemon runs on; fixed for its run.
+    async fn get_board(&self) -> zbus::Result<Board>;
     async fn get_build(&self) -> zbus::Result<(String, String)>;
     /// Whether the daemon writes back what each control was last set to
     /// after a boot or a resume.

@@ -99,26 +99,26 @@ mod tests {
     use frameguin_wire::{ChassisFeature, DeckState, DeviceError};
 
     use super::{Chassis, chassis_summary, deck_label, open_now_label, state_label, times_label};
-    use crate::testing::{Board, absent, ready};
+    use crate::testing::{Machine, absent, ready};
 
     #[test]
     fn a_chassis_is_detected_with_its_features() {
-        let chassis = ready(Chassis::detect(&Board::new())).unwrap().unwrap();
+        let chassis = ready(Chassis::detect(&Machine::new())).unwrap().unwrap();
         assert!(chassis.has(ChassisFeature::Deck));
         assert_eq!(ready(chassis.deck_state()), Ok(DeckState::On));
     }
 
     #[test]
     fn a_board_the_hardware_serves_no_chassis_for_is_absent() {
-        let board = Board::failing(absent());
-        assert!(ready(Chassis::detect(&board)).unwrap().is_none());
+        let machine = Machine::failing(absent());
+        assert!(ready(Chassis::detect(&machine)).unwrap().is_none());
     }
 
     #[test]
     fn hardware_that_cannot_be_asked_is_not_an_absent_chassis() {
         let error = DeviceError::Failed("no reply".into());
-        let board = Board::failing(error.clone());
-        assert_eq!(ready(Chassis::detect(&board)).err(), Some(error));
+        let machine = Machine::failing(error.clone());
+        assert_eq!(ready(Chassis::detect(&machine)).err(), Some(error));
     }
 
     #[test]

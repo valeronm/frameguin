@@ -23,7 +23,7 @@ use std::io;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 use std::path::PathBuf;
 
-use crate::dmi;
+use frameguin_wire::Board;
 
 /// The pad gating the touch controller, and the board that is true of.
 ///
@@ -318,8 +318,8 @@ fn chip_of(controller: &str) -> Option<PathBuf> {
 /// itself, and [`Pad::request`] asks the kernel for it on every operation,
 /// so a pad some driver has claimed since detection fails there rather than
 /// being written on the strength of what was true at startup.
-pub(crate) fn touchscreen() -> Option<Pad> {
-    if dmi::product().as_deref() != Some(TOUCHSCREEN_BOARD) {
+pub(crate) fn touchscreen(board: &Board) -> Option<Pad> {
+    if board.framework_product() != Some(TOUCHSCREEN_BOARD) {
         return None;
     }
     Pad::locate(TOUCHSCREEN_PAD)

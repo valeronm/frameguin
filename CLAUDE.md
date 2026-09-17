@@ -11,7 +11,9 @@ it and the non-obvious constraints.
   `hidapi`, whose one `HidApi` `detect()` builds for every HID probe, since
   building one walks the bus;
   `daemon/` runs as root, links it, and serves it over the bus;
-  `app/` is the GTK4/libadwaita UI and links no hardware code; `wire/` is
+  `app/` is the GTK4/libadwaita UI and links no hardware code, nor reads
+  the machine any other way — the board's own name included, which the
+  daemon reports; `wire/` is
   the D-Bus vocabulary, the control traits and the error kind every
   implementation of them shares, and the strings both binaries must spell
   alike; `model/` is the controls as the app holds
@@ -28,8 +30,8 @@ it and the non-obvious constraints.
   the mirror reason, the daemon linking it into the root process.
 - A string is admitted to `wire/` because a second spelling of it could
   disagree — the vendor, the board names, each matched by both binaries
-  against the same hardware. A value only one binary reads, or one that
-  crosses the bus uncompared, stays where it is read.
+  against the strings the same firmware gives. A value only one binary
+  reads, or one that crosses the bus uncompared, stays where it is read.
 - `io.github.valeronm.Frameguin1` is private to those two binaries rather than
   published API. They are built, installed and upgraded as one — `install.sh`
   stops the app and the daemon and brings both back on the new build — so an
@@ -141,6 +143,7 @@ it and the non-obvious constraints.
   have only one socket behind it, as the Laptop 16's bay controller does;
   its side alone is taken from Framework's own controller table in
   `framework_lib`, which names a side per controller and nothing finer.
+  The layout is picked from the board the daemon reports.
   `reading.rs` is the
   machine's reading, taken once for however many views show it: the battery
   row and the Readings window render the same walk of the same block, and each
@@ -157,8 +160,9 @@ it and the non-obvious constraints.
   window cannot leave another showing what it saw before.
   `bus.rs` is every control trait answered by a call on the daemon.
   `daemon.rs` is the app's
-  end of the daemon — the bus connection and the detected controls, the two
-  facts fixed for its run that every window wants — dialled and asked once,
+  end of the daemon — the bus connection, the detected controls and the
+  board, the facts fixed for its run that every window wants — dialled and
+  asked once,
   so the windows and the tray share one of each, and two asking
   at once wait on one answer. It is named for the real thing the way
   `device` is, and holds no state of its own: what it caches is the daemon's
@@ -168,8 +172,7 @@ it and the non-obvious constraints.
   the rule both timers and subscriptions obey, that nothing repeats while its
   widget is off screen: `while_mapped` takes what `acquire` returns on map and
   drops it on unmap, so stopping is a `Drop` rather than something each caller
-  remembers. `board.rs` is the one read
-  that bypasses the bus, `about.rs` the report and the dialog that renders it,
+  remembers. `about.rs` is the report and the dialog that renders it,
   `autostart.rs` the desktop entry whose path and content cannot be written
   apart, `failure.rs` how a failed daemon call is told — the sentence both
   tellings open with, the toast a window or dialog shows, and the notification a
@@ -226,8 +229,8 @@ it and the non-obvious constraints.
   then the thing that precedence decides, which is whether the control can be
   read at all, stated once in the `TouchSwitch` role it declares over both.
   The rest divide by job: `dmi.rs`
-  the SMBIOS reads — the vendor deciding whether there is an EC to open, the
-  product name deciding which board's pads are which, the raw entries a
+  the SMBIOS reads — the board, read once and handed to every device that
+  asks what machine it is on, the raw entries a
   part's identity comes from — `sbs.rs` the pack's own registers and what
   their words mean, apart from `ec.rs` so the decoding is testable without
   an EC and `ec.rs` stays every EC call and nothing else — `edid.rs` what a

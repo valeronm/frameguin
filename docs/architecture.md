@@ -32,13 +32,16 @@ One meaning per word, and each word names one place in the tree.
   `PortsControl` sets nothing, what a USB-C port does being settled between
   its controller and whatever is plugged in. `DeviceError` is the one error every control and every
   detection raises.
+- **Board** — the machine as its firmware names it, vendor and product:
+  `wire::Board`, answered by the root interface.
 - **Interface** — the D-Bus surface for one device's control, on
   `Served<Device>`. `daemon/src/interface/<name>.rs`. The root interface,
   for what belongs to no device, is `Daemon`'s own.
 - **Bus** — the app's implementation of every control trait, each operation
   a call on the daemon. `app/src/bus.rs`, `Bus`.
-- **Daemon**, on the app side — its end of the daemon: the connection and
-  the controls detection registered, dialled and asked once for the run.
+- **Daemon**, on the app side — its end of the daemon: the connection, the
+  controls detection registered and the board it runs on, dialled and asked
+  once for the run.
   `app/src/daemon.rs`, `Daemon`.
 - **Client control** — the app's side of one control: its read, its
   commands, its presets and words. `model/src/control/`,
@@ -100,8 +103,9 @@ rather than for the battery whose control it otherwise holds. The chassis
 and the privacy switches put nothing in the main window at all; their
 columns end at the Readings window. The USB devices end at the Readings window
 too, and are placed in a port's page by `model::port` rather than by the
-daemon, which knows no board. The battery extender is a feature of the
-battery's column rather than a column of its own, and still takes a Readings
+daemon, which knows the board's name but not where its sockets are. The
+battery extender is a feature of the battery's column rather than a column
+of its own, and still takes a Readings
 section beside the battery's: a section is drawn for what a reader looks
 for, not for the column behind it. By the same measure the input deck, a
 feature of the chassis, is a row on the Chassis page.
@@ -282,6 +286,6 @@ one), which an unregistered interface answers with
 `NotSupported` cannot read as absence. There is no capability
 list: presence is the interface being on the bus, and the features a device
 offers beyond presence travel on its own interface. The root interface
-carries only what belongs to no device — the inventory, the daemon's
-build, and the restore switch with the `Restore` call that
+carries only what belongs to no device — the board, the inventory, the
+daemon's build, and the restore switch with the `Restore` call that
 `frameguin-restore.service` makes after a boot and a resume.

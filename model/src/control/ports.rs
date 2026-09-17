@@ -7,22 +7,30 @@ use frameguin_wire::{
 };
 
 use super::present;
+use crate::port::Placement;
 
 pub struct Ports<C> {
     control: Rc<C>,
+    placement: Placement,
 }
 
 impl<C: PortsControl> Ports<C> {
-    pub fn new(control: Rc<C>) -> Self {
-        Self { control }
+    pub fn new(control: Rc<C>, placement: Placement) -> Self {
+        Self { control, placement }
     }
 
-    pub async fn detect(control: &Rc<C>) -> Result<Option<Self>> {
-        Ok(present(control.ports().await)?.map(|_| Self::new(control.clone())))
+    pub async fn detect(control: &Rc<C>, placement: Placement) -> Result<Option<Self>> {
+        Ok(present(control.ports().await)?.map(|_| Self::new(control.clone(), placement)))
     }
 
     pub async fn read(&self) -> Result<Vec<PortState>> {
         self.control.ports().await
+    }
+
+    /// Where this board's sockets are, fixed for the device's run.
+    #[must_use]
+    pub fn placement(&self) -> Placement {
+        self.placement
     }
 }
 
@@ -124,8 +132,8 @@ pub fn supply_label(ports: &[PortState]) -> String {
 /// nothing is supplying — a port named under "Disconnected" would name the
 /// one that stopped.
 #[must_use]
-pub fn supply_port(ports: &[PortState], product: &str) -> Option<String> {
-    powering(ports).map(|port| crate::port::label(product, port.index))
+pub fn supply_port(ports: &[PortState], placement: Placement) -> Option<String> {
+    powering(ports).map(|port| placement.label(port.index))
 }
 
 /// The supply and where it comes in, joined for a caller with one line to
@@ -136,10 +144,10 @@ pub fn supply_port(ports: &[PortState], product: &str) -> Option<String> {
 /// The words only; what the line is *about* is the caller's to say, as a row
 /// title is everywhere else.
 #[must_use]
-pub fn supply_summary(ports: &[PortState], product: &str) -> String {
+pub fn supply_summary(ports: &[PortState], placement: Placement) -> String {
     let supply = supply_label(ports);
     powering(ports).map_or(supply.clone(), |port| {
-        format!("{supply} · {}", crate::port::inline(product, port.index))
+        format!("{supply} · {}", placement.inline(port.index))
     })
 }
 
@@ -209,35 +217,44 @@ pub fn epr_label(epr: Epr) -> Option<&'static str> {
 
 #[cfg(test)]
 mod tests {
-    use frameguin_wire::{DataRole, DeviceError, PortPartner, PortState, PowerRole};
+    use std::rc::Rc;
+
+    use frameguin_wire::{
+        DataRole, DeviceError, DeviceResult as Result, PortPartner, PortState, PowerRole,
+    };
 
     use super::{
         Ports, carried, data_role_label, display_port_label, partner_label, port_summary,
         power_role_label, powering, powering_label, supply_label, supply_summary,
     };
-    use crate::testing::{Board, absent, port, ready};
+    use crate::port::Placement;
+    use crate::testing::{Machine, absent, placed, port, ready};
+
+    fn detect(machine: &Rc<Machine>) -> Result<Option<Ports<Machine>>> {
+        ready(Ports::detect(machine, Placement::default()))
+    }
 
     #[test]
     fn ports_the_hardware_answers_for_are_detected() {
-        assert!(ready(Ports::detect(&Board::new())).unwrap().is_some());
+        assert!(detect(&Machine::new()).unwrap().is_some());
     }
 
     #[test]
     fn a_board_the_hardware_serves_no_ports_for_is_absent() {
-        let board = Board::failing(absent());
-        assert!(ready(Ports::detect(&board)).unwrap().is_none());
+        let machine = Machine::failing(absent());
+        assert!(detect(&machine).unwrap().is_none());
     }
 
     #[test]
     fn hardware_that_cannot_be_asked_is_not_an_absent_set_of_ports() {
         let error = DeviceError::Failed("no reply".into());
-        let board = Board::failing(error.clone());
-        assert_eq!(ready(Ports::detect(&board)).err(), Some(error));
+        let machine = Machine::failing(error.clone());
+        assert_eq!(detect(&machine).err(), Some(error));
     }
 
     #[test]
     fn a_read_carries_every_port() {
-        let ports = Ports::new(Board::new());
+        let ports = Ports::new(Machine::new(), Placement::default());
         let read = ready(ports.read()).unwrap();
         assert_eq!(read.len(), 4);
         assert!(read[0].charging);
@@ -285,13 +302,14 @@ mod tests {
     #[test]
     fn the_joined_line_carries_the_supply_and_its_port() {
         let ports: Vec<_> = (0..4).map(port).collect();
+        let summary = |product| supply_summary(&ports, placed(product));
         assert_eq!(
-            supply_summary(&ports, frameguin_wire::BOARD_LAPTOP13_PRO_ULTRA_3),
+            summary(frameguin_wire::BOARD_LAPTOP13_PRO_ULTRA_3),
             "100 W · Right front"
         );
-        assert_eq!(supply_summary(&ports, "Laptop 16"), "100 W · Port 0");
+        assert_eq!(summary("Laptop 16"), "100 W · Port 0");
         assert_eq!(
-            supply_summary(&ports, frameguin_wire::BOARD_LAPTOP13_AMD_AI_300),
+            summary(frameguin_wire::BOARD_LAPTOP13_AMD_AI_300),
             "100 W · Right, port 0"
         );
     }
@@ -300,7 +318,7 @@ mod tests {
     /// otherwise dangle.
     #[test]
     fn a_line_with_nothing_supplying_names_no_port() {
-        assert_eq!(supply_summary(&[], "Laptop 16"), "Disconnected");
+        assert_eq!(supply_summary(&[], Placement::default()), "Disconnected");
     }
 
     #[test]

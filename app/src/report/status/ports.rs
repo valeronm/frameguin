@@ -16,12 +16,11 @@ use frameguin_model::control::ports::{
     display_port_label, epr_label, partner_label, port_summary, power_role_label, powering_label,
 };
 use frameguin_model::control::usb::{capacity_label, device_name, network_label, speed_label};
-use frameguin_model::port;
+use frameguin_model::port::Placement;
 use frameguin_wire::{Attached, PortPartner, PortState};
 use gtk4 as gtk;
 
 use super::{Sidebar, Target};
-use crate::board;
 use crate::reading::{Feed, Wants};
 use crate::report::value;
 
@@ -29,6 +28,7 @@ use crate::report::value;
 struct Section {
     list: gtk::ListBox,
     ports: RefCell<Vec<Port>>,
+    placement: Placement,
 }
 
 struct Port {
@@ -46,10 +46,11 @@ struct Drawn {
 
 /// The rows arrive with the first reading, which is what says how many ports
 /// there are.
-pub(super) fn add(sidebar: &Rc<Sidebar>, feed: &Rc<Feed>, usb: bool) {
+pub(super) fn add(sidebar: &Rc<Sidebar>, feed: &Rc<Feed>, usb: bool, placement: Placement) {
     let section = Rc::new(Section {
         list: sidebar.section(Some("USB-C Ports")),
         ports: RefCell::default(),
+        placement,
     });
 
     let answering = Rc::downgrade(&section);
@@ -62,7 +63,7 @@ pub(super) fn add(sidebar: &Rc<Sidebar>, feed: &Rc<Feed>, usb: bool) {
 
     let wants = Wants {
         ports: true,
-        usb: usb && port::wired(board::product()),
+        usb: usb && placement.wired(),
         ..Wants::default()
     };
     let showing = sidebar.clone();
@@ -77,9 +78,9 @@ impl Section {
     /// The rows are rebuilt only where the set of ports changed, which on a
     /// board's fixed ports is the first reading alone.
     fn show(&self, sidebar: &Sidebar, ports: &[PortState], devices: &[Attached]) {
-        let product = board::product();
+        let placement = self.placement;
         let mut ports: Vec<&PortState> = ports.iter().collect();
-        ports.sort_by_key(|state| port::order(product, state.index));
+        ports.sort_by_key(|state| placement.order(state.index));
         let same = self
             .ports
             .borrow()
@@ -95,7 +96,7 @@ impl Section {
                 .iter()
                 .map(|state| {
                     let page = adw::PreferencesPage::new();
-                    let row = sidebar.add(&self.list, &port::label(product, state.index), &page);
+                    let row = sidebar.add(&self.list, &placement.label(state.index), &page);
                     row.set_use_markup(false);
                     Port {
                         index: state.index,
@@ -108,11 +109,12 @@ impl Section {
             *self.ports.borrow_mut() = built;
         }
         for (port, state) in self.ports.borrow().iter().zip(&ports) {
-            let here: Vec<Attached> = port::attached(product, state.index, devices)
+            let here: Vec<Attached> = placement
+                .attached(state.index, devices)
                 .into_iter()
                 .cloned()
                 .collect();
-            port.draw(product, state, here);
+            port.draw(placement, state, here);
         }
         if !same {
             sidebar.settle();
@@ -137,7 +139,7 @@ impl Section {
 impl Port {
     /// Redrawn whole: which rows a port has depends on what is plugged into
     /// it. Skipped where neither the state nor the devices moved.
-    fn draw(&self, product: &str, state: &PortState, devices: Vec<Attached>) {
+    fn draw(&self, placement: Placement, state: &PortState, devices: Vec<Attached>) {
         let mut drawn = self.drawn.borrow_mut();
         if drawn
             .as_ref()
@@ -152,7 +154,7 @@ impl Port {
         }
         let name = devices.first().map(device_name);
         self.row.set_subtitle(&port_summary(state, name.as_deref()));
-        let mut groups = vec![connection_group(product, state)];
+        let mut groups = vec![connection_group(placement, state)];
         groups.extend(contract_group(state));
         groups.extend(devices.iter().map(device_group));
         for group in &groups {
@@ -166,10 +168,10 @@ impl Port {
     }
 }
 
-fn connection_group(product: &str, state: &PortState) -> adw::PreferencesGroup {
+fn connection_group(placement: Placement, state: &PortState) -> adw::PreferencesGroup {
     let group = adw::PreferencesGroup::new();
     group.set_title(partner_label(state.partner).unwrap_or(NOTHING_ATTACHED));
-    if let Some(number) = port::secondary(product, state.index) {
+    if let Some(number) = placement.secondary(state.index) {
         value(&group, "Port").set_label(&number);
     }
     if state.partner == PortPartner::Nothing {

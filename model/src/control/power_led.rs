@@ -133,30 +133,30 @@ mod tests {
     use frameguin_wire::{DeviceError, PowerLedLevel};
 
     use super::{Custom, PowerLed, Snapshot, rank};
-    use crate::testing::{Board, absent, ready};
+    use crate::testing::{Machine, absent, ready};
 
     #[test]
     fn an_led_the_hardware_answers_for_is_detected_with_its_levels() {
-        let led = ready(PowerLed::detect(&Board::new())).unwrap().unwrap();
+        let led = ready(PowerLed::detect(&Machine::new())).unwrap().unwrap();
         assert_eq!(led.rows().len(), PowerLedLevel::ALL.len());
     }
 
     #[test]
     fn an_led_the_hardware_does_not_serve_is_absent() {
-        let board = Board::failing(absent());
-        assert!(ready(PowerLed::detect(&board)).unwrap().is_none());
+        let machine = Machine::failing(absent());
+        assert!(ready(PowerLed::detect(&machine)).unwrap().is_none());
     }
 
     #[test]
     fn hardware_that_cannot_be_asked_is_not_an_absent_led() {
         let error = DeviceError::Failed("no reply".into());
-        let board = Board::failing(error.clone());
-        assert_eq!(ready(PowerLed::detect(&board)).err(), Some(error));
+        let machine = Machine::failing(error.clone());
+        assert_eq!(ready(PowerLed::detect(&machine)).err(), Some(error));
     }
 
     #[test]
     fn a_read_takes_both_halves_from_the_hardware() {
-        let led = PowerLed::new(Board::new(), PowerLedLevel::ALL.to_vec());
+        let led = PowerLed::new(Machine::new(), PowerLedLevel::ALL.to_vec());
         assert_eq!(
             ready(led.read()),
             Ok(Snapshot {
@@ -168,14 +168,14 @@ mod tests {
 
     #[test]
     fn a_refused_write_carries_the_refusal() {
-        let board = Board::new();
-        let led = PowerLed::new(board.clone(), PowerLedLevel::ALL.to_vec());
-        board.power_led.refuse();
+        let machine = Machine::new();
+        let led = PowerLed::new(machine.clone(), PowerLedLevel::ALL.to_vec());
+        machine.power_led.refuse();
         assert_eq!(
             ready(led.set_level(PowerLedLevel::Low)),
             Err(DeviceError::AccessDenied("not authorized".into()))
         );
-        assert_eq!(board.level.get(), PowerLedLevel::High);
+        assert_eq!(machine.level.get(), PowerLedLevel::High);
     }
 
     /// The rows are the board's levels in display order, whatever order the
@@ -183,7 +183,7 @@ mod tests {
     #[test]
     fn the_rows_are_the_offered_levels_in_display_order() {
         let led = PowerLed::new(
-            Board::new(),
+            Machine::new(),
             vec![PowerLedLevel::High, PowerLedLevel::Off, PowerLedLevel::Low],
         );
         assert_eq!(
@@ -196,7 +196,7 @@ mod tests {
 
     #[test]
     fn a_row_sends_the_level_it_is_marked_for() {
-        let led = PowerLed::new(Board::new(), PowerLedLevel::ALL.to_vec());
+        let led = PowerLed::new(Machine::new(), PowerLedLevel::ALL.to_vec());
         for level in PowerLedLevel::ALL {
             let row = led.row(level).expect("every level is listed");
             assert_eq!(led.at(row), Some(level));
@@ -208,7 +208,7 @@ mod tests {
     /// the one a fixture happened to pick.
     #[test]
     fn a_level_the_ec_named_never_moves_a_combo_off_its_custom_row() {
-        let led = PowerLed::new(Board::new(), PowerLedLevel::ALL.to_vec());
+        let led = PowerLed::new(Machine::new(), PowerLedLevel::ALL.to_vec());
         let custom = Some(PowerLedLevel::ALL.len() - 1);
         assert_eq!(led.custom_row(), custom);
         for row in 0..PowerLedLevel::ALL.len() {
@@ -228,7 +228,7 @@ mod tests {
             PowerLedLevel::Medium,
             PowerLedLevel::Low,
         ];
-        let led = PowerLed::new(Board::new(), rows);
+        let led = PowerLed::new(Machine::new(), rows);
         assert_eq!(led.custom_row(), None);
         assert_eq!(led.row_for(PowerLedLevel::Custom, None, Custom::Keep), None);
         assert_eq!(led.row_for(PowerLedLevel::Low, None, Custom::Keep), Some(0));

@@ -24,9 +24,9 @@ use frameguin_hardware::testing::{
     Route, Sides, Sliders, battery_identity, block, display_identity, mirrors, touchpad_identity,
 };
 use frameguin_wire::{
-    BatteryFeature, ChargingLedFeature, ChargingLedSide, ChassisFeature, ClickForce, DeckState,
-    DeviceError, FrameguinProxy, NO_CHARGE_CURRENT_LIMIT, PortPartner, PowerLedLevel, Proxies,
-    proxy,
+    BOARD_LAPTOP13_AMD_AI_300, BatteryFeature, Board, ChargingLedFeature, ChargingLedSide,
+    ChassisFeature, ClickForce, DeckState, DeviceError, FrameguinProxy, NO_CHARGE_CURRENT_LIMIT,
+    PortPartner, PowerLedLevel, Proxies, VENDOR, proxy,
 };
 use futures_lite::future::{block_on, or};
 use zbus::{Connection, Guid, connection};
@@ -97,6 +97,13 @@ impl Machine {
 fn devices() -> Devices {
     let machine = Machine::new();
     machine.devices(&machine.mirrors())
+}
+
+fn board() -> Board {
+    Board {
+        vendor: VENDOR.to_owned(),
+        product: BOARD_LAPTOP13_AMD_AI_300.to_owned(),
+    }
 }
 
 /// An inventory for the root interface to answer, which it holds verbatim.
@@ -187,6 +194,7 @@ fn serve_restoring(authorized: bool, devices: Devices, restore: Restore) -> Peer
     let serving = server.clone();
     let root = Daemon {
         service: service.clone(),
+        board: board(),
         parts: parts(),
         restore,
     };
@@ -371,10 +379,11 @@ fn a_bad_argument_and_a_write_in_place_never_reach_polkit() {
 }
 
 #[test]
-fn the_root_interface_answers_the_inventory_and_the_build() {
+fn the_root_interface_answers_the_board_the_inventory_and_the_build() {
     let peer = serve(true);
     peer.run(|p| async move {
         let daemon = root(&p).await;
+        assert_eq!(daemon.get_board().await.unwrap(), board());
         assert_eq!(daemon.get_devices().await.unwrap(), parts());
         assert_eq!(
             daemon.get_build().await.unwrap().0,

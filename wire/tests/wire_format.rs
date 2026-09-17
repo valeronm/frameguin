@@ -4,9 +4,9 @@
 //! no compiler on either side would report.
 
 use frameguin_wire::{
-    BatteryAlarm, BatteryCondition, BatteryFeature, BatteryInfo, BatteryState, ChargeFlow,
-    ChassisFeature, ClickForce, DeckState, ExtenderStage, ExtenderState, Identity, PartKind,
-    PowerLedLevel,
+    BOARD_LAPTOP13_AMD_AI_300, BatteryAlarm, BatteryCondition, BatteryFeature, BatteryInfo,
+    BatteryState, Board, ChargeFlow, ChassisFeature, ClickForce, DeckState, ExtenderStage,
+    ExtenderState, Identity, PartKind, PowerLedLevel, VENDOR,
 };
 use zbus::zvariant::serialized::Context;
 use zbus::zvariant::{LE, Type, to_bytes};
@@ -47,6 +47,7 @@ fn the_composite_signatures_are_the_ones_the_methods_declare() {
     // The pack's own report: cell voltages, alarms by name, and a temperature
     // in tenths of a degree.
     assert_eq!(BatteryCondition::SIGNATURE, "(auasn)");
+    assert_eq!(Board::SIGNATURE, "(ss)");
     assert_eq!(ExtenderState::SIGNATURE, "(bsquq)");
     assert_eq!(Identity::SIGNATURE, "(sssssssa((sy)sss)a(sv))");
 }
@@ -133,6 +134,20 @@ fn charge_flow_names_are_kebab_case() {
     assert_eq!(wire_string(ChargeFlow::Charging), "charging");
     assert_eq!(wire_string(ChargeFlow::Discharging), "discharging");
     assert_eq!(wire_string(ChargeFlow::Idle), "idle");
+}
+
+#[test]
+fn a_board_is_named_only_on_this_hardware() {
+    let board = |vendor: &str| Board {
+        vendor: vendor.to_owned(),
+        product: BOARD_LAPTOP13_AMD_AI_300.to_owned(),
+    };
+    assert_eq!(
+        board(VENDOR).framework_product(),
+        Some(BOARD_LAPTOP13_AMD_AI_300)
+    );
+    assert_eq!(board("LENOVO").framework_product(), None);
+    assert_eq!(board("").framework_product(), None);
 }
 
 /// Custom is the one level the EC reports but will not take.

@@ -14,10 +14,10 @@ use frameguin_model::control::battery::{
 };
 use frameguin_model::control::ports::supply_summary;
 use frameguin_model::control::touchscreen::{state_at, state_labels, state_row};
+use frameguin_model::port::Placement;
 use frameguin_wire::{BatteryFeature, BatteryState, PortState};
 
 use crate::APP_ID;
-use crate::board;
 use crate::bus::Bus;
 use crate::daemon::Daemon;
 
@@ -59,6 +59,8 @@ pub(crate) struct TrayIcon {
     /// Which limits the charger takes, pushed in with the detected controls;
     /// None until then, which a machine with no pack never changes.
     battery_features: Option<Vec<BatteryFeature>>,
+    /// Where the ports are, pushed in with the detected controls.
+    placement: Placement,
     /// The USB-C ports as the daemon last reported them, pushed in from the
     /// app like the pack above and moving on their own for the same reason.
     ports: Option<Vec<PortState>>,
@@ -82,6 +84,7 @@ impl TrayIcon {
             tx,
             battery: None,
             battery_features: None,
+            placement: Placement::default(),
             ports: None,
             charge_limit: None,
             charge_current_limit: None,
@@ -240,16 +243,13 @@ impl TrayIcon {
     /// has nothing to say about them until one arrives.
     ///
     /// Above the pack's own line, as the window's charger row is above its
-    /// battery row, and reading the board rather than being pushed it: the
-    /// product name is settled once for the process and answers on any
-    /// thread, where pushing it would be a field that never changes
-    /// travelling the push protocol.
+    /// battery row.
     ///
     /// Named here, as the window names its row and as `radio_submenu`'s
     /// callers name theirs: what the line is about is the menu's to say, and
     /// a menu row has no title of its own to say it in.
     fn supply_item(&self) -> Option<ksni::MenuItem<Self>> {
-        let supply = supply_summary(self.ports.as_ref()?, board::product());
+        let supply = supply_summary(self.ports.as_ref()?, self.placement);
         Some(report_item(
             format!("Charger: {supply}"),
             TrayEvent::ShowCharger,
@@ -346,6 +346,7 @@ impl TrayIcon {
 pub(crate) struct TrayValues {
     pub(crate) battery: Option<BatteryState>,
     pub(crate) battery_features: Option<Vec<BatteryFeature>>,
+    pub(crate) placement: Option<Placement>,
     pub(crate) ports: Option<Vec<PortState>>,
     pub(crate) charge_limit: Option<u8>,
     pub(crate) design_capacity: Option<u32>,
@@ -360,6 +361,7 @@ impl TrayValues {
         let Self {
             battery,
             battery_features,
+            placement,
             ports,
             charge_limit,
             design_capacity,
@@ -368,6 +370,7 @@ impl TrayValues {
         } = self;
         battery.is_none()
             && battery_features.is_none()
+            && placement.is_none()
             && ports.is_none()
             && charge_limit.is_none()
             && design_capacity.is_none()
@@ -383,6 +386,7 @@ impl TrayValues {
                 .battery
                 .as_ref()
                 .map(|battery| battery.features().to_vec()),
+            placement: controls.ports.as_ref().map(|ports| ports.placement()),
             ..Self::default()
         }
     }
@@ -420,6 +424,7 @@ pub(crate) fn tray_push(handle: &ksni::blocking::Handle<TrayIcon>, values: TrayV
     handle.update(move |tray| {
         tray.battery = values.battery.or(tray.battery);
         tray.battery_features = values.battery_features.or(tray.battery_features.take());
+        tray.placement = values.placement.unwrap_or(tray.placement);
         tray.ports = values.ports.or(tray.ports.take());
         tray.charge_limit = values.charge_limit.or(tray.charge_limit);
         tray.design_capacity = values.design_capacity.or(tray.design_capacity);

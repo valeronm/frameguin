@@ -11,7 +11,6 @@ use gtk4 as gtk;
 use gtk4::{gdk, gdk_pixbuf, gio, glib, graphene, gsk};
 
 use crate::APP_ID;
-use crate::board::dmi;
 use crate::bus::Bus;
 use crate::mapped;
 
@@ -169,14 +168,6 @@ pub(crate) async fn debug_info() -> String {
             Ok(parts) => out.push_str(&part::listing(&parts)),
             Err(e) => out.push_str(&line("parts", Err(e))),
         }
-    } else {
-        // What the inventory would have said of the board, from the sysfs
-        // copy the app can read without it.
-        out.push_str(&format!(
-            "board: {}\nBIOS: {}\n",
-            dmi("product_name"),
-            dmi("bios_version")
-        ));
     }
     out
 }

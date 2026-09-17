@@ -1,7 +1,7 @@
 //! The touch panel: one switch, and the mirror that answers for it on the
 //! route that keeps no account of its own.
 
-use frameguin_wire::{DeviceResult, TouchscreenControl};
+use frameguin_wire::{Board, DeviceResult, TouchscreenControl};
 
 use crate::lifetime::Lifetime;
 use crate::mirror::{Mirror, Mirrors};
@@ -27,9 +27,10 @@ impl Touchscreen {
     /// is sold in front of a panel and never on its own.
     pub(crate) fn detect(
         hid: &hidapi::HidApi,
+        board: &Board,
         mirrors: &Mirrors,
     ) -> (Option<Self>, Option<Firmware>) {
-        let Some((route, controller)) = touchscreen::find(hid) else {
+        let Some((route, controller)) = touchscreen::find(hid, board) else {
             return (None, None);
         };
         let firmware = route

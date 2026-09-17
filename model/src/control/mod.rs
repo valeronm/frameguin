@@ -13,9 +13,12 @@ pub mod usb;
 use std::rc::Rc;
 
 use frameguin_wire::{
-    BatteryControl, ChargingLedControl, ChassisControl, DeviceError, DeviceResult, PortsControl,
-    PowerLedControl, PrivacySwitchesControl, TouchpadControl, TouchscreenControl, UsbControl,
+    BatteryControl, Board, ChargingLedControl, ChassisControl, DeviceError, DeviceResult,
+    PortsControl, PowerLedControl, PrivacySwitchesControl, TouchpadControl, TouchscreenControl,
+    UsbControl,
 };
+
+use crate::port::Placement;
 
 /// Whether a device is there, decided by the device's own path: a read the
 /// control answers is the device, one it answers `Absent` is no device, and
@@ -96,8 +99,9 @@ impl<
 {
     /// Asks each control's device to detect itself. Fails only where the
     /// device could not be asked at all — an absent device is an answer, not
-    /// a failure.
-    pub async fn detect(control: &Rc<C>) -> DeviceResult<Self> {
+    /// a failure. The ports' device does not know where its sockets are;
+    /// `board` settles that.
+    pub async fn detect(control: &Rc<C>, board: &Board) -> DeviceResult<Self> {
         Ok(Self {
             battery: battery::Battery::detect(control).await?.map(Rc::new),
             touchpad: touchpad::Touchpad::detect(control).await?.map(Rc::new),
@@ -108,7 +112,9 @@ impl<
             charging_led: charging_led::ChargingLed::detect(control)
                 .await?
                 .map(Rc::new),
-            ports: ports::Ports::detect(control).await?.map(Rc::new),
+            ports: ports::Ports::detect(control, Placement::of(board))
+                .await?
+                .map(Rc::new),
             chassis: chassis::Chassis::detect(control).await?.map(Rc::new),
             privacy_switches: privacy_switches::PrivacySwitches::detect(control)
                 .await?
@@ -137,7 +143,11 @@ mod tests {
     use frameguin_wire::DeviceError;
 
     use super::{Controls, Custom, row_for};
-    use crate::testing::{Board, Fault, absent, ready};
+    use crate::testing::{Fault, Machine, absent, ready};
+
+    fn detect(machine: &Rc<Machine>) -> frameguin_wire::DeviceResult<Controls<Machine>> {
+        ready(Controls::detect(machine, &frameguin_wire::Board::default()))
+    }
 
     const PRESET: usize = 1;
     const CUSTOM: usize = 3;
@@ -189,7 +199,7 @@ mod tests {
 
     #[test]
     fn every_control_its_device_answered_for_is_there() {
-        let controls = ready(Controls::detect(&Board::new())).unwrap();
+        let controls = detect(&Machine::new()).unwrap();
         assert!(controls.battery.is_some());
         assert!(controls.touchpad.is_some());
         assert!(controls.touchscreen.is_some());
@@ -203,17 +213,17 @@ mod tests {
 
     #[test]
     fn a_board_whose_devices_all_answer_absent_has_no_controls() {
-        let controls = ready(Controls::detect(&Board::failing(absent()))).unwrap();
+        let controls = detect(&Machine::failing(absent())).unwrap();
         assert!(controls.is_empty());
     }
 
     #[test]
     fn an_absent_device_takes_only_its_own_control() {
-        let board = Board {
+        let machine = Machine {
             touchpad: Fault::failing(absent()),
-            ..Board::default()
+            ..Machine::default()
         };
-        let controls = ready(Controls::detect(&Rc::new(board))).unwrap();
+        let controls = detect(&Rc::new(machine)).unwrap();
         assert!(controls.touchpad.is_none());
         assert!(controls.battery.is_some());
         assert!(controls.touchscreen.is_some());
@@ -226,7 +236,7 @@ mod tests {
     #[test]
     fn hardware_that_cannot_be_asked_fails_the_whole_detection() {
         let error = DeviceError::Failed("no reply".into());
-        let board = Board::failing(error.clone());
-        assert_eq!(ready(Controls::detect(&board)).err(), Some(error));
+        let machine = Machine::failing(error.clone());
+        assert_eq!(detect(&machine).err(), Some(error));
     }
 }

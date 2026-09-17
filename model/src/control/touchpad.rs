@@ -107,17 +107,17 @@ mod tests {
     use frameguin_wire::{ClickForce, DeviceError, HAPTIC_INTENSITY_LEVELS};
 
     use super::{Snapshot, Touchpad, haptic_at, haptic_row};
-    use crate::testing::{Board, absent, ready};
+    use crate::testing::{Machine, absent, ready};
 
     #[test]
     fn a_pad_the_hardware_answers_for_is_detected() {
-        assert!(ready(Touchpad::detect(&Board::new())).unwrap().is_some());
+        assert!(ready(Touchpad::detect(&Machine::new())).unwrap().is_some());
     }
 
     #[test]
     fn a_pad_the_hardware_does_not_serve_is_absent() {
-        let board = Board::failing(absent());
-        assert!(ready(Touchpad::detect(&board)).unwrap().is_none());
+        let machine = Machine::failing(absent());
+        assert!(ready(Touchpad::detect(&machine)).unwrap().is_none());
     }
 
     /// A refusal from a device that is there — the hardware cannot do this,
@@ -128,14 +128,14 @@ mod tests {
             DeviceError::Failed("no reply".into()),
             DeviceError::NotSupported("no pad on this board".into()),
         ] {
-            let board = Board::failing(error.clone());
-            assert_eq!(ready(Touchpad::detect(&board)).err(), Some(error));
+            let machine = Machine::failing(error.clone());
+            assert_eq!(ready(Touchpad::detect(&machine)).err(), Some(error));
         }
     }
 
     #[test]
     fn a_read_takes_both_settings_from_the_hardware() {
-        let touchpad = Touchpad::new(Board::new());
+        let touchpad = Touchpad::new(Machine::new());
         assert_eq!(
             ready(touchpad.read()),
             Ok(Snapshot {
@@ -147,22 +147,22 @@ mod tests {
 
     #[test]
     fn a_write_reaches_the_hardware() {
-        let board = Board::new();
-        let touchpad = Touchpad::new(board.clone());
+        let machine = Machine::new();
+        let touchpad = Touchpad::new(machine.clone());
         ready(touchpad.set_click_force(ClickForce::High)).unwrap();
-        assert_eq!(board.click_force.get(), ClickForce::High);
+        assert_eq!(machine.click_force.get(), ClickForce::High);
     }
 
     #[test]
     fn a_refused_write_carries_the_refusal() {
-        let board = Board::new();
-        let touchpad = Touchpad::new(board.clone());
-        board.touchpad.refuse();
+        let machine = Machine::new();
+        let touchpad = Touchpad::new(machine.clone());
+        machine.touchpad.refuse();
         assert_eq!(
             ready(touchpad.set_haptic_intensity(100)),
             Err(DeviceError::AccessDenied("not authorized".into()))
         );
-        assert_eq!(board.haptic_intensity.get(), 50);
+        assert_eq!(machine.haptic_intensity.get(), 50);
     }
 
     /// The steps are the touchpad's list, not this module's, and the rows are

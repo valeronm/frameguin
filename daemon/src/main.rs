@@ -29,6 +29,7 @@ const IDLE_EXIT: Duration = Duration::from_mins(5);
 
 struct Daemon {
     service: Arc<Service>,
+    board: wire::Board,
     /// Every part detection found at startup, which is the one time it looks.
     parts: Vec<Identity>,
     restore: Restore,
@@ -41,6 +42,13 @@ impl Daemon {
     fn get_devices(&self) -> Vec<Identity> {
         self.service.touch();
         self.parts.clone()
+    }
+
+    /// Answers on any hardware, the vendor saying whether it is this
+    /// hardware at all.
+    fn get_board(&self) -> wire::Board {
+        self.service.touch();
+        self.board.clone()
     }
 
     fn get_restore(&self) -> bool {
@@ -99,6 +107,7 @@ fn main() -> zbus::Result<()> {
     let last_used = Arc::new(Mutex::new(Instant::now()));
     let clock = last_used.clone();
     let Detected {
+        board,
         devices,
         parts,
         restore,
@@ -114,6 +123,7 @@ fn main() -> zbus::Result<()> {
         let service = Arc::new(Service::new(authority, last_used));
         let daemon = Daemon {
             service: service.clone(),
+            board,
             parts,
             restore,
         };

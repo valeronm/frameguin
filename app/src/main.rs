@@ -1,11 +1,10 @@
 //! GTK4/libadwaita front-end for Framework laptop controls.
 //!
-//! Hardware controls go through the frameguin daemon on the system
-//! bus; board/BIOS info is read directly from world-readable DMI sysfs.
+//! Everything it knows of the hardware, the board's name included, comes
+//! from the frameguin daemon on the system bus.
 
 mod about;
 mod autostart;
-mod board;
 mod bus;
 mod daemon;
 mod failure;

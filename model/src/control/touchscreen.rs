@@ -59,46 +59,50 @@ mod tests {
     use frameguin_wire::DeviceError;
 
     use super::{Touchscreen, state_at, state_labels, state_row};
-    use crate::testing::{Board, absent, ready};
+    use crate::testing::{Machine, absent, ready};
 
     #[test]
     fn a_panel_the_hardware_answers_for_is_detected() {
-        assert!(ready(Touchscreen::detect(&Board::new())).unwrap().is_some());
+        assert!(
+            ready(Touchscreen::detect(&Machine::new()))
+                .unwrap()
+                .is_some()
+        );
     }
 
     #[test]
     fn a_panel_the_hardware_does_not_serve_is_absent() {
-        let board = Board::failing(absent());
-        assert!(ready(Touchscreen::detect(&board)).unwrap().is_none());
+        let machine = Machine::failing(absent());
+        assert!(ready(Touchscreen::detect(&machine)).unwrap().is_none());
     }
 
     /// A refusal from a device that is there says nothing about presence.
     #[test]
     fn hardware_that_cannot_be_asked_is_not_an_absent_panel() {
         let error = DeviceError::Failed("no reply".into());
-        let board = Board::failing(error.clone());
-        assert_eq!(ready(Touchscreen::detect(&board)).err(), Some(error));
+        let machine = Machine::failing(error.clone());
+        assert_eq!(ready(Touchscreen::detect(&machine)).err(), Some(error));
     }
 
     #[test]
     fn a_write_reaches_the_hardware_and_a_read_sees_it() {
-        let board = Board::new();
-        let touchscreen = Touchscreen::new(board.clone());
+        let machine = Machine::new();
+        let touchscreen = Touchscreen::new(machine.clone());
         ready(touchscreen.set_enabled(false)).unwrap();
-        assert!(!board.enabled.get());
+        assert!(!machine.enabled.get());
         assert_eq!(ready(touchscreen.read()), Ok(false));
     }
 
     #[test]
     fn a_refused_write_carries_the_refusal() {
-        let board = Board::new();
-        let touchscreen = Touchscreen::new(board.clone());
-        board.touchscreen.refuse();
+        let machine = Machine::new();
+        let touchscreen = Touchscreen::new(machine.clone());
+        machine.touchscreen.refuse();
         assert_eq!(
             ready(touchscreen.set_enabled(false)),
             Err(DeviceError::AccessDenied("not authorized".into()))
         );
-        assert!(board.enabled.get());
+        assert!(machine.enabled.get());
     }
 
     /// The row a state marks is the row that sends it back. A menu picks by

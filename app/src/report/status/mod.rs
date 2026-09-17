@@ -125,8 +125,8 @@ fn build(
         if controls.privacy_switches.is_some() {
             privacy_switches::add(&sidebar, &feed);
         }
-        if controls.ports.is_some() {
-            ports::add(&sidebar, &feed, controls.usb.is_some());
+        if let Some(control) = &controls.ports {
+            ports::add(&sidebar, &feed, controls.usb.is_some(), control.placement());
         }
         if sidebar.lists.borrow().is_empty() {
             sidebar.pages.add_child(

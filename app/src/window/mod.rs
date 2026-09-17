@@ -24,7 +24,7 @@ use std::rc::Rc;
 
 use adw::prelude::*;
 use frameguin_model::control::Controls;
-use frameguin_wire::DeviceError;
+use frameguin_wire::{Board, DeviceError};
 use gtk4 as gtk;
 use gtk4::gio;
 
@@ -81,8 +81,9 @@ impl Ui {
 
     /// Shows each group where its control is, each tab where one of its
     /// groups is, and the switcher where more than one tab is left to switch
-    /// between.
-    fn gate(&self, controls: &Controls<Bus>) {
+    /// between, each tab captioned with the board's name.
+    fn gate(&self, controls: &Controls<Bus>, board: &Board) {
+        let product = board.framework_product().unwrap_or_default();
         self.battery
             .gate(controls.battery.as_ref(), controls.ports.as_ref());
         self.power_led.gate(controls.power_led.as_ref());
@@ -91,6 +92,7 @@ impl Ui {
         self.touchscreen.gate(controls.touchscreen.as_ref());
         let mut shown = 0;
         for tab in &self.tabs {
+            tab.content.set_description(product);
             let visible = tab.groups.iter().any(WidgetExt::is_visible);
             tab.page.set_visible(visible);
             shown += usize::from(visible);
@@ -253,6 +255,7 @@ impl Sink<'_> {
 struct Tab {
     kind: TabKind,
     page: adw::ViewStackPage,
+    content: adw::PreferencesPage,
     groups: Vec<adw::PreferencesGroup>,
 }
 
@@ -370,18 +373,19 @@ impl Member<'_> {
 }
 
 fn add_tab(stack: &adw::ViewStack, kind: TabKind, groups: Groups<'_>) -> Tab {
-    let page = adw::PreferencesPage::new();
+    let content = widgets::captioned_page();
     let widgets: Vec<adw::PreferencesGroup> = kind
         .members(groups)
         .iter()
         .flat_map(|member| member.widgets().into_iter().cloned())
         .collect();
     for widget in &widgets {
-        page.add(widget);
+        content.add(widget);
     }
     Tab {
         kind,
-        page: stack.add_titled_with_icon(&page, None, kind.title(), kind.icon()),
+        page: stack.add_titled_with_icon(&content, None, kind.title(), kind.icon()),
+        content,
         groups: widgets,
     }
 }

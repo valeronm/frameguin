@@ -14,7 +14,7 @@
 use std::sync::{Mutex, MutexGuard, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use frameguin_wire::{self as wire, DeviceError, DeviceResult};
+use frameguin_wire::{self as wire, Board, DeviceError, DeviceResult};
 use framework_lib::chromium_ec::command::{EcCommands, EcRequestRaw};
 use framework_lib::chromium_ec::commands::{
     DeckStateMode, EcRequestDeckState, EcRequestGetPdPortState, EcRequestGetUptimeInfo,
@@ -24,7 +24,6 @@ use framework_lib::chromium_ec::i2c_passthrough::i2c_read;
 use framework_lib::chromium_ec::{CrosEc, CrosEcDriver, EcError, EcResponseStatus, EcResult};
 use framework_lib::power;
 
-use crate::dmi;
 use crate::extender;
 use crate::lifetime::EcBoot;
 use crate::part::{self, Identity};
@@ -154,12 +153,14 @@ fn remembered<T: Clone>(slot: &OnceLock<Option<T>>, read: impl FnOnce() -> Optio
 }
 
 impl Ec {
-    /// The EC, and None on hardware that has none. `CrosEc::new()` panics
-    /// outright when `framework_lib` finds no driver (an empty driver list on
-    /// e.g. aarch64 without `/dev/cros_ec`), so the vendor check is what keeps
-    /// it from being constructed there rather than a courtesy.
-    pub(crate) fn open() -> Option<Self> {
-        dmi::is_framework().then(|| Self {
+    /// The EC, and None on a `board` that is not this hardware. `CrosEc::new()`
+    /// panics outright when `framework_lib` finds no driver (an empty driver
+    /// list on e.g. aarch64 without `/dev/cros_ec`), so the vendor check is
+    /// what keeps it from being constructed there rather than a courtesy.
+    /// Without `/dev/cros_ec` `framework_lib` also falls back to raw port
+    /// I/O, where a non-Framework EC spin-waits every command to a timeout.
+    pub(crate) fn open(board: &Board) -> Option<Self> {
+        board.framework_product().is_some().then(|| Self {
             ec: Mutex::new(CrosEc::new()),
             memo: Memo::default(),
         })

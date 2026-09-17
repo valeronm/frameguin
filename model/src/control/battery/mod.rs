@@ -234,31 +234,31 @@ mod tests {
         charge_limit_row, charge_speed_at, charge_speed_labels, charge_speed_preset_row,
         charge_speed_row, with_custom_row,
     };
-    use crate::testing::{Board, CAPACITY, absent, ready};
+    use crate::testing::{CAPACITY, Machine, absent, ready};
 
     #[test]
     fn a_pack_the_hardware_answers_for_is_detected_with_its_features() {
-        let battery = ready(Battery::detect(&Board::new())).unwrap().unwrap();
+        let battery = ready(Battery::detect(&Machine::new())).unwrap().unwrap();
         assert!(battery.has(BatteryFeature::ChargeLimit));
         assert!(!battery.has(BatteryFeature::Condition));
     }
 
     #[test]
     fn a_pack_the_hardware_does_not_serve_is_absent() {
-        let board = Board::failing(absent());
-        assert!(ready(Battery::detect(&board)).unwrap().is_none());
+        let machine = Machine::failing(absent());
+        assert!(ready(Battery::detect(&machine)).unwrap().is_none());
     }
 
     #[test]
     fn hardware_that_cannot_be_asked_is_not_an_absent_pack() {
         let error = DeviceError::Failed("no reply".into());
-        let board = Board::failing(error.clone());
-        assert_eq!(ready(Battery::detect(&board)).err(), Some(error));
+        let machine = Machine::failing(error.clone());
+        assert_eq!(ready(Battery::detect(&machine)).err(), Some(error));
     }
 
     #[test]
     fn a_write_reaches_the_hardware_and_a_read_sees_it() {
-        let battery = Battery::new(Board::new(), Vec::new());
+        let battery = Battery::new(Machine::new(), Vec::new());
         assert_eq!(ready(battery.set_charge_limit(80)), Ok(true));
         assert_eq!(ready(battery.charge_limit()), Ok(80));
         assert_eq!(ready(battery.set_charge_current_limit(1_160)), Ok(true));
@@ -267,14 +267,14 @@ mod tests {
 
     #[test]
     fn a_refused_write_carries_the_refusal() {
-        let board = Board::new();
-        let battery = Battery::new(board.clone(), Vec::new());
-        board.battery.refuse();
+        let machine = Machine::new();
+        let battery = Battery::new(machine.clone(), Vec::new());
+        machine.battery.refuse();
         assert_eq!(
             ready(battery.set_charge_limit(80)),
             Err(DeviceError::AccessDenied("not authorized".into()))
         );
-        assert_eq!(board.limit.get(), 100);
+        assert_eq!(machine.limit.get(), 100);
     }
 
     /// One row is the off row, and it is the one that sends the ceiling that
