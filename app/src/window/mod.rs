@@ -453,9 +453,9 @@ pub(crate) fn build_window(
     let window = adw::ApplicationWindow::builder()
         .application(app)
         .title("Frameguin")
-        .default_width(420)
-        // Tall enough for the taller tab at the default font scale;
-        // re-measure when the rows change.
+        // At the default font scale, wide enough for the header to spell every
+        // tab title and tall enough for the taller tab.
+        .default_width(440)
         .default_height(560)
         .content(&toasts)
         .icon_name(APP_ID)
