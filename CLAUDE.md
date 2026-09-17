@@ -92,7 +92,8 @@ it and the non-obvious constraints.
   `window/` holds `Ui`, whose fields are private to that module tree — the
   groups under it read them, nothing outside it can — which is what `Sink`
   and the `apply_*` writes living there buys. `window/fill.rs` drives `Ui`
-  from outside it — the ask, the empty page, the retry — so the fan-outs
+  from outside it — the ask, the empty page, the retry, the reload a tab
+  asks for when shown — so the fan-outs
   over the groups (`gate`, `watch`, `load_values`, `connect_handlers`) stay
   on `Ui` where its fields are, and a fill asks for one rather than walking
   the groups itself — convention rather than a compiler check, `fill` being a
@@ -101,16 +102,16 @@ it and the non-obvious constraints.
   `watch` before `load_values` so a fill reads what the fed rows want, and
   `connect_handlers` last so a loaded value cannot echo back as a write. The
   middle one is necessary and not sufficient — a subscription is taken when
-  its widget is mapped, so what completes it is that the fill runs from the
-  window's own map, and a row that is somehow unmapped waits a tick rather
-  than failing;
+  its widget is mapped, so what completes it is that a tab reloads from its
+  own map — a row on a hidden tab being unmapped until then — and a row that
+  is somehow unmapped when its tab shows waits a tick rather than failing;
   `window/widgets.rs` is the chrome no one group owns. `report/` holds the windows
   that only read, and the shell they share in its `mod.rs` — found by name or
   built, destroyed on close — so the single-instance rule is one private
   function rather than one copy per window, and nothing outside the tree can
   borrow it. `report/parts.rs` is the inventory `GetDevices` answers, drawn
   once per open since the list is fixed for the daemon's run.
-  `report/status/` is the status window: no sync guard, no debounce, no tray
+  `report/status/` is the Readings window: no sync guard, no debounce, no tray
   push, a sidebar of sections beside the selected row's page. Its `mod.rs`
   holds the window, the one selection across every section's list, and the
   targets it can be opened on; each section is a module of its own, adding
@@ -123,7 +124,7 @@ it and the non-obvious constraints.
   outlive the window — which is why the sidebar holds the split view weakly.
   A port's page is redrawn whole when its state moves, because its rows come
   and go with what is attached, and fed rather than polled like everything
-  else that repeats: the Power group's charger row shows the same read,
+  else that repeats: the main window's charger row shows the same read,
   which is what makes the ports an extra on the feed below rather than this
   window's own timer. That page says everything of the thing attached, so a
   reading the EC answers for the machine — its power role, its data role —
@@ -141,8 +142,8 @@ it and the non-obvious constraints.
   its side alone is taken from Framework's own controller table in
   `framework_lib`, which names a side per controller and nothing finer.
   `reading.rs` is the
-  machine's reading, taken once for however many views show it: the status
-  row and the status window render the same walk of the same block, and each
+  machine's reading, taken once for however many views show it: the battery
+  row and the Readings window render the same walk of the same block, and each
   polling for
   itself made the EC answer twice and let the two windows sit a tick apart, so
   a view subscribes and the feed does the reading. What a view wants — the
@@ -171,7 +172,7 @@ it and the non-obvious constraints.
   that bypasses the bus, `about.rs` the report and the dialog that renders it,
   `autostart.rs` the desktop entry whose path and content cannot be written
   apart, `failure.rs` how a failed daemon call is told — the sentence both
-  tellings open with, the toast a window shows, and the notification a
+  tellings open with, the toast a window or dialog shows, and the notification a
   session with no window sends instead, along with the withdrawal pending
   against it. A failure with no device behind it words itself where it
   happens, the `DeviceError` those take being what drops the D-Bus error
@@ -184,9 +185,9 @@ it and the non-obvious constraints.
   module of its own owns. The no-GTK rules are the ones nothing
   checks: an import is all it takes to lose one.
 - Which window a thing goes in is decided by what kind of fact it is: the main
-  window holds what can be set, Parts what the hardware is — fixed for the
-  daemon's run and read once — and Status what the hardware is doing now,
-  read only while it is on screen. A new reading is a section in Status
+  window holds what can be set, Hardware what the hardware is — fixed for the
+  daemon's run and read once — and Readings what the hardware is doing now,
+  read only while it is on screen. A new reading is a section in Readings
   rather than a window of its own or a row in the main window.
 - The main window and the reports are reached differently, and which way is
   decided by whether the window survives being closed. The main window hides rather than closing
@@ -505,8 +506,8 @@ the product it was read from.
   io.github.valeronm.Frameguin1 GetDevices`; `busctl introspect` on the
   same path lists the control interfaces detection registered.
 - Non-Framework hardware is a test case in its own right: expected behavior
-  is "No Framework hardware detected" in the header, a status page naming the
-  vendor where the controls would be, fast, no error toast. Both real
+  is a "No Framework hardware detected" page naming the vendor where the
+  controls would be, fast, no error toast. Both real
   regressions so far (port-I/O probe stalls, the aarch64 panic) showed up only
   there.
 - A window with no controls says which of its three reasons it is — no

@@ -1,5 +1,5 @@
-//! The windows that only read — the parts list, what the hardware is, and the
-//! status window, what it is doing — and the shell they share: a toast
+//! The windows that only read — the Hardware window, what the hardware is,
+//! and the Readings window, what it is doing — and the shell they share: a toast
 //! overlay filling the window, a page under a header bar, the row that names
 //! one value, and the one way such a window is opened.
 //!
@@ -27,7 +27,7 @@ use crate::reading::Feed;
 
 /// Every report's action, for the application to register together. An
 /// action rather than a handler on either caller because the tray, which
-/// builds no widgets and holds no window, opens the status window too; and
+/// builds no widgets and holds no window, opens the Readings window too; and
 /// one list, because a report is reachable only through its action, so one
 /// left out would be a menu row that does nothing.
 pub(crate) fn actions(
@@ -47,7 +47,7 @@ struct Shell {
 
 impl Shell {
     fn toast_error(&self, attempt: &str, error: impl Into<DeviceError>) {
-        failure::toast(&self.toasts, attempt, error);
+        self.toasts.add_toast(failure::toast(attempt, error));
     }
 }
 

@@ -6,10 +6,9 @@ use std::time::Duration;
 
 use adw::prelude::*;
 use gtk4 as gtk;
-use gtk4::gdk;
-use gtk4::glib;
+use gtk4::{gdk, glib};
 
-use super::{NO_HARDWARE, Ui};
+use super::Ui;
 use crate::mapped::{Once, while_mapped};
 use crate::{about, board};
 
@@ -72,7 +71,7 @@ fn caption_label() -> gtk::Label {
 /// them reachable.
 pub(super) fn build_empty_page(
     view: &adw::ToolbarView,
-    controls: &adw::PreferencesPage,
+    controls: &impl IsA<gtk::Widget>,
 ) -> EmptyPage {
     let stack = gtk::Stack::new();
     view.set_content(Some(&stack));
@@ -191,7 +190,7 @@ impl EmptyPage {
         let text = match reason {
             Empty::NoHardware(vendor) => EmptyText {
                 icon: "computer-symbolic",
-                title: NO_HARDWARE,
+                title: "No Framework hardware detected",
                 description: Some(format!(
                     "Frameguin controls the hardware of Framework laptops. \
                      This machine reports itself as “{vendor}”."
@@ -255,9 +254,9 @@ impl EmptyPage {
 }
 
 /// What filling the window takes: where an answer goes, and where a failure
-/// says so. One type behind one `Rc` because both callers — the window
-/// arriving on screen and the countdown that keeps asking — need all of it
-/// and differ only in what made them run.
+/// says so. One type behind one `Rc` because the window arriving on screen
+/// and the countdown that keeps asking need all of it and differ only in
+/// what made them run, and a tab reloading needs to know how that went.
 struct Init {
     ui: Rc<Ui>,
     empty: EmptyPage,
@@ -280,17 +279,14 @@ struct Init {
 }
 
 impl Init {
-    /// What the window does every time it comes to the screen. The hardware
-    /// moves while the app sits in the tray — the EC's battery extender
-    /// lowers the charge limit on its own, and `framework_tool` writes any of
-    /// these behind the app's back — so a mapped window reloads rather than
-    /// trusting what it read at startup. A window still holding no
-    /// controls has nothing to reload and asks the daemon again instead,
-    /// which is how a service that started late is picked up without the
-    /// reader finding the button.
-    async fn refresh(self: &Rc<Self>) {
-        if !self.answered.get() {
-            self.fill().await;
+    /// What a tab does every time it comes to the screen. The hardware moves
+    /// while the app sits in the tray — the EC's battery extender lowers the
+    /// charge limit on its own, and `framework_tool` writes any of these
+    /// behind the app's back — so a shown tab reloads rather than trusting
+    /// what it read at startup. Nothing while there is no answer yet, a fill
+    /// in flight loading every value itself, or a board with no controls.
+    async fn reload(&self) {
+        if !self.answered.get() || self.filling.get() {
             return;
         }
         // Cached since detection, so this cannot realistically fail; nothing
@@ -298,14 +294,13 @@ impl Init {
         let Ok(controls) = self.ui.daemon.controls().await else {
             return;
         };
-        // Answered, with nothing to reload: a board that supports none of
-        // these controls and a machine that is not a Framework are what they
-        // are, and asking again would spawn the root daemon once per window
-        // opened to be told so a second time.
-        if controls.is_empty() {
-            return;
+        if !controls.is_empty() {
+            self.ui.load_values(&controls).await;
         }
-        self.ui.load_values(&controls).await;
+    }
+
+    fn spawn<F: Future<Output = ()> + 'static>(self: &Rc<Self>, run: impl FnOnce(Rc<Self>) -> F) {
+        glib::spawn_future_local(run(self.clone()));
     }
 
     /// One attempt at filling the window, and what to do with how it went:
@@ -358,7 +353,7 @@ impl Init {
                     return;
                 }
                 init.empty.show_progress("Trying again…");
-                glib::spawn_future_local(async move { init.fill().await });
+                init.spawn(async |init| init.fill().await);
             })));
     }
 
@@ -389,7 +384,7 @@ impl Init {
             }
         };
         ui.gate(&controls);
-        // Set whatever the answer was: what a later refresh needs to know is
+        // Set whatever the answer was: what a later map needs to know is
         // that this daemon has said its piece, not what it said.
         self.answered.set(true);
         if controls.is_empty() {
@@ -409,14 +404,16 @@ impl Init {
         // subscribe.
         ui.watch();
         ui.load_values(&controls).await;
+        ui.load_preferences().await;
         ui.connect_handlers(&controls);
         None
     }
 }
 
-/// Starts the window filling itself: on every map, and on the countdown
-/// after a daemon that did not answer. Both starters share one `filling`
-/// guard, and the window leaving the screen stops the countdown.
+/// Starts the window filling itself — on its map while nothing has answered,
+/// and on the countdown after a daemon that did not — and each tab reloading
+/// on its own once something has. The window leaving the screen stops the
+/// countdown.
 pub(super) fn attach(window: &adw::ApplicationWindow, ui: &Rc<Ui>, empty: EmptyPage) {
     // The report goes into the issue body rather than onto the clipboard with
     // instructions to paste it somewhere.
@@ -443,12 +440,23 @@ pub(super) fn attach(window: &adw::ApplicationWindow, ui: &Rc<Ui>, empty: EmptyP
         next_attempt: Cell::new(FIRST_RETRY_SECONDS),
         retry: Cell::default(),
     });
+    // On the tab's map rather than the window's, since a tab's fed rows
+    // subscribe only once it is shown.
+    for tab in &ui.tabs {
+        let shown = init.clone();
+        tab.page
+            .child()
+            .connect_map(move |_| shown.spawn(async |init| init.reload().await));
+    }
     // Nothing is lost by the countdown stopping with the window off screen:
     // the map asks again the moment anyone looks, which is also when an
-    // answer could change what is on screen.
+    // answer could change what is on screen. A window still holding no
+    // controls asks the daemon again, which is how a service that started
+    // late is picked up without the reader finding the button.
     while_mapped(window, move || {
-        let refreshing = init.clone();
-        glib::spawn_future_local(async move { refreshing.refresh().await });
+        if !init.answered.get() {
+            init.spawn(async |init| init.fill().await);
+        }
         Retrying(init.clone())
     });
 }

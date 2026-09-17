@@ -1,5 +1,5 @@
-//! The preferences window: the `Ui` its groups share, the `Sink` a write
-//! reports to, and the window built around them.
+//! The main window: the `Ui` its groups share, the `Sink` a write reports
+//! to, and the window built around them.
 //!
 //! [`Sink`] lives here rather than beside the tray because the window is the
 //! end with somewhere to report; a group's `apply` takes one, so a tray
@@ -13,6 +13,7 @@
 pub(crate) mod battery;
 mod fill;
 pub(crate) mod power_led;
+mod preferences;
 mod touchpad;
 pub(crate) mod touchscreen;
 mod widgets;
@@ -26,30 +27,28 @@ use frameguin_wire::DeviceError;
 use gtk4 as gtk;
 use gtk4::gio;
 
+use crate::APP_ID;
 use crate::bus::Bus;
 use crate::daemon::Daemon;
 use crate::failure::{self, Notifier};
 use crate::reading::Feed;
 use crate::report::{parts, status};
 use crate::tray::{TrayIcon, TrayValues, tray_push};
-use crate::{APP_ID, autostart, board};
-
-/// The one sentence the header and the empty page both say, so a reword
-/// cannot leave the window carrying two versions of it.
-const NO_HARDWARE: &str = "No Framework hardware detected";
 
 pub(crate) struct Ui {
     toasts: adw::ToastOverlay,
     /// Set while widgets are being moved to mirror the hardware, so their
     /// change handlers don't echo the reading back as a write.
     syncing: Cell<bool>,
+    header: adw::HeaderBar,
+    switcher: adw::ViewSwitcher,
+    stack: adw::ViewStack,
+    tabs: Vec<Tab>,
     battery: battery::Group,
     power_led: power_led::Group,
     touchpad: touchpad::Group,
     touchscreen: touchscreen::Group,
-    /// The daemon's restore switch, which is no control: it belongs to no
-    /// device and is set through the root interface.
-    restore: adw::SwitchRow,
+    preferences: preferences::Group,
     tray: Option<ksni::blocking::Handle<TrayIcon>>,
     daemon: Rc<Daemon>,
     feed: Rc<Feed>,
@@ -61,7 +60,7 @@ impl Ui {
     }
 
     fn toast_error(&self, attempt: &str, error: impl Into<DeviceError>) {
-        failure::toast(&self.toasts, attempt, error);
+        self.toasts.add_toast(failure::toast(attempt, error));
     }
 
     /// Moves widgets to match the hardware without their handlers writing the
@@ -78,13 +77,31 @@ impl Ui {
         }
     }
 
-    /// Shows each group where its control is.
+    /// Shows each group where its control is, each tab where one of its
+    /// groups is, and the switcher where more than one tab is left to switch
+    /// between.
     fn gate(&self, controls: &Controls<Bus>) {
         self.battery
             .gate(controls.battery.as_ref(), controls.ports.as_ref());
         self.power_led.gate(controls.power_led.as_ref());
         self.touchpad.gate(controls.touchpad.as_ref());
         self.touchscreen.gate(controls.touchscreen.as_ref());
+        let mut shown = 0;
+        for tab in &self.tabs {
+            let visible = tab.groups.iter().any(WidgetExt::is_visible);
+            tab.page.set_visible(visible);
+            shown += usize::from(visible);
+        }
+        // Swapped out rather than hidden, so the header falls back to the
+        // window's title instead of showing none.
+        self.header
+            .set_title_widget((shown > 1).then_some(&self.switcher));
+    }
+
+    fn show_first_tab(&self) {
+        if let Some(tab) = self.tabs.iter().find(|tab| tab.page.is_visible()) {
+            self.stack.set_visible_child(&tab.page.child());
+        }
     }
 
     /// Subscribes every group's fed rows to the reading. Its own fan-out
@@ -124,15 +141,11 @@ impl Ui {
         if let Some(touchscreen) = &controls.touchscreen {
             self.touchscreen.load(self, touchscreen, &mut values).await;
         }
-        self.load_restore().await;
         self.sync_tray(values);
     }
 
-    async fn load_restore(&self) {
-        match async { self.daemon.bus().await?.frameguin.get_restore().await }.await {
-            Ok(enabled) => widgets::show_switch(self, &self.restore, enabled),
-            Err(e) => self.toast_error(&format!("Reading “{}”", self.restore.title()), e),
-        }
+    async fn load_preferences(&self) {
+        self.preferences.load(self).await;
     }
 
     /// A control's group connects only where the control is, its handlers
@@ -150,28 +163,8 @@ impl Ui {
         if let Some(touchscreen) = &controls.touchscreen {
             self.touchscreen.connect(self, touchscreen);
         }
-        // A refused write leaves the switch claiming a setting will be there
-        // after a restart, and its prior value is the negation.
-        widgets::connect_switch(
-            self,
-            &self.daemon,
-            &self.restore,
-            |ui, daemon, enabled| async move {
-                let written =
-                    async { daemon.bus().await?.frameguin.set_restore(enabled).await }.await;
-                if let Err(e) = written {
-                    ui.toast_error(&setting(&ui.restore), e);
-                    widgets::show_switch(&ui, &ui.restore, !enabled);
-                }
-            },
-        );
+        self.preferences.connect(self);
     }
-}
-
-/// Read off the row rather than spelled again, because a message naming a
-/// row by a title it no longer has is worse than a vaguer one.
-fn setting(row: &adw::SwitchRow) -> String {
-    format!("Setting “{}”", row.title())
 }
 
 /// Where a write reports back to. A tray preset can arrive in a session whose
@@ -212,68 +205,94 @@ impl Sink<'_> {
     }
 }
 
+/// Recorded where its groups are added, so whether the tab shows cannot
+/// disagree with what it holds.
+struct Tab {
+    page: adw::ViewStackPage,
+    groups: Vec<adw::PreferencesGroup>,
+}
+
+fn add_tab(
+    stack: &adw::ViewStack,
+    title: &str,
+    icon: &str,
+    groups: &[&adw::PreferencesGroup],
+) -> Tab {
+    let page = adw::PreferencesPage::new();
+    for group in groups {
+        page.add(*group);
+    }
+    Tab {
+        page: stack.add_titled_with_icon(&page, None, title, icon),
+        groups: groups.iter().map(|&group| group.clone()).collect(),
+    }
+}
+
+fn menu_button() -> gtk::MenuButton {
+    let menu = gio::Menu::new();
+    menu.append(Some("_Hardware"), Some(&format!("app.{}", parts::ACTION)));
+    let status_item = gio::MenuItem::new(Some("_Readings"), None);
+    status_item.set_action_and_target_value(
+        Some(&format!("app.{}", status::ACTION)),
+        Some(&status::target(None)),
+    );
+    menu.append_item(&status_item);
+    menu.append(
+        Some("_Preferences"),
+        Some(&format!("win.{}", preferences::ACTION)),
+    );
+    menu.append(Some("_About Frameguin"), Some("app.about"));
+    menu.append(Some("_Quit"), Some("app.quit"));
+    gtk::MenuButton::builder()
+        .icon_name("open-menu-symbolic")
+        .menu_model(&menu)
+        .tooltip_text("Main menu")
+        .build()
+}
+
 pub(crate) fn build_window(
     app: &adw::Application,
     tray: Option<ksni::blocking::Handle<TrayIcon>>,
     daemon: Rc<Daemon>,
     feed: Rc<Feed>,
 ) -> (adw::ApplicationWindow, Rc<Ui>) {
-    let page = adw::PreferencesPage::new();
-
     let battery = battery::Group::build();
-    page.add(&battery.widget);
-
-    let power_led = power_led::Group::build();
-    page.add(&power_led.widget);
-
     let touchpad = touchpad::Group::build();
-    page.add(&touchpad.widget);
-
     let touchscreen = touchscreen::Group::build();
-    page.add(&touchscreen.widget);
+    let power_led = power_led::Group::build();
+    let stack = adw::ViewStack::new();
+    let tabs = vec![
+        add_tab(
+            &stack,
+            "Power",
+            "battery-symbolic",
+            &[&battery.state, &battery.limits],
+        ),
+        add_tab(
+            &stack,
+            "Input",
+            "input-touchpad-symbolic",
+            &[&touchpad.widget, &touchscreen.widget],
+        ),
+        add_tab(
+            &stack,
+            "Lights",
+            "display-brightness-symbolic",
+            &[&power_led.widget],
+        ),
+    ];
 
-    let application = adw::PreferencesGroup::builder()
-        .title("Application")
-        .build();
-    let autostart_row = adw::SwitchRow::builder()
-        .title("Start at login")
-        .subtitle("Show only the tray icon until opened")
-        .build();
-    autostart_row.set_active(autostart::entry_path().exists());
-    application.add(&autostart_row);
-    let restore = adw::SwitchRow::builder()
-        .title("Restore settings")
-        .subtitle("Put back what was set here after a restart or a resume")
-        .sensitive(false)
-        .build();
-    application.add(&restore);
-    page.add(&application);
+    let preferences = preferences::Group::build();
 
-    // Detected hardware as the header subtitle: one line, no key/value rows.
-    let detected = board::detected().unwrap_or(NO_HARDWARE);
-
-    let view = adw::ToolbarView::new();
+    let switcher = adw::ViewSwitcher::builder()
+        .stack(&stack)
+        .policy(adw::ViewSwitcherPolicy::Wide)
+        .build();
     let header = adw::HeaderBar::new();
-    header.set_title_widget(Some(&adw::WindowTitle::new("Frameguin", detected)));
-
-    let menu = gio::Menu::new();
-    menu.append(Some("_Parts"), Some(&format!("app.{}", parts::ACTION)));
-    let status_item = gio::MenuItem::new(Some("_Status"), None);
-    status_item.set_action_and_target_value(
-        Some(&format!("app.{}", status::ACTION)),
-        Some(&status::target(None)),
-    );
-    menu.append_item(&status_item);
-    menu.append(Some("_About Frameguin"), Some("app.about"));
-    menu.append(Some("_Quit"), Some("app.quit"));
-    let menu_button = gtk::MenuButton::builder()
-        .icon_name("open-menu-symbolic")
-        .menu_model(&menu)
-        .tooltip_text("Main menu")
-        .build();
-    header.pack_end(&menu_button);
+    header.pack_end(&menu_button());
+    let view = adw::ToolbarView::new();
     view.add_top_bar(&header);
-    let empty = fill::build_empty_page(&view, &page);
+    let empty = fill::build_empty_page(&view, &stack);
     let toasts = adw::ToastOverlay::new();
     toasts.set_child(Some(&view));
 
@@ -281,9 +300,9 @@ pub(crate) fn build_window(
         .application(app)
         .title("Frameguin")
         .default_width(420)
-        // Tall enough for every control group at the default font scale;
+        // Tall enough for the taller tab at the default font scale;
         // re-measure when the rows change.
-        .default_height(770)
+        .default_height(560)
         .content(&toasts)
         .icon_name(APP_ID)
         .build();
@@ -295,24 +314,27 @@ pub(crate) fn build_window(
     let ui = Rc::new(Ui {
         toasts,
         syncing: Cell::new(false),
+        header,
+        switcher,
+        stack,
+        tabs,
         battery,
         power_led,
         touchpad,
         touchscreen,
-        restore,
+        preferences,
         tray,
         daemon,
         feed,
     });
 
-    let autostart_ui = ui.clone();
-    autostart_row.connect_active_notify(move |row| {
-        if let Err(e) = autostart::set(row.is_active()) {
-            autostart_ui.toast_error(&setting(row), e);
-        }
-    });
-
+    ui.preferences.attach(app, &window);
     fill::attach(&window, &ui, empty);
+
+    // On unmap, since switching on map would reload a second tab beside the
+    // one the map already reloaded.
+    let unmapped_ui = ui.clone();
+    window.connect_unmap(move |_| unmapped_ui.show_first_tab());
 
     (window, ui)
 }

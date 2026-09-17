@@ -112,7 +112,7 @@ impl<
     }
 
     /// Whether the main window has nothing to show: the readings only the
-    /// Status window carries are left out.
+    /// Readings window carries are left out.
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.battery.is_none()

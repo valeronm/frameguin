@@ -1,4 +1,4 @@
-//! The status window: what the hardware is doing now, as sections of rows in
+//! The Readings window: what the hardware is doing now, as sections of rows in
 //! a sidebar and the selected row's page beside them.
 //!
 //! Nothing here writes, so none of [`crate::window`]'s machinery applies — no
@@ -26,7 +26,7 @@ use crate::reading::{Feed, Reading, Wants, show_while_mapped};
 /// The only way the window is opened.
 pub(crate) const ACTION: &str = "status";
 
-const TITLE: &str = "Status";
+const TITLE: &str = "Readings";
 
 /// Only the window holds the rows a target is settled against, so the
 /// application action forwards its target to this action on the window.
@@ -100,7 +100,7 @@ fn build(
         let controls = match daemon.controls().await {
             Ok(controls) => controls,
             Err(e) => {
-                shell.toast_error("Reading the status", e);
+                shell.toast_error("Reading the hardware", e);
                 return;
             }
         };
@@ -132,7 +132,7 @@ fn build(
             sidebar.pages.add_child(
                 &adw::StatusPage::builder()
                     .icon_name("dialog-information-symbolic")
-                    .title("No status to show")
+                    .title("No readings to show")
                     .description("The daemon found nothing on this machine whose state it reads.")
                     .build(),
             );
@@ -143,7 +143,7 @@ fn build(
                 Err(e) => Some(e),
             };
             if let Some(e) = failure {
-                shell.toast_error("Reading the status", e);
+                shell.toast_error("Reading the hardware", e);
             }
         }
         sidebar.filled.set(true);

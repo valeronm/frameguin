@@ -40,7 +40,7 @@ struct AppState {
     window: RefCell<Option<(adw::ApplicationWindow, Rc<Ui>)>>,
     tray: RefCell<Option<ksni::blocking::Handle<TrayIcon>>>,
     daemon: Rc<Daemon>,
-    /// Here rather than on either window: the status window can be open with
+    /// Here rather than on either window: the Readings window can be open with
     /// no main window built, and the main window outlives it.
     feed: Rc<Feed>,
 }

@@ -1,11 +1,12 @@
-//! The Power group: what is coming in, the pack's reading, the two limits —
-//! each a combo of presets with a slider its Custom row reveals — and the
-//! writes both front-ends make through them.
+//! The Power tab's groups: the charging state — what is coming in and the
+//! pack's reading — and the charging limits, each a combo of presets with a
+//! slider its Custom row reveals, with the writes both front-ends make
+//! through them.
 //!
-//! Titled for the subject rather than for the battery whose control it
-//! otherwise holds: the charger row at its head reads the USB-C ports, which
-//! have no group of their own, and a mainboard running standalone has that
-//! row and no pack at all.
+//! Titled for the subject rather than for the battery whose control they
+//! otherwise hold: the charger row at the state's head reads the USB-C
+//! ports, which have no group of their own, and a mainboard running
+//! standalone has that row and no pack at all.
 
 use std::cell::Cell;
 use std::rc::Rc;
@@ -35,10 +36,10 @@ use crate::window::widgets::{
 use crate::window::{Sink, Ui};
 
 pub(crate) type Battery = battery::Battery<Bus>;
-/// The other device this group draws a row for.
+/// The other device the state group draws a row for.
 pub(crate) type Ports = ports::Ports<Bus>;
 
-/// Whether this group has anything to draw, which either of its two devices
+/// Whether the state group has anything to draw, which either of its two devices
 /// is enough for.
 ///
 /// Named because the arms that gate on it would otherwise each spell it and
@@ -67,7 +68,8 @@ fn report_row(
 }
 
 pub(crate) struct Group {
-    pub(crate) widget: adw::PreferencesGroup,
+    pub(crate) state: adw::PreferencesGroup,
+    pub(crate) limits: adw::PreferencesGroup,
     /// The battery reading: the row carries the direction as its subtitle,
     /// the label at its end the charge. The charge is the one figure here
     /// the desktop already shows for itself, and it earns its place by
@@ -94,11 +96,16 @@ pub(crate) struct Group {
 
 impl Group {
     pub(crate) fn build() -> Self {
-        let widget = adw::PreferencesGroup::builder().title("Power").build();
+        let state = adw::PreferencesGroup::builder()
+            .title("Charging State")
+            .build();
+        let limits = adw::PreferencesGroup::builder()
+            .title("Charging Limits")
+            .build();
         // The two rows here that open something rather than setting
         // something.
         let (state_row, state_percent) = report_row(
-            "Status",
+            "Battery",
             status::ACTION,
             &status::target(Some(Target::Battery)),
         );
@@ -109,8 +116,8 @@ impl Group {
             status::ACTION,
             &status::target(Some(Target::Charger)),
         );
-        widget.add(&charger_row);
-        widget.add(&state_row);
+        state.add(&charger_row);
+        state.add(&state_row);
         let limit_labels = with_custom_row(charge_limit_labels());
         let limit_combo = adw::ComboRow::builder()
             .title("Charge limit")
@@ -118,21 +125,21 @@ impl Group {
             .model(&string_list(&limit_labels))
             .sensitive(false)
             .build();
-        widget.add(&limit_combo);
+        limits.add(&limit_combo);
         let limit_custom_row = adw::ActionRow::builder().title("Maximum charge").build();
         let floor = f64::from(MIN_CHARGE_LIMIT);
         let limit_adjustment = gtk::Adjustment::new(floor, floor, 100.0, 5.0, 5.0, 0.0);
         let limit_scale = build_scale(&limit_adjustment, |value| format!("{value:.0}%"));
         limit_custom_row.add_suffix(&limit_scale);
         reveal_under(&limit_combo, &limit_custom_row, CHARGE_LIMIT_CUSTOM);
-        widget.add(&limit_custom_row);
+        limits.add(&limit_custom_row);
         let speed_combo = adw::ComboRow::builder()
             .title("Charge speed")
             .subtitle("Maximum charging rate")
             .model(&string_list(&charge_speed_names()))
             .sensitive(false)
             .build();
-        widget.add(&speed_combo);
+        limits.add(&speed_combo);
         let speed_custom_row = adw::ActionRow::builder().title("Maximum current").build();
         // The upper bound is the battery's 1C current, filled in once it is
         // read; asking for more than the pack requests would be a limit that
@@ -150,9 +157,10 @@ impl Group {
         let speed_scale = build_scale(&speed_adjustment, |value| amps(value as u32));
         speed_custom_row.add_suffix(&speed_scale);
         reveal_under(&speed_combo, &speed_custom_row, CHARGE_SPEED_CUSTOM);
-        widget.add(&speed_custom_row);
+        limits.add(&speed_custom_row);
         Self {
-            widget,
+            state,
+            limits,
             state_row,
             state_percent,
             charger_row,
@@ -165,20 +173,24 @@ impl Group {
         }
     }
 
-    /// Shows the group where the board has either of its devices, and within
-    /// it only the rows that device answers for.
+    /// Shows the state where the board has either of its devices, the limits
+    /// where the pack takes either of them, and within each only the rows
+    /// its device answers for.
     ///
-    /// Two controls where every sibling group takes one: this group draws
-    /// two devices' rows. Narrower than the whole set, which would let it
-    /// gate on a device that is not its own.
+    /// Two controls where every sibling group takes one: the state group
+    /// draws two devices' rows. Narrower than the whole set, which would let
+    /// these groups gate on a device that is not their own.
     pub(crate) fn gate(&self, control: Option<&Rc<Battery>>, ports: Option<&Rc<Ports>>) {
-        self.widget.set_visible(shown(control, ports));
+        self.state.set_visible(shown(control, ports));
         self.charger_row.set_visible(ports.is_some());
         let has = |feature| control.is_some_and(|battery| battery.has(feature));
-        self.limit_combo
-            .set_visible(has(BatteryFeature::ChargeLimit));
-        self.speed_combo
-            .set_visible(has(BatteryFeature::ChargeCurrentLimit));
+        let (limit, speed) = (
+            has(BatteryFeature::ChargeLimit),
+            has(BatteryFeature::ChargeCurrentLimit),
+        );
+        self.limits.set_visible(limit || speed);
+        self.limit_combo.set_visible(limit);
+        self.speed_combo.set_visible(speed);
     }
 
     /// Shows a battery reading. No `sync` guard and no `Custom` question,
@@ -347,7 +359,7 @@ impl Group {
     /// ports and no pack has a charger row and nothing else here, and the row
     /// would otherwise fill only where a pack answered.
     pub(crate) async fn load_fed(&self, ui: &Ui, values: &mut TrayValues) {
-        match ui.feed.fill(&self.widget).await {
+        match ui.feed.fill(&self.state).await {
             Ok((reading, failure)) => {
                 if let Some(e) = failure {
                     ui.toast_error("Reading the battery", e);
@@ -359,7 +371,7 @@ impl Group {
         }
     }
 
-    /// The rest of the group's reload: the ceiling and the speed with their
+    /// The limits' reload: the ceiling and the speed with their
     /// combos and sliders, which only a pack has. What the tray should be
     /// told goes into `values`, for the one push the window makes at the end.
     pub(crate) async fn load(&self, ui: &Ui, control: &Battery, values: &mut TrayValues) {

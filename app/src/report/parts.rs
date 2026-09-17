@@ -1,4 +1,4 @@
-//! The parts window: the machine's bill of materials, as the daemon detected
+//! The Hardware window: the machine's bill of materials, as the daemon detected
 //! it — the parts in a sidebar, the selected one's identity and firmware as
 //! rows beside it.
 
@@ -20,7 +20,7 @@ use crate::daemon::Daemon;
 /// The application action that opens the window, and the only way in.
 pub(crate) const ACTION: &str = "parts";
 
-const TITLE: &str = "Parts";
+const TITLE: &str = "Hardware";
 
 pub(super) fn action(daemon: Rc<Daemon>) -> gio::ActionEntry<adw::Application> {
     super::entry(ACTION, TITLE, (760, 560), move |shell, window| {

@@ -93,15 +93,15 @@ layer must not link lives in another row.
 A column need not reach every row: the USB-C ports are read and never set,
 so they have no group of their own, no tray item and no words for a command —
 a control trait with only getters is still a column, and stops where it runs
-out of things to be. The one row they put in a window sits in the Power
-group, that being the question it answers: what is coming in, beside what the
+out of things to be. The one row they put in a window sits in the Charging
+State group, that being the question it answers: what is coming in, beside what the
 pack is doing about it — which is why that group is named for the subject
 rather than for the battery whose control it otherwise holds. The chassis
 and the privacy switches put nothing in the main window at all; their
-columns end at the Status window. The USB devices end at the Status window
+columns end at the Readings window. The USB devices end at the Readings window
 too, and are placed in a port's page by `model::port` rather than by the
 daemon, which knows no board. The battery extender is a feature of the
-battery's column rather than a column of its own, and still takes a Status
+battery's column rather than a column of its own, and still takes a Readings
 section beside the battery's: a section is drawn for what a reader looks
 for, not for the column behind it. By the same measure the input deck, a
 feature of the chassis, is a row on the Chassis page.
@@ -153,7 +153,7 @@ snapshot's movement under a refused write on the app's.
 - **`app/src/window/<name>.rs`** — the `PreferencesGroup`, `gate(control)`
   showing it where the device is, the functions moving its widgets to a
   read under the sync guard, and handlers dispatching to the control's
-  commands.
+  commands; `window/mod.rs` places the group on a tab with `add_tab`.
 - **`app/src/tray.rs`** — one item per control, drawn from its snapshot and
   labels.
 

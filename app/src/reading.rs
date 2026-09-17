@@ -1,12 +1,12 @@
 //! The machine's reading, taken once however many windows are showing it.
 //!
-//! The window's status row and the battery report render the same walk of the
-//! EC's battery block; the charger row and the ports report render the same
-//! walk of the USB-C ports. Polled per window that is one read twice on two
-//! schedules — an EC paying twice for one answer, and two windows that can sit
-//! a tick apart on a figure neither of them owns. So a view says what it wants
-//! shown and the feed does the reading: one timer, one call, every view fed
-//! from the same answer.
+//! The main window's battery row and the Readings window's battery page render
+//! the same walk of the EC's battery block; the charger row and the ports
+//! pages render the same walk of the USB-C ports. Polled per window that is
+//! one read twice on two schedules — an EC paying twice for one answer, and
+//! two windows that can sit a tick apart on a figure neither of them owns. So
+//! a view says what it wants shown and the feed does the reading: one timer,
+//! one call, every view fed from the same answer.
 //!
 //! That holds for a window filling itself too, which is why [`Feed::fill`]
 //! takes the feed's own read rather than one beside it: a fill is broadcast
@@ -16,7 +16,7 @@
 //! Nothing here needs a pack. The block is an absent extra on a board with
 //! none, the way a failed read is, and the ports are still read.
 //!
-//! The reading is always the whole block, never the summary the status row
+//! The reading is always the whole block, never the summary the battery row
 //! alone would need. The daemon walks the same memmap for either, and the two
 //! figures it reaches past the memmap for are asked of the pack once per
 //! daemon run and remembered — so the wide call costs a few strings of
@@ -47,8 +47,8 @@ use crate::daemon::Daemon;
 use crate::mapped::{Timer, while_mapped};
 
 /// How often the block is read while anything is showing it. One rate for
-/// every view now that they share the read: the status row's, which is the
-/// pace a charge current settling after a limit engages is worth watching at.
+/// every view sharing the read: the battery row's, which is the pace a
+/// charge current settling after a limit engages is worth watching at.
 const READING_SECONDS: u32 = 2;
 
 /// How many of those ticks pass between reads of what the pack says about

@@ -1,5 +1,5 @@
 //! How a failed daemon call is told to whoever asked for it: the sentence
-//! both tellings open with, the toast a window shows, and the desktop
+//! both tellings open with, the toast a window or dialog shows, and the desktop
 //! notification a session with no window has instead.
 //!
 //! A failure with no device behind it — a browser that would not open, a
@@ -22,12 +22,11 @@ fn headline(attempt: &str) -> String {
     format!("{attempt} failed")
 }
 
-/// A failed call, told in the window that asked for it. Takes a bus error or
-/// a device's `DeviceError` alike, the conversion being what drops the D-Bus
-/// error name in front of the sentence.
-pub(crate) fn toast(toasts: &adw::ToastOverlay, attempt: &str, error: impl Into<DeviceError>) {
-    let message = format!("{}: {}", headline(attempt), error.into());
-    toasts.add_toast(adw::Toast::new(&message));
+/// A failed call, as a toast for the window or dialog that asked for it.
+/// Takes a bus error or a device's `DeviceError` alike, the conversion being
+/// what drops the D-Bus error name in front of the sentence.
+pub(crate) fn toast(attempt: &str, error: impl Into<DeviceError>) -> adw::Toast {
+    adw::Toast::new(&format!("{}: {}", headline(attempt), error.into()))
 }
 
 /// One id for every refusal, so a second replaces the first on the shell

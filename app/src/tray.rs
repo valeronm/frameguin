@@ -28,11 +28,11 @@ use crate::daemon::Daemon;
 #[derive(Clone, Copy)]
 pub(crate) enum TrayEvent {
     Show,
-    /// The status window's battery page, which the menu's own reading heads.
+    /// The Readings window's battery page, which the menu's own reading heads.
     /// Carries nothing: the window reads for itself rather than being handed
     /// the summary the menu happens to hold.
     ShowBattery,
-    /// The status window's page for the port powering the machine, which the
+    /// The Readings window's page for the port powering the machine, which the
     /// menu's supply line heads. Carries nothing, as
     /// [`TrayEvent::ShowBattery`] does.
     ShowCharger,
@@ -237,7 +237,7 @@ fn radio_submenu(
 }
 
 impl TrayIcon {
-    /// The reading heading the battery group, and the way into its status
+    /// The reading heading the battery group, and the way into its Readings
     /// page. Gated on the reading itself: a board that has a pack still has
     /// nothing to show until the first one arrives.
     ///
@@ -250,14 +250,15 @@ impl TrayIcon {
         ))
     }
 
-    /// What is powering the machine, and the way into its port's status page.
+    /// What is powering the machine, and the way into its port's Readings page.
     /// Gated on a reading, as the battery's line is: a board with ports still
     /// has nothing to say about them until one arrives.
     ///
-    /// Above the pack's own line, as the window's row is above its Status,
-    /// and reading the board rather than being pushed it: the product name is
-    /// settled once for the process and answers on any thread, where pushing
-    /// it would be a field that never changes travelling the push protocol.
+    /// Above the pack's own line, as the window's charger row is above its
+    /// battery row, and reading the board rather than being pushed it: the
+    /// product name is settled once for the process and answers on any
+    /// thread, where pushing it would be a field that never changes
+    /// travelling the push protocol.
     ///
     /// Named here, as the window names its row and as `radio_submenu`'s
     /// callers name theirs: what the line is about is the menu's to say, and

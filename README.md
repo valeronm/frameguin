@@ -17,18 +17,18 @@ Computer Inc. Licensed under the [MIT License](LICENSE).
 
 - **Power** — what the charger is supplying, the current flowing in or out,
   a ceiling on how full the battery charges, and a cap on the charging rate.
-- **USB-C ports** — what is attached to each, what it negotiated, and which
-  one is powering the machine.
-- **Power button LED** — brightness as a level or a percentage.
-- **Touchpad** — haptic click intensity and click force.
-- **Display** — switching the touchscreen off.
+- **Input** — the touchpad's haptic click intensity and click force, and
+  switching the touchscreen off.
+- **Lights** — the power button LED's brightness as a level or a percentage.
+- **Readings** — what is attached to each USB-C port, what it negotiated,
+  and which one is powering the machine.
 
 A charge limit set here lasts until reboot: UEFI setup re-sends its own
 stored value at every POST, so the standing limit lives in BIOS setup. The
 same goes for the power button LED's level, and a touchscreen switched off
 comes back when the lid is opened, after a suspend, and at the next restart —
 the panel's enable is a line the firmware re-asserts rather than a setting
-anything stores. **Restore settings** has the daemon put each of them back
+anything stores. **Restore settings**, in Preferences, has the daemon put each of them back
 after a restart or a resume, to whatever they were when it was switched on
 or last set here since; switching it off forgets them, and the next restart
 is the firmware's again.
@@ -37,7 +37,8 @@ The power button LED and the fingerprint reader share one button. What the
 app reaches is the LED's brightness; nothing here touches the reader.
 
 Closing the window hides it to the tray; **Quit Frameguin** in the tray menu
-is the real exit. **Start at login** brings up the tray icon only.
+is the real exit. **Start at login**, in Preferences, brings up the tray
+icon only.
 
 <img src="screenshot-tray.png" alt="The Frameguin tray menu, with one control expanded to its presets" width="280">
 
@@ -164,8 +165,7 @@ sudo journalctl -u frameguin-daemon.service
 Controls are detected, not assumed: each device probes itself once when the
 daemon starts and is served on the bus only where it was found, and the app
 shows only the groups whose device answered — so new boards work without
-code changes. The board name in the header comes
-from DMI sysfs. Frameguin currently covers the everyday controls, with more
+code changes. Frameguin currently covers the everyday controls, with more
 of `framework_tool`'s surface planned.
 
 What the hardware itself does — how each subsystem is reached, what it will

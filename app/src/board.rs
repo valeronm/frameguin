@@ -1,6 +1,7 @@
 //! What the machine says about itself, read straight from world-readable DMI
 //! sysfs. The one hardware fact the app learns without asking the daemon, so
-//! the header can name a board before — or without — the bus answering.
+//! the window can tell a machine that is not a Framework without the bus
+//! answering.
 
 use std::fs;
 use std::sync::OnceLock;
