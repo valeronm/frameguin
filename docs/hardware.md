@@ -765,16 +765,22 @@ This machine's panel reads `CSW` `0x1322`, `MND508ZB1-1`, 2880x1920 over
 free-form descriptor: `CSOT T3`.
 
 The other machines' panels are read from dumps rather than from hardware
-here. The Laptop 12's is BOE `NV122WUM-N42`, product code `0x0d56`,
-1920x1200 over 263x164 mm, and it names itself. The Laptop 16's is BOE
-`NE160QDM-NZ6`, 2560x1600 over 345x215 mm, under two product codes.
+here, all of them BOE `09e5`. The Laptop 13 is driven by either of two,
+`0x095f` at 2256x1504 and `0x0cb4` at 2880x1920, over the same 285x190 mm. The
+Laptop 12's is `NV122WUM-N42`, `0x0d56`, 1920x1200 over 263x164 mm. The
+Laptop 16's is `NE160QDM-NZ6`, 2560x1600 over 345x215 mm, under two product
+codes.
 
 **One panel can be nameable on some units and not others.** The 16's
 `0x0bc9` carries the model only in an unspecified ASCII descriptor, beside a
 second one reading `BOE CQ`, while `0x0d79` carries it in the product-name
 descriptor as well.
 
-**The same two differ in what they advertise.** `0x0d79` carries an
+**A panel may carry no product-name descriptor at all.** The 13's `0x095f`
+states `NE135FBM-N41` in an ASCII string and nothing in the descriptor meant
+for it; its `0x0cb4` states `NE135A1M-NY1` in that descriptor.
+
+**The 16's two codes differ in what they advertise.** `0x0d79` carries an
 adaptive-sync data block stating fixed average and adaptive V-Total, where
 `0x0bc9` carries none.
 
@@ -785,8 +791,10 @@ vertical rates it will accept, 30 to 120 here. A panel quoted at its highest
 rate is being quoted from the second.
 
 **A panel need carry no range-limits descriptor at all.** Neither of the
-16's does, and its fastest mode, 165 Hz, is a detailed timing in an
-extension block instead; the Laptop 12's states 40 to 60 Hz.
+16's does, nor the 13's `0x095f`, so the only rate any of them states is the
+preferred timing's 60 Hz and the 165 Hz the 16 carries as a detailed timing
+in an extension block. The 13's `0x0cb4` states 30 to 120 Hz and the Laptop
+12's 40 to 60 Hz.
 
 **Two measurements of the same panel disagree by rounding.** The header
 carries whole centimetres, 28x19, and the preferred timing carries
@@ -844,20 +852,23 @@ world-readable, and `macaddress` in the phy's own directory is the address it
 answers to. The class carries no name for the module, so what it is called
 comes from udev's PCI database or from nowhere.
 
-**On an Intel board the ids name the chipset and not the module.** This
-machine's radio is at `0000:00:14.3`, `8086:e440`, subsystem `8086:0114`,
-driver `iwlwifi` — bus 0, on the chipset. That is Intel CNVi: the MAC lives in
-the SoC and the M.2 module is an RF companion, so every machine of a
-generation reads alike whichever module is in the slot. `iwlwifi` names the
-module from an RF id it reads over the interface — `rfid=0x20113100` here,
-which it logs as `Detected Intel(R) Wi-Fi 7 BE211 320MHz` — and neither that
-id nor the name reaches sysfs. The database carries no name for `e440` at
-all, so an Intel board answers a vendor and nothing further.
+**A radio on the chipset's own function names the platform and not the
+module.** This machine's is at `0000:00:14.3`, `8086:e440`, subsystem
+`8086:0114`, driver `iwlwifi` — bus 0, on the chipset. That is Intel CNVi: the
+MAC lives in the SoC and the M.2 module is an RF companion, so every machine
+of a generation reads alike whichever module is in the slot. `iwlwifi` names
+the module from an RF id it reads over the interface — `rfid=0x20113100`
+here, which it logs as `Detected Intel(R) Wi-Fi 7 BE211 320MHz` — and neither
+that id nor the name reaches sysfs. The database carries no name for `e440`
+at all, so such a board answers a vendor and nothing further. Older Intel
+boards do the same at the same address under `8086:a0f0` and `8086:51f0`.
 
-**An AMD board carries a discrete card**, MediaTek's, on a bus of its own,
-where the ids are the module's: `14c3:0616` is the MT7922 that Framework
-sells as the AMD RZ616, and `14c3:0717` the MT7925 it sells as the RZ717. The
-database names both.
+**A card on a bus of its own names itself.** Probe dumps of Framework
+laptops report Intel's AX210 as `8086:2725`,
+the MT7922 sold as the AMD RZ616 as `14c3:0616`, and the MT7925 sold as the
+RZ717 as `14c3:0717`. The database names all of them. The AX210's subsystem
+id varies between units of the one module, `8086:0024` and `8086:0020` both
+appearing.
 
 **The running firmware is not a sysfs attribute.** `ethtool -i` answers
 `101.6e695a70.0 sc-a0-wh-b0-c101` on this machine, which is the driver

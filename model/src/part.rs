@@ -78,10 +78,11 @@ pub fn inventory(parts: &[Identity]) -> Vec<(&Identity, String)> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Catalogue {
     /// The product's name as its page spells it, less the vendor's own name
-    /// leading it and less the `variant` it ends on.
+    /// leading it and less the `variant`.
     pub model: &'static str,
-    /// The processor line the product's name ends on; None where the name
-    /// is one piece.
+    /// What narrows a product name several parts share to this one, whether
+    /// the name ends on it or the page offers it as a choice; None where the
+    /// name is the whole of it.
     pub variant: Option<&'static str>,
     /// None where no live page names this part: the name is still what a
     /// reader wants and a page about another part is not.
@@ -258,8 +259,22 @@ pub fn catalogue(part: &Identity, board: &Board) -> Option<Catalogue> {
             "AMD RZ717 Wi-Fi 7",
             Some("https://frame.work/products/amd-rz717-wi-fi-7"),
         )),
-        // A kit is the panel and the touch controller together, and the
-        // panel is the half every machine with a screen has.
+        (PartKind::Wifi, "pci:8086:2725") => Some(listed(
+            "Wi-Fi 6E AX210",
+            Some("https://frame.work/products/intel-wi-fi-6e-ax210"),
+        )),
+        (PartKind::Display, "edid:BOE:095f") => Some(varied(
+            "Laptop 13 Display Kit",
+            "2.2K",
+            Some("https://frame.work/products/display-kit?v=FRANGX0001"),
+        )),
+        (PartKind::Display, "edid:BOE:0cb4") => Some(varied(
+            "Laptop 13 Display Kit",
+            "2.8K",
+            Some("https://frame.work/products/display-kit?v=FRANJF0001"),
+        )),
+        // The Pro's kit is the panel and the touch controller together, and
+        // the panel is the half every machine with a screen has.
         (PartKind::Display, "edid:CSW:1322") => Some(listed(
             "Laptop 13 Pro Touchscreen Display Kit - 2.8K",
             Some("https://frame.work/products/laptop13pro-display-kit"),
@@ -300,10 +315,10 @@ const fn varied(
     }
 }
 
-/// Which generation of `sold` a part is, in the listing's own words, where
-/// one listing covers several and the part's identifier tells them apart.
-/// Empty where a listing has one generation and where no listing names the
-/// part at all.
+/// Which build of one product a part is, in the listing's own words, where
+/// the listing sells the builds under a single name and the identifier tells
+/// them apart. Empty where a listing sells one build and where no listing
+/// names the part at all.
 #[must_use]
 pub fn generation(part: &Identity, sold: Option<Catalogue>) -> &'static str {
     if sold.is_none() {
@@ -717,6 +732,17 @@ mod tests {
     }
 
     #[test]
+    fn each_resolution_of_the_laptop_13_kit_is_its_own_variant() {
+        let lesser = catalogue(&part(PartKind::Display, "edid:BOE:095f"), &here()).unwrap();
+        let greater = catalogue(&part(PartKind::Display, "edid:BOE:0cb4"), &here()).unwrap();
+        assert_eq!(lesser.model, "Laptop 13 Display Kit");
+        assert_eq!(lesser.model, greater.model);
+        assert_eq!(lesser.variant, Some("2.2K"));
+        assert_eq!(greater.variant, Some("2.8K"));
+        assert_ne!(lesser.url, greater.url);
+    }
+
+    #[test]
     fn the_laptop_16_panel_s_two_revisions_are_the_one_kit() {
         let first = catalogue(&part(PartKind::Display, "edid:BOE:0bc9"), &here()).unwrap();
         let second = catalogue(&part(PartKind::Display, "edid:BOE:0d79"), &here()).unwrap();
@@ -745,9 +771,13 @@ mod tests {
     fn each_discrete_radio_is_its_own_listing_and_a_chipset_s_is_none() {
         let six = catalogue(&part(PartKind::Wifi, "pci:14c3:0616"), &here()).unwrap();
         let seven = catalogue(&part(PartKind::Wifi, "pci:14c3:0717"), &here()).unwrap();
+        let intel = catalogue(&part(PartKind::Wifi, "pci:8086:2725"), &here()).unwrap();
         assert_eq!(six.model, "AMD RZ616 Wi-Fi 6E");
         assert_eq!(seven.model, "AMD RZ717 Wi-Fi 7");
+        assert_eq!(intel.model, "Wi-Fi 6E AX210");
         assert_ne!(six.url, seven.url);
+        assert_ne!(seven.url, intel.url);
+        assert_ne!(intel.url, six.url);
         assert!(catalogue(&part(PartKind::Wifi, "pci:8086:e440"), &here()).is_none());
     }
 
