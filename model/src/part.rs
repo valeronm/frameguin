@@ -17,6 +17,7 @@ pub fn kind_label(kind: PartKind) -> &'static str {
         PartKind::Battery => "Battery",
         PartKind::Memory => "Memory",
         PartKind::Storage => "Storage",
+        PartKind::Wifi => "Wi-Fi",
         PartKind::Display => "Display",
         PartKind::Camera => "Camera",
         PartKind::Touchpad => "Touchpad",
@@ -32,11 +33,12 @@ fn rank(kind: PartKind) -> u8 {
         PartKind::Mainboard => 0,
         PartKind::Memory => 1,
         PartKind::Storage => 2,
-        PartKind::Battery => 3,
-        PartKind::Display => 4,
-        PartKind::Camera => 5,
-        PartKind::Touchpad => 6,
-        PartKind::Fingerprint => 7,
+        PartKind::Wifi => 3,
+        PartKind::Battery => 4,
+        PartKind::Display => 5,
+        PartKind::Camera => 6,
+        PartKind::Touchpad => 7,
+        PartKind::Fingerprint => 8,
     }
 }
 
@@ -88,8 +90,9 @@ pub struct Catalogue {
 
 /// What names a part to the catalogue: the model string, the part's own
 /// words for itself, and not the identifier beside it — a board's is a part
-/// number confirmed for one machine only. A HID part is the exception, its
-/// descriptor free to carry no strings at all.
+/// number confirmed for one machine only. A HID part and a radio are the
+/// exceptions: a descriptor is free to carry no strings at all, and a
+/// radio's model is the database's reading of its ids.
 fn key(part: &Identity) -> (PartKind, &str) {
     let key = match part.kind {
         PartKind::Mainboard
@@ -97,7 +100,7 @@ fn key(part: &Identity) -> (PartKind, &str) {
         | PartKind::Memory
         | PartKind::Storage
         | PartKind::Display => &part.model,
-        PartKind::Camera | PartKind::Touchpad | PartKind::Fingerprint => &part.id,
+        PartKind::Wifi | PartKind::Camera | PartKind::Touchpad | PartKind::Fingerprint => &part.id,
     };
     (part.kind, key)
 }
@@ -241,6 +244,17 @@ pub fn catalogue(part: &Identity, board: &Board) -> Option<Catalogue> {
             "Laptop 16 Fingerprint Reader Kit",
             Some("https://frame.work/products/16-fingerprint-reader-kit"),
         )),
+        // A chipset that carries the Wi-Fi MAC itself is deliberately
+        // absent: its ids name the platform, so every machine of a
+        // generation would key alike whichever module is in the slot.
+        (PartKind::Wifi, "pci:14c3:0616") => Some(listed(
+            "AMD RZ616 Wi-Fi 6E",
+            Some("https://frame.work/products/amd-rz616-wi-fi-6e"),
+        )),
+        (PartKind::Wifi, "pci:14c3:0717") => Some(listed(
+            "AMD RZ717 Wi-Fi 7",
+            Some("https://frame.work/products/amd-rz717-wi-fi-7"),
+        )),
         // The kit is the panel and the touch controller together, and the
         // panel is the half every machine with a screen has.
         (PartKind::Display, "MND508ZB1-1") => Some(listed(
@@ -308,6 +322,9 @@ pub fn name(part: &Identity, sold: Option<Catalogue>) -> &str {
 #[must_use]
 pub fn part_number(part: &Identity, sold: Option<Catalogue>) -> &str {
     match (part.part_number.as_str(), sold) {
+        // A radio's model is the database's reading of its ids, so a listing
+        // taking the model's place displaces nothing the part announced.
+        ("", Some(_)) if part.kind == PartKind::Wifi => "",
         ("", Some(_)) => &part.model,
         ("", None) => "",
         (number, _) => number,
@@ -320,6 +337,7 @@ fn registered(kind: PartKind, id: &str) -> Option<&'static str> {
     match (kind, id) {
         (PartKind::Display, "CSW") => Some("CSOT"),
         (PartKind::Storage, "15b7") => Some("SanDisk"),
+        (PartKind::Wifi, "14c3") => Some("MediaTek"),
         (PartKind::Touchpad, "093a") => Some("PixArt"),
         _ => None,
     }
@@ -407,6 +425,7 @@ fn detail_row(detail: &Detail) -> (&'static str, String) {
         Detail::FormFactor(name) => ("Form factor", name.clone()),
         Detail::Speed(rate) => ("Speed", format!("{rate} MT/s")),
         Detail::ConfiguredSpeed(rate) => ("Configured speed", format!("{rate} MT/s")),
+        Detail::MacAddress(address) => ("MAC address", address.clone()),
     }
 }
 
@@ -658,6 +677,16 @@ mod tests {
     }
 
     #[test]
+    fn each_discrete_radio_is_its_own_listing_and_a_chipset_s_is_none() {
+        let six = catalogue(&part(PartKind::Wifi, "pci:14c3:0616"), &here()).unwrap();
+        let seven = catalogue(&part(PartKind::Wifi, "pci:14c3:0717"), &here()).unwrap();
+        assert_eq!(six.model, "AMD RZ616 Wi-Fi 6E");
+        assert_eq!(seven.model, "AMD RZ717 Wi-Fi 7");
+        assert_ne!(six.url, seven.url);
+        assert!(catalogue(&part(PartKind::Wifi, "pci:8086:e440"), &here()).is_none());
+    }
+
+    #[test]
     fn one_reader_is_two_kits_and_the_board_says_which() {
         let reader = part(PartKind::Fingerprint, "usb:27c6:609c");
         let thirteen = catalogue(&reader, &here()).unwrap();
@@ -761,6 +790,15 @@ mod tests {
         };
         assert_eq!(part_number(&pack, catalogue(&pack, &here())), "FRANEDA");
         assert_eq!(part_number(&pack, None), "");
+    }
+
+    #[test]
+    fn a_listed_radio_shows_no_number_where_its_model_is_the_database_s() {
+        let radio = Identity {
+            model: "MT7925 (RZ717) Wi-Fi 7 160MHz".to_owned(),
+            ..part(PartKind::Wifi, "pci:14c3:0717")
+        };
+        assert_eq!(part_number(&radio, catalogue(&radio, &here())), "");
     }
 
     #[test]

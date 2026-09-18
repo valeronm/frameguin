@@ -212,13 +212,9 @@ it and the non-obvious constraints.
   only the window's menu opens it, so `main.rs` holding that entry leaves
   nothing able to drift.
 - Inside `hardware/`, the transport modules are drawn by how a control
-  reaches the machine, so the filename answers which way: `ec.rs` the EC,
-  `led.rs` the kernel's LED class, `touchpad.rs` the pad's own HID transport,
-  `panel.rs` the touch panel's, `gpio.rs` a pad on the processor through the
-  GPIO character device, `drm.rs` the kernel's DRM class, `nvme.rs` the
-  kernel's NVMe class, `usb.rs` the kernel's USB bus, `net.rs` the
-  kernel's net class, `scsi.rs` the kernel's SCSI class, `block.rs` the
-  kernel's block layer. Two of those pairs need an
+  reaches the machine, so the filename answers which way; which module
+  reaches the machine which way is the crate's own module doc, so a module
+  added there cannot leave a list here stale. Two pairs of them need an
   arbitration, and the two arbitrations are not alike: the power
   button LED has two possible drivers and one at a time, so what is settled
   is a handover and the order to make it in — and that lives in

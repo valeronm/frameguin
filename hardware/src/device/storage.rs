@@ -2,7 +2,7 @@
 //! read for the bill of materials alone.
 
 use crate::nvme::{self, Controller};
-use crate::part::{Detail, Firmware, FirmwareKind, Identity, Part, PartKind};
+use crate::part::{self, Detail, Firmware, FirmwareKind, Identity, Part, PartKind};
 use crate::udev::{self, PciNames};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -36,13 +36,9 @@ impl Drive {
         };
         Self {
             identity: Identity {
-                kind: PartKind::Storage,
-                vendor: format!("{:04x}", controller.vendor),
-                vendor_name: named.vendor.clone(),
                 model,
                 part_number,
                 serial: controller.serial.clone(),
-                id: format!("pci:{:04x}:{:04x}", controller.vendor, controller.device),
                 firmware: (!controller.firmware.is_empty())
                     .then(|| Firmware::new(FirmwareKind::Drive, &controller.firmware))
                     .into_iter()
@@ -52,6 +48,12 @@ impl Drive {
                     .map(Detail::StorageCapacity)
                     .into_iter()
                     .collect(),
+                ..part::of_pci(
+                    PartKind::Storage,
+                    controller.vendor,
+                    controller.device,
+                    named,
+                )
             },
         }
     }

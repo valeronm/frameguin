@@ -546,6 +546,7 @@ pub enum PartKind {
     Battery,
     Memory,
     Storage,
+    Wifi,
     Display,
     Camera,
     Touchpad,
@@ -602,6 +603,8 @@ pub enum Detail {
     Speed(u32),
     /// In MT/s.
     ConfiguredSpeed(u32),
+    /// `e0:c9:32:00:00:00`, the address a radio answers to.
+    MacAddress(String),
 }
 
 #[derive(Serialize, Deserialize)]
@@ -622,6 +625,7 @@ enum Fact {
     FormFactor,
     Speed,
     ConfiguredSpeed,
+    MacAddress,
 }
 
 impl Serialize for Detail {
@@ -650,6 +654,7 @@ impl Serialize for Detail {
             Self::FormFactor(name) => (Fact::FormFactor, Value::from(name.as_str())),
             Self::Speed(rate) => (Fact::Speed, Value::from(*rate)),
             Self::ConfiguredSpeed(rate) => (Fact::ConfiguredSpeed, Value::from(*rate)),
+            Self::MacAddress(address) => (Fact::MacAddress, Value::from(address.as_str())),
         };
         (fact, value).serialize(serializer)
     }
@@ -685,6 +690,7 @@ impl<'de> Deserialize<'de> for Detail {
             Fact::FormFactor => String::try_from(value).map(Self::FormFactor),
             Fact::Speed => u32::try_from(value).map(Self::Speed),
             Fact::ConfiguredSpeed => u32::try_from(value).map(Self::ConfiguredSpeed),
+            Fact::MacAddress => String::try_from(value).map(Self::MacAddress),
         };
         detail.map_err(serde::de::Error::custom)
     }

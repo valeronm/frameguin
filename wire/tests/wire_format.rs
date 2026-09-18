@@ -58,6 +58,7 @@ fn part_kind_names_are_kebab_case() {
     assert_eq!(wire_string(PartKind::Battery), "battery");
     assert_eq!(wire_string(PartKind::Memory), "memory");
     assert_eq!(wire_string(PartKind::Storage), "storage");
+    assert_eq!(wire_string(PartKind::Wifi), "wifi");
     assert_eq!(wire_string(PartKind::Display), "display");
     assert_eq!(wire_string(PartKind::Touchpad), "touchpad");
 }

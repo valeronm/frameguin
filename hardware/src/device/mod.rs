@@ -22,6 +22,7 @@ pub(crate) mod storage;
 pub mod touchpad;
 pub mod touchscreen;
 pub mod usb;
+pub(crate) mod wifi;
 
 use std::sync::Arc;
 
@@ -42,6 +43,7 @@ use crate::device::storage::Drive;
 use crate::device::touchpad::Touchpad;
 use crate::device::touchscreen::Touchscreen;
 use crate::device::usb::Usb;
+use crate::device::wifi::Wifi;
 use crate::dmi;
 use crate::ec::Ec;
 use crate::lifetime::{self, Holders};
@@ -95,6 +97,7 @@ pub fn detect() -> Detected {
     let mainboard = Mainboard::detect(&board, ec.as_deref());
     let memory = Module::detect();
     let drives = Drive::detect();
+    let radios = Wifi::detect();
     let displays = Display::detect(controller_firmware);
     // One walk of the USB bus for every part read off it, as the HID bus
     // above.
@@ -108,6 +111,7 @@ pub fn detect() -> Detected {
         .chain(touchpad.iter().map(Part::identity))
         .chain(memory.iter().map(Part::identity))
         .chain(drives.iter().map(Part::identity))
+        .chain(radios.iter().map(Part::identity))
         .chain(displays.iter().map(Part::identity))
         .chain(camera.iter().map(Part::identity))
         .chain(fingerprint.iter().map(Part::identity))

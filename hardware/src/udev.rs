@@ -17,9 +17,9 @@ const MODEL_NAME: &str = "ID_MODEL_FROM_DATABASE";
 
 /// What the hardware database called a PCI function, each name empty where
 /// nothing gave it one.
-pub(crate) struct PciNames {
-    pub(crate) vendor: String,
-    pub(crate) model: String,
+pub struct PciNames {
+    pub vendor: String,
+    pub model: String,
 }
 
 /// The names held for the PCI function at `address`.

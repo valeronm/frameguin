@@ -278,7 +278,7 @@ Order: touchpad, touchscreen, power LED, battery. Smallest column first, the
 one with the most shared state last.
 
 Every control has moved: **touchpad, touchscreen, power LED, battery**.
-Parts with no control: **mainboard, memory, storage, display, camera,
+Parts with no control: **mainboard, memory, storage, Wi-Fi, display, camera,
 fingerprint reader**.
 The keyboard
 backlight, which the app never showed — the desktop already carries it on

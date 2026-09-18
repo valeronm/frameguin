@@ -4,7 +4,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::block;
+use crate::{block, pci};
 
 const CLASS: &str = "/sys/class/nvme";
 
@@ -40,15 +40,16 @@ fn read(controller: &Path) -> Option<Controller> {
     if attribute(controller, "transport").as_deref() != Some("pcie") {
         return None;
     }
-    let pci = controller.join("device");
+    let function = controller.join("device");
     // The kernel marks a device below an external-facing port removable.
-    if attribute(&pci, "removable").as_deref() == Some("removable") {
+    if attribute(&function, "removable").as_deref() == Some("removable") {
         return None;
     }
+    let pci = pci::function(controller)?;
     Some(Controller {
-        vendor: pci_id(&pci, "vendor")?,
-        device: pci_id(&pci, "device")?,
-        address: attribute(controller, "address").unwrap_or_default(),
+        vendor: pci.vendor,
+        device: pci.device,
+        address: pci.address,
         model: attribute(controller, "model").unwrap_or_default(),
         serial: attribute(controller, "serial").unwrap_or_default(),
         firmware: attribute(controller, "firmware_rev").unwrap_or_default(),
@@ -75,9 +76,4 @@ fn attribute(dir: &Path, name: &str) -> Option<String> {
     fs::read_to_string(dir.join(name))
         .ok()
         .map(|value| value.trim().to_owned())
-}
-
-fn pci_id(dir: &Path, name: &str) -> Option<u16> {
-    let value = attribute(dir, name)?;
-    u16::from_str_radix(value.strip_prefix("0x")?, 16).ok()
 }

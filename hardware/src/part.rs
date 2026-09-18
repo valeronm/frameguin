@@ -4,6 +4,7 @@
 
 pub use frameguin_wire::{Detail, Firmware, FirmwareKind, Identity, PartKind};
 
+use crate::udev::PciNames;
 use crate::usb::BusDevice;
 
 /// A HID part, from what its descriptor announces. The ids are the USB-IF
@@ -68,6 +69,23 @@ pub fn of_usb(kind: PartKind, carrier: FirmwareKind, device: &BusDevice) -> Iden
             .then(|| Firmware::new(carrier, &device.version))
             .into_iter()
             .collect(),
+        details: Vec::new(),
+    }
+}
+
+/// A part on the PCI bus, under the words the database holds for its ids:
+/// the bus answers ids and the kernel's classes carry no name of their own.
+/// The identifier names the model rather than the unit, as [`of_usb`].
+pub fn of_pci(kind: PartKind, vendor: u16, device: u16, named: &PciNames) -> Identity {
+    Identity {
+        kind,
+        vendor: format!("{vendor:04x}"),
+        vendor_name: named.vendor.clone(),
+        model: named.model.clone(),
+        part_number: String::new(),
+        serial: String::new(),
+        id: format!("pci:{vendor:04x}:{device:04x}"),
+        firmware: Vec::new(),
         details: Vec::new(),
     }
 }

@@ -15,7 +15,10 @@
 //! `touchpad` the pad's own HID transport, `panel` the touch panel's,
 //! `gpio` a pad on the processor through the GPIO character device, `dmi`
 //! the firmware's SMBIOS table, `drm` the kernel's DRM class, `nvme` the
-//! kernel's `NVMe` class, `usb` the kernel's USB bus. `touchscreen` settles
+//! kernel's `NVMe` class, `usb` the kernel's USB bus, `pci` the kernel's PCI
+//! bus, `wireless` the kernel's `ieee80211` class, `net` the kernel's net
+//! class, `scsi` the kernel's SCSI class, `block` the kernel's block layer.
+//! `touchscreen` settles
 //! which of two routes a machine has, and is the role over either. `sbs` is
 //! the pack's own registers and what their words mean, `pd` what the EC's
 //! cached PD controller version means, `ccg3` what an HDMI or `DisplayPort`
@@ -53,6 +56,7 @@ pub(crate) mod net;
 pub(crate) mod nvme;
 pub(crate) mod panel;
 pub mod part;
+pub(crate) mod pci;
 pub(crate) mod pd;
 pub mod restore;
 pub(crate) mod sbs;
@@ -62,6 +66,7 @@ pub(crate) mod touchpad;
 pub(crate) mod touchscreen;
 pub(crate) mod udev;
 pub(crate) mod usb;
+pub(crate) mod wireless;
 
 #[cfg(any(test, feature = "testing"))]
 pub mod testing;

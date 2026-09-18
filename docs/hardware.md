@@ -65,6 +65,7 @@ Every heading in the file appears here.
 - [Memory](#memory)
 - [Display panel](#display-panel)
 - [Storage](#storage)
+- [Wi-Fi](#wi-fi)
 - [Camera](#camera)
 - [Fingerprint reader](#fingerprint-reader)
 - [Touchscreen](#touchscreen)
@@ -816,6 +817,46 @@ device below an external-facing port `removable`, and this machine's own
 drive carries no such attribute; that an enclosure's drive reads `removable`
 has not been watched here. A drive on a USB bridge, the storage expansion
 card among them, enumerates as SCSI and never appears in the class.
+
+## Wi-Fi
+
+A radio answers through the kernel's wireless class: `/sys/class/ieee80211/phy*/device`
+is the PCI function it is driven on, where `vendor` and `device` are
+world-readable, and `macaddress` in the phy's own directory is the address it
+answers to. The class carries no name for the module, so what it is called
+comes from udev's PCI database or from nowhere.
+
+**On an Intel board the ids name the chipset and not the module.** This
+machine's radio is at `0000:00:14.3`, `8086:e440`, subsystem `8086:0114`,
+driver `iwlwifi` — bus 0, on the chipset. That is Intel CNVi: the MAC lives in
+the SoC and the M.2 module is an RF companion, so every machine of a
+generation reads alike whichever module is in the slot. `iwlwifi` names the
+module from an RF id it reads over the interface — `rfid=0x20113100` here,
+which it logs as `Detected Intel(R) Wi-Fi 7 BE211 320MHz` — and neither that
+id nor the name reaches sysfs. The database carries no name for `e440` at
+all, so an Intel board answers a vendor and nothing further.
+
+**An AMD board carries a discrete card**, MediaTek's, on a bus of its own,
+where the ids are the module's: `14c3:0616` is the MT7922 that Framework
+sells as the AMD RZ616, and `14c3:0717` the MT7925 it sells as the RZ717. The
+database names both.
+
+**The running firmware is not a sysfs attribute.** `ethtool -i` answers
+`101.6e695a70.0 sc-a0-wh-b0-c101` on this machine, which is the driver
+answering an ioctl; neither the class nor the PCI function below it carries
+the version anywhere.
+
+**Nor are the bands and the channel width.** A phy's own directory holds
+`macaddress`, `addresses`, `index` and `name` and no capability data at all;
+what a radio supports is answered by `NL80211_CMD_GET_WIPHY` over generic
+netlink. That names bands 1, 2 and 4 here — 2.4, 5 and 6 GHz — with
+`Supported Channel Width: 160 MHz` on the 5 GHz band and `320MHz in 6GHz
+Supported` in the 6 GHz band's EHT PHY capabilities, which is the pair of
+facts that separates a BE211 from a BE213.
+
+Bluetooth is the same silicon and just as anonymous — `0000:00:14.7`,
+`8086:e476`, driver `btintel_pcie` — with no USB companion on the bus to name
+the module either.
 
 ## Camera
 
