@@ -4,6 +4,8 @@
 
 pub use frameguin_wire::{Detail, Firmware, FirmwareKind, Identity, PartKind};
 
+use crate::usb::BusDevice;
+
 /// A HID part, from what its descriptor announces. The ids are the USB-IF
 /// registry's, but the space is HID's: the same ids arrive over I2C, and the
 /// part is the same part whichever bus carries it.
@@ -46,6 +48,28 @@ pub fn of_hid(kind: PartKind, dev: &hidapi::DeviceInfo, resolved: &str) -> Ident
         dev.product_string().unwrap_or_default(),
         dev.serial_number().unwrap_or_default(),
     )
+}
+
+/// A part on the USB bus, from what its descriptor announces. The ids are
+/// the USB-IF registry's, and the identifier names the model rather than the
+/// unit: two of one part carry one id and are told apart by serial. The
+/// release the descriptor states is the part's firmware, `carrier` naming
+/// what runs it.
+pub fn of_usb(kind: PartKind, carrier: FirmwareKind, device: &BusDevice) -> Identity {
+    Identity {
+        kind,
+        vendor: format!("{:04x}", device.vendor_id),
+        vendor_name: device.manufacturer.clone(),
+        model: device.product.clone(),
+        part_number: String::new(),
+        serial: device.serial.clone(),
+        id: format!("usb:{:04x}:{:04x}", device.vendor_id, device.product_id),
+        firmware: (!device.version.is_empty())
+            .then(|| Firmware::new(carrier, &device.version))
+            .into_iter()
+            .collect(),
+        details: Vec::new(),
+    }
 }
 
 /// A panel, from what its EDID announces. The PNP id and the product code
@@ -113,7 +137,22 @@ pub trait Part {
 
 #[cfg(test)]
 mod tests {
-    use super::{Detail, sbs};
+    use super::{Detail, FirmwareKind, PartKind, of_usb, sbs};
+    use crate::testing::webcam;
+    use crate::usb::BusDevice;
+
+    #[test]
+    fn a_device_announcing_no_release_carries_no_firmware() {
+        let silent = BusDevice {
+            version: String::new(),
+            ..webcam()
+        };
+        assert!(
+            of_usb(PartKind::Camera, FirmwareKind::Camera, &silent)
+                .firmware
+                .is_empty()
+        );
+    }
 
     #[test]
     fn a_rated_and_dated_pack_carries_its_capacity_voltage_and_date() {

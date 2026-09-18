@@ -16,6 +16,19 @@ pub struct RootDevice {
     pub path: PathBuf,
 }
 
+/// What a device on the bus announces about itself, each string empty where
+/// its descriptor carries none.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BusDevice {
+    pub vendor_id: u16,
+    pub product_id: u16,
+    pub manufacturer: String,
+    pub product: String,
+    pub serial: String,
+    /// `bcdDevice`, the release the device states for itself.
+    pub version: String,
+}
+
 /// What the USB device needs of the bus.
 pub trait UsbTree: Send + Sync {
     /// Every device directly on a root port, ordered by controller and port.
@@ -94,17 +107,34 @@ fn vendor_hidraw(device: &Path) -> Option<String> {
         .find_map(|hid| entries(&hid.join("hidraw")).next().map(|node| name(&node)))
 }
 
+/// Every device on the bus, hubs and the devices behind them included. One
+/// walk answers for every part read off the bus, a walk being a directory
+/// read and six attributes for each device on it.
+pub(crate) fn devices() -> Vec<BusDevice> {
+    entries(Path::new(DEVICES))
+        .filter_map(|path| announced(&path))
+        .collect()
+}
+
+/// The device announcing one of `products` for `vendor`, and None where the
+/// bus carries no such device.
+pub(crate) fn matching<'a>(
+    devices: &'a [BusDevice],
+    vendor: u16,
+    products: &[u16],
+) -> Option<&'a BusDevice> {
+    devices
+        .iter()
+        .find(|device| device.vendor_id == vendor && products.contains(&device.product_id))
+}
+
 /// A device whose ids do not read is skipped: the kernel is still
 /// enumerating it.
 fn read(link: &Path, root_port: u8) -> Option<RootDevice> {
     let path = fs::canonicalize(link).ok()?;
     // `…/0000:00:14.0/usb3/3-5`: the root hub's parent is the controller.
     let controller = path.parent()?.parent()?.file_name()?.to_str()?.to_owned();
-    let attribute = |name: &str| {
-        fs::read_to_string(path.join(name))
-            .map(|text| text.trim().to_owned())
-            .unwrap_or_default()
-    };
+    let attribute = |name: &str| attribute(&path, name);
     Some(RootDevice {
         attached: Attached {
             controller,
@@ -122,6 +152,31 @@ fn read(link: &Path, root_port: u8) -> Option<RootDevice> {
     })
 }
 
+/// None for a directory that states no vendor, which is every interface and
+/// a device the kernel is still enumerating.
+fn announced(path: &Path) -> Option<BusDevice> {
+    let attribute = |name: &str| attribute(path, name);
+    Some(BusDevice {
+        vendor_id: hex(&attribute("idVendor"))?,
+        product_id: hex(&attribute("idProduct"))?,
+        manufacturer: attribute("manufacturer"),
+        product: attribute("product"),
+        serial: attribute("serial"),
+        version: release(&attribute("bcdDevice")),
+    })
+}
+
+/// The release as its vendor spells it: the major byte, then the minor
+/// byte's two digits apart — `1.1.1` for `0111`. Empty where the descriptor
+/// holds something other than the four decimal digits the coding allows.
+fn release(bcd: &str) -> String {
+    let coded: u16 = match bcd.parse() {
+        Ok(coded) if bcd.len() == 4 && bcd.bytes().all(|digit| digit.is_ascii_digit()) => coded,
+        _ => return String::new(),
+    };
+    format!("{}.{}.{}", coded / 100, coded / 10 % 10, coded % 10)
+}
+
 /// A USB interface's directory and a SCSI device's are named by an address
 /// with a colon, `2-2:1.0` and `1:0:0:2`.
 fn addressed(dir: &Path) -> impl Iterator<Item = PathBuf> + use<> {
@@ -130,6 +185,14 @@ fn addressed(dir: &Path) -> impl Iterator<Item = PathBuf> + use<> {
 
 fn prefixed(dir: &Path, prefix: &'static str) -> impl Iterator<Item = PathBuf> + use<> {
     entries(dir).filter(move |entry| name(entry).starts_with(prefix))
+}
+
+/// Empty where the attribute does not read, which is a device that carries
+/// none of that name.
+fn attribute(path: &Path, name: &str) -> String {
+    fs::read_to_string(path.join(name))
+        .map(|text| text.trim().to_owned())
+        .unwrap_or_default()
 }
 
 /// Empty where the directory does not read.
@@ -175,7 +238,7 @@ fn hex(text: &str) -> Option<u16> {
 mod tests {
     use frameguin_wire::UsbSpeed;
 
-    use super::{hex, root_port, speed};
+    use super::{hex, release, root_port, speed};
 
     #[test]
     fn a_device_on_a_root_port_is_named_bus_dash_port() {
@@ -192,6 +255,21 @@ mod tests {
     fn interfaces_and_root_hubs_are_not_devices_on_a_root_port() {
         assert_eq!(root_port("3-5:1.0"), None);
         assert_eq!(root_port("usb3"), None);
+    }
+
+    #[test]
+    fn a_release_is_a_major_byte_and_two_digits() {
+        assert_eq!(release("0111"), "1.1.1");
+        assert_eq!(release("0100"), "1.0.0");
+        assert_eq!(release("0011"), "0.1.1");
+        assert_eq!(release("1234"), "12.3.4");
+    }
+
+    #[test]
+    fn a_release_outside_the_coding_is_no_release() {
+        assert_eq!(release(""), "");
+        assert_eq!(release("111"), "");
+        assert_eq!(release("01a1"), "");
     }
 
     #[test]

@@ -547,7 +547,9 @@ pub enum PartKind {
     Memory,
     Storage,
     Display,
+    Camera,
     Touchpad,
+    Fingerprint,
 }
 
 /// Something else a part announced about itself, each fact in its own unit.
@@ -701,6 +703,8 @@ pub enum FirmwareKind {
     PowerDelivery(u8),
     Drive,
     TouchController,
+    Camera,
+    Fingerprint,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -711,6 +715,8 @@ enum Carrier {
     PowerDelivery,
     Drive,
     TouchController,
+    Camera,
+    Fingerprint,
 }
 
 impl Serialize for FirmwareKind {
@@ -721,6 +727,8 @@ impl Serialize for FirmwareKind {
             Self::PowerDelivery(controller) => (Carrier::PowerDelivery, controller),
             Self::Drive => (Carrier::Drive, 0),
             Self::TouchController => (Carrier::TouchController, 0),
+            Self::Camera => (Carrier::Camera, 0),
+            Self::Fingerprint => (Carrier::Fingerprint, 0),
         }
         .serialize(serializer)
     }
@@ -735,6 +743,8 @@ impl<'de> Deserialize<'de> for FirmwareKind {
             Carrier::PowerDelivery => Self::PowerDelivery(controller),
             Carrier::Drive => Self::Drive,
             Carrier::TouchController => Self::TouchController,
+            Carrier::Camera => Self::Camera,
+            Carrier::Fingerprint => Self::Fingerprint,
         })
     }
 }

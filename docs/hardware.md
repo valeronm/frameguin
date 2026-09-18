@@ -65,6 +65,8 @@ Every heading in the file appears here.
 - [Memory](#memory)
 - [Display panel](#display-panel)
 - [Storage](#storage)
+- [Camera](#camera)
+- [Fingerprint reader](#fingerprint-reader)
 - [Touchscreen](#touchscreen)
   - [Touchscreen persistence](#touchscreen-persistence)
 - [USB-C ports and PD controllers](#usb-c-ports-and-pd-controllers)
@@ -814,6 +816,47 @@ device below an external-facing port `removable`, and this machine's own
 drive carries no such attribute; that an enclosure's drive reads `removable`
 has not been watched here. A drive on a USB bridge, the storage expansion
 card among them, enumerates as SCSI and never appears in the class.
+
+## Camera
+
+The webcam module sits on an internal USB port and announces everything a
+part needs in sysfs, world-readable: `idVendor` `32ac`, Framework's own, a
+`product` string that is the marketplace wording — `Laptop Webcam Module
+(2nd Gen)` — a Framework serial whose first six characters are the
+listing's variant code, and `bcdDevice` carrying the module's firmware
+release. Framework's own tool spells that release as the major byte and the
+minor byte's two digits apart — `0111` is 1.1.1, where `lsusb` writes the
+same bytes 1.11.
+
+**The product id is per generation**: `001c` on the Laptop 13 and 16, `001d`
+on the Laptop 12. What the modules of earlier generations announce has not
+been read here, and a camera of another make answers nothing that names a
+Framework listing.
+
+`framework_lib` reads the same two facts, the product string and the
+release, but through libusb behind its `rusb` feature.
+
+## Fingerprint reader
+
+The reader enumerates on the same internal bus as Goodix `27c6:609c`, and
+everything it announces is its maker's: `Goodix Fingerprint USB Device` for a
+product string, a `UID…_MOC_B0` serial that is the sensor's own identifier
+rather than a Framework one, and `bcdDevice` `0100`. Nothing it says names
+Framework, the module being Goodix's part before it is a listing — it is sold
+fitted to the power button, whose LED the EC's fingerprint commands drive
+(see [Power button LED](#power-button-led)).
+
+**One id covers the Laptop 13 and the Laptop 16.** Public hardware probes
+report `27c6:609c` on both, from the 11th generation board through the AMD AI
+300 ones, and no other Goodix product id on any Framework machine — while
+Framework sells the reader as a kit per machine. What the reader announces
+therefore cannot say which kit it is.
+
+The Laptop 12 is the exception twice over: the original 13th Gen Intel board
+has no reader at all, and the Core Series 3 refresh carries a FocalTech
+sensor instead, vendor `0x2808`. Its product id is not published — Framework's
+own engineer added four FocalTech ids to libfprint 1.94.100, and which of them
+is this machine's has not been shown.
 
 ## Touchscreen
 

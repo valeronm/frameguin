@@ -8,9 +8,11 @@
 //! and a caller linking this crate directly has already got past it.
 
 pub mod battery;
+pub(crate) mod camera;
 pub mod charging_led;
 pub mod chassis;
 pub(crate) mod display;
+pub(crate) mod fingerprint;
 pub(crate) mod mainboard;
 pub(crate) mod memory;
 pub mod ports;
@@ -26,9 +28,11 @@ use std::sync::Arc;
 use frameguin_wire::Board;
 
 use crate::device::battery::Battery;
+use crate::device::camera::Camera;
 use crate::device::charging_led::ChargingLed;
 use crate::device::chassis::Chassis;
 use crate::device::display::Display;
+use crate::device::fingerprint::Fingerprint;
 use crate::device::mainboard::Mainboard;
 use crate::device::memory::Module;
 use crate::device::ports::Ports;
@@ -45,6 +49,7 @@ use crate::mirror::Mirrors;
 use crate::part::{Identity, Part};
 use crate::restore::Restore;
 use crate::state::{StateFile, Store};
+use crate::usb::devices as bus_devices;
 
 /// Every device that is a control, None where detection found none.
 pub struct Devices {
@@ -91,6 +96,11 @@ pub fn detect() -> Detected {
     let memory = Module::detect();
     let drives = Drive::detect();
     let displays = Display::detect(controller_firmware);
+    // One walk of the USB bus for every part read off it, as the HID bus
+    // above.
+    let bus = bus_devices();
+    let camera = Camera::detect(&bus);
+    let fingerprint = Fingerprint::detect(&bus);
     let parts = mainboard
         .iter()
         .map(Part::identity)
@@ -99,6 +109,8 @@ pub fn detect() -> Detected {
         .chain(memory.iter().map(Part::identity))
         .chain(drives.iter().map(Part::identity))
         .chain(displays.iter().map(Part::identity))
+        .chain(camera.iter().map(Part::identity))
+        .chain(fingerprint.iter().map(Part::identity))
         .cloned()
         .collect();
     Detected {

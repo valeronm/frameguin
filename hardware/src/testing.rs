@@ -23,7 +23,7 @@ use crate::part;
 use crate::state::{self, Store};
 use crate::touchpad::HapticPad;
 use crate::touchscreen::TouchSwitch;
-use crate::usb::{RootDevice, UsbTree};
+use crate::usb::{BusDevice, RootDevice, UsbTree};
 
 /// One PD controller's version blob, as a controller really answered: base
 /// `3.8.50.00A`, application `1.0.0A`.
@@ -612,6 +612,30 @@ impl Default for Hub {
             firmware: Some("3.0.10.06A".to_owned()),
             asked: Mutex::default(),
         }
+    }
+}
+
+/// The webcam module as the bus announces it.
+pub fn webcam() -> BusDevice {
+    BusDevice {
+        vendor_id: 0x32ac,
+        product_id: 0x001c,
+        manufacturer: "Framework".to_owned(),
+        product: "Laptop Webcam Module (2nd Gen)".to_owned(),
+        serial: "FRANJBCHA00000000P".to_owned(),
+        version: "1.1.1".to_owned(),
+    }
+}
+
+/// The fingerprint reader as the bus announces it.
+pub fn reader() -> BusDevice {
+    BusDevice {
+        vendor_id: 0x27c6,
+        product_id: 0x609c,
+        manufacturer: "Goodix Technology Co., Ltd.".to_owned(),
+        product: "Goodix Fingerprint USB Device".to_owned(),
+        serial: "UID00000000_0000_MOC_B0".to_owned(),
+        version: "1.0.0".to_owned(),
     }
 }
 

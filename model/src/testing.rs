@@ -14,12 +14,17 @@ use frameguin_wire::{Board, VENDOR};
 
 use crate::port::Placement;
 
-/// Where a Framework board of that product name has its ports.
-pub(crate) fn placed(product: &str) -> Placement {
-    Placement::of(&Board {
+/// A Framework machine of that product name.
+pub(crate) fn machine(product: &str) -> Board {
+    Board {
         vendor: VENDOR.to_owned(),
         product: product.to_owned(),
-    })
+    }
+}
+
+/// Where a Framework board of that product name has its ports.
+pub(crate) fn placed(product: &str) -> Placement {
+    Placement::of(&machine(product))
 }
 
 /// A 4640 mAh pack, the Laptop 13's.

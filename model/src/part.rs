@@ -5,7 +5,7 @@
 
 use std::fmt::Write;
 
-use frameguin_wire::{self as wire, Detail, FirmwareKind, Identity, PartKind, VENDOR};
+use frameguin_wire::{self as wire, Board, Detail, FirmwareKind, Identity, PartKind, VENDOR};
 
 use crate::control::battery::reading::{capacity, volts};
 use crate::date;
@@ -18,7 +18,9 @@ pub fn kind_label(kind: PartKind) -> &'static str {
         PartKind::Memory => "Memory",
         PartKind::Storage => "Storage",
         PartKind::Display => "Display",
+        PartKind::Camera => "Camera",
         PartKind::Touchpad => "Touchpad",
+        PartKind::Fingerprint => "Fingerprint Reader",
     }
 }
 
@@ -32,7 +34,9 @@ fn rank(kind: PartKind) -> u8 {
         PartKind::Storage => 2,
         PartKind::Battery => 3,
         PartKind::Display => 4,
-        PartKind::Touchpad => 5,
+        PartKind::Camera => 5,
+        PartKind::Touchpad => 6,
+        PartKind::Fingerprint => 7,
     }
 }
 
@@ -93,17 +97,44 @@ fn key(part: &Identity) -> (PartKind, &str) {
         | PartKind::Memory
         | PartKind::Storage
         | PartKind::Display => &part.model,
-        PartKind::Touchpad => &part.id,
+        PartKind::Camera | PartKind::Touchpad | PartKind::Fingerprint => &part.id,
     };
     (part.kind, key)
 }
 
+const LAPTOP13_BOARDS: [&str; 8] = [
+    wire::BOARD_LAPTOP13_11TH_GEN,
+    wire::BOARD_LAPTOP13_12TH_GEN,
+    wire::BOARD_LAPTOP13_13TH_GEN,
+    wire::BOARD_LAPTOP13_ULTRA_1,
+    wire::BOARD_LAPTOP13_AMD_7040,
+    wire::BOARD_LAPTOP13_AMD_7040_UNSPACED,
+    wire::BOARD_LAPTOP13_AMD_AI_300,
+    wire::BOARD_LAPTOP13_PRO_ULTRA_3,
+];
+
+const LAPTOP16_BOARDS: [&str; 2] = [
+    wire::BOARD_LAPTOP16_AMD_7040,
+    wire::BOARD_LAPTOP16_AMD_AI_300,
+];
+
 /// The marketplace entry for a part. Curated from Framework's own listings,
 /// trademark marks left off; a part with no entry is shown under its own
 /// words, and an entry is never guessed from a resemblance, since a wrong
-/// name reads exactly like a right one.
+/// name reads exactly like a right one. The board is what settles a part
+/// whose own identifier does not name the machine it is listed for.
 #[must_use]
-pub fn catalogue(part: &Identity) -> Option<Catalogue> {
+#[allow(
+    clippy::too_many_lines,
+    reason = "a listing per arm: the length is the catalogue's size, not a \
+        shape a reader has to hold in their head"
+)]
+pub fn catalogue(part: &Identity, board: &Board) -> Option<Catalogue> {
+    let machine = |listed: &[&str]| {
+        board
+            .framework_product()
+            .is_some_and(|product| listed.contains(&product))
+    };
     match key(part) {
         (PartKind::Mainboard, wire::BOARD_LAPTOP13_11TH_GEN) => {
             Some(varied("Laptop 13 Mainboard", "11th Gen Intel Core", None))
@@ -189,6 +220,26 @@ pub fn catalogue(part: &Identity) -> Option<Catalogue> {
         (PartKind::Touchpad, "hid:093a:1343") => Some(listed(
             "Laptop 13 Pro Input Cover Frame",
             Some("https://frame.work/products/laptop13pro-input-cover-frame"),
+        )),
+        // One listing per generation, each a variant of the same page.
+        (PartKind::Camera, "usb:32ac:001c") => Some(listed(
+            "Webcam Module (2nd Gen)",
+            Some("https://frame.work/products/webcam-module?v=FRANJB0001"),
+        )),
+        (PartKind::Camera, "usb:32ac:001d") => Some(listed(
+            "Laptop 12 Webcam Module",
+            Some("https://frame.work/products/webcam-module?v=FRAPAB0001"),
+        )),
+        // The kit is the sensor and the power button it sits in; the sensor
+        // is Goodix's part, carrying one id across both machines, so which
+        // kit it is comes from the board and nothing the reader says.
+        (PartKind::Fingerprint, "usb:27c6:609c") if machine(&LAPTOP13_BOARDS) => Some(listed(
+            "Laptop 13 Fingerprint Reader Kit",
+            Some("https://frame.work/products/fingerprint-reader-kit?v=FRANTD0001"),
+        )),
+        (PartKind::Fingerprint, "usb:27c6:609c") if machine(&LAPTOP16_BOARDS) => Some(listed(
+            "Laptop 16 Fingerprint Reader Kit",
+            Some("https://frame.work/products/16-fingerprint-reader-kit"),
         )),
         // The kit is the panel and the touch controller together, and the
         // panel is the half every machine with a screen has.
@@ -366,7 +417,9 @@ pub fn firmware_name(kind: FirmwareKind) -> String {
         FirmwareKind::Bios => "BIOS".to_owned(),
         FirmwareKind::Ec => "EC".to_owned(),
         FirmwareKind::PowerDelivery(controller) => format!("PD {controller}"),
-        FirmwareKind::Drive => "Firmware".to_owned(),
+        FirmwareKind::Drive | FirmwareKind::Camera | FirmwareKind::Fingerprint => {
+            "Firmware".to_owned()
+        }
         FirmwareKind::TouchController => "Controller".to_owned(),
     }
 }
@@ -516,6 +569,12 @@ mod tests {
         aspect, catalogue, detail_row, detail_rows, firmware_name, inventory, listing, maker, name,
         ordered, part_number,
     };
+    use crate::testing::machine;
+
+    /// The machine the part fixtures are read from.
+    fn here() -> wire::Board {
+        machine(wire::BOARD_LAPTOP13_PRO_ULTRA_3)
+    }
 
     fn part(kind: PartKind, id: &str) -> Identity {
         Identity {
@@ -585,8 +644,34 @@ mod tests {
 
     #[test]
     fn a_part_the_catalogue_does_not_name_keeps_its_own_words() {
-        assert!(catalogue(&part(PartKind::Memory, "dmi-slot:LPCAMM2_0")).is_none());
-        assert!(catalogue(&part(PartKind::Touchpad, "hid:093a:1343")).is_some());
+        assert!(catalogue(&part(PartKind::Memory, "dmi-slot:LPCAMM2_0"), &here()).is_none());
+        assert!(catalogue(&part(PartKind::Touchpad, "hid:093a:1343"), &here()).is_some());
+    }
+
+    #[test]
+    fn each_webcam_generation_is_its_own_listing() {
+        let second = catalogue(&part(PartKind::Camera, "usb:32ac:001c"), &here()).unwrap();
+        let twelve = catalogue(&part(PartKind::Camera, "usb:32ac:001d"), &here()).unwrap();
+        assert_eq!(second.model, "Webcam Module (2nd Gen)");
+        assert_eq!(twelve.model, "Laptop 12 Webcam Module");
+        assert_ne!(second.url, twelve.url);
+    }
+
+    #[test]
+    fn one_reader_is_two_kits_and_the_board_says_which() {
+        let reader = part(PartKind::Fingerprint, "usb:27c6:609c");
+        let thirteen = catalogue(&reader, &here()).unwrap();
+        let sixteen = catalogue(&reader, &machine(wire::BOARD_LAPTOP16_AMD_AI_300)).unwrap();
+        assert_eq!(thirteen.model, "Laptop 13 Fingerprint Reader Kit");
+        assert_eq!(sixteen.model, "Laptop 16 Fingerprint Reader Kit");
+        assert_ne!(thirteen.url, sixteen.url);
+    }
+
+    #[test]
+    fn the_same_reader_in_a_machine_of_no_known_kit_is_no_listing() {
+        let reader = part(PartKind::Fingerprint, "usb:27c6:609c");
+        assert!(catalogue(&reader, &machine(wire::BOARD_LAPTOP12_CORE_3)).is_none());
+        assert!(catalogue(&reader, &machine("Precision 5560")).is_none());
     }
 
     #[test]
@@ -595,26 +680,26 @@ mod tests {
             model: "FRANEDA".to_owned(),
             ..part(PartKind::Battery, "sbs:FRANEDA")
         };
-        assert!(catalogue(&pack).is_some());
+        assert!(catalogue(&pack, &here()).is_some());
     }
 
     #[test]
     fn a_board_is_catalogued_by_the_machine_its_firmware_names() {
-        let sold = catalogue(&board(wire::BOARD_LAPTOP13_AMD_7040_UNSPACED)).unwrap();
+        let sold = catalogue(&board(wire::BOARD_LAPTOP13_AMD_7040_UNSPACED), &here()).unwrap();
         assert_eq!(sold.model, "Laptop 13 Mainboard");
         assert_eq!(sold.variant, Some("AMD Ryzen 7040 Series"));
     }
 
     #[test]
     fn a_board_framework_no_longer_sells_is_named_without_a_link() {
-        let sold = catalogue(&board(wire::BOARD_LAPTOP13_12TH_GEN)).unwrap();
+        let sold = catalogue(&board(wire::BOARD_LAPTOP13_12TH_GEN), &here()).unwrap();
         assert_eq!(sold.model, "Laptop 13 Mainboard");
         assert!(sold.url.is_none());
     }
 
     #[test]
     fn a_board_of_no_known_machine_keeps_its_own_words() {
-        assert!(catalogue(&board("Precision 5560")).is_none());
+        assert!(catalogue(&board("Precision 5560"), &here()).is_none());
     }
 
     #[test]
@@ -652,7 +737,7 @@ mod tests {
     #[test]
     fn a_listed_part_is_named_by_its_listing_and_numbered_by_its_own_model() {
         let board = board(wire::BOARD_LAPTOP13_PRO_ULTRA_3);
-        let sold = catalogue(&board);
+        let sold = catalogue(&board, &here());
         assert_eq!(name(&board, sold), "Laptop 13 Pro Mainboard");
         assert_eq!(part_number(&board, sold), wire::BOARD_LAPTOP13_PRO_ULTRA_3);
     }
@@ -668,13 +753,13 @@ mod tests {
             part_number: "FRANMJCP07".to_owned(),
             ..board(wire::BOARD_LAPTOP13_PRO_ULTRA_3)
         };
-        let sold = catalogue(&board);
+        let sold = catalogue(&board, &here());
         assert_eq!(part_number(&board, sold), "FRANMJCP07");
         let pack = Identity {
             model: "FRANEDA".to_owned(),
             ..part(PartKind::Battery, "sbs:FRANEDA")
         };
-        assert_eq!(part_number(&pack, catalogue(&pack)), "FRANEDA");
+        assert_eq!(part_number(&pack, catalogue(&pack, &here())), "FRANEDA");
         assert_eq!(part_number(&pack, None), "");
     }
 

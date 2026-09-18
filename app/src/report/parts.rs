@@ -7,9 +7,9 @@ use std::rc::Rc;
 use adw::prelude::*;
 use frameguin_model::date;
 use frameguin_model::part::{
-    catalogue, detail_rows, firmware_name, inventory, maker, name, part_number,
+    Catalogue, catalogue, detail_rows, firmware_name, inventory, maker, name, part_number,
 };
-use frameguin_wire::Identity;
+use frameguin_wire::{Board, DeviceResult, Identity};
 use gtk4 as gtk;
 use gtk4::gio;
 use gtk4::glib;
@@ -36,14 +36,17 @@ fn build(shell: Shell, window: &adw::Window, daemon: &Rc<Daemon>) -> adw::Naviga
     collapse_when_narrow(window, &split);
     let daemon = daemon.clone();
     glib::spawn_future_local(async move {
-        let parts = match daemon.bus().await {
-            Ok(bus) => bus.frameguin.get_devices().await,
-            Err(e) => Err(e),
-        };
-        match parts {
+        // A part sold as a kit per machine is named by the machine and not by
+        // anything the part announces.
+        let inventory: DeviceResult<(Vec<Identity>, Rc<Board>)> = async {
+            let parts = daemon.bus().await?.frameguin.get_devices().await?;
+            Ok((parts, daemon.detected().await?.board))
+        }
+        .await;
+        match inventory {
             // A window closed while the daemon was being dialled has nothing
             // left to draw into.
-            Ok(parts) if panes.split.root().is_some() => panes.fill(&parts),
+            Ok((parts, board)) if panes.split.root().is_some() => panes.fill(&parts, &board),
             Ok(_) => (),
             Err(e) => shell.toast_error("Reading the parts", e),
         }
@@ -92,7 +95,7 @@ fn panes() -> Panes {
 impl Panes {
     /// A content pane showing nothing reads as a window that failed, so the
     /// first part is selected.
-    fn fill(self, parts: &[Identity]) {
+    fn fill(self, parts: &[Identity], board: &Board) {
         let Panes {
             split,
             list,
@@ -101,7 +104,7 @@ impl Panes {
         } = self;
         let rows: Vec<(String, adw::PreferencesPage)> = inventory(parts)
             .into_iter()
-            .map(|(part, title)| (title, details(part)))
+            .map(|(part, title)| (title, details(part, catalogue(part, board))))
             .collect();
         if rows.is_empty() {
             pages.add_child(
@@ -144,7 +147,7 @@ impl Panes {
 /// placeholder — an I2C-HID descriptor carries no vendor and often no
 /// serial, and a column of "Unknown" is what teaches a reader to skip the
 /// column.
-fn details(part: &Identity) -> adw::PreferencesPage {
+fn details(part: &Identity, sold: Option<Catalogue>) -> adw::PreferencesPage {
     // Whole, so a field added to the identity cannot reach the window without
     // a decision about it; the fields bound to `_` are read by the helpers
     // below that take the whole part.
@@ -160,7 +163,6 @@ fn details(part: &Identity) -> adw::PreferencesPage {
         details,
     } = part;
     let page = adw::PreferencesPage::new();
-    let sold = catalogue(part);
     let group = adw::PreferencesGroup::builder()
         .title(name(part, sold))
         .build();

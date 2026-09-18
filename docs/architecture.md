@@ -246,8 +246,11 @@ the bus carries it as one method on the root interface —
 `GetDevices -> Vec<Identity>` — beside the per-device control interfaces. Where a part maps to
 something purchasable — the pad's descriptor names nothing, the part a
 person buys is Framework's — that is `model::part::catalogue`, a curated
-table keyed on the words a part announces for itself: words about values,
-beside the labels; the device keeps what detection saw, not the word.
+table keyed on the words a part announces for itself, and on the board
+where what a part announces does not say which machine it is listed for:
+one sensor is sold as a kit per machine, and only the board tells the kits
+apart. Words about values, beside the labels; the device keeps what
+detection saw, not the word.
 
 ## Adding a control
 
@@ -275,7 +278,9 @@ Order: touchpad, touchscreen, power LED, battery. Smallest column first, the
 one with the most shared state last.
 
 Every control has moved: **touchpad, touchscreen, power LED, battery**.
-Parts with no control: **mainboard, memory, storage, display**. The keyboard
+Parts with no control: **mainboard, memory, storage, display, camera,
+fingerprint reader**.
+The keyboard
 backlight, which the app never showed — the desktop already carries it on
 its own keys — was dropped rather than moved.
 
