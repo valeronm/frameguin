@@ -15,7 +15,9 @@ pub struct Usb {
 impl Usb {
     /// A machine that is not a Framework one answers with no controls at all.
     pub(crate) fn detect(board: &Board) -> Option<Self> {
-        board.framework_product()?;
+        if !board.is_framework() {
+            return None;
+        }
         Self::new(Arc::new(Sysfs))
     }
 

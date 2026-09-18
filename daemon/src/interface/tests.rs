@@ -24,9 +24,9 @@ use frameguin_hardware::testing::{
     Route, Sides, Sliders, battery_identity, block, display_identity, mirrors, touchpad_identity,
 };
 use frameguin_wire::{
-    BOARD_LAPTOP13_AMD_AI_300, BatteryFeature, Board, ChargingLedFeature, ChargingLedSide,
-    ChassisFeature, ClickForce, DeckState, DeviceError, FrameguinProxy, NO_CHARGE_CURRENT_LIMIT,
-    PortPartner, PowerLedLevel, Proxies, VENDOR, proxy,
+    BatteryFeature, Board, ChargingLedFeature, ChargingLedSide, ChassisFeature, ClickForce,
+    DeckState, DeviceError, FrameguinProxy, NO_CHARGE_CURRENT_LIMIT, Platform, PortPartner,
+    PowerLedLevel, Proxies, VENDOR, proxy,
 };
 use futures_lite::future::{block_on, or};
 use zbus::{Connection, Guid, connection};
@@ -102,7 +102,8 @@ fn devices() -> Devices {
 fn board() -> Board {
     Board {
         vendor: VENDOR.to_owned(),
-        product: BOARD_LAPTOP13_AMD_AI_300.to_owned(),
+        product: "Laptop 13 (AMD Ryzen AI 300 Series)".to_owned(),
+        platform: Platform::Laptop13AmdAi300,
     }
 }
 

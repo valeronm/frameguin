@@ -73,7 +73,7 @@ pub(crate) fn find<'a>(
     hid: &'a hidapi::HidApi,
     board: &Board,
 ) -> Option<(Route, &'a hidapi::DeviceInfo)> {
-    if let Some(pad) = gpio::touchscreen(board) {
+    if let Some(pad) = gpio::touchscreen(board.platform) {
         let controller = gated_controller(hid)?;
         return pad.level().is_ok().then_some((Route::Pad(pad), controller));
     }

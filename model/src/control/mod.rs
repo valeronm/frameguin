@@ -13,7 +13,7 @@ pub mod usb;
 use std::rc::Rc;
 
 use frameguin_wire::{
-    BatteryControl, Board, ChargingLedControl, ChassisControl, DeviceError, DeviceResult,
+    BatteryControl, ChargingLedControl, ChassisControl, DeviceError, DeviceResult, Platform,
     PortsControl, PowerLedControl, PrivacySwitchesControl, TouchpadControl, TouchscreenControl,
     UsbControl,
 };
@@ -99,9 +99,9 @@ impl<
 {
     /// Asks each control's device to detect itself. Fails only where the
     /// device could not be asked at all — an absent device is an answer, not
-    /// a failure. The ports' device does not know where its sockets are;
-    /// `board` settles that.
-    pub async fn detect(control: &Rc<C>, board: &Board) -> DeviceResult<Self> {
+    /// a failure. The ports' device does not know where its sockets are, and
+    /// nothing it reads says so.
+    pub async fn detect(control: &Rc<C>, platform: Platform) -> DeviceResult<Self> {
         Ok(Self {
             battery: battery::Battery::detect(control).await?.map(Rc::new),
             touchpad: touchpad::Touchpad::detect(control).await?.map(Rc::new),
@@ -112,7 +112,7 @@ impl<
             charging_led: charging_led::ChargingLed::detect(control)
                 .await?
                 .map(Rc::new),
-            ports: ports::Ports::detect(control, Placement::of(board))
+            ports: ports::Ports::detect(control, Placement::of(platform))
                 .await?
                 .map(Rc::new),
             chassis: chassis::Chassis::detect(control).await?.map(Rc::new),
@@ -146,7 +146,7 @@ mod tests {
     use crate::testing::{Fault, Machine, absent, ready};
 
     fn detect(machine: &Rc<Machine>) -> frameguin_wire::DeviceResult<Controls<Machine>> {
-        ready(Controls::detect(machine, &frameguin_wire::Board::default()))
+        ready(Controls::detect(machine, frameguin_wire::Platform::Unknown))
     }
 
     const PRESET: usize = 1;

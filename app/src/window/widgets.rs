@@ -46,9 +46,7 @@ pub(super) fn add_css(rules: &str) {
     }
 }
 
-/// A page whose description is a caption: drawn closer to what it heads, and
-/// centred where the running libadwaita has the property, which is newer
-/// than the one this builds against.
+/// A page whose description is a caption, drawn closer to what it heads.
 pub(super) fn captioned_page() -> adw::PreferencesPage {
     static STYLED: std::sync::Once = std::sync::Once::new();
     // Only the page's own description carries the class; a group's does not.
@@ -61,9 +59,6 @@ pub(super) fn captioned_page() -> adw::PreferencesPage {
     });
     let page = adw::PreferencesPage::new();
     page.add_css_class(CAPTIONED_CLASS);
-    if page.find_property("description-centered").is_some() {
-        page.set_property("description-centered", true);
-    }
     page
 }
 

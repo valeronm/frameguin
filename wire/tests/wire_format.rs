@@ -4,9 +4,9 @@
 //! no compiler on either side would report.
 
 use frameguin_wire::{
-    BOARD_LAPTOP13_AMD_AI_300, BatteryAlarm, BatteryCondition, BatteryFeature, BatteryInfo,
-    BatteryState, Board, ChargeFlow, ChassisFeature, ClickForce, DeckState, ExtenderStage,
-    ExtenderState, Identity, PartKind, PowerLedLevel, VENDOR,
+    BatteryAlarm, BatteryCondition, BatteryFeature, BatteryInfo, BatteryState, Board, ChargeFlow,
+    ChassisFeature, ClickForce, DeckState, ExtenderStage, ExtenderState, Identity, PartKind,
+    Platform, PowerLedLevel, VENDOR,
 };
 use zbus::zvariant::serialized::Context;
 use zbus::zvariant::{LE, Type, to_bytes};
@@ -47,7 +47,7 @@ fn the_composite_signatures_are_the_ones_the_methods_declare() {
     // The pack's own report: cell voltages, alarms by name, and a temperature
     // in tenths of a degree.
     assert_eq!(BatteryCondition::SIGNATURE, "(auasn)");
-    assert_eq!(Board::SIGNATURE, "(ss)");
+    assert_eq!(Board::SIGNATURE, "(sss)");
     assert_eq!(ExtenderState::SIGNATURE, "(bsquq)");
     assert_eq!(Identity::SIGNATURE, "(sssssssa((sy)sss)a(sv))");
 }
@@ -137,18 +137,40 @@ fn charge_flow_names_are_kebab_case() {
     assert_eq!(wire_string(ChargeFlow::Idle), "idle");
 }
 
+/// The pairing `hardware` derives is the only one a board can hold: a
+/// product name another manufacturer ships cannot carry a platform with it.
 #[test]
-fn a_board_is_named_only_on_this_hardware() {
+fn another_vendors_machine_takes_no_platform_whatever_it_reports() {
+    let board = |vendor: &str| {
+        Board::new(
+            vendor.to_owned(),
+            "Laptop".to_owned(),
+            Platform::Laptop13Gen11,
+        )
+    };
+    assert_eq!(board(VENDOR).platform, Platform::Laptop13Gen11);
+    assert_eq!(board("LENOVO").platform, Platform::Unknown);
+    assert_eq!(board("").platform, Platform::Unknown);
+}
+
+#[test]
+fn only_this_vendor_is_this_hardware() {
     let board = |vendor: &str| Board {
         vendor: vendor.to_owned(),
-        product: BOARD_LAPTOP13_AMD_AI_300.to_owned(),
+        ..Board::default()
     };
+    assert!(board(VENDOR).is_framework());
+    assert!(!board("LENOVO").is_framework());
+    assert!(!board("").is_framework());
+}
+
+#[test]
+fn a_platform_crosses_as_its_own_name() {
     assert_eq!(
-        board(VENDOR).framework_product(),
-        Some(BOARD_LAPTOP13_AMD_AI_300)
+        wire_string(Platform::Laptop13ProUltra3),
+        "laptop13-pro-ultra3"
     );
-    assert_eq!(board("LENOVO").framework_product(), None);
-    assert_eq!(board("").framework_product(), None);
+    assert_eq!(wire_string(Platform::Unknown), "unknown");
 }
 
 /// Custom is the one level the EC reports but will not take.

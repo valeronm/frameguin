@@ -29,9 +29,11 @@ it and the non-obvious constraints.
   lands in the unprivileged process too. Nothing GUI may enter `model/` for
   the mirror reason, the daemon linking it into the root process.
 - A string is admitted to `wire/` because a second spelling of it could
-  disagree — the vendor, the board names, each matched by both binaries
-  against the strings the same firmware gives. A value only one binary
-  reads, or one that crosses the bus uncompared, stays where it is read.
+  disagree — the vendor, matched by both binaries against the string the
+  same firmware gives. A value only one binary reads, or one that crosses
+  the bus uncompared, stays where it is read: the board names are
+  `hardware`'s, matched there into the `Platform` both binaries carry
+  instead.
 - `io.github.valeronm.Frameguin1` is private to those two binaries rather than
   published API. They are built, installed and upgraded as one — `install.sh`
   stops the app and the daemon and brings both back on the new build — so an

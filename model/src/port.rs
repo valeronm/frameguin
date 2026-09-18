@@ -19,12 +19,7 @@
 //! to read its underside mirrors every one of them, so a position measured
 //! that way is entered here flipped.
 
-use frameguin_wire::{
-    Attached, BOARD_LAPTOP12_13TH_GEN, BOARD_LAPTOP12_CORE_3, BOARD_LAPTOP13_11TH_GEN,
-    BOARD_LAPTOP13_12TH_GEN, BOARD_LAPTOP13_13TH_GEN, BOARD_LAPTOP13_AMD_7040,
-    BOARD_LAPTOP13_AMD_7040_UNSPACED, BOARD_LAPTOP13_AMD_AI_300, BOARD_LAPTOP13_PRO_ULTRA_3,
-    BOARD_LAPTOP13_ULTRA_1, BOARD_LAPTOP16_AMD_7040, BOARD_LAPTOP16_AMD_AI_300, Board,
-};
+use frameguin_wire::{Attached, Platform};
 
 /// Declared in the order ports are listed, which the derived `Ord` follows.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -132,8 +127,7 @@ const fn pro_ultra_3(superspeed: u8, usb2: u8) -> Wiring {
 /// The sockets of the boards named, in the EC's port order, None for one
 /// nobody has placed.
 struct Layout {
-    /// Each board by its DMI product name, matched whole.
-    products: &'static [&'static str],
+    platforms: &'static [Platform],
     positions: &'static [Option<Position>],
     /// Each port's root ports, in the EC's port order, None for one nobody
     /// measured.
@@ -155,24 +149,23 @@ const LAYOUTS: &[Layout] = &[
     // ports on the right and the second's on the left, and names no front or
     // rear.
     Layout {
-        products: &[
-            BOARD_LAPTOP13_11TH_GEN,
-            BOARD_LAPTOP13_12TH_GEN,
-            BOARD_LAPTOP13_13TH_GEN,
-            BOARD_LAPTOP13_ULTRA_1,
-            BOARD_LAPTOP13_AMD_7040,
-            BOARD_LAPTOP13_AMD_7040_UNSPACED,
-            BOARD_LAPTOP13_AMD_AI_300,
-            BOARD_LAPTOP12_13TH_GEN,
+        platforms: &[
+            Platform::Laptop13Gen11,
+            Platform::Laptop13Gen12,
+            Platform::Laptop13Gen13,
+            Platform::Laptop13Ultra1,
+            Platform::Laptop13Amd7040,
+            Platform::Laptop13AmdAi300,
+            Platform::Laptop12Gen13,
             // framework-system gives this board the 13th-gen Laptop 12's PD
             // layout.
-            BOARD_LAPTOP12_CORE_3,
+            Platform::Laptop12Core3,
         ],
         positions: &[RIGHT, RIGHT, LEFT, LEFT],
         wiring: &[],
     },
     Layout {
-        products: &[BOARD_LAPTOP13_PRO_ULTRA_3],
+        platforms: &[Platform::Laptop13ProUltra3],
         positions: &[
             Some(Position::at(Side::Right, Depth::Front)),
             Some(Position::at(Side::Right, Depth::Rear)),
@@ -189,7 +182,7 @@ const LAYOUTS: &[Layout] = &[
     // The same controller table's sides, and the EC declaring the bay's
     // controller third, driving one port.
     Layout {
-        products: &[BOARD_LAPTOP16_AMD_7040, BOARD_LAPTOP16_AMD_AI_300],
+        platforms: &[Platform::Laptop16Amd7040, Platform::Laptop16AmdAi300],
         positions: &[RIGHT, RIGHT, LEFT, LEFT, Some(Position::Back)],
         wiring: &[],
     },
@@ -203,15 +196,11 @@ pub struct Placement {
 }
 
 impl Placement {
-    /// The product is matched only on this hardware: another vendor's can
-    /// equal a Framework board's, as "Laptop" does.
     #[must_use]
-    pub fn of(board: &Board) -> Self {
-        let layout = board.framework_product().and_then(|product| {
-            LAYOUTS
-                .iter()
-                .find(|layout| layout.products.contains(&product))
-        });
+    pub fn of(platform: Platform) -> Self {
+        let layout = LAYOUTS
+            .iter()
+            .find(|layout| layout.platforms.contains(&platform));
         Self { layout }
     }
 
@@ -310,16 +299,10 @@ fn number(index: u8) -> String {
 #[cfg(test)]
 mod tests {
     use super::Placement;
-    use crate::testing::placed;
 
-    use frameguin_wire::BOARD_LAPTOP13_11TH_GEN as GENERIC;
-    use frameguin_wire::BOARD_LAPTOP13_AMD_AI_300 as SIDED;
-    use frameguin_wire::BOARD_LAPTOP13_PRO_ULTRA_3 as MEASURED;
-    use frameguin_wire::{
-        Attached, BOARD_LAPTOP16_AMD_7040, BOARD_LAPTOP16_AMD_AI_300, Board, UsbSpeed,
-    };
-
-    const UNKNOWN: &str = "Precision 5560";
+    use frameguin_wire::Platform::Laptop13AmdAi300 as SIDED;
+    use frameguin_wire::Platform::Laptop13ProUltra3 as MEASURED;
+    use frameguin_wire::{Attached, Platform, UsbSpeed};
 
     fn products(placement: Placement, index: u8, devices: &[Attached]) -> Vec<&str> {
         placement
@@ -329,8 +312,8 @@ mod tests {
             .collect()
     }
 
-    fn listed(product: &str, indices: std::ops::Range<u8>) -> Vec<u8> {
-        let placement = placed(product);
+    fn listed(platform: Platform, indices: std::ops::Range<u8>) -> Vec<u8> {
+        let placement = Placement::of(platform);
         let mut indices: Vec<u8> = indices.collect();
         indices.sort_by_key(|index| placement.order(*index));
         indices
@@ -344,26 +327,21 @@ mod tests {
     }
 
     #[test]
-    fn another_vendors_board_is_not_placed_by_a_name_it_shares() {
-        let other = Placement::of(&Board {
-            vendor: "Acme".to_owned(),
-            product: GENERIC.to_owned(),
-        });
-        assert_eq!(other.label(0), "Port 0");
-        assert_eq!(placed(GENERIC).label(0), "Right · Port 0");
-    }
-
-    #[test]
     fn a_measured_board_leads_with_where_the_socket_is() {
-        assert_eq!(placed(MEASURED).label(2), "Left rear");
-        assert_eq!(placed(MEASURED).secondary(2).as_deref(), Some("Port 2"));
+        assert_eq!(Placement::of(MEASURED).label(2), "Left rear");
+        assert_eq!(
+            Placement::of(MEASURED).secondary(2).as_deref(),
+            Some("Port 2")
+        );
     }
 
     /// Both controllers' pairs run rear-to-front against the EC's numbering
     /// on this board, which is the thing that cannot be guessed.
     #[test]
     fn the_measured_board_pairs_each_controller_to_one_side() {
-        let sides: Vec<String> = (0..4).map(|index| placed(MEASURED).label(index)).collect();
+        let sides: Vec<String> = (0..4)
+            .map(|index| Placement::of(MEASURED).label(index))
+            .collect();
         assert_eq!(
             sides,
             ["Right front", "Right rear", "Left rear", "Left front"]
@@ -382,18 +360,20 @@ mod tests {
 
     #[test]
     fn an_unknown_board_lists_by_number() {
-        assert_eq!(listed(UNKNOWN, 0..4), [0, 1, 2, 3]);
+        assert_eq!(listed(Platform::Unknown, 0..4), [0, 1, 2, 3]);
     }
 
     #[test]
     fn an_unknown_board_is_named_by_its_number_alone() {
-        assert_eq!(placed(UNKNOWN).label(0), "Port 0");
-        assert_eq!(placed(UNKNOWN).secondary(0), None);
+        assert_eq!(Placement::of(Platform::Unknown).label(0), "Port 0");
+        assert_eq!(Placement::of(Platform::Unknown).secondary(0), None);
     }
 
     #[test]
     fn a_board_known_by_its_sides_names_the_side_and_the_number_together() {
-        let names: Vec<String> = (0..4).map(|index| placed(SIDED).label(index)).collect();
+        let names: Vec<String> = (0..4)
+            .map(|index| Placement::of(SIDED).label(index))
+            .collect();
         assert_eq!(
             names,
             [
@@ -403,14 +383,14 @@ mod tests {
                 "Left · Port 3"
             ]
         );
-        assert_eq!(placed(SIDED).secondary(2), None);
+        assert_eq!(Placement::of(SIDED).secondary(2), None);
     }
 
     #[test]
     fn inside_a_line_a_side_takes_its_number_after_a_comma() {
-        assert_eq!(placed(SIDED).inline(2), "Left, port 2");
-        assert_eq!(placed(MEASURED).inline(2), "Left rear");
-        assert_eq!(placed(UNKNOWN).inline(2), "Port 2");
+        assert_eq!(Placement::of(SIDED).inline(2), "Left, port 2");
+        assert_eq!(Placement::of(MEASURED).inline(2), "Left rear");
+        assert_eq!(Placement::of(Platform::Unknown).inline(2), "Port 2");
     }
 
     #[test]
@@ -420,14 +400,14 @@ mod tests {
 
     #[test]
     fn a_port_past_the_measured_ones_gets_no_position() {
-        assert_eq!(placed(MEASURED).label(4), "Port 4");
-        assert_eq!(placed(MEASURED).secondary(4), None);
+        assert_eq!(Placement::of(MEASURED).label(4), "Port 4");
+        assert_eq!(Placement::of(MEASURED).secondary(4), None);
     }
 
     #[test]
     fn a_laptop_16_places_its_bay_port_at_the_back_and_its_others_by_side() {
-        for product in [BOARD_LAPTOP16_AMD_7040, BOARD_LAPTOP16_AMD_AI_300] {
-            let placement = placed(product);
+        for platform in [Platform::Laptop16Amd7040, Platform::Laptop16AmdAi300] {
+            let placement = Placement::of(platform);
             assert_eq!(placement.label(4), "Back");
             assert_eq!(placement.secondary(4).as_deref(), Some("Port 4"));
             assert_eq!(placement.label(0), "Right · Port 0");
@@ -437,7 +417,7 @@ mod tests {
 
     #[test]
     fn the_back_lists_after_the_sides() {
-        assert_eq!(listed(BOARD_LAPTOP16_AMD_7040, 0..5), [2, 3, 0, 1, 4]);
+        assert_eq!(listed(Platform::Laptop16Amd7040, 0..5), [2, 3, 0, 1, 4]);
     }
 
     fn on(controller: &str, root_port: u8, product: &str) -> Attached {
@@ -457,9 +437,9 @@ mod tests {
 
     #[test]
     fn only_a_measured_board_is_wired() {
-        assert!(placed(MEASURED).wired());
-        assert!(!placed(SIDED).wired());
-        assert!(!placed(UNKNOWN).wired());
+        assert!(Placement::of(MEASURED).wired());
+        assert!(!Placement::of(SIDED).wired());
+        assert!(!Placement::of(Platform::Unknown).wired());
     }
 
     #[test]
@@ -468,8 +448,8 @@ mod tests {
             on("0000:00:14.0", 5, "card"),
             on("0000:00:0d.0", 1, "drive"),
         ];
-        assert_eq!(products(placed(MEASURED), 2, &devices), ["card"]);
-        assert_eq!(products(placed(MEASURED), 3, &devices), ["drive"]);
+        assert_eq!(products(Placement::of(MEASURED), 2, &devices), ["card"]);
+        assert_eq!(products(Placement::of(MEASURED), 3, &devices), ["drive"]);
     }
 
     #[test]
@@ -479,7 +459,7 @@ mod tests {
             on("0000:00:0d.0", 4, "superspeed"),
         ];
         assert_eq!(
-            products(placed(MEASURED), 0, &devices),
+            products(Placement::of(MEASURED), 0, &devices),
             ["superspeed", "usb2"]
         );
     }
@@ -487,12 +467,12 @@ mod tests {
     #[test]
     fn a_device_on_a_root_port_no_socket_lists_lands_nowhere() {
         let devices = [on("0000:00:14.0", 6, "webcam")];
-        assert!((0..4).all(|index| placed(MEASURED).attached(index, &devices).is_empty()));
+        assert!((0..4).all(|index| Placement::of(MEASURED).attached(index, &devices).is_empty()));
     }
 
     #[test]
     fn an_unwired_board_attaches_nothing() {
         let devices = [on("0000:00:14.0", 5, "card")];
-        assert!(placed(SIDED).attached(2, &devices).is_empty());
+        assert!(Placement::of(SIDED).attached(2, &devices).is_empty());
     }
 }

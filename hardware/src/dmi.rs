@@ -47,15 +47,11 @@ fn iso(stamped: &str) -> Option<String> {
 
 /// The machine as its firmware names it, and never anything plugged into
 /// it.
-///
-/// Read here rather than taken from `framework_lib`, whose `get_platform`
-/// answers with a type its crate keeps private and so unnameable from
-/// outside. The product string is the one that library maps too.
 pub(crate) fn board() -> Board {
-    Board {
-        vendor: field("sys_vendor").unwrap_or_default(),
-        product: field("product_name").unwrap_or_default(),
-    }
+    let vendor = field("sys_vendor").unwrap_or_default();
+    let product = field("product_name").unwrap_or_default();
+    let platform = crate::platform::of(&product);
+    Board::new(vendor, product, platform)
 }
 
 /// The formatted area the spec lays out by offset, and the string table

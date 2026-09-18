@@ -378,7 +378,7 @@ impl Init {
                 return Some(Empty::DaemonUnavailable(e.to_string()));
             }
         };
-        ui.gate(&controls, &board);
+        ui.gate(&controls, board.platform);
         // Set whatever the answer was: what a later map needs to know is
         // that this daemon has said its piece, not what it said.
         self.answered.set(true);
@@ -386,9 +386,10 @@ impl Init {
             // The daemon gates its EC on the vendor it reports, so an empty
             // answer is expected on anything else and says nothing about the
             // board; only a Framework answering with none is a finding.
-            return Some(match board.framework_product() {
-                Some(_) => Empty::NoControls,
-                None => Empty::NoHardware(board.vendor.clone()),
+            return Some(if board.is_framework() {
+                Empty::NoControls
+            } else {
+                Empty::NoHardware(board.vendor.clone())
             });
         }
         // Back to the controls, for a run that got here after an earlier one

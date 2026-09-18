@@ -10,7 +10,7 @@ use frameguin_model::part::{
     Catalogue, catalogue, detail_rows, firmware_name, generation, inventory, maker, name,
     part_number,
 };
-use frameguin_wire::{Board, DeviceResult, Identity};
+use frameguin_wire::{Board, DeviceResult, Identity, Platform};
 use gtk4 as gtk;
 use gtk4::gio;
 use gtk4::glib;
@@ -47,7 +47,9 @@ fn build(shell: Shell, window: &adw::Window, daemon: &Rc<Daemon>) -> adw::Naviga
         match inventory {
             // A window closed while the daemon was being dialled has nothing
             // left to draw into.
-            Ok((parts, board)) if panes.split.root().is_some() => panes.fill(&parts, &board),
+            Ok((parts, board)) if panes.split.root().is_some() => {
+                panes.fill(&parts, board.platform);
+            }
             Ok(_) => (),
             Err(e) => shell.toast_error("Reading the parts", e),
         }
@@ -96,7 +98,7 @@ fn panes() -> Panes {
 impl Panes {
     /// A content pane showing nothing reads as a window that failed, so the
     /// first part is selected.
-    fn fill(self, parts: &[Identity], board: &Board) {
+    fn fill(self, parts: &[Identity], platform: Platform) {
         let Panes {
             split,
             list,
@@ -105,7 +107,7 @@ impl Panes {
         } = self;
         let rows: Vec<(String, adw::PreferencesPage)> = inventory(parts)
             .into_iter()
-            .map(|(part, title)| (title, details(part, catalogue(part, board))))
+            .map(|(part, title)| (title, details(part, catalogue(part, platform))))
             .collect();
         if rows.is_empty() {
             pages.add_child(

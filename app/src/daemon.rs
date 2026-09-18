@@ -47,7 +47,7 @@ impl Daemon {
             .get_or_try_init(async || {
                 let bus = self.bus().await?;
                 let board = Rc::new(bus.frameguin.get_board().await?);
-                let controls = Rc::new(Controls::detect(&bus, &board).await?);
+                let controls = Rc::new(Controls::detect(&bus, board.platform).await?);
                 Ok(Detected { controls, board })
             })
             .await

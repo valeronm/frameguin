@@ -24,7 +24,8 @@ use std::rc::Rc;
 
 use adw::prelude::*;
 use frameguin_model::control::Controls;
-use frameguin_wire::{Board, DeviceError};
+use frameguin_model::part;
+use frameguin_wire::{DeviceError, Platform};
 use gtk4 as gtk;
 use gtk4::gio;
 
@@ -81,9 +82,9 @@ impl Ui {
 
     /// Shows each group where its control is, each tab where one of its
     /// groups is, and the switcher where more than one tab is left to switch
-    /// between, each tab captioned with the board's name.
-    fn gate(&self, controls: &Controls<Bus>, board: &Board) {
-        let product = board.framework_product().unwrap_or_default();
+    /// between, each tab captioned with the mainboard's listing.
+    fn gate(&self, controls: &Controls<Bus>, platform: Platform) {
+        let caption = caption(platform);
         self.battery
             .gate(controls.battery.as_ref(), controls.ports.as_ref());
         self.power_led.gate(controls.power_led.as_ref());
@@ -92,7 +93,9 @@ impl Ui {
         self.touchscreen.gate(controls.touchscreen.as_ref());
         let mut shown = 0;
         for tab in &self.tabs {
-            tab.content.set_description(product);
+            if let Some(caption) = &caption {
+                tab.content.set_description(caption);
+            }
             let visible = tab.groups.iter().any(WidgetExt::is_visible);
             tab.page.set_visible(visible);
             shown += usize::from(visible);
@@ -257,6 +260,16 @@ struct Tab {
     page: adw::ViewStackPage,
     content: adw::PreferencesPage,
     groups: Vec<adw::PreferencesGroup>,
+}
+
+/// None where the catalogue carries no entry: the firmware's own product
+/// name is an ordering code rather than a name.
+fn caption(platform: Platform) -> Option<String> {
+    let sold = part::mainboard(platform)?;
+    Some(match sold.variant {
+        Some(variant) => format!("<b>{}</b>\n{variant}", sold.model),
+        None => format!("<b>{}</b>", sold.model),
+    })
 }
 
 #[derive(Clone, Copy)]

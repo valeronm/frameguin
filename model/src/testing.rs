@@ -10,22 +10,6 @@ use frameguin_wire::{
     PortState, PortsControl, PowerLedControl, PowerLedLevel, PowerRole, PrivacyState,
     PrivacySwitchesControl, TouchpadControl, TouchscreenControl, UsbControl, UsbSpeed,
 };
-use frameguin_wire::{Board, VENDOR};
-
-use crate::port::Placement;
-
-/// A Framework machine of that product name.
-pub(crate) fn machine(product: &str) -> Board {
-    Board {
-        vendor: VENDOR.to_owned(),
-        product: product.to_owned(),
-    }
-}
-
-/// Where a Framework board of that product name has its ports.
-pub(crate) fn placed(product: &str) -> Placement {
-    Placement::of(&machine(product))
-}
 
 /// A 4640 mAh pack, the Laptop 13's.
 pub(crate) const CAPACITY: u32 = 4640;

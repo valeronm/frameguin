@@ -62,7 +62,6 @@ Every heading in the file appears here.
   - [Keyboard backlight persistence](#keyboard-backlight-persistence)
 - [Haptic touchpad](#haptic-touchpad)
   - [Haptic touchpad persistence](#haptic-touchpad-persistence)
-- [Memory](#memory)
 - [Display panel](#display-panel)
 - [Storage](#storage)
 - [Wi-Fi](#wi-fi)
@@ -714,40 +713,6 @@ and an EC restart alike — the EC is not on the path and has nothing to reset.
 Nothing needs re-applying after a resume. That independence is no help to
 anything that forgot what it set, though: the write-only interface above means
 the device will not say.
-
-## Memory
-
-A module is described by the firmware rather than by itself: SMBIOS type 17,
-one structure per slot, under `/sys/firmware/dmi/entries/17-0/raw`. That path
-is root-only, so an unprivileged process sees no memory at all — unlike the
-panel and the drive, which answer to anyone.
-
-**The 16-bit size field cannot hold 32 GB.** Bit 15 marks the value as
-kilobytes rather than megabytes, leaving 32766 MB as the most the field can
-say. Firmware therefore writes `0x7fff` and puts the real figure in the
-32-bit extension at offset `0x1c`, in megabytes. A machine with a 32 GB
-module exercises the extension on every boot; the kilobyte branch is the one
-nothing here reaches.
-
-**The form factor is newer than the decoders.** This board reports `0x11`,
-`CAMM`, which `dmidecode` 3.6 prints as `<OUT OF SPEC>` because its table
-ends at `0x10`, `Die`. The value is right and the decoder is old — worth
-assuming of any table read against firmware this recent, and the reason
-anything decoding these bytes should be able to print a value it cannot name.
-
-**Rated and configured speed differ.** The module is rated 8533 MT/s at
-offset `0x15` and configured 7467 at `0x20`, which is the platform clocking
-it below its rating rather than a misread. Either field reads `0xffff` where
-the rate outruns 16 bits, deferring to a 32-bit extension at `0x54` and
-`0x58`.
-
-**The strings are padded and one is a lie.** The part number carries seven
-trailing spaces — `MTD16C20325N4FN023F1 YF` followed by blanks — so anything
-matching on it must trim first. The Asset Tag is the literal text `NULL`.
-
-No manufacturing date is available. Type 17 has no such field, and the week
-and year the module's own SPD carries are not exposed: no `ee1004` or
-`spd5118` driver binds here and no i2c EEPROM appears in sysfs.
 
 ## Display panel
 

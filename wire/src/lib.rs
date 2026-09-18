@@ -5,7 +5,8 @@
 //! item sits in.
 //!
 //! Beside the interface sit the strings both binaries must spell alike —
-//! [`VENDOR`], the board names.
+//! [`VENDOR`] — and the vocabularies they exchange, along with [`Series`],
+//! which is derived from one rather than carried.
 
 #![allow(
     async_fn_in_trait,

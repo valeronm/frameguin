@@ -6,7 +6,7 @@ use frameguin_wire::Board;
 use crate::build_info;
 use crate::dmi;
 use crate::ec::Ec;
-use crate::part::{Firmware, FirmwareKind, Identity, Part, PartKind};
+use crate::part::{Detail, Firmware, FirmwareKind, Identity, Part, PartKind};
 use crate::pd;
 
 pub(crate) struct Mainboard {
@@ -34,6 +34,7 @@ impl Mainboard {
             &board.product,
             &dmi::field("board_name")?,
             &dmi::field("board_serial").unwrap_or_default(),
+            dmi::field("product_sku").filter(|sku| !sku.is_empty()),
             firmware,
         ))
     }
@@ -45,6 +46,7 @@ impl Mainboard {
         product: &str,
         part_number: &str,
         serial: &str,
+        sku: Option<String>,
         firmware: Vec<Firmware>,
     ) -> Self {
         Self {
@@ -57,7 +59,7 @@ impl Mainboard {
                 serial: serial.to_owned(),
                 id: format!("dmi-board:{part_number}"),
                 firmware,
-                details: Vec::new(),
+                details: sku.map(Detail::Sku).into_iter().collect(),
             },
         }
     }
@@ -109,24 +111,32 @@ fn pd_firmware(versions: &[[u8; pd::VERSION_LEN]]) -> Vec<Firmware> {
 #[cfg(test)]
 mod tests {
     use super::Mainboard;
-    use crate::part::{Firmware, FirmwareKind, Part, PartKind};
+    use crate::part::{Detail, Firmware, FirmwareKind, Part, PartKind};
     use crate::testing::PD_VERSION;
 
     #[test]
     fn a_board_is_identified_by_its_part_number_and_named_for_its_machine() {
         let board = Mainboard::new(
             "Framework",
-            frameguin_wire::BOARD_LAPTOP13_PRO_ULTRA_3,
+            "Laptop 13 Pro (Intel Core Ultra Series 3)",
             "FRANMJCP07",
             "",
+            Some("FRANVXCP07".to_owned()),
             vec![Firmware::new(FirmwareKind::Bios, "03.02")],
         );
         let identity = board.identity();
         assert_eq!(identity.kind, PartKind::Mainboard);
         assert_eq!(identity.part_number, "FRANMJCP07");
         assert_eq!(identity.id, "dmi-board:FRANMJCP07");
-        assert_eq!(identity.model, frameguin_wire::BOARD_LAPTOP13_PRO_ULTRA_3);
+        assert_eq!(identity.model, "Laptop 13 Pro (Intel Core Ultra Series 3)");
         assert_eq!(identity.firmware[0].kind, FirmwareKind::Bios);
+        assert_eq!(identity.details, [Detail::Sku("FRANVXCP07".to_owned())]);
+    }
+
+    #[test]
+    fn a_board_whose_firmware_states_no_sku_carries_no_detail() {
+        let board = Mainboard::new("Framework", "Laptop", "FRANFG000B", "", None, Vec::new());
+        assert!(board.identity().details.is_empty());
     }
 
     #[test]

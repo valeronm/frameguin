@@ -160,7 +160,7 @@ impl Ec {
     /// Without `/dev/cros_ec` `framework_lib` also falls back to raw port
     /// I/O, where a non-Framework EC spin-waits every command to a timeout.
     pub(crate) fn open(board: &Board) -> Option<Self> {
-        board.framework_product().is_some().then(|| Self {
+        board.is_framework().then(|| Self {
             ec: Mutex::new(CrosEc::new()),
             memo: Memo::default(),
         })

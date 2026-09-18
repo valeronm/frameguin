@@ -228,7 +228,7 @@ mod tests {
         power_role_label, powering, powering_label, supply_label, supply_summary,
     };
     use crate::port::Placement;
-    use crate::testing::{Machine, absent, placed, port, ready};
+    use crate::testing::{Machine, absent, port, ready};
 
     fn detect(machine: &Rc<Machine>) -> Result<Option<Ports<Machine>>> {
         ready(Ports::detect(machine, Placement::default()))
@@ -302,14 +302,14 @@ mod tests {
     #[test]
     fn the_joined_line_carries_the_supply_and_its_port() {
         let ports: Vec<_> = (0..4).map(port).collect();
-        let summary = |product| supply_summary(&ports, placed(product));
+        let summary = |platform| supply_summary(&ports, Placement::of(platform));
         assert_eq!(
-            summary(frameguin_wire::BOARD_LAPTOP13_PRO_ULTRA_3),
+            summary(frameguin_wire::Platform::Laptop13ProUltra3),
             "100 W · Right front"
         );
-        assert_eq!(summary("Laptop 16"), "100 W · Port 0");
+        assert_eq!(summary(frameguin_wire::Platform::Unknown), "100 W · Port 0");
         assert_eq!(
-            summary(frameguin_wire::BOARD_LAPTOP13_AMD_AI_300),
+            summary(frameguin_wire::Platform::Laptop13AmdAi300),
             "100 W · Right, port 0"
         );
     }

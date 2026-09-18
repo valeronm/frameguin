@@ -23,7 +23,7 @@ use std::io;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 use std::path::PathBuf;
 
-use frameguin_wire::Board;
+use frameguin_wire::Platform;
 
 /// The pad gating the touch controller, and the board that is true of.
 ///
@@ -50,7 +50,7 @@ use frameguin_wire::Board;
 /// daemon cannot identify, which is the one failure that damages something
 /// rather than returning an error.
 const TOUCHSCREEN_PAD: &str = "GPP_B_18";
-const TOUCHSCREEN_BOARD: &str = frameguin_wire::BOARD_LAPTOP13_PRO_ULTRA_3;
+const TOUCHSCREEN_PLATFORM: Platform = Platform::Laptop13ProUltra3;
 
 /// What this daemon calls itself to the kernel while it holds a line. Shows
 /// up as the line's consumer to anything else that looks.
@@ -318,8 +318,8 @@ fn chip_of(controller: &str) -> Option<PathBuf> {
 /// itself, and [`Pad::request`] asks the kernel for it on every operation,
 /// so a pad some driver has claimed since detection fails there rather than
 /// being written on the strength of what was true at startup.
-pub(crate) fn touchscreen(board: &Board) -> Option<Pad> {
-    if board.framework_product() != Some(TOUCHSCREEN_BOARD) {
+pub(crate) fn touchscreen(platform: Platform) -> Option<Pad> {
+    if platform != TOUCHSCREEN_PLATFORM {
         return None;
     }
     Pad::locate(TOUCHSCREEN_PAD)

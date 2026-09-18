@@ -32,8 +32,19 @@ One meaning per word, and each word names one place in the tree.
   `PortsControl` sets nothing, what a USB-C port does being settled between
   its controller and whatever is plugged in. `DeviceError` is the one error every control and every
   detection raises.
-- **Board** — the machine as its firmware names it, vendor and product:
-  `wire::Board`, answered by the root interface.
+- **Board** — what the firmware reports about the machine, vendor and
+  product, beside the `Platform` those two settle: `wire::Board`, answered by
+  the root interface.
+- **Platform** — which Framework board this is, as one enum variant:
+  `wire::Platform`. The DMI product strings behind it are matched in
+  `hardware/src/dmi.rs` and go no further, so every table keyed on a board —
+  the port layout, the mainboard's catalogue entry, the touchscreen's pad —
+  keys on the variant rather than on a string. `Platform::Unknown` covers a
+  machine that is not this hardware and a board newer than the build alike,
+  which is why the vendor, not the platform, answers whether this is
+  Framework hardware.
+- **Series** — the machine a board is a generation of: `wire::Series`,
+  derived from a `Platform` and never carried over the bus.
 - **Interface** — the D-Bus surface for one device's control, on
   `Served<Device>`. `daemon/src/interface/<name>.rs`. The root interface,
   for what belongs to no device, is `Daemon`'s own.
@@ -247,9 +258,9 @@ the bus carries it as one method on the root interface —
 something purchasable — the pad's descriptor names nothing, the part a
 person buys is Framework's — that is `model::part::catalogue`, a curated
 table keyed per kind on whichever of a part's announcements is guaranteed
-to be there, and on the board where what a part announces does not say
-which machine it is listed for:
-one sensor is sold as a kit per machine, and only the board tells the kits
+to be there, and on the machine's series where what a part announces does
+not say which machine it is listed for:
+one sensor is sold as a kit per machine, and only the series tells the kits
 apart. Words about values, beside the labels; the device keeps what
 detection saw, not the word.
 

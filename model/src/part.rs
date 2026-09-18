@@ -5,7 +5,7 @@
 
 use std::fmt::Write;
 
-use frameguin_wire::{self as wire, Board, Detail, FirmwareKind, Identity, PartKind, VENDOR};
+use frameguin_wire::{Detail, FirmwareKind, Identity, PartKind, Platform, Series, VENDOR};
 
 use crate::control::battery::reading::{capacity, volts};
 use crate::date;
@@ -93,13 +93,12 @@ pub struct Catalogue {
 /// guaranteed and its own, and by its identifier where they are not: a
 /// descriptor is free to carry no strings at all, an EDID may leave out its
 /// product-name descriptor, and a radio's model is the database's reading of
-/// its ids. A board's identifier is a part number confirmed for one machine
-/// only, so it is keyed by its words although it carries both.
+/// its ids. A mainboard is keyed by neither: the platform settles its
+/// listing.
 fn key(part: &Identity) -> (PartKind, &str) {
     let key = match part.kind {
-        PartKind::Mainboard | PartKind::Battery | PartKind::Memory | PartKind::Storage => {
-            &part.model
-        }
+        PartKind::Battery | PartKind::Memory | PartKind::Storage => &part.model,
+        PartKind::Mainboard => "",
         PartKind::Wifi
         | PartKind::Display
         | PartKind::Camera
@@ -109,101 +108,74 @@ fn key(part: &Identity) -> (PartKind, &str) {
     (part.kind, key)
 }
 
-const LAPTOP13_BOARDS: [&str; 8] = [
-    wire::BOARD_LAPTOP13_11TH_GEN,
-    wire::BOARD_LAPTOP13_12TH_GEN,
-    wire::BOARD_LAPTOP13_13TH_GEN,
-    wire::BOARD_LAPTOP13_ULTRA_1,
-    wire::BOARD_LAPTOP13_AMD_7040,
-    wire::BOARD_LAPTOP13_AMD_7040_UNSPACED,
-    wire::BOARD_LAPTOP13_AMD_AI_300,
-    wire::BOARD_LAPTOP13_PRO_ULTRA_3,
-];
-
-const LAPTOP16_BOARDS: [&str; 2] = [
-    wire::BOARD_LAPTOP16_AMD_7040,
-    wire::BOARD_LAPTOP16_AMD_AI_300,
-];
-
-/// The marketplace entry for a part. Curated from Framework's own listings,
-/// trademark marks left off; a part with no entry is shown under its own
-/// words, and an entry is never guessed from a resemblance, since a wrong
-/// name reads exactly like a right one. The board is what settles a part
-/// whose own identifier does not name the machine it is listed for.
 #[must_use]
-#[allow(
-    clippy::too_many_lines,
-    reason = "a listing per arm: the length is the catalogue's size, not a \
-        shape a reader has to hold in their head"
-)]
-pub fn catalogue(part: &Identity, board: &Board) -> Option<Catalogue> {
-    let machine = |listed: &[&str]| {
-        board
-            .framework_product()
-            .is_some_and(|product| listed.contains(&product))
-    };
-    match key(part) {
-        (PartKind::Mainboard, wire::BOARD_LAPTOP13_11TH_GEN) => {
-            Some(varied("Laptop 13 Mainboard", "11th Gen Intel Core", None))
-        }
-        (PartKind::Mainboard, wire::BOARD_LAPTOP13_12TH_GEN) => {
-            Some(varied("Laptop 13 Mainboard", "12th Gen Intel Core", None))
-        }
-        (PartKind::Mainboard, wire::BOARD_LAPTOP13_13TH_GEN) => {
-            Some(varied("Laptop 13 Mainboard", "13th Gen Intel Core", None))
-        }
+pub fn mainboard(platform: Platform) -> Option<Catalogue> {
+    match platform {
+        Platform::Laptop13Gen11 => Some(varied("Laptop 13 Mainboard", "11th Gen Intel Core", None)),
+        Platform::Laptop13Gen12 => Some(varied("Laptop 13 Mainboard", "12th Gen Intel Core", None)),
+        Platform::Laptop13Gen13 => Some(varied("Laptop 13 Mainboard", "13th Gen Intel Core", None)),
         // A page carries the processor as a variant code the product name
         // does not map to, so a board's link is to the page unvaried.
-        (PartKind::Mainboard, wire::BOARD_LAPTOP13_ULTRA_1) => Some(varied(
+        Platform::Laptop13Ultra1 => Some(varied(
             "Laptop 13 Mainboard",
             "Intel Core Ultra Series 1",
             Some("https://frame.work/products/mainboard-ultra-1-intel-core"),
         )),
-        (
-            PartKind::Mainboard,
-            wire::BOARD_LAPTOP13_AMD_7040 | wire::BOARD_LAPTOP13_AMD_7040_UNSPACED,
-        ) => Some(varied(
+        Platform::Laptop13Amd7040 => Some(varied(
             "Laptop 13 Mainboard",
             "AMD Ryzen 7040 Series",
             Some("https://frame.work/products/mainboard-amd-ryzen-7040-series"),
         )),
-        (PartKind::Mainboard, wire::BOARD_LAPTOP13_AMD_AI_300) => Some(varied(
+        Platform::Laptop13AmdAi300 => Some(varied(
             "Laptop 13 Mainboard",
             "AMD Ryzen AI 300 Series",
             Some("https://frame.work/products/mainboard-amd-ai300"),
         )),
-        (PartKind::Mainboard, wire::BOARD_LAPTOP13_PRO_ULTRA_3) => Some(varied(
+        Platform::Laptop13ProUltra3 => Some(varied(
             "Laptop 13 Pro Mainboard",
             "Intel Core Ultra Series 3",
             Some("https://frame.work/products/laptop13pro-mainboard-intel-ultra-3"),
         )),
-        (PartKind::Mainboard, wire::BOARD_LAPTOP12_13TH_GEN) => Some(varied(
+        Platform::Laptop12Gen13 => Some(varied(
             "Laptop 12 Mainboard",
             "13th Gen Intel Core",
             Some("https://frame.work/products/laptop12-mainboard-13th-gen-intel-core"),
         )),
-        (PartKind::Mainboard, wire::BOARD_LAPTOP12_CORE_3) => Some(varied(
+        Platform::Laptop12Core3 => Some(varied(
             "Laptop 12 Mainboard",
             "Intel Core Series 3",
             Some("https://frame.work/products/laptop12-mainboard-series3"),
         )),
-        (PartKind::Mainboard, wire::BOARD_LAPTOP16_AMD_7040) => Some(varied(
+        Platform::Laptop16Amd7040 => Some(varied(
             "Laptop 16 Mainboard",
             "AMD Ryzen 7040 Series",
             Some("https://frame.work/products/16-mainboard-amd-ryzen-7040-series"),
         )),
-        (PartKind::Mainboard, wire::BOARD_LAPTOP16_AMD_AI_300) => Some(varied(
+        Platform::Laptop16AmdAi300 => Some(varied(
             "Laptop 16 Mainboard",
             "AMD Ryzen AI 300 Series",
             Some("https://frame.work/products/laptop16-mainboard-amd-ai300"),
         )),
-        (PartKind::Mainboard, wire::BOARD_DESKTOP_AMD_AI_MAX_300) => Some(varied(
+        Platform::DesktopAmdAiMax300 => Some(varied(
             "Desktop Mainboard",
             "AMD Ryzen AI Max 300 Series",
             Some(
                 "https://frame.work/products/framework-desktop-mainboard-amd-ryzen-ai-max-300-series",
             ),
         )),
+        Platform::Unknown => None,
+    }
+}
+
+/// The marketplace entry for a part. Curated from Framework's own listings,
+/// trademark marks left off; a part with no entry is shown under its own
+/// words, and an entry is never guessed from a resemblance, since a wrong
+/// name reads exactly like a right one. The platform settles a part whose
+/// own identifier does not distinguish the machine it is listed for.
+#[must_use]
+pub fn catalogue(part: &Identity, platform: Platform) -> Option<Catalogue> {
+    match key(part) {
+        (PartKind::Mainboard, _) => mainboard(platform),
         // The EC publishes the pack's name in an eight-byte field, so these
         // are the first seven characters of it.
         (PartKind::Battery, "Framewo") => Some(listed("Laptop 13 Battery - 55Wh", None)),
@@ -240,14 +212,18 @@ pub fn catalogue(part: &Identity, board: &Board) -> Option<Catalogue> {
         // The kit is the sensor and the power button it sits in; the sensor
         // is Goodix's part, carrying one id across both machines, so which
         // kit it is comes from the board and nothing the reader says.
-        (PartKind::Fingerprint, "usb:27c6:609c") if machine(&LAPTOP13_BOARDS) => Some(listed(
-            "Laptop 13 Fingerprint Reader Kit",
-            Some("https://frame.work/products/fingerprint-reader-kit?v=FRANTD0001"),
-        )),
-        (PartKind::Fingerprint, "usb:27c6:609c") if machine(&LAPTOP16_BOARDS) => Some(listed(
-            "Laptop 16 Fingerprint Reader Kit",
-            Some("https://frame.work/products/16-fingerprint-reader-kit"),
-        )),
+        (PartKind::Fingerprint, "usb:27c6:609c") if platform.series() == Some(Series::Laptop13) => {
+            Some(listed(
+                "Laptop 13 Fingerprint Reader Kit",
+                Some("https://frame.work/products/fingerprint-reader-kit?v=FRANTD0001"),
+            ))
+        }
+        (PartKind::Fingerprint, "usb:27c6:609c") if platform.series() == Some(Series::Laptop16) => {
+            Some(listed(
+                "Laptop 16 Fingerprint Reader Kit",
+                Some("https://frame.work/products/16-fingerprint-reader-kit"),
+            ))
+        }
         // A chipset that carries the Wi-Fi MAC itself is deliberately
         // absent: its ids name the platform, so every machine of a
         // generation would key alike whichever module is in the slot.
@@ -473,6 +449,7 @@ fn detail_row(detail: &Detail) -> (&'static str, String) {
         Detail::Speed(rate) => ("Speed", format!("{rate} MT/s")),
         Detail::ConfiguredSpeed(rate) => ("Configured speed", format!("{rate} MT/s")),
         Detail::MacAddress(address) => ("MAC address", address.clone()),
+        Detail::Sku(sku) => ("SKU", sku.clone()),
     }
 }
 
@@ -627,19 +604,16 @@ fn write_rows(out: &mut String, indent: usize, rows: &[(impl AsRef<str>, String)
 
 #[cfg(test)]
 mod tests {
-    use frameguin_wire::{
-        self as wire, Detail, Firmware, FirmwareKind, Identity, PartKind, VENDOR,
-    };
+    use frameguin_wire::{Detail, Firmware, FirmwareKind, Identity, PartKind, Platform, VENDOR};
 
     use super::{
         aspect, catalogue, detail_row, detail_rows, firmware_name, generation, inventory, listing,
         maker, name, ordered, part_number,
     };
-    use crate::testing::machine;
 
     /// The machine the part fixtures are read from.
-    fn here() -> wire::Board {
-        machine(wire::BOARD_LAPTOP13_PRO_ULTRA_3)
+    const fn here() -> Platform {
+        Platform::Laptop13ProUltra3
     }
 
     fn part(kind: PartKind, id: &str) -> Identity {
@@ -656,11 +630,8 @@ mod tests {
         }
     }
 
-    fn board(product: &str) -> Identity {
-        Identity {
-            model: product.to_owned(),
-            ..part(PartKind::Mainboard, "dmi-board:FRANMJCP07")
-        }
+    fn board() -> Identity {
+        part(PartKind::Mainboard, "dmi-board:FRANMJCP07")
     }
 
     fn module(slot: &str) -> Identity {
@@ -710,14 +681,14 @@ mod tests {
 
     #[test]
     fn a_part_the_catalogue_does_not_name_keeps_its_own_words() {
-        assert!(catalogue(&part(PartKind::Memory, "dmi-slot:LPCAMM2_0"), &here()).is_none());
-        assert!(catalogue(&part(PartKind::Touchpad, "hid:093a:1343"), &here()).is_some());
+        assert!(catalogue(&part(PartKind::Memory, "dmi-slot:LPCAMM2_0"), here()).is_none());
+        assert!(catalogue(&part(PartKind::Touchpad, "hid:093a:1343"), here()).is_some());
     }
 
     #[test]
     fn each_webcam_generation_is_its_own_listing() {
-        let second = catalogue(&part(PartKind::Camera, "usb:32ac:001c"), &here()).unwrap();
-        let twelve = catalogue(&part(PartKind::Camera, "usb:32ac:001d"), &here()).unwrap();
+        let second = catalogue(&part(PartKind::Camera, "usb:32ac:001c"), here()).unwrap();
+        let twelve = catalogue(&part(PartKind::Camera, "usb:32ac:001d"), here()).unwrap();
         assert_eq!(second.model, "Webcam Module (2nd Gen)");
         assert_eq!(twelve.model, "Laptop 12 Webcam Module");
         assert_ne!(second.url, twelve.url);
@@ -725,16 +696,16 @@ mod tests {
 
     #[test]
     fn a_panel_is_catalogued_by_its_ids_and_not_by_words_an_edid_may_omit() {
-        let pro = catalogue(&part(PartKind::Display, "edid:CSW:1322"), &here()).unwrap();
+        let pro = catalogue(&part(PartKind::Display, "edid:CSW:1322"), here()).unwrap();
         assert_eq!(pro.model, "Laptop 13 Pro Touchscreen Display Kit - 2.8K");
-        let twelve = catalogue(&part(PartKind::Display, "edid:BOE:0d56"), &here()).unwrap();
+        let twelve = catalogue(&part(PartKind::Display, "edid:BOE:0d56"), here()).unwrap();
         assert_eq!(twelve.model, "Laptop 12 Display Kit");
     }
 
     #[test]
     fn each_resolution_of_the_laptop_13_kit_is_its_own_variant() {
-        let lesser = catalogue(&part(PartKind::Display, "edid:BOE:095f"), &here()).unwrap();
-        let greater = catalogue(&part(PartKind::Display, "edid:BOE:0cb4"), &here()).unwrap();
+        let lesser = catalogue(&part(PartKind::Display, "edid:BOE:095f"), here()).unwrap();
+        let greater = catalogue(&part(PartKind::Display, "edid:BOE:0cb4"), here()).unwrap();
         assert_eq!(lesser.model, "Laptop 13 Display Kit");
         assert_eq!(lesser.model, greater.model);
         assert_eq!(lesser.variant, Some("2.2K"));
@@ -744,8 +715,8 @@ mod tests {
 
     #[test]
     fn the_laptop_16_panel_s_two_revisions_are_the_one_kit() {
-        let first = catalogue(&part(PartKind::Display, "edid:BOE:0bc9"), &here()).unwrap();
-        let second = catalogue(&part(PartKind::Display, "edid:BOE:0d79"), &here()).unwrap();
+        let first = catalogue(&part(PartKind::Display, "edid:BOE:0bc9"), here()).unwrap();
+        let second = catalogue(&part(PartKind::Display, "edid:BOE:0d79"), here()).unwrap();
         assert_eq!(first.model, "Laptop 16 Display Kit");
         assert_eq!(first, second);
     }
@@ -754,7 +725,7 @@ mod tests {
     fn a_revision_the_listing_does_not_name_is_a_generation_of_its_own() {
         let named = |id| {
             let panel = part(PartKind::Display, id);
-            generation(&panel, catalogue(&panel, &here()))
+            generation(&panel, catalogue(&panel, here()))
         };
         assert_eq!(named("edid:BOE:0bc9"), "1st Gen");
         assert_eq!(named("edid:BOE:0d79"), "2nd Gen");
@@ -769,23 +740,23 @@ mod tests {
 
     #[test]
     fn each_discrete_radio_is_its_own_listing_and_a_chipset_s_is_none() {
-        let six = catalogue(&part(PartKind::Wifi, "pci:14c3:0616"), &here()).unwrap();
-        let seven = catalogue(&part(PartKind::Wifi, "pci:14c3:0717"), &here()).unwrap();
-        let intel = catalogue(&part(PartKind::Wifi, "pci:8086:2725"), &here()).unwrap();
+        let six = catalogue(&part(PartKind::Wifi, "pci:14c3:0616"), here()).unwrap();
+        let seven = catalogue(&part(PartKind::Wifi, "pci:14c3:0717"), here()).unwrap();
+        let intel = catalogue(&part(PartKind::Wifi, "pci:8086:2725"), here()).unwrap();
         assert_eq!(six.model, "AMD RZ616 Wi-Fi 6E");
         assert_eq!(seven.model, "AMD RZ717 Wi-Fi 7");
         assert_eq!(intel.model, "Wi-Fi 6E AX210");
         assert_ne!(six.url, seven.url);
         assert_ne!(seven.url, intel.url);
         assert_ne!(intel.url, six.url);
-        assert!(catalogue(&part(PartKind::Wifi, "pci:8086:e440"), &here()).is_none());
+        assert!(catalogue(&part(PartKind::Wifi, "pci:8086:e440"), here()).is_none());
     }
 
     #[test]
     fn one_reader_is_two_kits_and_the_board_says_which() {
         let reader = part(PartKind::Fingerprint, "usb:27c6:609c");
-        let thirteen = catalogue(&reader, &here()).unwrap();
-        let sixteen = catalogue(&reader, &machine(wire::BOARD_LAPTOP16_AMD_AI_300)).unwrap();
+        let thirteen = catalogue(&reader, here()).unwrap();
+        let sixteen = catalogue(&reader, Platform::Laptop16AmdAi300).unwrap();
         assert_eq!(thirteen.model, "Laptop 13 Fingerprint Reader Kit");
         assert_eq!(sixteen.model, "Laptop 16 Fingerprint Reader Kit");
         assert_ne!(thirteen.url, sixteen.url);
@@ -794,8 +765,8 @@ mod tests {
     #[test]
     fn the_same_reader_in_a_machine_of_no_known_kit_is_no_listing() {
         let reader = part(PartKind::Fingerprint, "usb:27c6:609c");
-        assert!(catalogue(&reader, &machine(wire::BOARD_LAPTOP12_CORE_3)).is_none());
-        assert!(catalogue(&reader, &machine("Precision 5560")).is_none());
+        assert!(catalogue(&reader, Platform::Laptop12Core3).is_none());
+        assert!(catalogue(&reader, Platform::Unknown).is_none());
     }
 
     #[test]
@@ -804,26 +775,26 @@ mod tests {
             model: "FRANEDA".to_owned(),
             ..part(PartKind::Battery, "sbs:FRANEDA")
         };
-        assert!(catalogue(&pack, &here()).is_some());
+        assert!(catalogue(&pack, here()).is_some());
     }
 
     #[test]
-    fn a_board_is_catalogued_by_the_machine_its_firmware_names() {
-        let sold = catalogue(&board(wire::BOARD_LAPTOP13_AMD_7040_UNSPACED), &here()).unwrap();
+    fn a_board_is_catalogued_by_the_platform_and_not_by_its_own_identity() {
+        let sold = catalogue(&board(), Platform::Laptop13Amd7040).unwrap();
         assert_eq!(sold.model, "Laptop 13 Mainboard");
         assert_eq!(sold.variant, Some("AMD Ryzen 7040 Series"));
     }
 
     #[test]
     fn a_board_framework_no_longer_sells_is_named_without_a_link() {
-        let sold = catalogue(&board(wire::BOARD_LAPTOP13_12TH_GEN), &here()).unwrap();
+        let sold = catalogue(&board(), Platform::Laptop13Gen12).unwrap();
         assert_eq!(sold.model, "Laptop 13 Mainboard");
         assert!(sold.url.is_none());
     }
 
     #[test]
     fn a_board_of_no_known_machine_keeps_its_own_words() {
-        assert!(catalogue(&board("Precision 5560"), &here()).is_none());
+        assert!(catalogue(&board(), Platform::Unknown).is_none());
     }
 
     #[test]
@@ -860,10 +831,16 @@ mod tests {
 
     #[test]
     fn a_listed_part_is_named_by_its_listing_and_numbered_by_its_own_model() {
-        let board = board(wire::BOARD_LAPTOP13_PRO_ULTRA_3);
-        let sold = catalogue(&board, &here());
+        let board = Identity {
+            model: "Laptop 13 Pro (Intel Core Ultra Series 3)".to_owned(),
+            ..board()
+        };
+        let sold = catalogue(&board, here());
         assert_eq!(name(&board, sold), "Laptop 13 Pro Mainboard");
-        assert_eq!(part_number(&board, sold), wire::BOARD_LAPTOP13_PRO_ULTRA_3);
+        assert_eq!(
+            part_number(&board, sold),
+            "Laptop 13 Pro (Intel Core Ultra Series 3)"
+        );
     }
 
     #[test]
@@ -875,15 +852,15 @@ mod tests {
     fn a_board_shows_its_own_number_where_every_other_part_shows_its_model() {
         let board = Identity {
             part_number: "FRANMJCP07".to_owned(),
-            ..board(wire::BOARD_LAPTOP13_PRO_ULTRA_3)
+            ..board()
         };
-        let sold = catalogue(&board, &here());
+        let sold = catalogue(&board, here());
         assert_eq!(part_number(&board, sold), "FRANMJCP07");
         let pack = Identity {
             model: "FRANEDA".to_owned(),
             ..part(PartKind::Battery, "sbs:FRANEDA")
         };
-        assert_eq!(part_number(&pack, catalogue(&pack, &here())), "FRANEDA");
+        assert_eq!(part_number(&pack, catalogue(&pack, here())), "FRANEDA");
         assert_eq!(part_number(&pack, None), "");
     }
 
@@ -893,7 +870,7 @@ mod tests {
             model: "MT7925 (RZ717) Wi-Fi 7 160MHz".to_owned(),
             ..part(PartKind::Wifi, "pci:14c3:0717")
         };
-        assert_eq!(part_number(&radio, catalogue(&radio, &here())), "");
+        assert_eq!(part_number(&radio, catalogue(&radio, here())), "");
     }
 
     #[test]

@@ -58,7 +58,7 @@ impl Module {
             .collect()
     }
 
-    /// None for a structure that names no fitted module.
+    /// None for a structure with no fitted module in it.
     fn parse(entry: &Structure) -> Option<Self> {
         let capacity = size(entry)?;
         Some(Self {
@@ -77,7 +77,7 @@ impl Module {
     }
 }
 
-/// Two rows of the same number say no more than one.
+/// Two rows of the same number are no more use than one.
 fn details(entry: &Structure, capacity: u64) -> Vec<Detail> {
     let rated = speed(entry, SPEED, EXTENDED_SPEED);
     let configured = speed(entry, CONFIGURED_SPEED, EXTENDED_CONFIGURED_SPEED);
@@ -99,7 +99,7 @@ fn details(entry: &Structure, capacity: u64) -> Vec<Detail> {
     .collect()
 }
 
-/// None where the field says nothing, and the extension's rate where the
+/// None where the rate is unavailable, and the extension's rate where the
 /// 16-bit field defers to it.
 fn speed(entry: &Structure, short: usize, extended: usize) -> Option<u32> {
     match entry.u16(short)? {
@@ -109,8 +109,8 @@ fn speed(entry: &Structure, short: usize, extended: usize) -> Option<u32> {
     }
 }
 
-/// Firmware outruns the table it is written against, and a value it does
-/// not name says more as itself than as `Unknown`.
+/// Firmware outruns the table it is written against, and a value missing from
+/// it is more use as itself than as `Unknown`.
 fn spelled(value: u8, names: &[(u8, &'static str)]) -> String {
     names
         .iter()
@@ -156,6 +156,8 @@ fn memory_type(value: u8) -> String {
             (0x22, "DDR5"),
             (0x23, "LPDDR5"),
             (0x24, "HBM3"),
+            (0x25, "MRDIMM"),
+            (0x26, "LPDDR6"),
         ],
     )
 }
@@ -182,11 +184,13 @@ fn form_factor(value: u8) -> String {
             (0x0f, "FB-DIMM"),
             (0x10, "Die"),
             (0x11, "CAMM"),
+            (0x12, "CUDIMM"),
+            (0x13, "CSODIMM"),
         ],
     )
 }
 
-/// An empty slot says so as none, as unknown, or — for a module the 16-bit
+/// An empty slot reads as none, as unknown, or — for a module the 16-bit
 /// field cannot hold — as a zero in the 32-bit extension that carries its
 /// megabytes.
 fn size(entry: &Structure) -> Option<u64> {
@@ -319,11 +323,11 @@ mod tests {
     #[test]
     fn a_value_the_specification_does_not_name_is_shown_as_itself() {
         let mut raw = fitted();
-        raw[0x0e] = 0x12;
-        raw[0x12] = 0x25;
+        raw[0x0e] = 0xfe;
+        raw[0x12] = 0xfe;
         let details = details(&raw);
-        assert!(details.contains(&Detail::FormFactor("0x12".to_owned())));
-        assert!(details.contains(&Detail::MemoryType("0x25".to_owned())));
+        assert!(details.contains(&Detail::FormFactor("0xfe".to_owned())));
+        assert!(details.contains(&Detail::MemoryType("0xfe".to_owned())));
     }
 
     #[test]

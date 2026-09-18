@@ -21,25 +21,6 @@ pub const OBJECT_PATH: &str = "/io/github/valeronm/Frameguin";
 /// The DMI `sys_vendor` of the hardware this is for.
 pub const VENDOR: &str = "Framework";
 
-// A board's DMI `product_name`, in the firmware's own spelling, matched
-// whole and never parsed. They are the strings `framework_lib` matches to
-// identify a platform, re-spelled because the type it answers with is
-// private to that crate.
-pub const BOARD_LAPTOP13_11TH_GEN: &str = "Laptop";
-pub const BOARD_LAPTOP13_12TH_GEN: &str = "Laptop (12th Gen Intel Core)";
-pub const BOARD_LAPTOP13_13TH_GEN: &str = "Laptop (13th Gen Intel Core)";
-pub const BOARD_LAPTOP13_ULTRA_1: &str = "Laptop 13 (Intel Core Ultra Series 1)";
-pub const BOARD_LAPTOP13_AMD_7040: &str = "Laptop 13 (AMD Ryzen 7040 Series)";
-// Some 7040 firmware ships the series without its space.
-pub const BOARD_LAPTOP13_AMD_7040_UNSPACED: &str = "Laptop 13 (AMD Ryzen 7040Series)";
-pub const BOARD_LAPTOP13_AMD_AI_300: &str = "Laptop 13 (AMD Ryzen AI 300 Series)";
-pub const BOARD_LAPTOP13_PRO_ULTRA_3: &str = "Laptop 13 Pro (Intel Core Ultra Series 3)";
-pub const BOARD_LAPTOP12_13TH_GEN: &str = "Laptop 12 (13th Gen Intel Core)";
-pub const BOARD_LAPTOP12_CORE_3: &str = "Laptop 12 (Intel Core Series 3)";
-pub const BOARD_LAPTOP16_AMD_7040: &str = "Laptop 16 (AMD Ryzen 7040 Series)";
-pub const BOARD_LAPTOP16_AMD_AI_300: &str = "Laptop 16 (AMD Ryzen AI 300 Series)";
-pub const BOARD_DESKTOP_AMD_AI_MAX_300: &str = "Desktop (AMD Ryzen AI Max 300 Series)";
-
 /// Charge as fast as the battery asks. The EC clamps every requested charge
 /// current against its limit, so the largest value is the one that imposes
 /// none; 0 at the other end would mean never charge, which no setter accepts.
@@ -59,6 +40,78 @@ pub const MIN_POWER_LED_BRIGHTNESS: u8 = 1;
 /// and this is the one control whose legal arguments the app cannot look up
 /// for itself — the crate that knows them is the one it must not link.
 pub const HAPTIC_INTENSITY_LEVELS: [u8; 5] = [0, 25, 50, 75, 100];
+
+/// Which Framework board a machine is, as `hardware` settles it from the
+/// DMI strings.
+#[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[zvariant(crate = "zbus::zvariant", signature = "s")]
+#[serde(rename_all = "kebab-case")]
+pub enum Platform {
+    Laptop13Gen11,
+    Laptop13Gen12,
+    Laptop13Gen13,
+    Laptop13Ultra1,
+    Laptop13Amd7040,
+    Laptop13AmdAi300,
+    Laptop13ProUltra3,
+    Laptop12Gen13,
+    Laptop12Core3,
+    Laptop16Amd7040,
+    Laptop16AmdAi300,
+    DesktopAmdAiMax300,
+    /// Any machine that is not this hardware, and any Framework board this
+    /// build does not list.
+    #[default]
+    Unknown,
+}
+
+/// The machine a board is a generation of, derived from a [`Platform`] and
+/// never carried over the bus.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Series {
+    Laptop13,
+    Laptop12,
+    Laptop16,
+    Desktop,
+}
+
+impl Platform {
+    /// The set as `hardware` scans it to turn a DMI product name back into
+    /// a board.
+    pub const ALL: [Self; 13] = [
+        Self::Laptop13Gen11,
+        Self::Laptop13Gen12,
+        Self::Laptop13Gen13,
+        Self::Laptop13Ultra1,
+        Self::Laptop13Amd7040,
+        Self::Laptop13AmdAi300,
+        Self::Laptop13ProUltra3,
+        Self::Laptop12Gen13,
+        Self::Laptop12Core3,
+        Self::Laptop16Amd7040,
+        Self::Laptop16AmdAi300,
+        Self::DesktopAmdAiMax300,
+        Self::Unknown,
+    ];
+
+    /// None for [`Platform::Unknown`], which belongs to no machine.
+    #[must_use]
+    pub const fn series(self) -> Option<Series> {
+        match self {
+            Self::Laptop13Gen11
+            | Self::Laptop13Gen12
+            | Self::Laptop13Gen13
+            | Self::Laptop13Ultra1
+            | Self::Laptop13Amd7040
+            | Self::Laptop13AmdAi300
+            | Self::Laptop13ProUltra3 => Some(Series::Laptop13),
+            Self::Laptop12Gen13 | Self::Laptop12Core3 => Some(Series::Laptop12),
+            Self::Laptop16Amd7040 | Self::Laptop16AmdAi300 => Some(Series::Laptop16),
+            Self::DesktopAmdAiMax300 => Some(Series::Desktop),
+            Self::Unknown => None,
+        }
+    }
+}
 
 /// What a battery offers past the block every pack answers with, each a
 /// separate question of the hardware: the pack's own report over the EC's
@@ -605,6 +658,10 @@ pub enum Detail {
     ConfiguredSpeed(u32),
     /// `e0:c9:32:00:00:00`, the address a radio answers to.
     MacAddress(String),
+    /// The DMI `product_sku`. How it relates to the board's part number and
+    /// to a marketplace variant code is unconfirmed, so nothing is derived
+    /// from it.
+    Sku(String),
 }
 
 #[derive(Serialize, Deserialize)]
@@ -626,6 +683,7 @@ enum Fact {
     Speed,
     ConfiguredSpeed,
     MacAddress,
+    Sku,
 }
 
 impl Serialize for Detail {
@@ -655,6 +713,7 @@ impl Serialize for Detail {
             Self::Speed(rate) => (Fact::Speed, Value::from(*rate)),
             Self::ConfiguredSpeed(rate) => (Fact::ConfiguredSpeed, Value::from(*rate)),
             Self::MacAddress(address) => (Fact::MacAddress, Value::from(address.as_str())),
+            Self::Sku(sku) => (Fact::Sku, Value::from(sku.as_str())),
         };
         (fact, value).serialize(serializer)
     }
@@ -691,6 +750,7 @@ impl<'de> Deserialize<'de> for Detail {
             Fact::Speed => u32::try_from(value).map(Self::Speed),
             Fact::ConfiguredSpeed => u32::try_from(value).map(Self::ConfiguredSpeed),
             Fact::MacAddress => String::try_from(value).map(Self::MacAddress),
+            Fact::Sku => String::try_from(value).map(Self::Sku),
         };
         detail.map_err(serde::de::Error::custom)
     }
@@ -782,19 +842,41 @@ impl Firmware {
 }
 
 /// The machine as its firmware names it: the DMI `sys_vendor` and
-/// `product_name`, each empty where the firmware left it out.
+/// `product_name`, each empty where the firmware left it out, beside the
+/// board those two settle.
 #[derive(Serialize, Deserialize, Type, Clone, PartialEq, Eq, Debug, Default)]
 #[zvariant(crate = "zbus::zvariant")]
 pub struct Board {
     pub vendor: String,
+    /// What the firmware calls the machine, for a reader and for a bug
+    /// report. Nothing branches on it: [`Board::platform`] is which board
+    /// this is.
     pub product: String,
+    pub platform: Platform,
 }
 
 impl Board {
-    /// The product name, and None on a machine that is not this hardware.
+    /// Another vendor's machine is [`Platform::Unknown`] whatever product
+    /// name its firmware reports, so the two cannot be paired wrongly.
     #[must_use]
-    pub fn framework_product(&self) -> Option<&str> {
-        (self.vendor == VENDOR).then_some(self.product.as_str())
+    pub fn new(vendor: String, product: String, platform: Platform) -> Self {
+        let platform = if vendor == VENDOR {
+            platform
+        } else {
+            Platform::Unknown
+        };
+        Self {
+            vendor,
+            product,
+            platform,
+        }
+    }
+
+    /// [`Platform::Unknown`] covers a Framework board newer than this build
+    /// as well as a foreign machine, so the platform cannot answer this.
+    #[must_use]
+    pub fn is_framework(&self) -> bool {
+        self.vendor == VENDOR
     }
 }
 
@@ -847,7 +929,18 @@ mod tests {
     use zbus::zvariant::serialized::Context;
     use zbus::zvariant::{LE, to_bytes};
 
-    use super::{Attached, Detail, FirmwareKind, LinkState, NetworkLink, UsbSpeed};
+    use super::{
+        Attached, Detail, FirmwareKind, LinkState, NetworkLink, Platform, Series, UsbSpeed,
+    };
+
+    #[test]
+    fn a_platform_is_in_a_series_unless_it_is_unknown() {
+        assert_eq!(Platform::Laptop13ProUltra3.series(), Some(Series::Laptop13));
+        assert_eq!(Platform::Laptop12Core3.series(), Some(Series::Laptop12));
+        assert_eq!(Platform::Laptop16AmdAi300.series(), Some(Series::Laptop16));
+        assert_eq!(Platform::DesktopAmdAiMax300.series(), Some(Series::Desktop));
+        assert_eq!(Platform::Unknown.series(), None);
+    }
 
     #[test]
     fn every_detail_crosses_the_bus_as_itself() {
@@ -879,6 +972,8 @@ mod tests {
             Detail::FormFactor("CAMM".to_owned()),
             Detail::Speed(8533),
             Detail::ConfiguredSpeed(7467),
+            Detail::MacAddress("9c:2f:9d:00:11:22".to_owned()),
+            Detail::Sku("FRANVXCP07".to_owned()),
         ];
         let encoded = to_bytes(Context::new_dbus(LE, 0), &details).unwrap();
         let decoded: Vec<Detail> = encoded.deserialize().unwrap().0;
