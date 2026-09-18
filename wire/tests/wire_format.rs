@@ -148,17 +148,14 @@ fn another_vendors_machine_takes_no_platform_whatever_it_reports() {
             Platform::Laptop13Gen11,
         )
     };
-    assert_eq!(board(VENDOR).platform, Platform::Laptop13Gen11);
-    assert_eq!(board("LENOVO").platform, Platform::Unknown);
-    assert_eq!(board("").platform, Platform::Unknown);
+    assert_eq!(board(VENDOR).platform(), Platform::Laptop13Gen11);
+    assert_eq!(board("LENOVO").platform(), Platform::Unknown);
+    assert_eq!(board("").platform(), Platform::Unknown);
 }
 
 #[test]
 fn only_this_vendor_is_this_hardware() {
-    let board = |vendor: &str| Board {
-        vendor: vendor.to_owned(),
-        ..Board::default()
-    };
+    let board = |vendor: &str| Board::new(vendor.to_owned(), String::new(), Platform::Unknown);
     assert!(board(VENDOR).is_framework());
     assert!(!board("LENOVO").is_framework());
     assert!(!board("").is_framework());

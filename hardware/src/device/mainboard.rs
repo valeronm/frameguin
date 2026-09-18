@@ -31,7 +31,7 @@ impl Mainboard {
             .collect();
         Some(Self::new(
             &dmi::field("board_vendor").unwrap_or_default(),
-            &board.product,
+            board.product(),
             &dmi::field("board_name")?,
             &dmi::field("board_serial").unwrap_or_default(),
             dmi::field("product_sku").filter(|sku| !sku.is_empty()),

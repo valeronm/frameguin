@@ -847,12 +847,12 @@ impl Firmware {
 #[derive(Serialize, Deserialize, Type, Clone, PartialEq, Eq, Debug, Default)]
 #[zvariant(crate = "zbus::zvariant")]
 pub struct Board {
-    pub vendor: String,
+    vendor: String,
     /// What the firmware calls the machine, for a reader and for a bug
     /// report. Nothing branches on it: [`Board::platform`] is which board
     /// this is.
-    pub product: String,
-    pub platform: Platform,
+    product: String,
+    platform: Platform,
 }
 
 impl Board {
@@ -877,6 +877,21 @@ impl Board {
     #[must_use]
     pub fn is_framework(&self) -> bool {
         self.vendor == VENDOR
+    }
+
+    #[must_use]
+    pub fn vendor(&self) -> &str {
+        &self.vendor
+    }
+
+    #[must_use]
+    pub fn product(&self) -> &str {
+        &self.product
+    }
+
+    #[must_use]
+    pub const fn platform(&self) -> Platform {
+        self.platform
     }
 }
 

@@ -25,26 +25,15 @@ column links to the relevant chapter.
 
 ## The transports
 
-Each transport is a module in `hardware/`. The module name states how the
-machine is reached.
+Each is a module in `hardware/`, whose crate doc says what every one of them
+reaches and how — that list lives there alone, so a module added cannot
+leave a copy here stale.
 
-- `dmi` — the firmware's SMBIOS table. It has two halves with different
-  permissions. The kernel publishes some fields world-readable under
-  `/sys/class/dmi/id`, and the mainboard is identified there. It keeps the raw
-  structures under `/sys/firmware/dmi/entries` root-only, and the memory
-  modules are there. An unprivileged process can identify the board but cannot
-  see the memory.
-- `drm` — the kernel's DRM class. The panel reports its own EDID block.
-- `ec` — the embedded controller. It offers three routes and the battery uses
-  two: the memory map carries the battery block, and I²C passthrough reaches
-  the pack's own registers.
-- `nvme` — the kernel's NVMe class. Only a drive in the board's M.2 slot
-  appears here.
-- `touchpad` — the touchpad's own HID transport. The EC is not involved.
-- `usb` — the kernel's USB bus, including internal ports. The camera and the
-  fingerprint reader are on an internal bus.
-- `wireless` — the kernel's ieee80211 class. Each phy links to the PCI
-  function its radio is driven on.
+Two carry a fact the column above cannot. `dmi` reads the mainboard from
+fields the kernel publishes world-readable and the memory from raw
+structures it keeps root-only, so an unprivileged process can identify the
+board and sees no memory. The battery uses two of the EC's three routes: the
+memory map for its block, and I²C passthrough for the pack's own registers.
 
 ## Transport notes
 

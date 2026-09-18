@@ -100,11 +100,11 @@ fn devices() -> Devices {
 }
 
 fn board() -> Board {
-    Board {
-        vendor: VENDOR.to_owned(),
-        product: "Laptop 13 (AMD Ryzen AI 300 Series)".to_owned(),
-        platform: Platform::Laptop13AmdAi300,
-    }
+    Board::new(
+        VENDOR.to_owned(),
+        "Laptop 13 (AMD Ryzen AI 300 Series)".to_owned(),
+        Platform::Laptop13AmdAi300,
+    )
 }
 
 /// An inventory for the root interface to answer, which it holds verbatim.

@@ -48,7 +48,7 @@ fn build(shell: Shell, window: &adw::Window, daemon: &Rc<Daemon>) -> adw::Naviga
             // A window closed while the daemon was being dialled has nothing
             // left to draw into.
             Ok((parts, board)) if panes.split.root().is_some() => {
-                panes.fill(&parts, board.platform);
+                panes.fill(&parts, board.platform());
             }
             Ok(_) => (),
             Err(e) => shell.toast_error("Reading the parts", e),

@@ -378,7 +378,7 @@ impl Init {
                 return Some(Empty::DaemonUnavailable(e.to_string()));
             }
         };
-        ui.gate(&controls, board.platform);
+        ui.gate(&controls, board.platform());
         // Set whatever the answer was: what a later map needs to know is
         // that this daemon has said its piece, not what it said.
         self.answered.set(true);
@@ -389,7 +389,7 @@ impl Init {
             return Some(if board.is_framework() {
                 Empty::NoControls
             } else {
-                Empty::NoHardware(board.vendor.clone())
+                Empty::NoHardware(board.vendor().to_owned())
             });
         }
         // Back to the controls, for a run that got here after an earlier one
