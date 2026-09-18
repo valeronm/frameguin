@@ -760,15 +760,33 @@ code, and nothing else that names a part: the product-name and serial-number
 descriptors are optional, and this machine's panel carries a name and no
 serial. So a panel is always distinguishable and not always nameable.
 
-This machine's panel reads `CSW` 4898, `MND508ZB1-1`, 2880x1920 over
+This machine's panel reads `CSW` `0x1322`, `MND508ZB1-1`, 2880x1920 over
 285x190 mm. The PNP id is CSOT's, which the panel confirms itself in its
 free-form descriptor: `CSOT T3`.
+
+The other machines' panels are read from dumps rather than from hardware
+here. The Laptop 12's is BOE `NV122WUM-N42`, product code `0x0d56`,
+1920x1200 over 263x164 mm, and it names itself. The Laptop 16's is BOE
+`NE160QDM-NZ6`, 2560x1600 over 345x215 mm, under two product codes.
+
+**One panel can be nameable on some units and not others.** The 16's
+`0x0bc9` carries the model only in an unspecified ASCII descriptor, beside a
+second one reading `BOE CQ`, while `0x0d79` carries it in the product-name
+descriptor as well.
+
+**The same two differ in what they advertise.** `0x0d79` carries an
+adaptive-sync data block stating fixed average and adaptive V-Total, where
+`0x0bc9` carries none.
 
 **The preferred timing is 60 Hz; 120 is the ceiling of a range.** They come
 from different descriptors — the first detailed timing carries the mode the
 panel prefers, and a range-limits descriptor tagged `0xfd` carries the
 vertical rates it will accept, 30 to 120 here. A panel quoted at its highest
 rate is being quoted from the second.
+
+**A panel need carry no range-limits descriptor at all.** Neither of the
+16's does, and its fastest mode, 165 Hz, is a detailed timing in an
+extension block instead; the Laptop 12's states 40 to 60 Hz.
 
 **Two measurements of the same panel disagree by rounding.** The header
 carries whole centimetres, 28x19, and the preferred timing carries

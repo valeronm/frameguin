@@ -89,6 +89,14 @@ mod tests {
     }
 
     #[test]
+    fn a_panel_is_identified_by_its_pnp_id_and_product_code() {
+        assert_eq!(
+            Display::of_edid(&panel(), "").identity().id,
+            "edid:CSW:1322"
+        );
+    }
+
+    #[test]
     fn a_panel_stating_none_of_it_carries_no_rows() {
         let silent = Edid {
             size: None,

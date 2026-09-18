@@ -88,19 +88,22 @@ pub struct Catalogue {
     pub url: Option<&'static str>,
 }
 
-/// What names a part to the catalogue: the model string, the part's own
-/// words for itself, and not the identifier beside it — a board's is a part
-/// number confirmed for one machine only. A HID part and a radio are the
-/// exceptions: a descriptor is free to carry no strings at all, and a
-/// radio's model is the database's reading of its ids.
+/// A part is keyed by the words it announces for itself where those are
+/// guaranteed and its own, and by its identifier where they are not: a
+/// descriptor is free to carry no strings at all, an EDID may leave out its
+/// product-name descriptor, and a radio's model is the database's reading of
+/// its ids. A board's identifier is a part number confirmed for one machine
+/// only, so it is keyed by its words although it carries both.
 fn key(part: &Identity) -> (PartKind, &str) {
     let key = match part.kind {
-        PartKind::Mainboard
-        | PartKind::Battery
-        | PartKind::Memory
-        | PartKind::Storage
-        | PartKind::Display => &part.model,
-        PartKind::Wifi | PartKind::Camera | PartKind::Touchpad | PartKind::Fingerprint => &part.id,
+        PartKind::Mainboard | PartKind::Battery | PartKind::Memory | PartKind::Storage => {
+            &part.model
+        }
+        PartKind::Wifi
+        | PartKind::Display
+        | PartKind::Camera
+        | PartKind::Touchpad
+        | PartKind::Fingerprint => &part.id,
     };
     (part.kind, key)
 }
@@ -255,11 +258,20 @@ pub fn catalogue(part: &Identity, board: &Board) -> Option<Catalogue> {
             "AMD RZ717 Wi-Fi 7",
             Some("https://frame.work/products/amd-rz717-wi-fi-7"),
         )),
-        // The kit is the panel and the touch controller together, and the
+        // A kit is the panel and the touch controller together, and the
         // panel is the half every machine with a screen has.
-        (PartKind::Display, "MND508ZB1-1") => Some(listed(
+        (PartKind::Display, "edid:CSW:1322") => Some(listed(
             "Laptop 13 Pro Touchscreen Display Kit - 2.8K",
             Some("https://frame.work/products/laptop13pro-display-kit"),
+        )),
+        (PartKind::Display, "edid:BOE:0d56") => Some(listed(
+            "Laptop 12 Display Kit",
+            Some("https://frame.work/products/laptop12-display-kit"),
+        )),
+        // Both revisions are the one listing.
+        (PartKind::Display, "edid:BOE:0bc9" | "edid:BOE:0d79") => Some(listed(
+            "Laptop 16 Display Kit",
+            Some("https://frame.work/products/16-display-kit"),
         )),
         // Memory is deliberately absent: the listing's capacity variants
         // carry codes nothing on a module maps to, so a listing names a
@@ -285,6 +297,25 @@ const fn varied(
         model,
         variant: Some(variant),
         url,
+    }
+}
+
+/// Which generation of `sold` a part is, in the listing's own words, where
+/// one listing covers several and the part's identifier tells them apart.
+/// Empty where a listing has one generation and where no listing names the
+/// part at all.
+#[must_use]
+pub fn generation(part: &Identity, sold: Option<Catalogue>) -> &'static str {
+    if sold.is_none() {
+        return "";
+    }
+    match key(part) {
+        // Framework sells the later firmware as the 2nd Gen and says what
+        // it adds is G-Sync, which is the adaptive-sync data block one of
+        // the two panels carries and the other does not.
+        (PartKind::Display, "edid:BOE:0bc9") => "1st Gen",
+        (PartKind::Display, "edid:BOE:0d79") => "2nd Gen",
+        _ => "",
     }
 }
 
@@ -318,7 +349,8 @@ pub fn name(part: &Identity, sold: Option<Catalogue>) -> &str {
 /// The number a part announced for itself: the one it gives apart from its
 /// model, and the model where `sold` means a listing's name is standing in
 /// the model's place. Empty where the model is the number and is already on
-/// screen as itself.
+/// screen as itself. Whose words a model is decides this and not which kinds
+/// [`key`] takes an identifier for.
 #[must_use]
 pub fn part_number(part: &Identity, sold: Option<Catalogue>) -> &str {
     match (part.part_number.as_str(), sold) {
@@ -585,8 +617,8 @@ mod tests {
     };
 
     use super::{
-        aspect, catalogue, detail_row, detail_rows, firmware_name, inventory, listing, maker, name,
-        ordered, part_number,
+        aspect, catalogue, detail_row, detail_rows, firmware_name, generation, inventory, listing,
+        maker, name, ordered, part_number,
     };
     use crate::testing::machine;
 
@@ -674,6 +706,39 @@ mod tests {
         assert_eq!(second.model, "Webcam Module (2nd Gen)");
         assert_eq!(twelve.model, "Laptop 12 Webcam Module");
         assert_ne!(second.url, twelve.url);
+    }
+
+    #[test]
+    fn a_panel_is_catalogued_by_its_ids_and_not_by_words_an_edid_may_omit() {
+        let pro = catalogue(&part(PartKind::Display, "edid:CSW:1322"), &here()).unwrap();
+        assert_eq!(pro.model, "Laptop 13 Pro Touchscreen Display Kit - 2.8K");
+        let twelve = catalogue(&part(PartKind::Display, "edid:BOE:0d56"), &here()).unwrap();
+        assert_eq!(twelve.model, "Laptop 12 Display Kit");
+    }
+
+    #[test]
+    fn the_laptop_16_panel_s_two_revisions_are_the_one_kit() {
+        let first = catalogue(&part(PartKind::Display, "edid:BOE:0bc9"), &here()).unwrap();
+        let second = catalogue(&part(PartKind::Display, "edid:BOE:0d79"), &here()).unwrap();
+        assert_eq!(first.model, "Laptop 16 Display Kit");
+        assert_eq!(first, second);
+    }
+
+    #[test]
+    fn a_revision_the_listing_does_not_name_is_a_generation_of_its_own() {
+        let named = |id| {
+            let panel = part(PartKind::Display, id);
+            generation(&panel, catalogue(&panel, &here()))
+        };
+        assert_eq!(named("edid:BOE:0bc9"), "1st Gen");
+        assert_eq!(named("edid:BOE:0d79"), "2nd Gen");
+        assert_eq!(named("edid:BOE:0d56"), "");
+    }
+
+    #[test]
+    fn a_part_no_listing_names_has_no_generation_of_one() {
+        let panel = part(PartKind::Display, "edid:BOE:0bc9");
+        assert_eq!(generation(&panel, None), "");
     }
 
     #[test]

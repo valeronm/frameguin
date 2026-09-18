@@ -91,8 +91,7 @@ pub fn of_pci(kind: PartKind, vendor: u16, device: u16, named: &PciNames) -> Ide
 }
 
 /// A panel, from what its EDID announces. The PNP id and the product code
-/// are the two things every EDID carries, so the identifier is those where
-/// the optional name descriptor leaves the model empty.
+/// are the two things every EDID carries, so the identifier is those.
 pub fn edid(
     manufacturer: &str,
     vendor_name: &str,
