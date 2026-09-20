@@ -63,7 +63,7 @@ Every heading in the file appears here.
 | Product id | `609c`; `READER_PID` in `fingerprint.rs` |
 | `product` | the maker's wording, naming no Framework listing |
 | `serial` | the sensor's own identifier, not a Framework one |
-| Fitted to | the power button, whose LED the EC's fingerprint commands drive; see [Power button LED](../hardware.md#power-button-led) |
+| Fitted to | the power button, whose LED the EC's fingerprint commands drive; see [the power LED](led.md#power-led-levels) |
 
 - Framework sells the reader as a kit per machine, and one Goodix id covers
   the Laptop 13 and the Laptop 16. Consequence: what the reader announces
