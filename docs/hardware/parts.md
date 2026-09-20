@@ -4,24 +4,24 @@ This file lists every kind of part detection finds, and the transport each
 is found over.
 
 A part is something a person bought and can replace as a unit, which is
-[`architecture.md`'s definition](architecture.md#vocabulary). The processor and
+[`architecture.md`'s definition](../architecture.md#vocabulary). The processor and
 the EC are soldered and cannot be ordered separately, so they are reported as
 rows on the mainboard rather than as parts of their own.
 
-`hardware.md` documents what each part reports and how to read it. The Findings
+[`hardware.md`](../hardware.md) documents what each part reports and how to read it. The Findings
 column links to the relevant chapter.
 
 | Part | Detection transport | Findings |
 |---|---|---|
-| **Mainboard** | [`dmi`](dmi.md#board-detection) | [Which board the EC tree calls this machine](hardware.md#which-board-the-ec-tree-calls-this-machine) |
-| **Battery** | `ec` | [Battery](hardware.md#battery) |
+| **Mainboard** | [`dmi`](dmi.md#board-detection) | [Which board the EC tree calls this machine](../hardware.md#which-board-the-ec-tree-calls-this-machine) |
+| **Battery** | `ec` | [Battery](../hardware.md#battery) |
 | **Memory** | [`dmi`](dmi.md#memory-detection) | [Memory detection](dmi.md#memory-detection) |
-| **Storage** | `nvme` | [Storage](hardware.md#storage) |
-| **Wi-Fi** | `wireless` | [Wi-Fi](hardware.md#wi-fi) |
-| **Display** | `drm` | [Display panel](hardware.md#display-panel) |
-| **Camera** | `usb` | [Camera](hardware.md#camera) |
-| **Touchpad** | `touchpad` | [Haptic touchpad](hardware.md#haptic-touchpad) |
-| **Fingerprint reader** | `usb` | [Fingerprint reader](hardware.md#fingerprint-reader) |
+| **Storage** | `nvme` | [Storage](../hardware.md#storage) |
+| **Wi-Fi** | `wireless` | [Wi-Fi](../hardware.md#wi-fi) |
+| **Display** | `drm` | [Display panel](../hardware.md#display-panel) |
+| **Camera** | `usb` | [Camera](../hardware.md#camera) |
+| **Touchpad** | `touchpad` | [Haptic touchpad](../hardware.md#haptic-touchpad) |
+| **Fingerprint reader** | `usb` | [Fingerprint reader](../hardware.md#fingerprint-reader) |
 
 ## The transports
 
@@ -60,7 +60,7 @@ Detection reads several things it does not list as parts.
 
 - **Expansion cards.** They report the names they are sold under, under
   Framework's USB vendor id, and are listed as
-  [attached devices](hardware.md#what-sits-in-a-slot) rather than parts. A
+  [attached devices](usb-c.md#attached-devices) rather than parts. A
   card is a thing in a slot rather than a component of the machine, and the
   same reading covers a third-party device in the same slot.
 - **Disks and network interfaces behind a USB bridge.** These sit under the

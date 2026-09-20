@@ -555,10 +555,9 @@ pub struct NetworkLink {
 
 /// One USB-C port, as the EC's copy of its controller's state has it.
 ///
-/// Every field is the EC's cache rather than the port itself, which matters
-/// in one case: a controller whose ports have been disabled stops updating
-/// it, and the entry then stands at whatever it last saw. Nothing in this
-/// app disables one — see `docs/hardware.md`.
+/// Every field is the EC's cache rather than the port itself: a controller
+/// whose ports have been disabled stops updating it, and the entry then
+/// stands at whatever it last saw. `docs/hardware/usb-c.md` has the reading.
 #[derive(Serialize, Deserialize, Type, Clone, PartialEq, Eq, Debug)]
 #[zvariant(crate = "zbus::zvariant")]
 #[allow(
@@ -583,7 +582,9 @@ pub struct PortState {
     /// Whether this is the port the machine is drawing its power through.
     /// At most one port answers true, the EC picking among those offering.
     pub charging: bool,
-    /// Whether the port is carrying `DisplayPort`.
+    /// Whether the controller reports a `DisplayPort` alternate-mode partner
+    /// on the port, by either connected bit of its `DP_ALT_MODE_CONFIG`
+    /// register.
     pub video: bool,
     pub vconn: bool,
     pub cc: CcPolarity,

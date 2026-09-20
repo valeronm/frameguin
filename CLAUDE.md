@@ -387,7 +387,8 @@ looks up the LED node rather than consulting the levels it offered.
 
 ## What the hardware forces on the code
 
-`docs/hardware.md` is what the machine does, a chapter per subsystem — naming
+`docs/hardware.md` is what the machine does, a chapter per subsystem, with
+`docs/hardware/` holding the chapters that are files of their own — naming
 them here as well would be a second index to keep true. Findings belong there
 rather than here, since they stay true whoever is talking to the hardware;
 what belongs here is what they force on *this* code. The exception is a
@@ -539,7 +540,8 @@ the product it was read from.
   to cover, and the rule binds whoever is editing that file. `ec.rs`'s lock
   discipline is the case. The shape of the whole — the layers, what each
   links, what a device is at each — goes to `docs/architecture.md`, and a
-  fact about the machine to `docs/hardware.md`.
+  fact about the machine to `docs/hardware.md` or its file under
+  `docs/hardware/`.
 - Clippy suppressions live at the site with a `reason`, never in a manifest:
   a manifest allow is invisible where the code is read and blankets the whole
   workspace. `#[expect]` when the suppression is situational, so a stale one
