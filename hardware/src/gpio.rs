@@ -3,7 +3,7 @@
 //!
 //! Nothing here talks to the touch controller, because nothing here can: the
 //! panel has no enable command to send it, so the control is a level on a
-//! line and the device is never addressed. `docs/hardware.md` carries why.
+//! line and the device is never addressed. `docs/hardware/touchscreen.md` carries why.
 //!
 //! A pad is found by the name pinctrl gives it rather than by chip and
 //! offset. Which `/dev/gpiochipN` a controller becomes depends on what else
@@ -34,7 +34,7 @@ use frameguin_wire::Platform;
 /// wrong one would cut an unrelated rail rather than fail.
 ///
 /// A second board needs both halves added together, and neither can be
-/// guessed: `docs/hardware.md` gives the evidence for this pairing and the
+/// guessed: `docs/hardware/touchscreen.md` gives the evidence for this pairing and the
 /// method for establishing another.
 ///
 /// Naming a board here also decides how its touch control behaves, which is
@@ -227,7 +227,7 @@ impl Pad {
     /// Requested with no direction flag so the pad is left configured as it
     /// was found — asking for it as an output would be a write. What comes
     /// back is the level being driven rather than one read off the line; see
-    /// `docs/hardware.md` for the condition that holds under.
+    /// `docs/hardware/touchscreen.md` for the condition that holds under.
     ///
     /// Doubles as the check that the pad is usable at all, which is why
     /// detection runs it rather than reading the line's info: it takes the

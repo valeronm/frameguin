@@ -7,7 +7,7 @@
 //! Himax implements nothing of the kind, which is why [`crate::gpio`]'s route
 //! exists. So this is not the general way to switch a panel — it is the way
 //! to switch this controller, and the identity below is what holds those
-//! apart. `docs/hardware.md` carries the evidence.
+//! apart. `docs/hardware/touchscreen.md` carries the evidence.
 //!
 //! Write-only, unlike the pad: the command asks for no reply and the
 //! controller volunteers none, so what was set is knowable only from the

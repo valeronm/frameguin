@@ -22,7 +22,7 @@ is the part's chapter in [`hardware.md`](../hardware.md).
 | **Display** | [`drm`](drm.md) |
 | **Camera** | [`usb`](usb.md#camera) |
 | **Fingerprint reader** | [`usb`](usb.md#fingerprint-reader) |
-| **Touchpad** | [`touchpad`](../hardware.md#haptic-touchpad) |
+| **Touchpad** | [`touchpad`](touchpad.md) |
 
 ## The transports
 
