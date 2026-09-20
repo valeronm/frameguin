@@ -9,22 +9,14 @@ Where a claim comes from firmware or a datasheet it is cited by name — the
 ChromiumOS EC tree Framework forks, TI's documents for the battery gauge —
 rather than by line number, which rots.
 
-Past the transport chapter the subject chapters divide by whether the machine
-is being read or told: the battery is read, and every chapter between it and
-the sources is a control. Each control chapter ends with a persistence section
-— what survives a suspend, a reboot and an EC restart — because which of the
-three a control survives does not follow from what the control does. The last
-is never something the running system sees: `power_chipset_init` starts the
-EC's power sequencing at G3 on every EC boot, so an EC restart takes the
-machine down with it. What it asks is whether a value outlives the EC that
-holds it.
-
-Draining the pack to empty causes one. With no adapter attached the EC runs
-off the battery, so a pack taken to zero takes the EC down and everything it
-was holding in RAM with it. This is worth knowing before reading an EC-dated
-value as evidence about a *reboot*: the EC's uptime shows that it restarted
-but not what restarted it, so a boot that followed a flat battery answers
-nothing about the reboot itself.
+The EC transport is [`hardware/ec.md`](hardware/ec.md). The chapters here
+are the controls; the battery, read and set over the EC, is
+[`hardware/battery.md`](hardware/battery.md). Each control
+chapter ends with a persistence section, what survives a suspend, a reboot
+and an EC restart, because which of the three a control survives does not
+follow from what the control does. An EC restart takes the machine down
+with it ([EC restarts](hardware/ec.md#ec-restarts)), so that column asks
+whether a value outlives the EC that holds it.
 
 Framework is a trademark of Framework Computer Inc.; this is an independent
 project and names the hardware only descriptively.
@@ -36,24 +28,6 @@ Every heading in the file appears here.
 <!-- GitHub's slugger drops the ² from "I²C"; that anchor is right as written. -->
 
 - [What survives what](#what-survives-what)
-- [Reaching the EC](#reaching-the-ec)
-  - [The EC's uptime clock](#the-ecs-uptime-clock)
-  - [Which board the EC tree calls this machine](#which-board-the-ec-tree-calls-this-machine)
-- [Battery](#battery)
-  - [The EC's battery block](#the-ecs-battery-block)
-  - [Telling the packs apart](#telling-the-packs-apart)
-  - [What the flag byte means, and does not](#what-the-flag-byte-means-and-does-not)
-  - [The pack itself, over I²C](#the-pack-itself-over-ic)
-  - [Cycle count goes stale in the EC](#cycle-count-goes-stale-in-the-ec)
-  - [Battery temperature](#battery-temperature)
-  - [Which status bits actually mean a fault](#which-status-bits-actually-mean-a-fault)
-  - [Reading a health verdict with care](#reading-a-health-verdict-with-care)
-- [Charging](#charging)
-  - [Charge limit](#charge-limit)
-  - [Charge current limit](#charge-current-limit)
-  - [Battery extender](#battery-extender)
-  - [The charger itself](#the-charger-itself)
-  - [Charging persistence](#charging-persistence)
 - [Power button LED](#power-button-led)
   - [Power button LED persistence](#power-button-led-persistence)
 - [Charging LED](#charging-led)
@@ -79,8 +53,8 @@ section marks its finding untested, means exactly that.
 
 | Control | Suspend | Reboot | EC restart |
 |---|---|---|---|
-| [Charge limit](#charging-persistence) | Kept | **Lost** | Kept |
-| [Charge current limit](#charging-persistence) | Kept | Kept | **Lost** |
+| [Charge limit](hardware/battery.md#persistence) | Kept | **Lost** | Kept |
+| [Charge current limit](hardware/battery.md#persistence) | Kept | Kept | **Lost** |
 | [Power button LED level](#power-button-led-persistence) | Kept | **Lost** | Kept |
 | [Power button LED darkness](#power-button-led-persistence) | Kept | **Lost** | **Lost** |
 | [Charging LED colour](#charging-led-persistence) | Kept | **Lost** | **Lost** |
@@ -93,377 +67,6 @@ section marks its finding untested, means exactly that.
 The pad route loses its setting to a fourth event the columns cannot carry —
 the lid opening — and the panel route is the Laptop 12's, where none of the
 pad's findings apply.
-
-## Reaching the EC
-
-Three routes, and which one a value comes from decides what it costs and how
-fresh it is.
-
-**The memory map.** A region the EC keeps updated and the host reads without a
-command round trip. Cheap. Carries the battery block, thermal sensors, fan
-speeds. On Linux these are `CROS_EC_DEV_IOCRDMEM` ioctls against
-`/dev/cros_ec`.
-
-**Host commands.** A request/response over the same device. Everything that
-sets something, and the reads the memory map has no room for.
-
-**I²C passthrough** (`EC_CMD_I2C_PASSTHRU`). A host command carrying an I²C
-transaction the EC performs on the host's behalf. This is how you reach a
-device the EC is itself driving — notably the battery gauge. Much slower than
-either of the above: an EC round trip *plus* a real bus transaction.
-
-`framework_lib`'s `CrosEc::new()` panics outright when it finds no driver
-(an empty driver list — for example aarch64 with no `/dev/cros_ec`), so it
-must be constructed behind a check that the machine is the right one, not
-called speculatively.
-
-### The EC's uptime clock
-
-`EC_CMD_GET_UPTIME_INFO` answers with `time_since_ec_boot_ms`, and it is the
-only thing the EC says about its own life: there is no boot id, no restart
-counter, nothing with an identity. So the only way to ask whether the EC is
-still the one that took a write is to compare how far its clock has advanced
-against how far the host's has, and that comparison has two properties worth
-knowing before trusting it.
-
-**The counter is 32 bits of milliseconds**, so it wraps at 49.7 days of EC
-uptime and starts again from zero. An EC that has been up longer than that
-reads as one that restarted.
-
-**The EC keeps its own time, and keeps it badly**: its firmware documents 1%
-or worse frequency error against the host clock, so the two disagree by
-minutes over a week of uptime even with nothing wrong. Any comparison needs
-slack on that order, which is what stops a long-standing write from reading
-as expired.
-
-### Which board the EC tree calls this machine
-
-**The EC's firmware version string opens with the name of its board's project
-in the tree** — `sakura-3.0.2-…` on the Laptop 13 Pro. Nothing in the tree
-maps a board name to the DMI strings a machine reports, so this is the only
-thing that says which of the tree's boards a machine runs, and it decides
-which directory answers for it: the connector maps, the controller count, the
-pack, the LED colours and the charger part are all per board, and boards
-differ in which drivers they compile at all.
-
-`EC_CMD_GET_BUILD_INFO` answers more than that name. `common/version.c`
-composes the string as the version, then the build stamp, then the builder —
-`sakura-3.0.2-cf48815 2026-05-26 04:34:57 lotus@ip-172-26-3-226` — with a
-CrOS FWID between the version and the stamp on firmware built with
-`CONFIG_CROS_FWID_VERSION`. Two things about the stamp: it is itself two
-space-separated fields, so it cannot be read as one; and it carries no zone,
-`util/getversion.sh` taking a `git log` date or a file's mtime and cutting the
-offset off either. A reproducible build replaces it with the literal
-`STATIC_VERSION_DATE` and names the builder `reproducible@build`. The builder
-is the machine the firmware was compiled on and no relation to the hardware —
-`lotus` there is a build host, though it is also a board name.
-
-## Battery
-
-What the pack and the EC report about it, and how to read it. What can be set
-lives under [Charging](#charging).
-
-### The EC's battery block
-
-One memory-map region carrying voltage, present rate, remaining and last-full
-capacity, design capacity and voltage, cycle count, a flag byte, and four
-8-byte strings (manufacturer, model, serial, chemistry).
-
-The 8-byte string fields cut a name to seven characters. Nothing is lost on
-this machine's pack: the model reads `FRANEDA`, its own Smart Battery
-`DeviceName` register returns `FRANEDA` too, and the longer `FRANEDAC00`
-printed on the physical label exists only there — chasing a fuller name over
-I²C finds nothing. Other packs are genuinely cut,
-[below](#telling-the-packs-apart).
-
-Capacities are in mAh and voltages in mV. `framework_lib` computes the charge
-percentage as `100 * remaining / last_full`, which divides by a value the pack
-supplies — a pack reporting zero there panics inside the library.
-
-### Telling the packs apart
-
-The EC's devicetree declares these packs across every board, and a pack's
-`DeviceName` is what separates them, cut to seven characters on its way to the
-host:
-
-| `DeviceName` | Maker | Pack |
-|---|---|---|
-| `Framework Laptop` | NVT | Laptop 13, 55Wh |
-| `FRANGWAT01` | NVT | Laptop 13, 61Wh |
-| `FRANEDA` | ATC | Laptop 13 Pro, 74Wh |
-| `FRANDBAT01` | NVT | Laptop 16, 85Wh |
-| `FRANDZG` | ATC | Laptop 12, 50Wh |
-
-Seven characters still separate them, and the firmware relies on that itself:
-`board_get_battery_type` compares the name against its own literals at exactly
-that length. What it calls a type there is not a capacity — the 74Wh pack is
-`ATC_75W`.
-
-A fuller name is reachable through `EC_CMD_BATTERY_GET_STATIC`, whose v1
-returns 11 characters and v2 the whole string, but only where the firmware is
-built on battery API v2; the pre-Zephyr `hx20`/`hx30` code is on v1, whose
-`common/battery_v1.c` declares no host command at all. The 55Wh pack fits
-machines on both sides of that split, so the seven-character form is the only
-name every machine agrees on.
-
-### What the flag byte means, and does not
-
-The EC's **discharging** flag means *not being charged*, not *supplying the
-machine*. A full pack sitting on a connected charger sets it, because the smart
-battery is reporting zero charge current. `framework_tool --power` prints
-"Battery discharging" in that state too.
-
-So the flag alone never settles the direction. Weigh it against whether a
-charger is present and against the rate, which reads a clean 0 mA at rest.
-
-**Neither flag set is a real state**, and a charge limit produces it. The limit
-arms the EC's battery sustainer, which switches to `CHARGE_CONTROL_IDLE` on
-reaching the ceiling and clears both flags there — ACPI's charge-limiting
-convention asks that the host stop claiming a direction. The charge current
-then decays for as long as a minute, so there is a window with a substantial
-rate and no direction at all. A pack whose charge is not moving is what
-distinguishes that from a pack running the machine.
-
-### The pack itself, over I²C
-
-Every Framework battery in the EC's devicetree declares `battery-smart`, and
-they share a gauge IC, so the address is the same on every board: **port 3,
-address 0x0b** (the 7-bit form of the 8-bit `0x16` the datasheet names).
-
-The gauge is a **TI bq40z50**. Its Smart Battery registers are generic, but the
-ManufacturerAccess map — safety status, permanent-failure status, state of
-health, the lifetime data blocks — is specific to that part, so anything built
-on those stops working if a pack ever ships with a different gauge.
-
-Useful registers, all plain reads:
-
-| Register | What |
-|---|---|
-| `0x08` Temperature | Tenths of a Kelvin |
-| `0x16` BatteryStatus | Alarm and state bits, see below |
-| `0x17` CycleCount | The pack's own count |
-| `0x1B` ManufactureDate | Packed: day in bits 0–4, month in 5–8, years since 1980 above |
-| `0x3C`–`0x3F` CellVoltage | mV per cell — note the registers run *backwards* against cell numbering, `0x3F` being cell 1 |
-
-Reading the gauge's **firmware version** is the exception: it is a
-ManufacturerAccess block command, which needs a *write* of the subcommand to
-register `0x00` before the block read from `0x44`. Everything else above needs
-no write.
-
-Sealed packs answer the generic registers but return zeros or empty blocks for
-safety status, permanent-failure status and the lifetime data. Those need an
-unseal key, and unsealing is itself a write.
-
-### Cycle count goes stale in the EC
-
-The EC publishes a cycle count in its memory map, and it can be **weeks
-behind**. On one pack the EC said 3 where the gauge said 8.
-
-The value lives in the EC's *static* battery block. `update_static_battery_info`
-fills that block only while the charger task's `need_static` flag is set, and
-clears the flag as soon as one read succeeds. The flag is set on a battery
-presence change and on the paths that revive an unresponsive or deeply
-discharged pack — nothing else. Since the EC outlives host reboots, the
-published count is whatever was true when the EC last initialized the battery.
-
-Everything else in that static block either genuinely cannot change (design
-capacity, the strings) or is separately refreshed by the *dynamic* block on
-every charger pass (voltage, rate, remaining capacity, last-full capacity,
-flags). Cycle count is the one value that both moves and is published as
-static. Read it from the gauge instead.
-
-### Battery temperature
-
-The EC's thermal sensor array carries a battery entry on some boards, but it is
-not a second sensor: its devicetree node is `cros-ec,temp-sensor-battery` at
-the pack's own I²C address, and the binding describes it as "the last polled
-battery temperature". It is the gauge's sensor, relayed.
-
-Reading the gauge directly is better on three counts: tenths of a degree rather
-than whole degrees, current rather than last-polled, and it works on the boards
-whose EC does not relay it at all — the array's entry sits at a different index
-per board, and the AMD and Desktop variants have no battery entry in it.
-
-The array's own encoding, if you do use it: Kelvin offset by 200, with the top
-four byte values reserved for a sensor that cannot answer (not present, error,
-not powered, not calibrated). Freezing is therefore 73, so decode signed —
-`framework_lib`'s own `t - 73` underflows below 0 °C.
-
-### Which status bits actually mean a fault
-
-`BatteryStatus` (`0x16`) splits into states (bits 4–7: fully discharged, fully
-charged, discharging, initialized) and alarms (bits 8–15). The EC's own console
-prints them as two separate groups.
-
-`INIT` is a *good* state: it means the gauge has finished its power-on
-self-test and calibration, so its readings can be trusted. It is not "starting
-up".
-
-Of the alarms, only two mean something is wrong on their own. The bq40z50
-technical reference (SLUUA43A, "Terminate Charge and Discharge Alarms") gives
-every set condition:
-
-- **`OCA`** (overcharged) and **`OTA`** (overtemperature) have only safety and
-  permanent-failure conditions. A healthy pack cannot raise them.
-- **`TCA`** (terminate charge) and **`TDA`** (terminate discharge) each also
-  have a `GaugingStatus()` condition, which fires at every ordinary full charge
-  and every ordinary empty one. Treating these as faults puts a warning on a
-  battery that has merely finished charging. The datasheet counts "valid charge
-  terminations" as a lifetime statistic, which is the same point from the other
-  direction. (`FD`, the fully-discharged *state* at bit 4, has a
-  `GaugingStatus()` condition for the same reason.)
-- **`RCA`** and **`RTA`** fire against thresholds the *host* sets, so on a
-  laptop they duplicate what the OS already warns about.
-
-`TCA` and `TDA` **together** are worth catching. Their gauging conditions are
-mutually exclusive — one requires charge mode, the other discharge mode — so
-both at once can only come from a safety alert, a permanent failure, or the
-pack reporting itself absent. That combination is the only visibility into
-over-current and cell-undervoltage faults without unsealing.
-
-### Reading a health verdict with care
-
-`framework_tool --smartbattery` ends with a health analysis. On a **sealed**
-pack its safety-status and permanent-failure checks read through
-`.unwrap_or(0)` and its lifetime blocks come back empty, so those checks are
-silently skipped — and the code cannot distinguish "nothing wrong" from "could
-not look". A sealed "Status: HEALTHY" rests only on the alarm bits, capacity
-retention and cell balance.
-
-Capacity retention — last-full against design capacity — is what most tools
-call health. It can exceed 100% on a new pack. It says nothing about internal
-resistance or cell balance, so a pack can show excellent retention while a cell
-drifts. Cell spread is the independent signal, and the EC publishes only the
-pack total, so it has to come from the gauge.
-
-## Charging
-
-The names invite confusion, so take them apart first.
-
-### Charge limit
-
-A ceiling on state of charge: a percentage the EC's battery sustainer holds the
-pack at. Sitting at that ceiling is what produces the direction the EC's flags
-cannot express — see
-[what the flag byte means, and does not](#what-the-flag-byte-means-and-does-not).
-
-### Charge current limit
-
-A ceiling on the current drawn while charging, which says nothing about where
-charging stops.
-
-Write-only: no readback exists in any command version
-([framework-system #180](https://github.com/FrameworkComputer/framework-system/issues/180)).
-Anything wanting to report it has to remember what it wrote.
-
-The command has a variant that applies the limit above a state-of-charge
-threshold. It **latches inside the EC**: once applied it is never re-evaluated,
-so a later threshold cannot lift it
-([framework-system #342](https://github.com/FrameworkComputer/framework-system/issues/342)).
-The unconditional form is the one to send unless you want that behaviour.
-
-A charge rate expressed in C is converted against **design capacity** — the
-design capacity in mAh is numerically the 1C current in mA.
-`framework_lib::set_charge_rate_limit` does exactly this and prints the result
-as "Design Current".
-
-### Battery extender
-
-Framework's own addition beside the charge limit, in `battery_extender.c`.
-Five days (`trigger_days`) after the EC starts or the extender last reset, it
-holds a charged pack at 90–95%, and two days later at 85–87%. A reset is 30
-minutes (`reset_minutes`) continuously off the charger: being on the charger
-pushes the reset's deadline forward every second, so only an unplugged stretch
-counts, and it returns the extender to holding nothing with its countdown
-restarted. The countdown itself runs whether or not a charger is attached.
-
-**It lowers the sustainer's window, never the charge limit.** Each stage holds
-the lower of its own window and the one the charge limit sets (the limit less
-five, to the limit), so a limit at or under 95% leaves the first stage nothing
-to change and one at or under 87% the second, and the charge limit command
-answers the value in BBRAM throughout. The `BATTERY_EXTENDER_STAGE1_VOLTAGE`
-and `STAGE2_VOLTAGE` macros beside it are defined on every Framework branch
-and used by nothing, so the charge voltage is not what it moves.
-
-`EC_CMD_BATTERY_EXTENDER` (0x3E24) reads the stage, whether the extender is
-switched off, both settings, and the time left to the first stage and to the
-reset; nothing reports the time left to the second stage. The read is
-sub-command 1 and the write 0, and the write takes the `disable` byte as
-given, so an all-zero request is a write that switches a disabled extender
-back on. `framework_lib` does not implement the command, so `framework_tool`
-cannot show any of it. Every Framework firmware branch carries the same
-handler, `hx20` and `hx30` included.
-
-### The charger itself
-
-Which part it is decides what can be asked about the power coming in, and the
-Laptop 13 Pro's is an **RAA489108**, where the AMD boards carry an ISL9241 and
-its board disables that driver outright. What the two have in common is that
-neither answers with a measured input current here: for this part the driver
-reads the charger's AMON pin through an EC ADC channel, and the board declares
-no such channel, its only named one being the speaker's identity resistor.
-
-So the current arriving from the wall is a limit the EC set and never a
-reading, which is a separate absence from the ports having no current of their
-own — the charger sees one node behind all four of them, so even a reading
-here would not say which port carried it.
-
-`EC_CMD_CHARGE_STATE` (`0x00A0`) restates what other reads already carry. Its
-get-state sub-command copies the charge loop's cached values: whether a
-charger is attached and the pack's charge, both in the battery block, and
-three of the charger's own registers, which hold what it was told rather than
-anything it measured. On the Laptop 13 Pro the input current limit is 95% of
-the negotiated contract's current (`board_set_charge_limit`), and the charge
-current is the current the pack asks for, lowered to the charge current limit
-— it moves between 1C, 0.5C and nothing within seconds as the pack changes
-its request. The charge voltage is the voltage the pack asks for while it
-charges; while the loop asks for nothing, `charge_request` sets it to the
-pack's present voltage plus one charger step, since the ISL9238C driver the
-RAA489108 runs under selects `CHARGER_NARROW_VDC`, which keeps the system rail
-above the pack. The set-param sub-command writes the charger's voltage,
-current, input limit and options, refused only on locked firmware.
-
-### Charging persistence
-
-**The charge limit** is kept in BBRAM, so it outlives an EC restart. But UEFI
-setup re-sends its own stored value at every POST, so a limit set from the OS
-lasts until the next reboot and the standing value lives in BIOS setup.
-
-**The charge current limit** is not stored anywhere the EC could restore it
-from: `user_current_limit` and its pending value are plain statics in the
-charger task, written only by the host command and by the threshold applier,
-and `charger_init` — the hook every EC boot runs — leaves them alone. So an EC
-restart drops it, by nothing more than those statics being initialized again.
-
-**A host reboot does not drop it**, and it is the one control here that
-firmware leaves alone. The EC runs straight through a reboot, so nothing on
-its side clears the value, and UEFI setup does not re-send its own the way it
-does for the charge limit above and for
-[the power button LED's level](#power-button-led-persistence). That is what
-separates it from those two: setup has an option for each of them and none for
-a charge current, so there is nothing stored for POST to re-assert.
-
-The evidence is a contrast rather than a reading, since this control has no
-readback in any command version. Across one reboot the EC survived, with a
-limit standing from before it: the charge limit came back at the value held in
-setup and the LED level came back at setup's, while the current limit was
-still the one written from the OS and the pack still charged at it. The same
-POST overwrote the two controls firmware owns and left this one untouched.
-
-**Watching for the command itself does not work on this machine.** It would be
-better evidence, and `framework_tool --console recent` prints the EC's console
-ring in which a write appears as `HC 0x00a1`, the command's own number, with
-the charger target it produces as `charge_request(<mV>, <mA>)`. But the ring is
-about 4 KB, and through POST the EC fills it with paired `event set` and
-`PORT80:` lines at roughly fifty a second — so it holds some two seconds of
-boot, against a POST that ended ten seconds before the earliest moment a
-userspace unit can read it. Boot destroys its own record. Reaching it wants an
-EC UART or a firmware build with a larger buffer; the console is still good
-for watching a write land while the machine is up, and its timestamps are EC
-uptime, so a dump spanning two host boots is itself proof the EC did not
-restart.
-
-A suspend costs neither of them anything, the EC staying up across one.
 
 ## Power button LED
 
@@ -544,7 +147,7 @@ Nothing set from the OS survives a reboot, and each mechanism below sees to
 that on its own, so fixing any one of them would change nothing.
 
 **BIOS setup re-sends its level at every POST**, exactly as it does
-[the charge limit](#charging-persistence). The option is under Advanced,
+[the charge limit](hardware/battery.md#persistence). The option is under Advanced,
 "Power Button Brightness Level", and its
 value replaces whatever the OS last set. Observed with the option left on
 Auto: a level set from the OS read back as auto after a reboot, with the EC's
@@ -666,7 +269,7 @@ Fn-lock state shares that same byte.
 power button LED level demonstrably are. The one keyboard-backlight write seen
 at boot lands after the kernel's own EC probe, so it is the host restoring a
 saved level rather than firmware, and POST itself cannot be watched here — see
-[the charge current limit](#charging-persistence) for why. This control has a
+[the charge current limit](hardware/battery.md#persistence) for why. This control has a
 getter, so the test is the one that settled those two: set a distinctive
 level, reboot, and read it back.
 

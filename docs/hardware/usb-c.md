@@ -2,7 +2,7 @@
 
 Every USB-C port is driven by a Cypress CCG controller that the EC reaches
 over I²C. The host reaches the controller's own registers by
-[I²C passthrough](../hardware.md#reaching-the-ec) and the EC's copy of each
+[I²C passthrough](ec.md#routes) and the EC's copy of each
 port's state by host command. The controller, not the port, is the unit the
 hardware is organized around, and everything the host reads about a port is
 the EC's cache of it.
@@ -39,8 +39,8 @@ Every heading in the file appears here.
 | Board | Controllers | Ports | Source |
 |---|---|---|---|
 | Laptop 12, Laptop 13 | 2 | 2 + 2 | `CONFIG_PLATFORM_EC_PD_CHIP_MAX_COUNT` default |
-| Laptop 16 | 3 | 2 + 2 + 1 | `lotus/project.conf` raises the count; the third controller is on the expansion bay module |
-| Desktop | 3 | | `tulip/project.conf` raises the count; its ports are not covered here |
+| Laptop 16 | 3 | 2 + 2 + 1 | `lotus/project.conf` and `tulip/project.conf` raise the count; the third controller is on the expansion bay module |
+| Desktop | | 2 | `dogwood`, per the commit message of the [port index fix](#port-index); not in a `sakura` checkout |
 
 - A controller answers at its own I²C address on its own EC bus, and both
   its ports come with it. Nothing addresses a port on its own.
@@ -104,7 +104,7 @@ UCSI connector to controller.connector, per map file:
 | `ucsi_port_12.c` | `sunflower` | 0.1 | 0.2 | 1.2 | 1.1 | |
 | `ucsi_port_13.c` | `azalea`, `marigold` | 0.1 | 0.2 | 1.1 | 1.2 | |
 | `sakura/src/ucsi_port.c` | `sakura` | 0.2 | 0.1 | 1.2 | 1.1 | |
-| `ucsi_port_16.c` | `lotus` | 0.1 | 0.2 | 1.1 | 1.2 | GPU.1 |
+| `ucsi_port_16.c` | `lotus`, `tulip` | 0.1 | 0.2 | 1.1 | 1.2 | GPU.1 |
 
 - The shared Laptop 13 map is commented as covering most Laptop 13
   mainboards, with a board that differs carrying its own file. The Laptop
@@ -246,7 +246,7 @@ is `0x1000` for a controller's first connector and `0x2000` for its second.
 - No port current reading exists anywhere: the four ports pass through load
   switches into one adapter node before the charger, so no charger-side
   reading can be attributed to a port, and
-  [the charger](../hardware.md#the-charger-itself) reports none anyway.
+  [the charger](battery.md#the-charger) reports none anyway.
   Over-current protection is a comparator against a threshold and yields no
   number.
 

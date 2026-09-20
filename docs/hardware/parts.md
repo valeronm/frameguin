@@ -16,7 +16,7 @@ is the part's chapter in [`hardware.md`](../hardware.md).
 |---|---|
 | **Mainboard** | [`dmi`](dmi.md#board-detection) |
 | **Memory** | [`dmi`](dmi.md#memory-detection) |
-| **Battery** | [`ec`](../hardware.md#battery) |
+| **Battery** | [`ec`](battery.md) |
 | **Storage** | [`nvme`](nvme.md) |
 | **Wi-Fi** | [`wireless`](wireless.md) |
 | **Display** | [`drm`](drm.md) |
@@ -80,7 +80,7 @@ Detection reads several things it does not list as parts.
 
 **The mainboard's identity spans two transports.** Its board and BIOS come
 over `dmi`, its EC and PD controller firmware versions over `ec`, which
-[`hardware.md`](../hardware.md#which-board-the-ec-tree-calls-this-machine)
+[`ec.md`](ec.md#which-board-the-ec-tree-calls-this-machine)
 carries and the table above cannot show in one row.
 
 **The keyboard backlight has a chapter but no part and no control.** It is

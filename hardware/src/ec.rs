@@ -69,7 +69,7 @@ pub trait PdPorts: Send + Sync {
     /// How many controllers the EC reports a version for. Each drives at
     /// most two ports, which is what bounds the walk — the EC cannot be
     /// asked how many ports a board has, and asking it past the last one is
-    /// not safe (see `docs/hardware.md`).
+    /// not safe (see `docs/hardware/usb-c.md`).
     fn pd_controllers(&self) -> u8;
     /// None where the EC refuses the number as out of range. A second bound
     /// rather than the only one, since a board has been seen to answer past
