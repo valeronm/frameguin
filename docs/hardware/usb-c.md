@@ -87,7 +87,12 @@ index = controller × 2 + connector
 - Socket position is a per-board table, the UCSI connector maps.
   Consequence: no index-to-position table is right for a whole family.
 - `cmd_get_pd_port_state` answers `EC_RES_INVALID_PARAM` for any port at
-  or past `PD_PORT_COUNT`, and the Linux driver passes the refusal on.
+  or past `PD_PORT_COUNT`, and the Linux driver passes the refusal on. The
+  guard was `>` until
+  [EC commit `a999906`](https://github.com/FrameworkComputer/EmbeddedController/commit/a999906f300ada3e14ecded27ab44564a5e30624)
+  made it `>=`, so firmware built before it accepts a port number equal to
+  the count and reads past the array
+  ([framework-system #253](https://github.com/FrameworkComputer/framework-system/issues/253)).
 - The bound on the port count is controllers × 2, from
   `EC_CMD_READ_PD_VERSION`. It over-counts by one on a Laptop 16, whose
   third controller drives one port.
@@ -117,12 +122,13 @@ What `framework_lib` claims about position:
 
 | Setup | Reading |
 |---|---|
-| `EC_CMD_GET_PD_PORT_STATE` for port 4 on this 4-port board | success, every field set, 65535 mV at 65535 mA: a read past the array's end, where the source has the handler refuse |
+| `EC_CMD_GET_PD_PORT_STATE` for port 4 on this 4-port board, EC `sakura-3.0.2-cf48815` | success, every field set, 65535 mV at 65535 mA: the off-by-one above |
 | `framework_tool --pdports-chromebook` against the measured map below | sides right, front and rear reversed on both |
 | `PdPort::Right01` and `Left23` against the measured map | right |
 
-- Consequence of the first row: the guard depends on the firmware version,
-  so the port count cannot be found by walking until the EC objects.
+- Consequence of the first row: whether the EC objects to port 4 depends
+  on the firmware version, so the port count cannot be found by walking
+  until it does.
 
 ## Port map, observed
 
@@ -421,9 +427,6 @@ Nothing. Every row is an expectation from the source, and the mask
 - Every row of [Persistence](#persistence).
 - The reset hook's path on the Laptop 13 Pro.
 - Every observation above on a CCG5 or CCG6 controller.
-- Port 4 answered with success on EC firmware `sakura-3.0.2-cf48815`,
-  where the `fwk-sakura-20260429` source refuses it. Which of the two is
-  wrong about that build is unsettled.
 
 ## Sources
 

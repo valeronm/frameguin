@@ -8,20 +8,21 @@ A part is something a person bought and can replace as a unit, which is
 the EC are soldered and cannot be ordered separately, so they are reported as
 rows on the mainboard rather than as parts of their own.
 
-[`hardware.md`](../hardware.md) documents what each part reports and how to read it. The Findings
-column links to the relevant chapter.
+Each transport has a file in this folder holding how detection reads it
+and what every part found over it reports. Where none exists yet, the link
+is the part's chapter in [`hardware.md`](../hardware.md).
 
-| Part | Detection transport | Findings |
-|---|---|---|
-| **Mainboard** | [`dmi`](dmi.md#board-detection) | [Which board the EC tree calls this machine](../hardware.md#which-board-the-ec-tree-calls-this-machine) |
-| **Battery** | `ec` | [Battery](../hardware.md#battery) |
-| **Memory** | [`dmi`](dmi.md#memory-detection) | [Memory detection](dmi.md#memory-detection) |
-| **Storage** | `nvme` | [Storage](../hardware.md#storage) |
-| **Wi-Fi** | `wireless` | [Wi-Fi](../hardware.md#wi-fi) |
-| **Display** | `drm` | [Display panel](../hardware.md#display-panel) |
-| **Camera** | `usb` | [Camera](../hardware.md#camera) |
-| **Touchpad** | `touchpad` | [Haptic touchpad](../hardware.md#haptic-touchpad) |
-| **Fingerprint reader** | `usb` | [Fingerprint reader](../hardware.md#fingerprint-reader) |
+| Part | Transport |
+|---|---|
+| **Mainboard** | [`dmi`](dmi.md#board-detection) |
+| **Memory** | [`dmi`](dmi.md#memory-detection) |
+| **Battery** | [`ec`](../hardware.md#battery) |
+| **Storage** | [`nvme`](nvme.md) |
+| **Wi-Fi** | [`wireless`](wireless.md) |
+| **Display** | [`drm`](drm.md) |
+| **Camera** | [`usb`](usb.md#camera) |
+| **Fingerprint reader** | [`usb`](usb.md#fingerprint-reader) |
+| **Touchpad** | [`touchpad`](../hardware.md#haptic-touchpad) |
 
 ## The transports
 
@@ -77,11 +78,10 @@ Detection reads several things it does not list as parts.
 
 ## Gaps
 
-**The mainboard has no chapter in `hardware.md`.** Nothing documents what the
-DMI fields carry or whether a board number identifies a processor. The
-Findings column points at the EC's version string because that is the closest
-existing section, and [`dmi.md`](dmi.md#board-detection) covers the fields
-themselves.
+**The mainboard's identity spans two transports.** Its board and BIOS come
+over `dmi`, its EC and PD controller firmware versions over `ec`, which
+[`hardware.md`](../hardware.md#which-board-the-ec-tree-calls-this-machine)
+carries and the table above cannot show in one row.
 
 **The keyboard backlight has a chapter but no part and no control.** It is
 read and set over the EC like the LEDs. Nothing in the project implements it,
