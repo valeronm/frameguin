@@ -1,7 +1,7 @@
 # Architecture
 
 How the code is arranged, and why. `CLAUDE.md` covers how to work on it;
-`hardware.md` covers what the machine does. This is the shape the code is
+[`hardware/`](hardware/) covers what the machine does. This is the shape the code is
 moving to, one device at a time — the last section says how far it has got.
 
 ## Vocabulary

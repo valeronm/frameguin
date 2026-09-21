@@ -172,9 +172,9 @@ of `framework_tool`'s surface planned.
 
 What the hardware itself does — how each subsystem is reached, what it will
 and will not report, and the quirks that shape any code talking to it — is
-written up in [`docs/hardware.md`](docs/hardware.md), a chapter per subsystem,
-with the chapters that have outgrown it as files under
-[`docs/hardware/`](docs/hardware/). Much of it is not documented elsewhere, so it may be useful whatever you are
+written up under [`docs/hardware/`](docs/hardware/), a file per transport
+or control, indexed by part in `parts.md` and by control in `controls.md`.
+Much of it is not documented elsewhere, so it may be useful whatever you are
 building against these machines.
 
 Cargo workspace:

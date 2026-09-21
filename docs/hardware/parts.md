@@ -9,8 +9,8 @@ the EC are soldered and cannot be ordered separately, so they are reported as
 rows on the mainboard rather than as parts of their own.
 
 Each transport has a file in this folder holding how detection reads it
-and what every part found over it reports. Where none exists yet, the link
-is the part's chapter in [`hardware.md`](../hardware.md).
+and what every part found over it reports. [`controls.md`](controls.md) is
+the matching index by control.
 
 | Part | Transport |
 |---|---|
