@@ -111,7 +111,7 @@ UCSI connector to controller.connector, per map file:
   13 Pro is that board, and its map swaps the two connectors on both
   controllers.
 
-What `framework_lib` claims about position:
+`framework_lib`'s position tables:
 
 | Claim | Where |
 |---|---|
@@ -315,7 +315,7 @@ From the kernel:
 |---|---|
 | Feature report `0xE0` from an HDMI or DisplayPort card, no unlock sent | answered; signature `AA` instead of `CY`, otherwise the same layout: silicon id, a UID matching the USB serial, and a version matching `framework_tool --dp-hdmi-info` |
 
-- Consequence: a card is named by what it says about itself. An id-to-name
+- Consequence: a card is named by what it announces. An id-to-name
   table buys nothing and risks a wrong name for a third-party device sharing
   a bridge chip's ids.
 
@@ -327,7 +327,7 @@ From the kernel:
   `2-2:1.0/net/<interface>`.
 - `carrier` is refused on an interface set down with `ip link set … down`
   and reads `0` with the cable out; `operstate` reads `down` in both cases,
-  so only `carrier` tells them apart.
+  so only `carrier` separates them.
 - `speed` is refused on a driver that keeps no rate.
 - `speed` and `duplex` are each the driver's own call. `r8152` and some
   other USB Ethernet drivers read PHY registers over USB control transfers

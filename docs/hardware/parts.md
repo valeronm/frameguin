@@ -26,7 +26,7 @@ the matching index by control.
 
 ## The transports
 
-Each is a module in `hardware/`, whose crate doc says what every one of them
+Each is a module in `hardware/`, whose crate doc lists what every one of them
 reaches and how — that list lives there alone, so a module added cannot
 leave a copy here stale.
 
@@ -83,6 +83,6 @@ over `dmi`, its EC and PD controller firmware versions over `ec`, which
 [`ec.md`](ec.md#which-board-the-ec-tree-calls-this-machine)
 carries and the table above cannot show in one row.
 
-**The keyboard backlight has a chapter but no part and no control.** It is
+**The keyboard backlight has a file but no part and no control.** It is
 read and set over the EC like the LEDs. Nothing in the project implements it,
 so it appears in neither this list nor the controls.

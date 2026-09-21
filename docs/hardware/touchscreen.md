@@ -41,7 +41,7 @@ Every heading in the file appears here.
   `touchscreen::find` settles which, a precedence rather than a handover.
 - The two routes differ in readback: the pad holds the level it drives and
   answers a get; the panel holds the setting and answers nothing. That is the
-  one difference `TouchSwitch::reading` states, and why the device's mirror
+  one difference `TouchSwitch::reading` carries, and why the device's mirror
   exists for the panel route alone, declared `Lifetime::HostAwake`.
 - The Himax interface answers version reads and carries a vendor collection
   of config and firmware-staging reports, and nothing that stops it
@@ -186,7 +186,7 @@ which calls `\_SB.SGOV` on pad `0x001A1012`, whose low byte is 18:
 
 - Whether an older Laptop 13 board can gate touch at all: a pad driving
   `TS_EN` would be controllable the same way, a tie to a rail would not.
-  The names lean toward a driver, both Core Ultra generations putting a
+  The names favor a driver, both Core Ultra generations putting a
   level shifter in the path and the Chromebook Edition calling its
   equivalent `USI_REPORT_EN`. Settling it takes an older Laptop 13 with a
   touch panel fitted and its pin dump; Core Ultra Series 1 first, its net
