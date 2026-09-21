@@ -1,10 +1,10 @@
-//! The haptic touchpad's transport: `framework_lib` drives it over the pad's
-//! own HID reports rather than through the EC.
+//! The haptic touchpad's transport, over the pad's own HID reports rather
+//! than through the EC: `framework_lib` makes the writes, and the firmware
+//! version is a register read made here.
 //!
 //! What the device needs of it is [`HapticPad`]; [`Hid`] is the pad itself.
-//! Every write is write-only — the firmware ACKs `GET_FEATURE` with zeros —
-//! so what was set is only knowable from the mirror [`crate::device::touchpad`]
-//! keeps.
+//! Both settings are write-only: the pad answers `GET_FEATURE` on their
+//! reports with an empty report.
 
 use frameguin_wire::{self as wire, DeviceError, DeviceResult};
 use framework_lib::touchpad::{self, ClickForce};
@@ -55,6 +55,33 @@ pub(crate) fn haptic_pad(hid: &hidapi::HidApi) -> Option<&hidapi::DeviceInfo> {
         .find(|dev| dev.vendor_id() == touchpad::PIX_VID && HAPTIC_PIDS.contains(&dev.product_id()))
 }
 
+// Where fwupd's `pixart-tp` plugin reads the firmware version.
+const REGISTER_READ: u8 = 0x10;
+const VERSION_LOW: u8 = 0xb2;
+const VERSION_HIGH: u8 = 0xb3;
+
+/// The pad's firmware version in hex, as fwupd spells it without its `0x`;
+/// None where a register would not answer.
+pub(crate) fn firmware(hid: &hidapi::HidApi, pad: &hidapi::DeviceInfo) -> Option<String> {
+    let device = pad.open_device(hid).ok()?;
+    let low = read_register(&device, VERSION_LOW)?;
+    let high = read_register(&device, VERSION_HIGH)?;
+    Some(version(low, high))
+}
+
+fn read_register(device: &hidapi::HidDevice, address: u8) -> Option<u8> {
+    device
+        .send_feature_report(&[touchpad::P274_REPORT_ID, address, REGISTER_READ, 0])
+        .ok()?;
+    let mut reply = [touchpad::P274_REPORT_ID, 0, 0, 0];
+    let read = device.get_feature_report(&mut reply).ok()?;
+    (read == reply.len()).then_some(reply[3])
+}
+
+fn version(low: u8, high: u8) -> String {
+    format!("{:04X}", u16::from_le_bytes([low, high]))
+}
+
 pub(crate) fn click_force(force: wire::ClickForce) -> ClickForce {
     match force {
         wire::ClickForce::Low => ClickForce::Low,
@@ -73,6 +100,11 @@ pub(crate) fn wire_click_force(code: u8) -> Option<wire::ClickForce> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_version_is_the_two_registers_low_byte_first() {
+        assert_eq!(super::version(0x10, 0x13), "1310");
+    }
+
     /// The app offers these steps but cannot link `framework_lib` to learn
     /// them, so `wire` carries the list and this is what keeps the copy
     /// honest. A firmware generation that changes the steps should fail here

@@ -108,6 +108,15 @@ fn key(part: &Identity) -> (PartKind, &str) {
     (part.kind, key)
 }
 
+/// The haptic touchpad ships in no other input cover.
+const PRO_INPUT_COVER_TOUCHPAD: &str = "hid:093a:1343";
+
+fn has_pro_input_cover(parts: &[Identity]) -> bool {
+    parts
+        .iter()
+        .any(|part| key(part) == (PartKind::Touchpad, PRO_INPUT_COVER_TOUCHPAD))
+}
+
 #[must_use]
 pub fn mainboard(platform: Platform) -> Option<Catalogue> {
     match platform {
@@ -170,10 +179,11 @@ pub fn mainboard(platform: Platform) -> Option<Catalogue> {
 /// The marketplace entry for a part. Curated from Framework's own listings,
 /// trademark marks left off; a part with no entry is shown under its own
 /// words, and an entry is never guessed from a resemblance, since a wrong
-/// name reads exactly like a right one. The platform settles a part whose
-/// own identifier does not distinguish the machine it is listed for.
+/// name reads exactly like a right one. The platform, or the `parts` it is
+/// fitted beside, settles a part whose own identifier does not distinguish
+/// what it is listed for.
 #[must_use]
-pub fn catalogue(part: &Identity, platform: Platform) -> Option<Catalogue> {
+pub fn catalogue(part: &Identity, parts: &[Identity], platform: Platform) -> Option<Catalogue> {
     match key(part) {
         (PartKind::Mainboard, _) => mainboard(platform),
         // The EC publishes the pack's name in an eight-byte field, so these
@@ -196,7 +206,7 @@ pub fn catalogue(part: &Identity, platform: Platform) -> Option<Catalogue> {
             Some("https://frame.work/products/16-battery"),
         )),
         // The haptic touchpad is sold only fitted to the input cover frame.
-        (PartKind::Touchpad, "hid:093a:1343") => Some(listed(
+        (PartKind::Touchpad, PRO_INPUT_COVER_TOUCHPAD) => Some(listed(
             "Laptop 13 Pro Input Cover Frame",
             Some("https://frame.work/products/laptop13pro-input-cover-frame"),
         )),
@@ -209,9 +219,13 @@ pub fn catalogue(part: &Identity, platform: Platform) -> Option<Catalogue> {
             "Laptop 12 Webcam Module",
             Some("https://frame.work/products/webcam-module?v=FRAPAB0001"),
         )),
-        // The kit is the sensor and the power button it sits in; the sensor
-        // is Goodix's part, carrying one id across both machines, so which
-        // kit it is comes from the board and nothing the reader says.
+        // The sensor is Goodix's part, carrying one id in every kit. The
+        // Laptop 13 Pro's input cover takes no standalone kit and fits any
+        // Laptop 13 with any mainboard.
+        (PartKind::Fingerprint, "usb:27c6:609c") if has_pro_input_cover(parts) => Some(listed(
+            "Laptop 13 Pro Input Cover Kit",
+            Some("https://frame.work/products/laptop13pro-input-cover-kit"),
+        )),
         (PartKind::Fingerprint, "usb:27c6:609c") if platform.series() == Some(Series::Laptop13) => {
             Some(listed(
                 "Laptop 13 Fingerprint Reader Kit",
@@ -460,9 +474,7 @@ pub fn firmware_name(kind: FirmwareKind) -> String {
         FirmwareKind::Bios => "BIOS".to_owned(),
         FirmwareKind::Ec => "EC".to_owned(),
         FirmwareKind::PowerDelivery(controller) => format!("PD {controller}"),
-        FirmwareKind::Drive | FirmwareKind::Camera | FirmwareKind::Fingerprint => {
-            "Firmware".to_owned()
-        }
+        FirmwareKind::Own => "Firmware".to_owned(),
         FirmwareKind::TouchController => "Controller".to_owned(),
     }
 }
@@ -681,14 +693,14 @@ mod tests {
 
     #[test]
     fn a_part_the_catalogue_does_not_name_keeps_its_own_words() {
-        assert!(catalogue(&part(PartKind::Memory, "dmi-slot:LPCAMM2_0"), here()).is_none());
-        assert!(catalogue(&part(PartKind::Touchpad, "hid:093a:1343"), here()).is_some());
+        assert!(catalogue(&part(PartKind::Memory, "dmi-slot:LPCAMM2_0"), &[], here()).is_none());
+        assert!(catalogue(&part(PartKind::Touchpad, "hid:093a:1343"), &[], here()).is_some());
     }
 
     #[test]
     fn each_webcam_generation_is_its_own_listing() {
-        let second = catalogue(&part(PartKind::Camera, "usb:32ac:001c"), here()).unwrap();
-        let twelve = catalogue(&part(PartKind::Camera, "usb:32ac:001d"), here()).unwrap();
+        let second = catalogue(&part(PartKind::Camera, "usb:32ac:001c"), &[], here()).unwrap();
+        let twelve = catalogue(&part(PartKind::Camera, "usb:32ac:001d"), &[], here()).unwrap();
         assert_eq!(second.model, "Webcam Module (2nd Gen)");
         assert_eq!(twelve.model, "Laptop 12 Webcam Module");
         assert_ne!(second.url, twelve.url);
@@ -696,16 +708,16 @@ mod tests {
 
     #[test]
     fn a_panel_is_catalogued_by_its_ids_and_not_by_words_an_edid_may_omit() {
-        let pro = catalogue(&part(PartKind::Display, "edid:CSW:1322"), here()).unwrap();
+        let pro = catalogue(&part(PartKind::Display, "edid:CSW:1322"), &[], here()).unwrap();
         assert_eq!(pro.model, "Laptop 13 Pro Touchscreen Display Kit - 2.8K");
-        let twelve = catalogue(&part(PartKind::Display, "edid:BOE:0d56"), here()).unwrap();
+        let twelve = catalogue(&part(PartKind::Display, "edid:BOE:0d56"), &[], here()).unwrap();
         assert_eq!(twelve.model, "Laptop 12 Display Kit");
     }
 
     #[test]
     fn each_resolution_of_the_laptop_13_kit_is_its_own_variant() {
-        let lesser = catalogue(&part(PartKind::Display, "edid:BOE:095f"), here()).unwrap();
-        let greater = catalogue(&part(PartKind::Display, "edid:BOE:0cb4"), here()).unwrap();
+        let lesser = catalogue(&part(PartKind::Display, "edid:BOE:095f"), &[], here()).unwrap();
+        let greater = catalogue(&part(PartKind::Display, "edid:BOE:0cb4"), &[], here()).unwrap();
         assert_eq!(lesser.model, "Laptop 13 Display Kit");
         assert_eq!(lesser.model, greater.model);
         assert_eq!(lesser.variant, Some("2.2K"));
@@ -715,8 +727,8 @@ mod tests {
 
     #[test]
     fn the_laptop_16_panel_s_two_revisions_are_the_one_kit() {
-        let first = catalogue(&part(PartKind::Display, "edid:BOE:0bc9"), here()).unwrap();
-        let second = catalogue(&part(PartKind::Display, "edid:BOE:0d79"), here()).unwrap();
+        let first = catalogue(&part(PartKind::Display, "edid:BOE:0bc9"), &[], here()).unwrap();
+        let second = catalogue(&part(PartKind::Display, "edid:BOE:0d79"), &[], here()).unwrap();
         assert_eq!(first.model, "Laptop 16 Display Kit");
         assert_eq!(first, second);
     }
@@ -725,7 +737,7 @@ mod tests {
     fn a_revision_the_listing_does_not_name_is_a_generation_of_its_own() {
         let named = |id| {
             let panel = part(PartKind::Display, id);
-            generation(&panel, catalogue(&panel, here()))
+            generation(&panel, catalogue(&panel, &[], here()))
         };
         assert_eq!(named("edid:BOE:0bc9"), "1st Gen");
         assert_eq!(named("edid:BOE:0d79"), "2nd Gen");
@@ -740,33 +752,43 @@ mod tests {
 
     #[test]
     fn each_discrete_radio_is_its_own_listing_and_a_chipset_s_is_none() {
-        let six = catalogue(&part(PartKind::Wifi, "pci:14c3:0616"), here()).unwrap();
-        let seven = catalogue(&part(PartKind::Wifi, "pci:14c3:0717"), here()).unwrap();
-        let intel = catalogue(&part(PartKind::Wifi, "pci:8086:2725"), here()).unwrap();
+        let six = catalogue(&part(PartKind::Wifi, "pci:14c3:0616"), &[], here()).unwrap();
+        let seven = catalogue(&part(PartKind::Wifi, "pci:14c3:0717"), &[], here()).unwrap();
+        let intel = catalogue(&part(PartKind::Wifi, "pci:8086:2725"), &[], here()).unwrap();
         assert_eq!(six.model, "AMD RZ616 Wi-Fi 6E");
         assert_eq!(seven.model, "AMD RZ717 Wi-Fi 7");
         assert_eq!(intel.model, "Wi-Fi 6E AX210");
         assert_ne!(six.url, seven.url);
         assert_ne!(seven.url, intel.url);
         assert_ne!(intel.url, six.url);
-        assert!(catalogue(&part(PartKind::Wifi, "pci:8086:e440"), here()).is_none());
+        assert!(catalogue(&part(PartKind::Wifi, "pci:8086:e440"), &[], here()).is_none());
     }
 
     #[test]
     fn one_reader_is_two_kits_and_the_board_says_which() {
         let reader = part(PartKind::Fingerprint, "usb:27c6:609c");
-        let thirteen = catalogue(&reader, here()).unwrap();
-        let sixteen = catalogue(&reader, Platform::Laptop16AmdAi300).unwrap();
+        let thirteen = catalogue(&reader, &[], Platform::Laptop13Gen13).unwrap();
+        let sixteen = catalogue(&reader, &[], Platform::Laptop16AmdAi300).unwrap();
         assert_eq!(thirteen.model, "Laptop 13 Fingerprint Reader Kit");
         assert_eq!(sixteen.model, "Laptop 16 Fingerprint Reader Kit");
         assert_ne!(thirteen.url, sixteen.url);
     }
 
     #[test]
+    fn a_reader_beside_the_pro_touchpad_is_the_pro_input_cover_kit_on_any_laptop_13() {
+        let reader = part(PartKind::Fingerprint, "usb:27c6:609c");
+        let pro_cover = [part(PartKind::Touchpad, "hid:093a:1343"), reader.clone()];
+        for platform in [here(), Platform::Laptop13Gen13] {
+            let sold = catalogue(&reader, &pro_cover, platform).unwrap();
+            assert_eq!(sold.model, "Laptop 13 Pro Input Cover Kit");
+        }
+    }
+
+    #[test]
     fn the_same_reader_in_a_machine_of_no_known_kit_is_no_listing() {
         let reader = part(PartKind::Fingerprint, "usb:27c6:609c");
-        assert!(catalogue(&reader, Platform::Laptop12Core3).is_none());
-        assert!(catalogue(&reader, Platform::Unknown).is_none());
+        assert!(catalogue(&reader, &[], Platform::Laptop12Core3).is_none());
+        assert!(catalogue(&reader, &[], Platform::Unknown).is_none());
     }
 
     #[test]
@@ -775,26 +797,26 @@ mod tests {
             model: "FRANEDA".to_owned(),
             ..part(PartKind::Battery, "sbs:FRANEDA")
         };
-        assert!(catalogue(&pack, here()).is_some());
+        assert!(catalogue(&pack, &[], here()).is_some());
     }
 
     #[test]
     fn a_board_is_catalogued_by_the_platform_and_not_by_its_own_identity() {
-        let sold = catalogue(&board(), Platform::Laptop13Amd7040).unwrap();
+        let sold = catalogue(&board(), &[], Platform::Laptop13Amd7040).unwrap();
         assert_eq!(sold.model, "Laptop 13 Mainboard");
         assert_eq!(sold.variant, Some("AMD Ryzen 7040 Series"));
     }
 
     #[test]
     fn a_board_framework_no_longer_sells_is_named_without_a_link() {
-        let sold = catalogue(&board(), Platform::Laptop13Gen12).unwrap();
+        let sold = catalogue(&board(), &[], Platform::Laptop13Gen12).unwrap();
         assert_eq!(sold.model, "Laptop 13 Mainboard");
         assert!(sold.url.is_none());
     }
 
     #[test]
     fn a_board_of_no_known_machine_keeps_its_own_words() {
-        assert!(catalogue(&board(), Platform::Unknown).is_none());
+        assert!(catalogue(&board(), &[], Platform::Unknown).is_none());
     }
 
     #[test]
@@ -835,7 +857,7 @@ mod tests {
             model: "Laptop 13 Pro (Intel Core Ultra Series 3)".to_owned(),
             ..board()
         };
-        let sold = catalogue(&board, here());
+        let sold = catalogue(&board, &[], here());
         assert_eq!(name(&board, sold), "Laptop 13 Pro Mainboard");
         assert_eq!(
             part_number(&board, sold),
@@ -854,13 +876,13 @@ mod tests {
             part_number: "FRANMJCP07".to_owned(),
             ..board()
         };
-        let sold = catalogue(&board, here());
+        let sold = catalogue(&board, &[], here());
         assert_eq!(part_number(&board, sold), "FRANMJCP07");
         let pack = Identity {
             model: "FRANEDA".to_owned(),
             ..part(PartKind::Battery, "sbs:FRANEDA")
         };
-        assert_eq!(part_number(&pack, catalogue(&pack, here())), "FRANEDA");
+        assert_eq!(part_number(&pack, catalogue(&pack, &[], here())), "FRANEDA");
         assert_eq!(part_number(&pack, None), "");
     }
 
@@ -870,7 +892,7 @@ mod tests {
             model: "MT7925 (RZ717) Wi-Fi 7 160MHz".to_owned(),
             ..part(PartKind::Wifi, "pci:14c3:0717")
         };
-        assert_eq!(part_number(&radio, catalogue(&radio, here())), "");
+        assert_eq!(part_number(&radio, catalogue(&radio, &[], here())), "");
     }
 
     #[test]
@@ -1019,7 +1041,7 @@ mod tests {
             part_number: "SD PC SN7100S SDFPNSL-1T00".to_owned(),
             firmware: vec![Firmware {
                 built: "2025-01-02".to_owned(),
-                ..Firmware::new(FirmwareKind::Drive, "7612M000")
+                ..Firmware::new(FirmwareKind::Own, "7612M000")
             }],
             ..part(PartKind::Storage, "pci:15b7:5045")
         };

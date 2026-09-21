@@ -54,9 +54,8 @@ pub fn of_hid(kind: PartKind, dev: &hidapi::DeviceInfo, resolved: &str) -> Ident
 /// A part on the USB bus, from what its descriptor announces. The ids are
 /// the USB-IF registry's, and the identifier names the model rather than the
 /// unit: two of one part carry one id and are told apart by serial. The
-/// release the descriptor states is the part's firmware, `carrier` naming
-/// what runs it.
-pub fn of_usb(kind: PartKind, carrier: FirmwareKind, device: &BusDevice) -> Identity {
+/// release the descriptor states is the part's firmware.
+pub fn of_usb(kind: PartKind, device: &BusDevice) -> Identity {
     Identity {
         kind,
         vendor: format!("{:04x}", device.vendor_id),
@@ -66,7 +65,7 @@ pub fn of_usb(kind: PartKind, carrier: FirmwareKind, device: &BusDevice) -> Iden
         serial: device.serial.clone(),
         id: format!("usb:{:04x}:{:04x}", device.vendor_id, device.product_id),
         firmware: (!device.version.is_empty())
-            .then(|| Firmware::new(carrier, &device.version))
+            .then(|| Firmware::new(FirmwareKind::Own, &device.version))
             .into_iter()
             .collect(),
         details: Vec::new(),
@@ -154,7 +153,7 @@ pub trait Part {
 
 #[cfg(test)]
 mod tests {
-    use super::{Detail, FirmwareKind, PartKind, of_usb, sbs};
+    use super::{Detail, PartKind, of_usb, sbs};
     use crate::testing::webcam;
     use crate::usb::BusDevice;
 
@@ -164,11 +163,7 @@ mod tests {
             version: String::new(),
             ..webcam()
         };
-        assert!(
-            of_usb(PartKind::Camera, FirmwareKind::Camera, &silent)
-                .firmware
-                .is_empty()
-        );
+        assert!(of_usb(PartKind::Camera, &silent).firmware.is_empty());
     }
 
     #[test]

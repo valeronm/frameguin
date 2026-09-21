@@ -2,7 +2,7 @@
 //! EC's fingerprint commands drive is the power button's LED, which is
 //! `power_led.rs`.
 
-use crate::part::{self, FirmwareKind, Identity, Part, PartKind};
+use crate::part::{self, Identity, Part, PartKind};
 use crate::usb::{self, BusDevice};
 
 /// The sensor Framework fits, by its maker's ids. Goodix sells to whoever
@@ -24,7 +24,7 @@ impl Part for Fingerprint {
 impl Fingerprint {
     pub(crate) fn detect(bus: &[BusDevice]) -> Option<Self> {
         usb::matching(bus, GOODIX_VID, &[READER_PID]).map(|device| Self {
-            identity: part::of_usb(PartKind::Fingerprint, FirmwareKind::Fingerprint, device),
+            identity: part::of_usb(PartKind::Fingerprint, device),
         })
     }
 }
@@ -47,7 +47,7 @@ mod tests {
         assert_eq!(identity.id, "usb:27c6:609c");
         assert_eq!(
             identity.firmware,
-            vec![Firmware::new(FirmwareKind::Fingerprint, "1.0.0")]
+            vec![Firmware::new(FirmwareKind::Own, "1.0.0")]
         );
     }
 

@@ -107,7 +107,7 @@ impl Panes {
         } = self;
         let rows: Vec<(String, adw::PreferencesPage)> = inventory(parts)
             .into_iter()
-            .map(|(part, title)| (title, details(part, catalogue(part, platform))))
+            .map(|(part, title)| (title, details(part, catalogue(part, parts, platform))))
             .collect();
         if rows.is_empty() {
             pages.add_child(

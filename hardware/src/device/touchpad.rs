@@ -7,7 +7,7 @@ use frameguin_wire::{
 
 use crate::lifetime::Lifetime;
 use crate::mirror::{Mirror, Mirrors};
-use crate::part::{self, Identity, Part, PartKind};
+use crate::part::{self, Firmware, FirmwareKind, Identity, Part, PartKind};
 use crate::state::Stored;
 use crate::touchpad::{self, HapticPad};
 use crate::udev;
@@ -58,10 +58,14 @@ impl Touchpad {
     /// what the bus said it was.
     pub(crate) fn detect(hid: &hidapi::HidApi, mirrors: &Mirrors) -> Option<Self> {
         let pad = touchpad::haptic_pad(hid)?;
-        // No firmware version: the haptic pad's registers are in no table
-        // this can trust.
         let resolved = udev::usb_vendor(pad.vendor_id()).unwrap_or_default();
-        let identity = part::of_hid(PartKind::Touchpad, pad, &resolved);
+        let identity = Identity {
+            firmware: touchpad::firmware(hid, pad)
+                .map(|version| Firmware::new(FirmwareKind::Own, &version))
+                .into_iter()
+                .collect(),
+            ..part::of_hid(PartKind::Touchpad, pad, &resolved)
+        };
         Some(Self::new(Box::new(touchpad::Hid), mirrors, identity))
     }
 

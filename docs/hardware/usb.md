@@ -68,6 +68,12 @@ Every heading in the file appears here.
 - Framework sells the reader as a kit per machine, and one Goodix id covers
   the Laptop 13 and the Laptop 16. Consequence: what the reader announces
   cannot name the kit.
+- The Laptop 13 Pro's input cover takes no standalone kit, a mismatch in
+  geometry and in the flat cable, so its reader is sold only in the Laptop
+  13 Pro Input Cover Kit. That cover fits every Laptop 13, and every
+  mainboard fits either chassis. Consequence: the board cannot name the kit
+  either, and the haptic touchpad, which ships only in that cover, settles
+  it.
 - The Laptop 12 is the exception twice: the 13th Gen Intel board has no
   reader, and the Core Series 3 refresh carries a FocalTech sensor, vendor
   id `2808`. libfprint 1.94.100 added four FocalTech product ids, and which
@@ -97,5 +103,12 @@ Every heading in the file appears here.
   — `framework_lib/src/camera.rs` for the webcam ids and the release
   spelling.
 - libfprint 1.94.100's release notes, for the FocalTech ids.
+- Framework's knowledge base,
+  [Framework Laptop 13 and Framework Laptop 13 Pro Part Compatibility](https://knowledgebase.frame.work/framework-laptop-13-and-framework-laptop-13-pro-part-compatibility-HJ2uwC6Ze),
+  for the Pro input cover refusing the standalone kit and fitting every
+  Laptop 13, and for every mainboard fitting either chassis.
+- The marketplace's
+  [Laptop 13 Pro Input Cover Kit](https://frame.work/products/laptop13pro-input-cover-kit)
+  page, for the reader being part of it.
 - Probe logs of Framework laptops published at linux-hardware.org — the ids
   of every board other than the Laptop 13 Pro.

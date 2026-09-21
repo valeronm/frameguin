@@ -768,10 +768,10 @@ pub enum FirmwareKind {
     Ec,
     /// A USB-C power delivery controller, by the EC's controller number.
     PowerDelivery(u8),
-    Drive,
+    /// The part's own, on a part carrying no other firmware to tell it
+    /// apart from.
+    Own,
     TouchController,
-    Camera,
-    Fingerprint,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -780,10 +780,8 @@ enum Carrier {
     Bios,
     Ec,
     PowerDelivery,
-    Drive,
+    Own,
     TouchController,
-    Camera,
-    Fingerprint,
 }
 
 impl Serialize for FirmwareKind {
@@ -792,10 +790,8 @@ impl Serialize for FirmwareKind {
             Self::Bios => (Carrier::Bios, 0u8),
             Self::Ec => (Carrier::Ec, 0),
             Self::PowerDelivery(controller) => (Carrier::PowerDelivery, controller),
-            Self::Drive => (Carrier::Drive, 0),
+            Self::Own => (Carrier::Own, 0),
             Self::TouchController => (Carrier::TouchController, 0),
-            Self::Camera => (Carrier::Camera, 0),
-            Self::Fingerprint => (Carrier::Fingerprint, 0),
         }
         .serialize(serializer)
     }
@@ -808,10 +804,8 @@ impl<'de> Deserialize<'de> for FirmwareKind {
             Carrier::Bios => Self::Bios,
             Carrier::Ec => Self::Ec,
             Carrier::PowerDelivery => Self::PowerDelivery(controller),
-            Carrier::Drive => Self::Drive,
+            Carrier::Own => Self::Own,
             Carrier::TouchController => Self::TouchController,
-            Carrier::Camera => Self::Camera,
-            Carrier::Fingerprint => Self::Fingerprint,
         })
     }
 }
@@ -1002,7 +996,7 @@ mod tests {
             FirmwareKind::Bios,
             FirmwareKind::Ec,
             FirmwareKind::PowerDelivery(2),
-            FirmwareKind::Drive,
+            FirmwareKind::Own,
             FirmwareKind::TouchController,
         ];
         let encoded = to_bytes(Context::new_dbus(LE, 0), &kinds).unwrap();

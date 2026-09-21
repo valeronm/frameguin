@@ -40,7 +40,7 @@ impl Drive {
                 part_number,
                 serial: controller.serial.clone(),
                 firmware: (!controller.firmware.is_empty())
-                    .then(|| Firmware::new(FirmwareKind::Drive, &controller.firmware))
+                    .then(|| Firmware::new(FirmwareKind::Own, &controller.firmware))
                     .into_iter()
                     .collect(),
                 details: controller
@@ -110,7 +110,7 @@ mod tests {
         assert_eq!(identity.id, "pci:15b7:5045");
         assert_eq!(
             identity.firmware,
-            [Firmware::new(FirmwareKind::Drive, "7612M000")]
+            [Firmware::new(FirmwareKind::Own, "7612M000")]
         );
     }
 

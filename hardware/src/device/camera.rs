@@ -2,7 +2,7 @@
 
 use framework_lib::ccgx::hid::FRAMEWORK_VID;
 
-use crate::part::{self, FirmwareKind, Identity, Part, PartKind};
+use crate::part::{self, Identity, Part, PartKind};
 use crate::usb::{self, BusDevice};
 
 /// The module fitted to the Laptop 13 and 16, and the Laptop 12's own.
@@ -27,7 +27,7 @@ impl Camera {
     /// nobody sold reads exactly like one that is right.
     pub(crate) fn detect(bus: &[BusDevice]) -> Option<Self> {
         usb::matching(bus, FRAMEWORK_VID, &WEBCAM_PIDS).map(|device| Self {
-            identity: part::of_usb(PartKind::Camera, FirmwareKind::Camera, device),
+            identity: part::of_usb(PartKind::Camera, device),
         })
     }
 }
@@ -51,7 +51,7 @@ mod tests {
         assert_eq!(identity.id, "usb:32ac:001c");
         assert_eq!(
             identity.firmware,
-            vec![Firmware::new(FirmwareKind::Camera, "1.1.1")]
+            vec![Firmware::new(FirmwareKind::Own, "1.1.1")]
         );
     }
 
