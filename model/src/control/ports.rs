@@ -21,11 +21,11 @@ impl<C: PortsControl> Ports<C> {
     }
 
     pub async fn detect(control: &Rc<C>, placement: Placement) -> Result<Option<Self>> {
-        Ok(present(control.ports(false).await)?.map(|_| Self::new(control.clone(), placement)))
+        Ok(present(control.ports(0).await)?.map(|_| Self::new(control.clone(), placement)))
     }
 
-    pub async fn read(&self, cables: bool) -> Result<Vec<PortState>> {
-        self.control.ports(cables).await
+    pub async fn read(&self, controller_ports: u8) -> Result<Vec<PortState>> {
+        self.control.ports(controller_ports).await
     }
 
     /// Where this board's sockets are, fixed for the device's run.
@@ -65,11 +65,22 @@ pub fn carried(port: &PortState) -> Option<String> {
         return None;
     }
     Some(format!(
-        "{:.1} V, {:.2} A ({})",
-        f64::from(port.millivolts) / 1000.0,
+        "{}, {:.2} A ({})",
+        volts(port.millivolts),
         f64::from(port.milliamps) / 1000.0,
         watts(port),
     ))
+}
+
+/// The bus voltage the port's controller measured, and None where it was not
+/// read.
+#[must_use]
+pub fn measured_label(port: &PortState) -> Option<String> {
+    (port.measured_millivolts > 0).then(|| volts(port.measured_millivolts))
+}
+
+fn volts(millivolts: u16) -> String {
+    format!("{:.1} V", f64::from(millivolts) / 1000.0)
 }
 
 /// The port the machine draws its power through, named as that rather than as
@@ -274,8 +285,8 @@ mod tests {
 
     use super::{
         Ports, cable_length_label, cable_rating_label, cable_speed_label, carried, data_role_label,
-        display_port_label, partner_label, port_summary, power_role_label, powering,
-        powering_label, supply_label, supply_summary,
+        display_port_label, measured_label, partner_label, port_summary, power_role_label,
+        powering, powering_label, supply_label, supply_summary,
     };
     use crate::port::Placement;
     use crate::testing::{Machine, absent, port, ready};
@@ -305,9 +316,19 @@ mod tests {
     #[test]
     fn a_read_carries_every_port() {
         let ports = Ports::new(Machine::new(), Placement::default());
-        let read = ready(ports.read(false)).unwrap();
+        let read = ready(ports.read(0)).unwrap();
         assert_eq!(read.len(), 4);
         assert!(read[0].charging);
+    }
+
+    #[test]
+    fn a_measured_voltage_reads_to_a_tenth_of_a_volt() {
+        let measured = PortState {
+            measured_millivolts: 20_100,
+            ..port(0)
+        };
+        assert_eq!(measured_label(&measured).as_deref(), Some("20.1 V"));
+        assert_eq!(measured_label(&port(0)), None);
     }
 
     #[test]

@@ -21,8 +21,8 @@
 //! `touchscreen` settles
 //! which of two routes a machine has, and is the role over either. `sbs` is
 //! the pack's own registers and what their words mean, `pd` what the EC's
-//! cached PD controller version means, `cable` what a PD controller keeps
-//! about a port's cable and where each board's controllers sit, `ccg3` what
+//! cached PD controller version means, `cable` what a PD controller reads
+//! of a port's cable and bus and where each board's controllers sit, `ccg3` what
 //! an HDMI or `DisplayPort` card's firmware report means, `platform` which
 //! board the DMI strings name, `extender` what the battery extender
 //! command carries, `edid` what a panel's own block says it is,

@@ -466,7 +466,7 @@ pub(crate) async fn refresh_tray(handle: &ksni::blocking::Handle<TrayIcon>, daem
         }
     }
     if let Some(ports) = &controls.ports {
-        values.ports = ports.read(false).await.ok();
+        values.ports = ports.read(0).await.ok();
     }
     if let Some(touchscreen) = &controls.touchscreen {
         values.touchscreen = touchscreen.read().await.ok();

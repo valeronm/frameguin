@@ -619,9 +619,9 @@ pub struct Cable {
 
 /// One USB-C port, as the EC's copy of its controller's state has it.
 ///
-/// Every field but `cable` is the EC's cache rather than the port itself: a controller
-/// whose ports have been disabled stops updating it, and the entry then
-/// stands at whatever it last saw. `docs/hardware/usb-c.md` has the reading.
+/// Every field but `cable` and `measured_millivolts` is the EC's cache rather
+/// than the port itself: a controller whose ports have been disabled stops
+/// updating it, and the entry then stands at whatever it last saw. `docs/hardware/usb-c.md` has the reading.
 #[derive(Serialize, Deserialize, Type, Clone, PartialEq, Eq, Debug)]
 #[zvariant(crate = "zbus::zvariant")]
 #[allow(
@@ -656,6 +656,9 @@ pub struct PortState {
     /// Read from the port's controller rather than the EC's cache, and only
     /// while something is attached.
     pub cable: Cable,
+    /// The bus voltage the port's controller measures, in mV, read with
+    /// `cable`; zero where it was not read.
+    pub measured_millivolts: u16,
 }
 
 /// What kind of part a device is, named for the thing a person would buy.

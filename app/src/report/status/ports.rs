@@ -8,13 +8,13 @@
 //! nothing on one nobody measured.
 
 use std::cell::RefCell;
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 
 use adw::prelude::*;
 use frameguin_model::control::ports::{
     NO_E_MARKER, NOTHING_ATTACHED, POWERING_THE_MACHINE, cable_length_label, cable_rating_label,
     cable_speed_label, carried, contract_label, data_role_label, display_port_label, epr_label,
-    partner_label, port_summary, power_role_label, powering_label,
+    measured_label, partner_label, port_summary, power_role_label, powering_label,
 };
 use frameguin_model::control::usb::{capacity_label, device_name, network_label, speed_label};
 use frameguin_model::port::Placement;
@@ -22,7 +22,7 @@ use frameguin_wire::{Attached, CableMarking, PortPartner, PortState};
 use gtk4 as gtk;
 
 use super::{Sidebar, Target};
-use crate::reading::{Feed, Wants};
+use crate::reading::{Feed, Wants, want_while_mapped};
 use crate::report::value;
 
 /// The section's rows, one per port the last reading carried.
@@ -64,14 +64,16 @@ pub(super) fn add(sidebar: &Rc<Sidebar>, feed: &Rc<Feed>, usb: bool, placement: 
 
     let wants = Wants {
         ports: true,
-        cables: true,
         usb: usb && placement.wired(),
         ..Wants::default()
     };
     let showing = sidebar.clone();
+    // Weak: this closure is the feed's own subscription.
+    let asking = Rc::downgrade(feed);
     sidebar.follow(feed, wants, move |reading| {
         if let Some(ports) = &reading.ports {
-            section.show(&showing, ports, reading.usb.as_deref().unwrap_or_default());
+            let devices = reading.usb.as_deref().unwrap_or_default();
+            section.show(&showing, &asking, ports, devices);
         }
     });
 }
@@ -79,7 +81,13 @@ pub(super) fn add(sidebar: &Rc<Sidebar>, feed: &Rc<Feed>, usb: bool, placement: 
 impl Section {
     /// The rows are rebuilt only where the set of ports changed, which on a
     /// board's fixed ports is the first reading alone.
-    fn show(&self, sidebar: &Sidebar, ports: &[PortState], devices: &[Attached]) {
+    fn show(
+        &self,
+        sidebar: &Sidebar,
+        feed: &Weak<Feed>,
+        ports: &[PortState],
+        devices: &[Attached],
+    ) {
         let placement = self.placement;
         let mut ports: Vec<&PortState> = ports.iter().collect();
         ports.sort_by_key(|state| placement.order(state.index));
@@ -94,10 +102,20 @@ impl Section {
             for port in gone {
                 sidebar.remove(&port.row);
             }
+            let feed = feed.upgrade();
             let built = ports
                 .iter()
                 .map(|state| {
                     let page = adw::PreferencesPage::new();
+                    // The section draws every page; a page on screen only asks
+                    // for its own controller's registers.
+                    if let Some(feed) = &feed {
+                        let controller = Wants {
+                            controller_ports: 1 << state.index,
+                            ..Wants::default()
+                        };
+                        want_while_mapped(feed, &page, controller);
+                    }
                     let row = sidebar.add(&self.list, &placement.label(state.index), &page);
                     row.set_use_markup(false);
                     Port {
@@ -223,14 +241,18 @@ fn contract_group(state: &PortState) -> Option<adw::PreferencesGroup> {
         return None;
     }
     let supply = carried(state);
+    let measured = measured_label(state);
     let epr = epr_label(state.epr);
-    if supply.is_none() && epr.is_none() {
+    if supply.is_none() && measured.is_none() && epr.is_none() {
         return None;
     }
     let group = adw::PreferencesGroup::new();
     group.set_title(contract_label(state.contract));
     if let Some(supply) = supply {
         value(&group, "Supply").set_label(&supply);
+    }
+    if let Some(measured) = measured {
+        value(&group, "Measured").set_label(&measured);
     }
     if let Some(epr) = epr {
         value(&group, "Extended power range").set_label(epr);

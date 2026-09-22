@@ -236,7 +236,7 @@ is `0x1000` for a controller's first connector and `0x2000` for its second.
 
 | HPI name | EC name | Address | Units |
 |---|---|---|---|
-| `BUS_VOLTAGE` | `CCG_TYPE_C_VOLTAGE_REG` | block + `0x0D` | 100 mV |
+| `BUS_VOLTAGE` | `CCG_TYPE_C_VOLTAGE_REG` | block + `0x0D`, 16 bits | 100 mV |
 | `DP_ALT_MODE_CONFIG` | `CCG_DP_ALT_MODE_CONFIG_REG` | block + `0x2B` | bits above |
 | `BUS_CURRENT` | `CCG_PORT_CURRENT_REG`, printed `TYPE_C_CURRENT` | block + `0x58` | 50 mA |
 | `PORT_HOST_CAP` | `CCG_PORT_HOST_CAP_REG` | block + `0x5C` | |
@@ -245,7 +245,7 @@ is `0x1000` for a controller's first connector and `0x2000` for its second.
 | `PD_STATUS` | `CCG_PD_STATUS_REG` | block + `0x08` | byte 1 bit 3 e-marker present; byte 2 bit 6 active cable |
 | `CABLE_VDO` | — | block + `0x18` | the Cable VDO as the cable's e-marker sent it, 4 bytes |
 
-- The EC reads `BUS_VOLTAGE` and `BUS_CURRENT` only in its console dump.
+- The EC reads `BUS_VOLTAGE` and `BUS_CURRENT` only in its console dump; frameguin takes `BUS_VOLTAGE` from the same read as the cable registers, for the port page's measured voltage.
 - No port current reading exists anywhere: the four ports pass through load
   switches into one adapter node before the charger, so no charger-side
   reading can be attributed to a port, and
@@ -266,6 +266,7 @@ is `0x1000` for a controller's first connector and `0x2000` for its second.
 | `PDPORT_ENABLE` | after each write | reads back what was written |
 | `PD_STATUS`, `CABLE_VDO` | charging cable, laptop as sink | `76 9c 25 01` and `0x000a6640`: e-marker present, passive; USB 2.0, 5 A, 50 V, EPR-capable, latency 20–30 ns (about 3 m) |
 | `PD_STATUS`, `CABLE_VDO` | empty port | no e-marker, VDO 0 |
+| block + `0x08` to `0x1B` in one read | all four ports, one with a charging cable | both registers byte for byte as their separate reads, with `BUS_VOLTAGE` and contract data between |
 
 - Consequence: `BUS_VOLTAGE` is an ADC and not the contract restated, and
   `BUS_CURRENT` reports nothing on a CCG8.

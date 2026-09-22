@@ -69,7 +69,7 @@ const CONDITION_EVERY: u32 = 5;
 /// own call to the daemon, over a connection whose calls block one another, so
 /// a view showing none of them must cost none of them — and a new extra
 /// should be a field here rather than another parameter everywhere.
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
 #[allow(
     clippy::struct_excessive_bools,
     reason = "each flag is an independent extra a view asks for; `with` merges them by OR, and no combination is invalid"
@@ -82,10 +82,10 @@ pub(crate) struct Wants {
     /// only, so this rides the base cadence rather than being spaced the way
     /// the condition is.
     pub(crate) ports: bool,
-    /// Each attached port's cable, read with the ports and asking for them
-    /// too: two I2C transfers to a PD controller per attached port, so only
-    /// the view that shows a cable asks.
-    pub(crate) cables: bool,
+    /// Bit n asks for port n's cable and measured voltage, read with the
+    /// ports and asking for them too: an I2C transfer to a PD controller per
+    /// port asked for that has something attached.
+    pub(crate) controller_ports: u8,
     /// Two host commands and no transfer past them: cheap enough for every
     /// tick.
     pub(crate) chassis: bool,
@@ -109,7 +109,7 @@ impl Wants {
             battery: self.battery || other.battery,
             condition: self.condition || other.condition,
             ports: self.ports || other.ports,
-            cables: self.cables || other.cables,
+            controller_ports: self.controller_ports | other.controller_ports,
             chassis: self.chassis || other.chassis,
             deck: self.deck || other.deck,
             privacy_switches: self.privacy_switches || other.privacy_switches,
@@ -162,7 +162,7 @@ impl Extra {
         attempt: "Reading the battery's condition",
     };
     const PORTS: Self = Self {
-        wanted: |w| w.ports || w.cables,
+        wanted: |w| w.ports || w.controller_ports != 0,
         attempt: "Reading the USB-C ports",
     };
     const CHASSIS: Self = Self {
@@ -314,6 +314,9 @@ pub(crate) struct Feed {
     /// see [`CONDITION_EVERY`]. Rewound whenever a view arrives, so what it
     /// spaces is repetition and never a window's first sight of anything.
     ticks: Cell<u32>,
+    /// Whether a read for a newly arrived want is already spawned, so views
+    /// arriving together are served by one.
+    catching_up: Cell<bool>,
 }
 
 impl Feed {
@@ -325,13 +328,16 @@ impl Feed {
             timer: Cell::default(),
             reading: Cell::default(),
             ticks: Cell::default(),
+            catching_up: Cell::default(),
         }
     }
 
     /// Registers a view, and starts the timer where this is the first.
     ///
-    /// Takes no reading of its own: a window subscribes and then fills itself,
-    /// and that read is the one placed to say so when it fails.
+    /// Takes no reading for the first view: its window subscribes and then
+    /// fills itself, and that read is the one placed to say so when it fails.
+    /// A later view asking for something no view wanted yet is read for at
+    /// once, silently as a tick is, rather than a tick later.
     fn subscribe(
         self: &Rc<Self>,
         wants: Wants,
@@ -347,6 +353,7 @@ impl Feed {
         if wants.condition {
             self.ticks.set(0);
         }
+        let before = self.wanted(|_| true);
         let first = {
             let mut views = self.views.borrow_mut();
             views.push((
@@ -361,6 +368,8 @@ impl Feed {
         };
         if first {
             self.arm();
+        } else if before.with(wants) != before {
+            self.catch_up();
         }
         Subscription {
             feed: self.clone(),
@@ -377,6 +386,21 @@ impl Feed {
         if empty {
             self.timer.set(None);
         }
+    }
+
+    /// A read already going leaves the new want to the next tick, since reads
+    /// run one at a time against the daemon.
+    fn catch_up(self: &Rc<Self>) {
+        if self.catching_up.replace(true) {
+            return;
+        }
+        let feed = self.clone();
+        glib::spawn_future_local(async move {
+            feed.catching_up.set(false);
+            if feed.reading.get() == 0 {
+                let _ = feed.read().await;
+            }
+        });
     }
 
     fn arm(self: &Rc<Self>) {
@@ -474,7 +498,10 @@ impl Feed {
         let ports = extras
             .read(
                 Extra::PORTS,
-                controls.ports.as_ref().map(|p| p.read(wants.cables)),
+                controls
+                    .ports
+                    .as_ref()
+                    .map(|p| p.read(wants.controller_ports)),
             )
             .await;
         let chassis_control = controls.chassis.as_ref();
@@ -540,6 +567,13 @@ impl Feed {
         }
         Ok((reading, extras.failures))
     }
+}
+
+/// Raises `wants` for as long as `widget` is on screen, for a view another
+/// subscription draws: the feed merges every view's wants into one read and
+/// hands it to all of them.
+pub(crate) fn want_while_mapped(feed: &Rc<Feed>, widget: &impl IsA<gtk::Widget>, wants: Wants) {
+    show_while_mapped(feed, widget, wants, |_| {});
 }
 
 /// Shows the reading on a view for as long as `widget` is on screen, the

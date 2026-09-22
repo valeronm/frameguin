@@ -247,11 +247,12 @@ pub(crate) fn port(index: u8) -> PortState {
         cc: CcPolarity::Cc1,
         epr: Epr::Unsupported,
         cable: Cable::default(),
+        measured_millivolts: 0,
     }
 }
 
 impl PortsControl for Machine {
-    async fn ports(&self, _cables: bool) -> DeviceResult<Vec<PortState>> {
+    async fn ports(&self, _controller_ports: u8) -> DeviceResult<Vec<PortState>> {
         self.ports.read((0..4).map(port).collect())
     }
 }

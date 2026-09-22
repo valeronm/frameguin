@@ -89,6 +89,7 @@ pub(crate) fn port_state(index: u8, raw: &EcResponseGetPdPortState) -> PortState
             (false, false) => Epr::Unsupported,
         },
         cable: Cable::default(),
+        measured_millivolts: 0,
     }
 }
 

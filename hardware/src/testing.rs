@@ -15,6 +15,7 @@ use frameguin_wire::{
     PortState, PowerLedLevel, PowerRole, PrivacyState, UsbSpeed,
 };
 
+use crate::cable::PortRegisters;
 use crate::ec::{Charger, ChassisEc, Pack, PdPorts, PowerLedEc, PrivacyEc, SideEnables};
 use crate::led::LedClass;
 use crate::lifetime::{EcBoot, Holders};
@@ -418,6 +419,7 @@ pub fn port(index: u8) -> PortState {
         cc: CcPolarity::Cc1,
         epr: Epr::Unsupported,
         cable: Cable::default(),
+        measured_millivolts: 0,
     }
 }
 
@@ -432,13 +434,13 @@ pub struct Connectors {
     pub refusing_none: bool,
     /// A port with a device drawing power through it.
     pub sink: Option<u8>,
-    /// What every port's cable reads as.
-    pub cable: Cable,
-    /// Controllers that refuse the cable read.
-    pub refusing_cables: Vec<(u8, u16)>,
-    /// Every port a cable read was asked for, with the controller it was
+    /// What every port's register span reads as.
+    pub registers: PortRegisters,
+    /// Controllers that refuse the register read.
+    pub refusing_registers: Vec<(u8, u16)>,
+    /// Every port a register read was asked for, with the controller it was
     /// asked of, in order.
-    pub cables_read: Mutex<Vec<(u8, (u8, u16))>>,
+    pub registers_read: Mutex<Vec<(u8, (u8, u16))>>,
 }
 
 impl Default for Connectors {
@@ -448,9 +450,9 @@ impl Default for Connectors {
             count: 4,
             refusing_none: false,
             sink: None,
-            cable: Cable::default(),
-            refusing_cables: Vec::new(),
-            cables_read: Mutex::new(Vec::new()),
+            registers: PortRegisters::default(),
+            refusing_registers: Vec::new(),
+            registers_read: Mutex::new(Vec::new()),
         }
     }
 }
@@ -470,12 +472,12 @@ impl PdPorts for Connectors {
         }))
     }
 
-    fn cable(&self, port: u8, controller: (u8, u16)) -> DeviceResult<Cable> {
-        self.cables_read.lock().unwrap().push((port, controller));
-        if self.refusing_cables.contains(&controller) {
-            return Err(DeviceError::NotSupported("cable read refused".into()));
+    fn port_registers(&self, port: u8, controller: (u8, u16)) -> DeviceResult<PortRegisters> {
+        self.registers_read.lock().unwrap().push((port, controller));
+        if self.refusing_registers.contains(&controller) {
+            return Err(DeviceError::NotSupported("register read refused".into()));
         }
-        Ok(self.cable)
+        Ok(self.registers)
     }
 }
 

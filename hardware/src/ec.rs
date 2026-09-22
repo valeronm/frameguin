@@ -65,7 +65,8 @@ pub trait Pack: Send + Sync {
 }
 
 /// What the ports' device needs of the EC: how many PD controllers answered,
-/// one port's state, and what that port's controller keeps about its cable.
+/// one port's state, and what that port's controller reads of its cable and
+/// its bus.
 pub trait PdPorts: Send + Sync {
     /// How many controllers the EC reports a version for. Each drives at
     /// most two ports, which is what bounds the walk — the EC cannot be
@@ -78,7 +79,8 @@ pub trait PdPorts: Send + Sync {
     fn port_state(&self, port: u8) -> DeviceResult<Option<wire::PortState>>;
     /// Read from `controller` — its (EC I2C port, 7-bit address) — over I2C
     /// passthrough.
-    fn cable(&self, port: u8, controller: (u8, u16)) -> DeviceResult<wire::Cable>;
+    fn port_registers(&self, port: u8, controller: (u8, u16))
+    -> DeviceResult<cable::PortRegisters>;
 }
 
 pub trait ChassisEc: Send + Sync {
@@ -332,31 +334,21 @@ impl PdPorts for Ec {
         }
     }
 
-    /// Both registers under one lock, so no other host command reaches the
-    /// controller between the status and the VDO it describes.
-    fn cable(&self, port: u8, (bus, address): (u8, u16)) -> DeviceResult<wire::Cable> {
-        let ec = self.ec();
-        let block = cable::block(port);
-        let status = i2c_block(
-            &ec,
+    /// One read spans `PD_STATUS` through `CABLE_VDO`, so the status and the
+    /// VDO it describes come from the same moment.
+    fn port_registers(
+        &self,
+        port: u8,
+        (bus, address): (u8, u16),
+    ) -> DeviceResult<cable::PortRegisters> {
+        let span = i2c_block(
+            &self.ec(),
             bus,
             address,
-            block + cable::PD_STATUS,
-            cable::PD_STATUS_LEN,
+            cable::block(port) + cable::PD_STATUS,
+            cable::SPAN,
         )?;
-        let vdo = i2c_block(
-            &ec,
-            bus,
-            address,
-            block + cable::CABLE_VDO,
-            cable::CABLE_VDO_LEN,
-        )?;
-        let vdo = u32::from_le_bytes(
-            vdo.get(..4)
-                .and_then(|bytes| bytes.try_into().ok())
-                .ok_or_else(|| DeviceError::Failed("short cable VDO read".into()))?,
-        );
-        Ok(cable::decode(&status, vdo))
+        Ok(cable::decode(&span))
     }
 }
 
