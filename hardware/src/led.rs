@@ -48,30 +48,21 @@ pub trait LedClass: Send + Sync {
 /// re-probe is a reboot, which the daemon does not outlive.
 pub(crate) struct Sysfs {
     dir: Option<PathBuf>,
-    released_at: &'static str,
 }
 
 impl Sysfs {
-    /// Released at a nonzero brightness, so the kernel's record stops saying
-    /// dark once nothing holds the LED dark; the power LED's one colour lights
-    /// at the duty its level already set.
     pub(crate) fn power() -> Self {
-        Self::find("power", "1")
+        Self::find("power")
     }
 
-    /// Released at zero: a nonzero write lights the first colour on both
-    /// sides until the EC's policy takes the LED back on its next tick. The
-    /// record left at zero is not read as dark, the trigger no longer being
-    /// `none`.
     pub(crate) fn charging() -> Self {
-        Self::find("charging", "0")
+        Self::find("charging")
     }
 
-    /// The node's name carries the LED's colour, and which colours an LED
-    /// has is a board's business, so it is found by the function it ends with
-    /// rather than by one board's spelling of it. A node offering no auto
-    /// trigger is not a control: it could be darkened and never released.
-    fn find(function: &str, released_at: &'static str) -> Self {
+    /// The node's name carries the LED's color, which varies by board. A node
+    /// offering no auto trigger is not a control: it could be darkened and
+    /// never released.
+    fn find(function: &str) -> Self {
         let suffix = format!(":{function}");
         let dir = std::fs::read_dir("/sys/class/leds")
             .ok()
@@ -87,7 +78,7 @@ impl Sysfs {
                     && std::fs::read_to_string(dir.join("trigger"))
                         .is_ok_and(|listed| triggers(&listed).any(|(name, _)| name == AUTO_TRIGGER))
             });
-        Self { dir, released_at }
+        Self { dir }
     }
 }
 
@@ -128,12 +119,11 @@ impl LedClass for Sysfs {
         Ok(())
     }
 
-    /// The brightness goes first: the EC reads it as on-or-off and lights the
-    /// colour at the duty it holds for that colour, so this restores no value.
-    /// Writing it after the trigger instead would be a host command against a
-    /// LED the EC had just taken back, undoing the handover.
+    /// A brightness write takes the LED from the EC, undoing a trigger written
+    /// before it. A nonzero one lights whichever subled holds the driver's
+    /// default intensity until the EC's next tick.
     fn release(&self, dir: &Path) -> DeviceResult<()> {
-        std::fs::write(dir.join("brightness"), self.released_at)?;
+        std::fs::write(dir.join("brightness"), "0")?;
         std::fs::write(dir.join("trigger"), AUTO_TRIGGER)?;
         Ok(())
     }

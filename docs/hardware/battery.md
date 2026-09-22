@@ -237,6 +237,16 @@ Registers read, all plain word reads:
 
 - Sitting at the ceiling is what produces the direction the
   [flag byte](#the-flag-byte) cannot express.
+- `CHG_LIMIT_OVERRIDE`, bit 7 of the same command's modes, lifts the
+  ceiling in RAM without touching BBRAM, and holds through a full pack and
+  an unplug until the next `DISABLE`, `SET_LIMIT` or EC restart.
+- `CHG_LIMIT_GET_LIMIT` reloads the RAM value from BBRAM before answering,
+  so on every Zephyr board a read cancels the override. The old EC's
+  handler was fixed not to
+  ([EmbeddedController #7](https://github.com/FrameworkComputer/EmbeddedController/pull/7));
+  the Zephyr rewrite never took the fix.
+- The response carries only the BBRAM percentages, so the override has no
+  read either.
 
 ## Charge current limit
 

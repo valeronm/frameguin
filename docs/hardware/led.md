@@ -40,6 +40,15 @@ Every heading in the file appears here.
   kernel lists under `chromeos:` is the whole set the EC offers.
 - The EC's host commands for the power LED are spelled `FP_LED`, the
   fingerprint reader sharing the button.
+- The power LED is white alone on every Zephyr laptop board. `hx20` and
+  `hx30`, the old EC, drive it on white, green and red channels, compose
+  six colors from them in `pwr_led_color_map`, and answer a range for each,
+  so the kernel names it `chromeos:multicolor:power`; that EC's
+  `led_set_brightness` lights the first nonzero slot in the order red,
+  green, blue, yellow, white, amber. The same boards expose the side LEDs as
+  separate `left` and `right` ids rather than one charging LED.
+- `dogwood`, the desktop, has a white `EC_LED_ID_POWER_LED` and an amber
+  `EC_LED_ID_SECOND_POWER_LED`, which its policy lights together.
 
 ## The LED command
 
@@ -83,6 +92,11 @@ Every heading in the file appears here.
   `ec.rs` carries no LED off.
 - Consequence: the file answers whether the host holds the LED dark, and
   never whether the EC's policy has it lit.
+- The driver registers a multicolor device with one subled per color the
+  EC gives a range for, and at probe sets `multi_intensity` to 100 for the
+  first of them in the EC's color order and 0 for the rest. Consequence: at
+  those defaults a nonzero `brightness` lights red on any LED that has red,
+  the charging LED and the old boards' power LED alike.
 
 ## Power LED levels
 
@@ -230,10 +244,11 @@ blink pattern with no other channel to reach anyone by, in `laptop_led.c`:
   `src/laptop_led.c` for the fault patterns, `include/led.h` for the level
   percentages, `marigold/led_pins.dtsi` and `gpio.dtsi` for the colors and
   the enables; `common/pwm.c` and `common/gpio_commands.c` for the two
-  commands' scope.
+  commands' scope; `dogwood/led_pins.dtsi` on the `fwk-dogwood-*` branch,
+  and `board/hx20/led.c` and `board/hx30/led.c` on `hx20-hx30`.
 - The Linux kernel's `drivers/leds/leds-cros_ec.c`, the driver that
-  registers the `chromeos-auto` trigger, and `drivers/leds/led-class.c`
-  for the `ENODATA` read under a hardware-controlled trigger.
+  registers the `chromeos-auto` trigger and sets the default intensities,
+  and `drivers/leds/led-class.c` for the `ENODATA` read under a hardware-controlled trigger.
 - [FrameworkComputer/framework-system](https://github.com/FrameworkComputer/framework-system)
   — `framework_lib/src/chromium_ec/commands.rs` for `FpLedBrightnessLevel`,
   and issue #211.

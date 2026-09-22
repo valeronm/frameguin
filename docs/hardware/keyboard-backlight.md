@@ -29,12 +29,15 @@ Every heading in the file appears here.
   `EC_CMD_PWM_GET_DUTY` instead and floors twice, percent to duty in the EC
   and duty back to percent in the library, so most values come back one
   low.
+- The kernel also registers it in the LED class, from the separate
+  `cros-keyboard-leds` driver, as `chromeos::kbd_backlight`.
 
 ### Observed
 
 | Setup | Reading |
 |---|---|
 | 5% set, read through `framework_lib` | 4% |
+| `/sys/class/leds/chromeos::kbd_backlight` | `max_brightness` 100; no `chromeos-auto` among its triggers |
 
 ## Second writers
 
