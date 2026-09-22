@@ -21,9 +21,10 @@
 //! `touchscreen` settles
 //! which of two routes a machine has, and is the role over either. `sbs` is
 //! the pack's own registers and what their words mean, `pd` what the EC's
-//! cached PD controller version means, `ccg3` what an HDMI or `DisplayPort`
-//! card's firmware report means, `platform` which board the DMI strings
-//! name, `extender` what the battery extender
+//! cached PD controller version means, `cable` what a PD controller keeps
+//! about a port's cable and where each board's controllers sit, `ccg3` what
+//! an HDMI or `DisplayPort` card's firmware report means, `platform` which
+//! board the DMI strings name, `extender` what the battery extender
 //! command carries, `edid` what a panel's own block says it is,
 //! `state` the store for what cannot be read back and what was asked for,
 //! `lifetime` what holds a mirrored value and how to tell it still does,
@@ -42,6 +43,7 @@
 
 pub(crate) mod block;
 pub(crate) mod build_info;
+pub(crate) mod cable;
 pub(crate) mod ccg3;
 pub mod device;
 pub(crate) mod dmi;

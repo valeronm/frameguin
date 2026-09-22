@@ -70,8 +70,9 @@ pub trait ChargingLedControl {
 /// whatever is plugged in; nothing here is this app's to set.
 pub trait PortsControl {
     /// Every port the EC answers for, in its own port order. Their number is
-    /// fixed for the device's run.
-    async fn ports(&self) -> DeviceResult<Vec<PortState>>;
+    /// fixed for the device's run. With `cables` false the cable registers
+    /// are not read and every [`PortState::cable`] is left unknown.
+    async fn ports(&self, cables: bool) -> DeviceResult<Vec<PortState>>;
 }
 
 pub trait ChassisControl {

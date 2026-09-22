@@ -231,7 +231,9 @@ it and the non-obvious constraints.
   asks what machine it is on, the raw entries a
   part's identity comes from — `sbs.rs` the pack's own registers and what
   their words mean, apart from `ec.rs` so the decoding is testable without
-  an EC and `ec.rs` stays every EC call and nothing else — `edid.rs` what a
+  an EC and `ec.rs` stays every EC call and nothing else — `cable.rs` what a
+  PD controller keeps about a port's cable and where each board's controllers
+  sit, apart from `ec.rs` for the same reason — `edid.rs` what a
   panel's own block says it is, apart from `drm.rs` for the same reason —
   `udev.rs` the words udev's database holds for an id sysfs gives bare — the
   record it cached for a device it processed, and the vendor list read

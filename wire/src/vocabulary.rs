@@ -553,9 +553,73 @@ pub struct NetworkLink {
     pub megabits: u32,
 }
 
+/// Whether the cable on a port told its controller what it is rated for.
+#[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[zvariant(crate = "zbus::zvariant", signature = "s")]
+#[serde(rename_all = "kebab-case")]
+pub enum CableMarking {
+    /// Nothing is known of the cable.
+    #[default]
+    Unknown,
+    /// The controller found no e-marker in the cable.
+    Unmarked,
+    Marked,
+}
+
+/// The fastest USB signaling a cable's e-marker declares.
+#[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[zvariant(crate = "zbus::zvariant", signature = "s")]
+#[serde(rename_all = "kebab-case")]
+pub enum CableSpeed {
+    Usb2,
+    Gen1,
+    Gen2,
+    Gen3,
+    Gen4,
+    /// A code the PD specification reserves.
+    #[default]
+    Unknown,
+}
+
+/// A cable's signal latency class, which the PD specification ties to its
+/// length.
+#[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[zvariant(crate = "zbus::zvariant", signature = "s")]
+#[serde(rename_all = "kebab-case")]
+pub enum CableLatency {
+    Under10Ns,
+    Under20Ns,
+    Under30Ns,
+    Under40Ns,
+    Under50Ns,
+    Under60Ns,
+    Under70Ns,
+    Over70Ns,
+    /// Reserved, or an active cable's class past the passive range.
+    #[default]
+    Unknown,
+}
+
+/// What a port's cable reported of itself through its e-marker. Every field
+/// but `marking` is zero or `Unknown` unless `marking` is `Marked`, and a
+/// field whose code the specification reserves stays at zero or `Unknown`.
+#[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[zvariant(crate = "zbus::zvariant")]
+pub struct Cable {
+    pub marking: CableMarking,
+    pub speed: CableSpeed,
+    /// The VBUS current it is rated for, in mA.
+    pub milliamps: u16,
+    /// The highest VBUS voltage it is rated for, in mV.
+    pub max_millivolts: u16,
+    /// Whether it is rated for extended power range.
+    pub epr: bool,
+    pub latency: CableLatency,
+}
+
 /// One USB-C port, as the EC's copy of its controller's state has it.
 ///
-/// Every field is the EC's cache rather than the port itself: a controller
+/// Every field but `cable` is the EC's cache rather than the port itself: a controller
 /// whose ports have been disabled stops updating it, and the entry then
 /// stands at whatever it last saw. `docs/hardware/usb-c.md` has the reading.
 #[derive(Serialize, Deserialize, Type, Clone, PartialEq, Eq, Debug)]
@@ -589,6 +653,9 @@ pub struct PortState {
     pub vconn: bool,
     pub cc: CcPolarity,
     pub epr: Epr,
+    /// Read from the port's controller rather than the EC's cache, and only
+    /// while something is attached.
+    pub cable: Cable,
 }
 
 /// What kind of part a device is, named for the thing a person would buy.

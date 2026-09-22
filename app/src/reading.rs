@@ -78,10 +78,14 @@ pub(crate) struct Wants {
     /// The EC's battery block.
     pub(crate) battery: bool,
     pub(crate) condition: bool,
-    /// The USB-C ports. One call however many there are, and no EC transfer
-    /// past its own host commands, so this rides the base cadence rather
-    /// than being spaced the way the condition is.
+    /// The USB-C ports. One call however many there are, and host commands
+    /// only, so this rides the base cadence rather than being spaced the way
+    /// the condition is.
     pub(crate) ports: bool,
+    /// Each attached port's cable, read with the ports and asking for them
+    /// too: two I2C transfers to a PD controller per attached port, so only
+    /// the view that shows a cable asks.
+    pub(crate) cables: bool,
     /// Two host commands and no transfer past them: cheap enough for every
     /// tick.
     pub(crate) chassis: bool,
@@ -105,6 +109,7 @@ impl Wants {
             battery: self.battery || other.battery,
             condition: self.condition || other.condition,
             ports: self.ports || other.ports,
+            cables: self.cables || other.cables,
             chassis: self.chassis || other.chassis,
             deck: self.deck || other.deck,
             privacy_switches: self.privacy_switches || other.privacy_switches,
@@ -157,7 +162,7 @@ impl Extra {
         attempt: "Reading the battery's condition",
     };
     const PORTS: Self = Self {
-        wanted: |w| w.ports,
+        wanted: |w| w.ports || w.cables,
         attempt: "Reading the USB-C ports",
     };
     const CHASSIS: Self = Self {
@@ -467,7 +472,10 @@ impl Feed {
         // Asked of the ports control rather than the pack's: a board can have
         // one and not the other.
         let ports = extras
-            .read(Extra::PORTS, controls.ports.as_ref().map(|p| p.read()))
+            .read(
+                Extra::PORTS,
+                controls.ports.as_ref().map(|p| p.read(wants.cables)),
+            )
             .await;
         let chassis_control = controls.chassis.as_ref();
         let chassis = extras

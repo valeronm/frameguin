@@ -12,12 +12,13 @@ use std::rc::Rc;
 
 use adw::prelude::*;
 use frameguin_model::control::ports::{
-    NOTHING_ATTACHED, POWERING_THE_MACHINE, carried, contract_label, data_role_label,
-    display_port_label, epr_label, partner_label, port_summary, power_role_label, powering_label,
+    NO_E_MARKER, NOTHING_ATTACHED, POWERING_THE_MACHINE, cable_length_label, cable_rating_label,
+    cable_speed_label, carried, contract_label, data_role_label, display_port_label, epr_label,
+    partner_label, port_summary, power_role_label, powering_label,
 };
 use frameguin_model::control::usb::{capacity_label, device_name, network_label, speed_label};
 use frameguin_model::port::Placement;
-use frameguin_wire::{Attached, PortPartner, PortState};
+use frameguin_wire::{Attached, CableMarking, PortPartner, PortState};
 use gtk4 as gtk;
 
 use super::{Sidebar, Target};
@@ -63,6 +64,7 @@ pub(super) fn add(sidebar: &Rc<Sidebar>, feed: &Rc<Feed>, usb: bool, placement: 
 
     let wants = Wants {
         ports: true,
+        cables: true,
         usb: usb && placement.wired(),
         ..Wants::default()
     };
@@ -155,6 +157,7 @@ impl Port {
         let name = devices.first().map(device_name);
         self.row.set_subtitle(&port_summary(state, name.as_deref()));
         let mut groups = vec![connection_group(placement, state)];
+        groups.extend(cable_group(state));
         groups.extend(contract_group(state));
         groups.extend(devices.iter().map(device_group));
         for group in &groups {
@@ -188,6 +191,31 @@ fn connection_group(placement: Placement, state: &PortState) -> adw::Preferences
     }
     value(&group, "Data role").set_label(data_role_label(state.data_role));
     group
+}
+
+/// None where nothing is attached or the cable could not be read, a guess
+/// being worse than no group.
+fn cable_group(state: &PortState) -> Option<adw::PreferencesGroup> {
+    let cable = &state.cable;
+    if state.partner == PortPartner::Nothing || cable.marking == CableMarking::Unknown {
+        return None;
+    }
+    let group = adw::PreferencesGroup::new();
+    group.set_title("Cable");
+    if cable.marking == CableMarking::Unmarked {
+        value(&group, "E-marker").set_label(NO_E_MARKER);
+        return Some(group);
+    }
+    if let Some(speed) = cable_speed_label(cable.speed) {
+        value(&group, "Speed").set_label(speed);
+    }
+    if let Some(rating) = cable_rating_label(cable) {
+        value(&group, "Rating").set_label(&rating);
+    }
+    if let Some(length) = cable_length_label(cable.latency) {
+        value(&group, "Length").set_label(length);
+    }
+    Some(group)
 }
 
 fn contract_group(state: &PortState) -> Option<adw::PreferencesGroup> {

@@ -11,7 +11,7 @@ use crate::served::Served;
 impl Served<Ports> {
     /// No polkit check and no header: reading what is plugged in sets
     /// nothing, and this interface has nothing that does.
-    async fn get_ports(&self) -> fdo::Result<Vec<PortState>> {
-        Ok(self.device().ports().await?)
+    async fn get_ports(&self, cables: bool) -> fdo::Result<Vec<PortState>> {
+        Ok(self.device().ports(cables).await?)
     }
 }

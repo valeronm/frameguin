@@ -24,6 +24,7 @@ use framework_lib::chromium_ec::i2c_passthrough::i2c_read;
 use framework_lib::chromium_ec::{CrosEc, CrosEcDriver, EcError, EcResponseStatus, EcResult};
 use framework_lib::power;
 
+use crate::cable;
 use crate::extender;
 use crate::lifetime::EcBoot;
 use crate::part::{self, Identity};
@@ -64,7 +65,7 @@ pub trait Pack: Send + Sync {
 }
 
 /// What the ports' device needs of the EC: how many PD controllers answered,
-/// and one port's state.
+/// one port's state, and what that port's controller keeps about its cable.
 pub trait PdPorts: Send + Sync {
     /// How many controllers the EC reports a version for. Each drives at
     /// most two ports, which is what bounds the walk — the EC cannot be
@@ -75,6 +76,9 @@ pub trait PdPorts: Send + Sync {
     /// rather than the only one, since a board has been seen to answer past
     /// its last port instead of refusing.
     fn port_state(&self, port: u8) -> DeviceResult<Option<wire::PortState>>;
+    /// Read from `controller` — its (EC I2C port, 7-bit address) — over I2C
+    /// passthrough.
+    fn cable(&self, port: u8, controller: (u8, u16)) -> DeviceResult<wire::Cable>;
 }
 
 pub trait ChassisEc: Send + Sync {
@@ -107,6 +111,12 @@ pub trait Charger: Send + Sync {
 /// An EC failure as a device raises it.
 fn device_error(e: impl std::fmt::Debug) -> DeviceError {
     DeviceError::Failed(format!("EC error: {e:?}"))
+}
+
+fn i2c_block(ec: &CrosEc, bus: u8, address: u16, register: u16, len: u16) -> DeviceResult<Vec<u8>> {
+    let response = i2c_read(ec, bus, address, register, len).map_err(device_error)?;
+    response.is_successful().map_err(device_error)?;
+    Ok(response.data)
 }
 
 /// The daemon's one way of asking the embedded controller anything.
@@ -210,12 +220,8 @@ impl Ec {
     /// read is a transfer to a device the EC is also driving, so callers ask
     /// for one only where the EC's own copy is absent or known stale.
     fn sb_word(&self, register: u16) -> Option<u16> {
-        let response = i2c_read(&self.ec(), BATTERY_I2C_PORT, sbs::I2C_ADDR, register, 2).ok()?;
-        response.is_successful().ok()?;
-        Some(u16::from_le_bytes([
-            *response.data.first()?,
-            *response.data.get(1)?,
-        ]))
+        let data = i2c_block(&self.ec(), BATTERY_I2C_PORT, sbs::I2C_ADDR, register, 2).ok()?;
+        Some(u16::from_le_bytes(data.get(..2)?.try_into().ok()?))
     }
 
     pub(crate) fn version(&self) -> EcResult<String> {
@@ -324,6 +330,33 @@ impl PdPorts for Ec {
             Err(EcError::Response(EcResponseStatus::InvalidParameter)) => Ok(None),
             Err(e) => Err(device_error(e)),
         }
+    }
+
+    /// Both registers under one lock, so no other host command reaches the
+    /// controller between the status and the VDO it describes.
+    fn cable(&self, port: u8, (bus, address): (u8, u16)) -> DeviceResult<wire::Cable> {
+        let ec = self.ec();
+        let block = cable::block(port);
+        let status = i2c_block(
+            &ec,
+            bus,
+            address,
+            block + cable::PD_STATUS,
+            cable::PD_STATUS_LEN,
+        )?;
+        let vdo = i2c_block(
+            &ec,
+            bus,
+            address,
+            block + cable::CABLE_VDO,
+            cable::CABLE_VDO_LEN,
+        )?;
+        let vdo = u32::from_le_bytes(
+            vdo.get(..4)
+                .and_then(|bytes| bytes.try_into().ok())
+                .ok_or_else(|| DeviceError::Failed("short cable VDO read".into()))?,
+        );
+        Ok(cable::decode(&status, vdo))
     }
 }
 

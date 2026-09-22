@@ -2,7 +2,7 @@
 //! port's state — apart from [`crate::ec`] so the decoding is testable
 //! without an EC.
 
-use frameguin_wire::{CcPolarity, DataRole, Epr, PortPartner, PortState, PowerRole};
+use frameguin_wire::{Cable, CcPolarity, DataRole, Epr, PortPartner, PortState, PowerRole};
 use framework_lib::ccgx::AppVersion;
 use framework_lib::chromium_ec::commands::EcResponseGetPdPortState;
 
@@ -88,6 +88,7 @@ pub(crate) fn port_state(index: u8, raw: &EcResponseGetPdPortState) -> PortState
             (false, true) => Epr::Supported,
             (false, false) => Epr::Unsupported,
         },
+        cable: Cable::default(),
     }
 }
 

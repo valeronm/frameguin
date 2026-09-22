@@ -86,7 +86,7 @@ impl Machine {
                 mirrors,
             )),
             charging_led: ChargingLed::new(Box::new(Leds::default()), Arc::new(Sides::default())),
-            ports: Ports::new(Arc::new(Connectors::default())),
+            ports: Ports::new(Arc::new(Connectors::default()), &[]),
             chassis: Chassis::new(Arc::new(Cover::default())),
             privacy_switches: PrivacySwitches::new(Arc::new(Sliders::default())),
             usb: Usb::new(Arc::new(Hub::default())),
@@ -261,7 +261,7 @@ fn every_getter_answers_through_its_proxy() {
             ClickForce::Medium
         );
         assert!(p.touchscreen.get_enabled().await.unwrap());
-        let ports = p.ports.get_ports().await.unwrap();
+        let ports = p.ports.get_ports(true).await.unwrap();
         assert_eq!(ports.len(), 4);
         assert_eq!(ports[0].index, 0);
         assert!(ports[0].charging);
@@ -493,7 +493,7 @@ fn a_device_detection_did_not_find_is_not_on_the_bus() {
         assert!(p.touchpad.get_click_force().await.is_ok());
         assert!(p.power_led.get_brightness().await.is_ok());
         assert!(p.charging_led.get_enabled().await.is_ok());
-        assert!(p.ports.get_ports().await.is_ok());
+        assert!(p.ports.get_ports(false).await.is_ok());
         assert!(p.chassis.get_state().await.is_ok());
         assert!(p.privacy_switches.get_switches().await.is_ok());
         assert!(p.usb.get_attached().await.is_ok());
@@ -512,7 +512,7 @@ fn a_board_with_no_ports_serves_no_ports_interface() {
         },
     );
     peer.run(|p| async move {
-        assert!(absent(p.ports.get_ports().await));
+        assert!(absent(p.ports.get_ports(false).await));
         assert!(p.battery.get_charge_limit().await.is_ok());
     });
 }
@@ -528,7 +528,7 @@ fn a_board_without_the_chassis_commands_serves_no_chassis_interface() {
     );
     peer.run(|p| async move {
         assert!(absent(p.chassis.get_state().await));
-        assert!(p.ports.get_ports().await.is_ok());
+        assert!(p.ports.get_ports(false).await.is_ok());
     });
 }
 
@@ -558,6 +558,6 @@ fn a_machine_without_a_usb_listing_serves_no_usb_interface() {
     );
     peer.run(|p| async move {
         assert!(absent(p.usb.get_attached().await));
-        assert!(p.ports.get_ports().await.is_ok());
+        assert!(p.ports.get_ports(false).await.is_ok());
     });
 }

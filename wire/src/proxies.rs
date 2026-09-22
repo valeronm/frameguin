@@ -119,7 +119,7 @@ pub trait Battery {
     gen_blocking = false
 )]
 pub trait Ports {
-    async fn get_ports(&self) -> zbus::Result<Vec<PortState>>;
+    async fn get_ports(&self, cables: bool) -> zbus::Result<Vec<PortState>>;
 }
 
 /// Absent from the bus where the EC does not answer the chassis commands.

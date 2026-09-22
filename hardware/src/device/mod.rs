@@ -124,7 +124,7 @@ pub fn detect() -> Detected {
             touchscreen,
             power_led,
             charging_led: ec.as_ref().and_then(ChargingLed::detect),
-            ports: ec.as_ref().and_then(Ports::detect),
+            ports: ec.as_ref().and_then(|ec| Ports::detect(ec, &board)),
             chassis: ec.as_ref().and_then(Chassis::detect),
             privacy_switches: ec.as_ref().and_then(PrivacySwitches::detect),
             usb: Usb::detect(&board),

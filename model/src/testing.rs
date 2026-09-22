@@ -3,7 +3,7 @@ use std::rc::Rc;
 use std::task::{Context, Poll, Waker};
 
 use frameguin_wire::{
-    Attached, BatteryCondition, BatteryControl, BatteryFeature, BatteryInfo, BatteryState,
+    Attached, BatteryCondition, BatteryControl, BatteryFeature, BatteryInfo, BatteryState, Cable,
     CcPolarity, ChargeFlow, ChargingLedControl, ChargingLedFeature, ChargingLedSide,
     ChassisControl, ChassisFeature, ChassisState, ClickForce, DataRole, DeckState, DeviceError,
     DeviceResult, Epr, ExtenderStage, ExtenderState, NO_CHARGE_CURRENT_LIMIT, PortPartner,
@@ -246,11 +246,12 @@ pub(crate) fn port(index: u8) -> PortState {
         vconn: charging,
         cc: CcPolarity::Cc1,
         epr: Epr::Unsupported,
+        cable: Cable::default(),
     }
 }
 
 impl PortsControl for Machine {
-    async fn ports(&self) -> DeviceResult<Vec<PortState>> {
+    async fn ports(&self, _cables: bool) -> DeviceResult<Vec<PortState>> {
         self.ports.read((0..4).map(port).collect())
     }
 }

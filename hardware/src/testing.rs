@@ -9,10 +9,10 @@ use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll, Waker};
 
 use frameguin_wire::{
-    Attached, BatteryCondition, BatteryInfo, BatteryState, CcPolarity, ChargeFlow, ChassisState,
-    ClickForce, DataRole, DeckState, Detail, DeviceError, DeviceResult, Epr, ExtenderStage,
-    ExtenderState, Identity, LinkState, NetworkLink, PartKind, PortPartner, PortState,
-    PowerLedLevel, PowerRole, PrivacyState, UsbSpeed,
+    Attached, BatteryCondition, BatteryInfo, BatteryState, Cable, CcPolarity, ChargeFlow,
+    ChassisState, ClickForce, DataRole, DeckState, Detail, DeviceError, DeviceResult, Epr,
+    ExtenderStage, ExtenderState, Identity, LinkState, NetworkLink, PartKind, PortPartner,
+    PortState, PowerLedLevel, PowerRole, PrivacyState, UsbSpeed,
 };
 
 use crate::ec::{Charger, ChassisEc, Pack, PdPorts, PowerLedEc, PrivacyEc, SideEnables};
@@ -417,6 +417,7 @@ pub fn port(index: u8) -> PortState {
         vconn: charging,
         cc: CcPolarity::Cc1,
         epr: Epr::Unsupported,
+        cable: Cable::default(),
     }
 }
 
@@ -429,6 +430,15 @@ pub struct Connectors {
     /// Answers for any port asked for rather than refusing one past the
     /// last, which is what a board does that reads past its own array.
     pub refusing_none: bool,
+    /// A port with a device drawing power through it.
+    pub sink: Option<u8>,
+    /// What every port's cable reads as.
+    pub cable: Cable,
+    /// Controllers that refuse the cable read.
+    pub refusing_cables: Vec<(u8, u16)>,
+    /// Every port a cable read was asked for, with the controller it was
+    /// asked of, in order.
+    pub cables_read: Mutex<Vec<(u8, (u8, u16))>>,
 }
 
 impl Default for Connectors {
@@ -437,6 +447,10 @@ impl Default for Connectors {
             controllers: 2,
             count: 4,
             refusing_none: false,
+            sink: None,
+            cable: Cable::default(),
+            refusing_cables: Vec::new(),
+            cables_read: Mutex::new(Vec::new()),
         }
     }
 }
@@ -447,7 +461,21 @@ impl PdPorts for Connectors {
     }
 
     fn port_state(&self, index: u8) -> DeviceResult<Option<PortState>> {
-        Ok((self.refusing_none || index < self.count).then(|| port(index)))
+        Ok((self.refusing_none || index < self.count).then(|| {
+            let mut state = port(index);
+            if self.sink == Some(index) {
+                state.partner = PortPartner::Sink;
+            }
+            state
+        }))
+    }
+
+    fn cable(&self, port: u8, controller: (u8, u16)) -> DeviceResult<Cable> {
+        self.cables_read.lock().unwrap().push((port, controller));
+        if self.refusing_cables.contains(&controller) {
+            return Err(DeviceError::NotSupported("cable read refused".into()));
+        }
+        Ok(self.cable)
     }
 }
 

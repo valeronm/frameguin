@@ -3,7 +3,8 @@
 use std::rc::Rc;
 
 use frameguin_wire::{
-    DataRole, DeviceResult as Result, Epr, PortPartner, PortState, PortsControl, PowerRole,
+    Cable, CableLatency, CableSpeed, DataRole, DeviceResult as Result, Epr, PortPartner, PortState,
+    PortsControl, PowerRole,
 };
 
 use super::present;
@@ -20,11 +21,11 @@ impl<C: PortsControl> Ports<C> {
     }
 
     pub async fn detect(control: &Rc<C>, placement: Placement) -> Result<Option<Self>> {
-        Ok(present(control.ports().await)?.map(|_| Self::new(control.clone(), placement)))
+        Ok(present(control.ports(false).await)?.map(|_| Self::new(control.clone(), placement)))
     }
 
-    pub async fn read(&self) -> Result<Vec<PortState>> {
-        self.control.ports().await
+    pub async fn read(&self, cables: bool) -> Result<Vec<PortState>> {
+        self.control.ports(cables).await
     }
 
     /// Where this board's sockets are, fixed for the device's run.
@@ -215,17 +216,66 @@ pub fn epr_label(epr: Epr) -> Option<&'static str> {
     }
 }
 
+/// A cable whose controller found no e-marker in it.
+pub const NO_E_MARKER: &str = "None";
+
+/// The rate a full-featured Type-C cable of that signaling carries over both
+/// lanes, as cables are certified and sold, and None for a reserved code.
+#[must_use]
+pub fn cable_speed_label(speed: CableSpeed) -> Option<&'static str> {
+    match speed {
+        CableSpeed::Usb2 => Some("USB 2.0"),
+        CableSpeed::Gen1 => Some("10 Gbps"),
+        CableSpeed::Gen2 => Some("20 Gbps"),
+        CableSpeed::Gen3 => Some("40 Gbps"),
+        CableSpeed::Gen4 => Some("80 Gbps"),
+        CableSpeed::Unknown => None,
+    }
+}
+
+/// The current a cable is rated for and the watts it is sold by, and None
+/// where the e-marker left the current at a reserved code.
+///
+/// The watts are what a contract can reach over the cable, 48 V under
+/// extended power range and 20 V otherwise: a cable's voltage rating alone
+/// does not let a charger enter extended power range, its EPR bit does.
+#[must_use]
+pub fn cable_rating_label(cable: &Cable) -> Option<String> {
+    let amps = cable.milliamps / 1000;
+    let contract_volts = if cable.epr { 48 } else { 20 };
+    (amps > 0).then(|| format!("{amps} A ({} W)", contract_volts * amps))
+}
+
+/// The length the PD specification ties to each latency class, and None
+/// for a class it reserves or an active cable's.
+#[must_use]
+pub fn cable_length_label(latency: CableLatency) -> Option<&'static str> {
+    match latency {
+        CableLatency::Under10Ns => Some("About 1 m"),
+        CableLatency::Under20Ns => Some("About 2 m"),
+        CableLatency::Under30Ns => Some("About 3 m"),
+        CableLatency::Under40Ns => Some("About 4 m"),
+        CableLatency::Under50Ns => Some("About 5 m"),
+        CableLatency::Under60Ns => Some("About 6 m"),
+        CableLatency::Under70Ns => Some("About 7 m"),
+        CableLatency::Over70Ns => Some("Over 7 m"),
+        CableLatency::Unknown => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::rc::Rc;
 
     use frameguin_wire::{
-        DataRole, DeviceError, DeviceResult as Result, PortPartner, PortState, PowerRole,
+        Cable, CableLatency, CableMarking, CableSpeed, DataRole, DeviceError,
+        DeviceResult as Result, PortPartner, PortState, PowerRole,
     };
 
     use super::{
-        Ports, carried, data_role_label, display_port_label, partner_label, port_summary,
-        power_role_label, powering, powering_label, supply_label, supply_summary,
+        Ports, cable_length_label, cable_rating_label, cable_speed_label, carried, data_role_label,
+        display_port_label, partner_label, port_summary, power_role_label, powering,
+        powering_label, supply_label, supply_summary,
     };
     use crate::port::Placement;
     use crate::testing::{Machine, absent, port, ready};
@@ -255,7 +305,7 @@ mod tests {
     #[test]
     fn a_read_carries_every_port() {
         let ports = Ports::new(Machine::new(), Placement::default());
-        let read = ready(ports.read()).unwrap();
+        let read = ready(ports.read(false)).unwrap();
         assert_eq!(read.len(), 4);
         assert!(read[0].charging);
     }
@@ -449,5 +499,56 @@ mod tests {
         };
         assert_eq!(display_port_label(&video), Some("Connected"));
         assert_eq!(display_port_label(&port(1)), None);
+    }
+
+    #[test]
+    fn a_cable_reads_in_the_unit_its_rate_is_sold_in() {
+        assert_eq!(cable_speed_label(CableSpeed::Usb2), Some("USB 2.0"));
+        assert_eq!(cable_speed_label(CableSpeed::Gen1), Some("10 Gbps"));
+        assert_eq!(cable_speed_label(CableSpeed::Gen2), Some("20 Gbps"));
+        assert_eq!(cable_speed_label(CableSpeed::Gen3), Some("40 Gbps"));
+        assert_eq!(cable_speed_label(CableSpeed::Gen4), Some("80 Gbps"));
+        assert_eq!(cable_speed_label(CableSpeed::Unknown), None);
+    }
+
+    #[test]
+    fn a_cables_rating_reads_in_the_watts_it_is_sold_by() {
+        let standard = Cable {
+            marking: CableMarking::Marked,
+            milliamps: 3000,
+            ..Cable::default()
+        };
+        let five_amp = Cable {
+            milliamps: 5000,
+            ..standard
+        };
+        let extended = Cable {
+            epr: true,
+            ..five_amp
+        };
+        assert_eq!(cable_rating_label(&standard).as_deref(), Some("3 A (60 W)"));
+        assert_eq!(
+            cable_rating_label(&five_amp).as_deref(),
+            Some("5 A (100 W)")
+        );
+        assert_eq!(
+            cable_rating_label(&extended).as_deref(),
+            Some("5 A (240 W)")
+        );
+    }
+
+    #[test]
+    fn a_current_the_e_marker_left_reserved_has_no_rating() {
+        assert_eq!(cable_rating_label(&Cable::default()), None);
+    }
+
+    #[test]
+    fn a_cables_length_is_worded_as_the_approximation_it_is() {
+        assert_eq!(
+            cable_length_label(CableLatency::Under30Ns),
+            Some("About 3 m")
+        );
+        assert_eq!(cable_length_label(CableLatency::Over70Ns), Some("Over 7 m"));
+        assert_eq!(cable_length_label(CableLatency::Unknown), None);
     }
 }

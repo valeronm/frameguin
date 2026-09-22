@@ -5,7 +5,8 @@ over I²C. The host reaches the controller's own registers by
 [I²C passthrough](ec.md#routes) and the EC's copy of each
 port's state by host command. The controller, not the port, is the unit the
 hardware is organized around, and everything the host reads about a port is
-the EC's cache of it.
+the EC's cache of it, apart from what is read from the controller's own
+registers (see [Controller registers](#controller-registers)).
 
 Each section holds what the EC tree, `framework_lib` or the kernel
 establishes, then under **Observed** what was read on a machine. Every observation is
@@ -241,6 +242,8 @@ is `0x1000` for a controller's first connector and `0x2000` for its second.
 | `PORT_HOST_CAP` | `CCG_PORT_HOST_CAP_REG` | block + `0x5C` | |
 | sink PDO EPR mask | `SELECT_SINK_PDO_EPR_MASK` | block + `0x65` | |
 | `PDPORT_ENABLE` | `CCG_PDPORT_ENABLE_REG` | `0x2C` | bitmask, one bit per port |
+| `PD_STATUS` | `CCG_PD_STATUS_REG` | block + `0x08` | byte 1 bit 3 e-marker present; byte 2 bit 6 active cable |
+| `CABLE_VDO` | — | block + `0x18` | the Cable VDO as the cable's e-marker sent it, 4 bytes |
 
 - The EC reads `BUS_VOLTAGE` and `BUS_CURRENT` only in its console dump.
 - No port current reading exists anywhere: the four ports pass through load
@@ -261,9 +264,18 @@ is `0x1000` for a controller's first connector and `0x2000` for its second.
 | `PORT_HOST_CAP`, sink PDO EPR mask | same reads | data, so `0xFF` above is the register's own answer |
 | block + `0x6C` onward | same reads | NAK |
 | `PDPORT_ENABLE` | after each write | reads back what was written |
+| `PD_STATUS`, `CABLE_VDO` | charging cable, laptop as sink | `76 9c 25 01` and `0x000a6640`: e-marker present, passive; USB 2.0, 5 A, 50 V, EPR-capable, latency 20–30 ns (about 3 m) |
+| `PD_STATUS`, `CABLE_VDO` | empty port | no e-marker, VDO 0 |
 
 - Consequence: `BUS_VOLTAGE` is an ADC and not the contract restated, and
   `BUS_CURRENT` reports nothing on a CCG8.
+- The cable's rating is read here rather than through UCSI's
+  `GET_CABLE_PROPERTY`, which this board's controllers also answer: that
+  route runs through debugfs and a connector-to-port map, its speed field
+  reads `0x7820` for the cable above — 480 Mb/s encoded one nibble high —
+  where the same controller encodes 10 Gb/s correctly, it carries neither
+  the 50 V rating nor EPR, and asked about a connector with no cable it
+  fails and the kernel logs `unknown error 256`.
 
 ## Attached devices
 
