@@ -120,7 +120,7 @@ if [ -n "$outdated" ]; then
     {
         echo "the installed libraries are older than these binaries need:"
         echo "$outdated"
-        echo "README's Install section names the minimum versions"
+        echo "the minimum versions: https://github.com/valeronm/frameguin#install"
     } >&2
     exit 1
 fi

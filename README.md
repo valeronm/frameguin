@@ -50,7 +50,9 @@ battery, the charge limit and speed, and the touchscreen. Closing the window
 hides it to the tray; **Quit**, in the main menu or the tray, exits. **Start
 at login**, in Preferences, brings up the tray icon only.
 
-<img src="docs/screenshots/tray.png" alt="The Frameguin tray menu: the charger and battery, the charge limit and charge speed, and the touchscreen" width="280">
+<p align="center">
+  <img src="docs/screenshots/tray.png" alt="The Frameguin tray menu: the charger and battery, the charge limit and charge speed, and the touchscreen" width="280">
+</p>
 
 At every restart the firmware resets the charge limit and the power button
 LED's level to what BIOS setup stores, so set a standing charge limit there.

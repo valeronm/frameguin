@@ -529,10 +529,35 @@ fn inches(millimetres: f64) -> f64 {
     millimetres / MILLIMETRES_PER_INCH
 }
 
+/// A detail naming this one machine rather than its model.
+fn names_the_machine(detail: &Detail) -> bool {
+    // No catch-all, so a detail added cannot reach the listing without a
+    // decision about it.
+    match detail {
+        Detail::MacAddress(_) => true,
+        Detail::MemoryCapacity(_)
+        | Detail::StorageCapacity(_)
+        | Detail::DesignCapacity { .. }
+        | Detail::NominalVoltage(_)
+        | Detail::ManufactureDate(_)
+        | Detail::Resolution { .. }
+        | Detail::PanelSize { .. }
+        | Detail::ColourDepth(_)
+        | Detail::RefreshRate { .. }
+        | Detail::ManufactureYear(_)
+        | Detail::ModelYear(_)
+        | Detail::MemoryType(_)
+        | Detail::FormFactor(_)
+        | Detail::Speed(_)
+        | Detail::ConfiguredSpeed(_)
+        | Detail::Sku(_) => false,
+    }
+}
+
 /// The machine's parts as the daemon's journal and the app's debug report
 /// both print them, so a bug report and the log it is read against spell a
-/// part the same. The serial is left out, a report being pasted into a public
-/// issue.
+/// part the same. The serial and any detail naming the machine are left out,
+/// a report being pasted into a public issue.
 #[must_use]
 pub fn listing(parts: &[Identity]) -> String {
     if parts.is_empty() {
@@ -567,7 +592,12 @@ pub fn listing(parts: &[Identity]) -> String {
         .into_iter()
         .filter(|(_, value)| !value.is_empty())
         .collect();
-        let details = detail_rows(details);
+        let shareable: Vec<_> = details
+            .iter()
+            .filter(|detail| !names_the_machine(detail))
+            .cloned()
+            .collect();
+        let details = detail_rows(&shareable);
         let firmware: Vec<_> = firmware
             .iter()
             .map(|firmware| {
@@ -1060,6 +1090,24 @@ mod tests {
              \x20   part number:  SD PC SN7100S SDFPNSL-1T00\n\
              \x20   firmware:\n\
              \x20     Firmware:  7612M000 2 January 2025\n"
+        );
+    }
+
+    #[test]
+    fn a_listing_leaves_out_a_mac_address() {
+        let radio = Identity {
+            details: vec![
+                Detail::MacAddress("e0:c9:32:00:00:00".to_owned()),
+                Detail::ModelYear(2025),
+            ],
+            ..part(PartKind::Wifi, "pci:8086:e440")
+        };
+        assert_eq!(
+            listing(&[radio]),
+            "parts:\n\
+             \x20 Wi-Fi  pci:8086:e440\n\
+             \x20   details:\n\
+             \x20     Model year:  2025\n"
         );
     }
 

@@ -25,7 +25,7 @@ mkdir -p "$stage"
 
 install -m755 target/release/frameguin target/release/frameguin-daemon install.sh "$stage/"
 cp -r data "$stage/data"
-cp README.md LICENSE "$stage/"
+cp LICENSE "$stage/"
 
 tar -cJf "target/dist/$name.tar.xz" -C target/dist "$name"
 ( cd target/dist && sha256sum "$name.tar.xz" >"$name.tar.xz.sha256" )
