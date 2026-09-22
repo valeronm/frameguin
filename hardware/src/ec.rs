@@ -114,10 +114,21 @@ fn device_error(e: impl std::fmt::Debug) -> DeviceError {
     DeviceError::Failed(format!("EC error: {e:?}"))
 }
 
-fn i2c_block(ec: &CrosEc, bus: u8, address: u16, register: u16, len: u16) -> DeviceResult<Vec<u8>> {
+/// A read shorter than the `N` bytes asked for fails here rather than
+/// leaving a decoder to tell a truncated answer from a reading.
+fn i2c_block<const N: usize>(
+    ec: &CrosEc,
+    bus: u8,
+    address: u16,
+    register: u16,
+) -> DeviceResult<[u8; N]> {
+    let len = u16::try_from(N).map_err(device_error)?;
     let response = i2c_read(ec, bus, address, register, len).map_err(device_error)?;
     response.is_successful().map_err(device_error)?;
-    Ok(response.data)
+    response
+        .data
+        .try_into()
+        .map_err(|_| DeviceError::Failed(format!("I2C read of {len} bytes came back short")))
 }
 
 /// The daemon's one way of asking the embedded controller anything.
@@ -221,8 +232,8 @@ impl Ec {
     /// read is a transfer to a device the EC is also driving, so callers ask
     /// for one only where the EC's own copy is absent or known stale.
     fn sb_word(&self, register: u16) -> Option<u16> {
-        let data = i2c_block(&self.ec(), BATTERY_I2C_PORT, sbs::I2C_ADDR, register, 2).ok()?;
-        Some(u16::from_le_bytes(data.get(..2)?.try_into().ok()?))
+        let data = i2c_block::<2>(&self.ec(), BATTERY_I2C_PORT, sbs::I2C_ADDR, register).ok()?;
+        Some(u16::from_le_bytes(data))
     }
 
     pub(crate) fn version(&self) -> EcResult<String> {
@@ -345,7 +356,6 @@ impl PdPorts for Ec {
             bus,
             address,
             pd_controller::block(port) + pd_controller::PD_STATUS,
-            pd_controller::SPAN,
         )?;
         Ok(pd_controller::decode(&span))
     }

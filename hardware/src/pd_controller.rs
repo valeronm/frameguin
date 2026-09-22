@@ -7,8 +7,7 @@
 //! `CCGx` controllers on every Framework board.
 
 use frameguin_wire::{
-    Cable, CableLatency, CableMarking, CableSpeed, PdContract, PeakCurrent, Platform,
-    PortRegisters, SupplyKind,
+    Cable, CableLatency, CableSpeed, PdContract, PeakCurrent, Platform, PortRegisters, SupplyKind,
 };
 
 pub(crate) const PD_STATUS: u16 = 0x08;
@@ -22,7 +21,7 @@ const CURRENT_RDO: u16 = 0x14;
 const CABLE_VDO: u16 = 0x18;
 /// `PD_STATUS` through `CABLE_VDO`, which one passthrough read returns whole;
 /// the registers between them are plain data.
-pub(crate) const SPAN: u16 = CABLE_VDO + 4 - PD_STATUS;
+pub(crate) const SPAN: usize = (CABLE_VDO + 4 - PD_STATUS) as usize;
 
 /// Bit 3 of `PD_STATUS`'s second byte, which the EC's own console prints as
 /// `EMCA`.
@@ -71,25 +70,18 @@ pub(crate) fn controllers(platform: Platform) -> &'static [(u8, u16)] {
 }
 
 /// A port's readings from one read of [`SPAN`] bytes at `PD_STATUS`.
-pub(crate) fn decode(span: &[u8]) -> PortRegisters {
+pub(crate) fn decode(span: &[u8; SPAN]) -> PortRegisters {
     let word = |register: u16| {
         let at = usize::from(register - PD_STATUS);
-        span.get(at..at + 4)
-            .and_then(|bytes| bytes.try_into().ok())
-            .map_or(0, u32::from_le_bytes)
+        u32::from_le_bytes(span[at..at + 4].try_into().unwrap_or_default())
     };
-    let pdo = word(CURRENT_PDO);
-    let pd = (span.get(1).is_some_and(|flags| flags & CONTRACT != 0) && pdo != 0)
-        .then(|| contract(pdo, word(CURRENT_RDO)));
     let voltage = usize::from(BUS_VOLTAGE - PD_STATUS);
-    let measured_millivolts = span
-        .get(voltage..voltage + 2)
-        .and_then(|bytes| bytes.try_into().ok())
-        .map(|bytes| u16::from_le_bytes(bytes).saturating_mul(100));
+    let measured = u16::from_le_bytes(span[voltage..voltage + 2].try_into().unwrap_or_default());
+    let pdo = word(CURRENT_PDO);
     PortRegisters {
-        cable: from_registers(span, word(CABLE_VDO)),
-        pd,
-        measured_millivolts,
+        cable: cable([span[1], span[2]], word(CABLE_VDO)),
+        pd: (span[1] & CONTRACT != 0 && pdo != 0).then(|| contract(pdo, word(CURRENT_RDO))),
+        measured_millivolts: measured.saturating_mul(100),
     }
 }
 
@@ -101,162 +93,112 @@ fn bit(word: u32, at: u32) -> bool {
     (word >> at) & 1 != 0
 }
 
-fn peak(code: u32) -> PeakCurrent {
+/// None for the code that declares no draw past the rating.
+fn peak(code: u32) -> Option<PeakCurrent> {
     match code {
-        1 => PeakCurrent::Overload150,
-        2 => PeakCurrent::Overload200,
-        3 => PeakCurrent::Overload200Sustained,
-        _ => PeakCurrent::Rated,
+        1 => Some(PeakCurrent::Overload150),
+        2 => Some(PeakCurrent::Overload200),
+        3 => Some(PeakCurrent::Overload200Sustained),
+        _ => None,
     }
 }
 
 /// The layouts are the USB PD specification's source PDO and request data
 /// object; bit 26 of every RDO flags a capability mismatch.
 fn contract(pdo: u32, rdo: u32) -> PdContract {
-    let mismatched = PdContract {
-        capability_mismatch: bit(rdo, 26),
-        ..PdContract::default()
-    };
-    match pdo >> 30 {
-        0 => PdContract {
-            kind: SupplyKind::Fixed,
-            peak: peak(field(pdo, 20, 2)),
-            ..mismatched
-        },
-        1 => PdContract {
-            kind: SupplyKind::Battery,
-            ..mismatched
-        },
-        2 => PdContract {
-            kind: SupplyKind::Variable,
-            ..mismatched
-        },
+    let (kind, peak_code, power_limited) = match pdo >> 30 {
+        0 => (SupplyKind::Fixed, Some(field(pdo, 20, 2)), None),
+        1 => (SupplyKind::Battery, None, None),
+        2 => (SupplyKind::Variable, None, None),
         _ => match field(pdo, 28, 2) {
-            0 => PdContract {
-                kind: SupplyKind::Pps,
-                power_limited: bit(pdo, 27),
-                ..mismatched
-            },
-            1 => PdContract {
-                kind: SupplyKind::EprAvs,
-                peak: peak(field(pdo, 26, 2)),
-                ..mismatched
-            },
-            2 => PdContract {
-                kind: SupplyKind::SprAvs,
-                ..mismatched
-            },
-            _ => mismatched,
+            0 => (SupplyKind::Pps, None, Some(bit(pdo, 27))),
+            1 => (SupplyKind::EprAvs, Some(field(pdo, 26, 2)), None),
+            2 => (SupplyKind::SprAvs, None, None),
+            _ => (SupplyKind::Reserved, None, None),
         },
+    };
+    PdContract {
+        kind,
+        peak: peak_code.and_then(peak),
+        power_limited,
+        capability_mismatch: bit(rdo, 26),
     }
 }
 
-/// A zero VDO under a present e-marker is unknown rather than marked: its
-/// current code would be the reserved `00`, so the controller has not
-/// stored one.
-fn from_registers(status: &[u8], vdo: u32) -> Cable {
-    let Some(flags) = status.get(1) else {
-        return Cable::default();
-    };
-    if flags & E_MARKER == 0 {
-        return Cable {
-            marking: CableMarking::Unmarked,
-            ..Cable::default()
-        };
+/// None where the e-marker bit is clear or the controller has stored no VDO:
+/// a zero VDO's current code would be the reserved `00`.
+fn cable(status: [u8; 2], vdo: u32) -> Option<Cable> {
+    if status[0] & E_MARKER == 0 || vdo == 0 {
+        return None;
     }
-    if vdo == 0 {
-        return Cable::default();
-    }
-    Cable {
-        marking: CableMarking::Marked,
+    Some(Cable {
         speed: match field(vdo, 0, 3) {
-            0 => CableSpeed::Usb2,
-            1 => CableSpeed::Gen1,
-            2 => CableSpeed::Gen2,
-            3 => CableSpeed::Gen3,
-            4 => CableSpeed::Gen4,
-            _ => CableSpeed::Unknown,
+            0 => Some(CableSpeed::Usb2),
+            1 => Some(CableSpeed::Gen1),
+            2 => Some(CableSpeed::Gen2),
+            3 => Some(CableSpeed::Gen3),
+            4 => Some(CableSpeed::Gen4),
+            _ => None,
         },
         milliamps: match field(vdo, 5, 2) {
-            1 => 3000,
-            2 => 5000,
-            _ => 0,
-        },
-        max_millivolts: match field(vdo, 9, 2) {
-            0 => 20_000,
-            1 => 30_000,
-            2 => 40_000,
-            _ => 50_000,
+            1 => Some(3000),
+            2 => Some(5000),
+            _ => None,
         },
         epr: bit(vdo, 17),
         latency: match field(vdo, 13, 4) {
-            1 => CableLatency::Under10Ns,
-            2 => CableLatency::Under20Ns,
-            3 => CableLatency::Under30Ns,
-            4 => CableLatency::Under40Ns,
-            5 => CableLatency::Under50Ns,
-            6 => CableLatency::Under60Ns,
-            7 => CableLatency::Under70Ns,
-            8 => CableLatency::Over70Ns,
-            _ => CableLatency::Unknown,
+            1 => Some(CableLatency::Under10Ns),
+            2 => Some(CableLatency::Under20Ns),
+            3 => Some(CableLatency::Under30Ns),
+            4 => Some(CableLatency::Under40Ns),
+            5 => Some(CableLatency::Under50Ns),
+            6 => Some(CableLatency::Under60Ns),
+            7 => Some(CableLatency::Under70Ns),
+            8 => Some(CableLatency::Over70Ns),
+            _ => None,
         },
-        active: status.get(2).is_some_and(|flags| flags & ACTIVE_CABLE != 0),
-    }
+        active: status[1] & ACTIVE_CABLE != 0,
+    })
 }
 
 #[cfg(test)]
 mod tests {
-    use frameguin_wire::{
-        CableLatency, CableMarking, CableSpeed, PeakCurrent, Platform, SupplyKind,
-    };
+    use frameguin_wire::{CableLatency, CableSpeed, PdContract, PeakCurrent, Platform, SupplyKind};
 
-    use super::{block, controllers, decode, from_registers};
+    use super::{SPAN, block, cable, controllers, decode};
 
-    const CHARGING_CABLE_STATUS: [u8; 4] = [0x76, 0x9c, 0x25, 0x01];
+    const CHARGING_CABLE_STATUS: [u8; 2] = [0x9c, 0x25];
+    const CHARGING_CABLE_VDO: u32 = 0x000a_6640;
+    const NO_E_MARKER_STATUS: [u8; 2] = [0x40, 0x25];
 
     #[test]
     fn a_measured_cable_vdo_decodes_to_its_rating() {
-        let cable = from_registers(&CHARGING_CABLE_STATUS, 0x000a_6640);
-        assert_eq!(cable.marking, CableMarking::Marked);
-        assert_eq!(cable.speed, CableSpeed::Usb2);
-        assert_eq!(cable.milliamps, 5000);
-        assert_eq!(cable.max_millivolts, 50_000);
+        let cable = cable(CHARGING_CABLE_STATUS, CHARGING_CABLE_VDO).expect("marked");
+        assert_eq!(cable.speed, Some(CableSpeed::Usb2));
+        assert_eq!(cable.milliamps, Some(5000));
         assert!(cable.epr);
-        assert_eq!(cable.latency, CableLatency::Under30Ns);
+        assert_eq!(cable.latency, Some(CableLatency::Under30Ns));
     }
 
     #[test]
-    fn a_port_without_an_e_marker_is_unmarked() {
-        let cable = from_registers(&[0x76, 0x40], 0);
-        assert_eq!(cable.marking, CableMarking::Unmarked);
-        assert_eq!(cable.milliamps, 0);
+    fn a_clear_e_marker_bit_reads_no_cable() {
+        assert_eq!(cable(NO_E_MARKER_STATUS, CHARGING_CABLE_VDO), None);
     }
 
     #[test]
-    fn an_e_marker_with_no_vdo_yet_is_unknown() {
-        assert_eq!(
-            from_registers(&CHARGING_CABLE_STATUS, 0).marking,
-            CableMarking::Unknown
-        );
-    }
-
-    #[test]
-    fn a_short_status_read_is_unknown() {
-        assert_eq!(
-            from_registers(&[], 0x000a_6640).marking,
-            CableMarking::Unknown
-        );
+    fn an_e_marker_with_no_vdo_yet_reads_no_cable() {
+        assert_eq!(cable(CHARGING_CABLE_STATUS, 0), None);
     }
 
     #[test]
     fn reserved_codes_leave_their_fields_empty() {
         const RESERVED_SPEED: u32 = 0b111;
         const RESERVED_CURRENT: u32 = 0b11 << 5;
-        let cable = from_registers(&CHARGING_CABLE_STATUS, RESERVED_SPEED | RESERVED_CURRENT);
-        assert_eq!(cable.marking, CableMarking::Marked);
-        assert_eq!(cable.speed, CableSpeed::Unknown);
-        assert_eq!(cable.milliamps, 0);
-        assert_eq!(cable.latency, CableLatency::Unknown);
+        let cable =
+            cable(CHARGING_CABLE_STATUS, RESERVED_SPEED | RESERVED_CURRENT).expect("marked");
+        assert_eq!(cable.speed, None);
+        assert_eq!(cable.milliamps, None);
+        assert_eq!(cable.latency, None);
     }
 
     #[test]
@@ -265,11 +207,12 @@ mod tests {
             0x76, 0x9c, 0x25, 0x01, 0x89, 0xc9, 0x00, 0x00, 0xf4, 0x41, 0x06, 0x00, 0xf4, 0xd1,
             0xc7, 0x42, 0x40, 0x66, 0x0a, 0x00,
         ];
+        let registers = decode(&span);
         assert_eq!(
-            decode(&span).cable,
-            from_registers(&CHARGING_CABLE_STATUS, 0x000a_6640)
+            registers.cable,
+            cable(CHARGING_CABLE_STATUS, CHARGING_CABLE_VDO)
         );
-        assert_eq!(decode(&span).measured_millivolts, Some(20_100));
+        assert_eq!(registers.measured_millivolts, 20_100);
     }
 
     const CHARGER_SPAN: [u8; 20] = [
@@ -285,26 +228,31 @@ mod tests {
         0x00, 0x43, 0x26, 0x0a, 0x45,
     ];
 
+    fn pd(span: &[u8; SPAN]) -> Option<PdContract> {
+        decode(span).pd
+    }
+
     #[test]
     fn a_contract_decodes_its_kind_from_the_offer() {
-        let charger = decode(&CHARGER_SPAN).pd.expect("a contract stands");
+        let charger = pd(&CHARGER_SPAN).expect("a contract stands");
         assert_eq!(charger.kind, SupplyKind::Fixed);
+        assert_eq!(charger.peak, None);
+        assert_eq!(charger.power_limited, None);
         assert!(!charger.capability_mismatch);
-        let card = decode(&CARD_SPAN).pd.expect("a contract stands");
-        assert_eq!(card.kind, SupplyKind::Fixed);
+        assert_eq!(pd(&CARD_SPAN).map(|pd| pd.kind), Some(SupplyKind::Fixed));
     }
 
     #[test]
     fn a_port_without_a_contract_has_none_read() {
-        assert_eq!(decode(&TYPE_C_ONLY_SPAN).pd, None);
+        assert_eq!(pd(&TYPE_C_ONLY_SPAN), None);
     }
 
     #[test]
     fn a_marked_cables_active_bit_is_carried() {
         let mut span = TYPE_C_ONLY_SPAN;
-        assert!(!decode(&span).cable.active);
+        assert!(!decode(&span).cable.expect("marked").active);
         span[2] |= super::ACTIVE_CABLE;
-        assert!(decode(&span).cable.active);
+        assert!(decode(&span).cable.expect("marked").active);
     }
 
     #[test]
@@ -312,7 +260,8 @@ mod tests {
         let pdo = (0b11 << 30) | (1 << 27);
         let pd = super::contract(pdo, 1 << 26);
         assert_eq!(pd.kind, SupplyKind::Pps);
-        assert!(pd.power_limited);
+        assert_eq!(pd.power_limited, Some(true));
+        assert_eq!(pd.peak, None);
         assert!(pd.capability_mismatch);
     }
 
@@ -320,15 +269,7 @@ mod tests {
     fn a_fixed_offer_carries_its_peak_current() {
         let pd = super::contract(0b10 << 20, 0);
         assert_eq!(pd.kind, SupplyKind::Fixed);
-        assert_eq!(pd.peak, PeakCurrent::Overload200);
-    }
-
-    #[test]
-    fn a_span_cut_short_of_the_vdo_is_unknown() {
-        assert_eq!(
-            decode(&CHARGING_CABLE_STATUS).cable.marking,
-            CableMarking::Unknown
-        );
+        assert_eq!(pd.peak, Some(PeakCurrent::Overload200));
     }
 
     #[test]

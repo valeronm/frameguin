@@ -448,7 +448,11 @@ impl Default for Connectors {
             count: 4,
             refusing_none: false,
             sink: None,
-            registers: PortRegisters::default(),
+            registers: PortRegisters {
+                cable: None,
+                pd: None,
+                measured_millivolts: 0,
+            },
             refusing_registers: Vec::new(),
             registers_read: Mutex::new(Vec::new()),
         }

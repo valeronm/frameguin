@@ -553,22 +553,8 @@ pub struct NetworkLink {
     pub megabits: u32,
 }
 
-/// Whether the cable on a port told its controller what it is rated for.
-#[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug, Default)]
-#[zvariant(crate = "zbus::zvariant", signature = "s")]
-#[serde(rename_all = "kebab-case")]
-pub enum CableMarking {
-    /// Nothing is known of the cable.
-    #[default]
-    Unknown,
-    /// The controller's e-marker bit is clear, which it also is for some
-    /// marked cables depending on the partner.
-    Unmarked,
-    Marked,
-}
-
 /// The fastest USB signaling a cable's e-marker declares.
-#[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug)]
 #[zvariant(crate = "zbus::zvariant", signature = "s")]
 #[serde(rename_all = "kebab-case")]
 pub enum CableSpeed {
@@ -577,14 +563,11 @@ pub enum CableSpeed {
     Gen2,
     Gen3,
     Gen4,
-    /// A code the PD specification reserves.
-    #[default]
-    Unknown,
 }
 
 /// A cable's signal latency class, which the PD specification ties to its
 /// length.
-#[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug)]
 #[zvariant(crate = "zbus::zvariant", signature = "s")]
 #[serde(rename_all = "kebab-case")]
 pub enum CableLatency {
@@ -596,33 +579,29 @@ pub enum CableLatency {
     Under60Ns,
     Under70Ns,
     Over70Ns,
-    /// Reserved, or an active cable's class past the passive range.
-    #[default]
-    Unknown,
 }
 
-/// What a port's cable reported of itself through its e-marker. Every field
-/// but `marking` is zero or `Unknown` unless `marking` is `Marked`, and a
-/// field whose code the specification reserves stays at zero or `Unknown`.
-#[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug, Default)]
+/// What a port's cable reported of itself through its e-marker.
+#[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug)]
 #[zvariant(crate = "zbus::zvariant")]
 pub struct Cable {
-    pub marking: CableMarking,
-    pub speed: CableSpeed,
-    /// The VBUS current it is rated for, in mA.
-    pub milliamps: u16,
-    /// The highest VBUS voltage it is rated for, in mV.
-    pub max_millivolts: u16,
+    /// None for a code the PD specification reserves.
+    pub speed: Option<CableSpeed>,
+    /// The VBUS current it is rated for: 3000 or 5000 mA, the two the
+    /// specification defines, and None for the codes it reserves.
+    pub milliamps: Option<u16>,
     /// Whether it is rated for extended power range.
     pub epr: bool,
-    pub latency: CableLatency,
+    /// None for a reserved class, and for an active cable's, which runs past
+    /// the range the specification ties to a length.
+    pub latency: Option<CableLatency>,
     /// Whether it carries its own signal electronics, by the controller's
     /// active-cable bit.
     pub active: bool,
 }
 
 /// Which kind of supply a power delivery offer is, by its PDO's type bits.
-#[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug)]
 #[zvariant(crate = "zbus::zvariant", signature = "s")]
 #[serde(rename_all = "kebab-case")]
 pub enum SupplyKind {
@@ -636,18 +615,15 @@ pub enum SupplyKind {
     /// An adjustable supply within extended power range.
     EprAvs,
     /// A type code the PD specification reserves.
-    #[default]
-    Unknown,
+    Reserved,
 }
 
 /// How far past its rated current a supply lets a sink draw for a moment,
 /// by the PD specification's peak current code.
-#[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug)]
 #[zvariant(crate = "zbus::zvariant", signature = "s")]
 #[serde(rename_all = "kebab-case")]
 pub enum PeakCurrent {
-    #[default]
-    Rated,
     /// 150% for 1 ms, 125% for 2 ms, 110% for 10 ms.
     Overload150,
     /// 200% for 1 ms, 150% for 2 ms, 125% for 10 ms.
@@ -658,15 +634,16 @@ pub enum PeakCurrent {
 
 /// The power delivery contract as the port's controller holds it: the
 /// source's offer it stands on and the sink's request against it.
-#[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug)]
 #[zvariant(crate = "zbus::zvariant")]
 pub struct PdContract {
     pub kind: SupplyKind,
-    /// For a fixed supply and an extended-range adjustable one.
-    pub peak: PeakCurrent,
-    /// A programmable supply's flag that it cannot give its full current
-    /// across its whole range.
-    pub power_limited: bool,
+    /// None where the supply declares no draw past its rating, and for a
+    /// kind whose offer carries no peak at all.
+    pub peak: Option<PeakCurrent>,
+    /// Whether a programmable supply cannot give its full current across its
+    /// whole range; None for any other kind.
+    pub power_limited: Option<bool>,
     /// The sink wanted more than any offer gave.
     pub capability_mismatch: bool,
 }
@@ -747,14 +724,17 @@ impl PortSet {
 
 /// What a port's PD controller answers from its own registers, rather than
 /// the EC's cache of it.
-#[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug)]
 #[zvariant(crate = "zbus::zvariant")]
 pub struct PortRegisters {
-    pub cable: Cable,
+    /// None where the controller read no e-marker: its bit is clear for a
+    /// marked cable on some partners and for a card with no cable at all,
+    /// and the controller stores no VDO until it has one.
+    pub cable: Option<Cable>,
     /// None where no power delivery contract stands.
     pub pd: Option<PdContract>,
     /// The bus voltage the controller measures, in mV.
-    pub measured_millivolts: Option<u16>,
+    pub measured_millivolts: u16,
 }
 
 /// What kind of part a device is, named for the thing a person would buy.

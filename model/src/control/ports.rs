@@ -73,11 +73,9 @@ pub fn carried(port: &PortState) -> Option<String> {
     ))
 }
 
-/// The bus voltage the port's controller measured, and None where it was not
-/// read.
 #[must_use]
-pub fn measured_label(port: &PortState) -> Option<String> {
-    port.registers?.measured_millivolts.map(volts)
+pub fn measured_label(millivolts: u16) -> String {
+    volts(millivolts)
 }
 
 fn volts(millivolts: u16) -> String {
@@ -230,7 +228,8 @@ pub fn vconn_label(vconn: bool) -> Option<&'static str> {
 #[must_use]
 pub fn supply_kind_label(kind: SupplyKind) -> Option<&'static str> {
     match kind {
-        SupplyKind::Fixed | SupplyKind::Unknown => None,
+        // A reserved type code says nothing of the supply to word either.
+        SupplyKind::Fixed | SupplyKind::Reserved => None,
         SupplyKind::Battery => Some("Battery"),
         SupplyKind::Variable => Some("Variable"),
         SupplyKind::Pps => Some("Programmable (PPS)"),
@@ -252,20 +251,21 @@ pub fn peak_label(contract: &PdContract, partner: PortPartner) -> Option<&'stati
     if partner != PortPartner::Source {
         return None;
     }
-    match contract.peak {
-        PeakCurrent::Rated => None,
-        PeakCurrent::Overload150 => Some("Up to 150% briefly"),
-        PeakCurrent::Overload200 => Some("Up to 200% briefly"),
-        PeakCurrent::Overload200Sustained => Some("Up to 200% briefly, 150% for 10 ms"),
-    }
+    Some(match contract.peak? {
+        PeakCurrent::Overload150 => "Up to 150% briefly",
+        PeakCurrent::Overload200 => "Up to 200% briefly",
+        PeakCurrent::Overload200Sustained => "Up to 200% briefly, 150% for 10 ms",
+    })
 }
 
 /// Whether the attached programmable source can give its full current
 /// across its whole range, and None where it is no such source.
 #[must_use]
 pub fn power_limited_label(contract: &PdContract, partner: PortPartner) -> Option<&'static str> {
-    (partner == PortPartner::Source && contract.kind == SupplyKind::Pps)
-        .then_some(super::yes_no(contract.power_limited))
+    if partner != PortPartner::Source {
+        return None;
+    }
+    contract.power_limited.map(super::yes_no)
 }
 
 /// None for a passive cable, the kind nearly every cable is.
@@ -286,17 +286,15 @@ pub fn epr_label(epr: Epr) -> Option<&'static str> {
 }
 
 /// The rate a cable is certified for: per lane through USB 3.2, whose links
-/// use one, and over both lanes for USB4, whose links use two. None for a
-/// reserved code.
+/// use one, and over both lanes for USB4, whose links use two.
 #[must_use]
-pub fn cable_speed_label(speed: CableSpeed) -> Option<&'static str> {
+pub fn cable_speed_label(speed: CableSpeed) -> &'static str {
     match speed {
-        CableSpeed::Usb2 => Some("480 Mbps"),
-        CableSpeed::Gen1 => Some("5 Gbps"),
-        CableSpeed::Gen2 => Some("10 Gbps"),
-        CableSpeed::Gen3 => Some("40 Gbps"),
-        CableSpeed::Gen4 => Some("80 Gbps"),
-        CableSpeed::Unknown => None,
+        CableSpeed::Usb2 => "480 Mbps",
+        CableSpeed::Gen1 => "5 Gbps",
+        CableSpeed::Gen2 => "10 Gbps",
+        CableSpeed::Gen3 => "40 Gbps",
+        CableSpeed::Gen4 => "80 Gbps",
     }
 }
 
@@ -308,25 +306,23 @@ pub fn cable_speed_label(speed: CableSpeed) -> Option<&'static str> {
 /// does not let a charger enter extended power range, its EPR bit does.
 #[must_use]
 pub fn cable_rating_label(cable: &Cable) -> Option<String> {
-    let amps = cable.milliamps / 1000;
+    let amps = cable.milliamps? / 1000;
     let contract_volts = if cable.epr { 48 } else { 20 };
-    (amps > 0).then(|| format!("{amps} A ({} W)", contract_volts * amps))
+    Some(format!("{amps} A ({} W)", contract_volts * amps))
 }
 
-/// The length the PD specification ties to each latency class, and None
-/// for a class it reserves or an active cable's.
+/// The length the PD specification ties to each latency class.
 #[must_use]
-pub fn cable_length_label(latency: CableLatency) -> Option<&'static str> {
+pub fn cable_length_label(latency: CableLatency) -> &'static str {
     match latency {
-        CableLatency::Under10Ns => Some("About 1 m"),
-        CableLatency::Under20Ns => Some("About 2 m"),
-        CableLatency::Under30Ns => Some("About 3 m"),
-        CableLatency::Under40Ns => Some("About 4 m"),
-        CableLatency::Under50Ns => Some("About 5 m"),
-        CableLatency::Under60Ns => Some("About 6 m"),
-        CableLatency::Under70Ns => Some("About 7 m"),
-        CableLatency::Over70Ns => Some("Over 7 m"),
-        CableLatency::Unknown => None,
+        CableLatency::Under10Ns => "About 1 m",
+        CableLatency::Under20Ns => "About 2 m",
+        CableLatency::Under30Ns => "About 3 m",
+        CableLatency::Under40Ns => "About 4 m",
+        CableLatency::Under50Ns => "About 5 m",
+        CableLatency::Under60Ns => "About 6 m",
+        CableLatency::Under70Ns => "About 7 m",
+        CableLatency::Over70Ns => "Over 7 m",
     }
 }
 
@@ -335,9 +331,8 @@ mod tests {
     use std::rc::Rc;
 
     use frameguin_wire::{
-        Cable, CableLatency, CableMarking, CableSpeed, DataRole, DeviceError,
-        DeviceResult as Result, PdContract, PeakCurrent, PortPartner, PortRegisters, PortSet,
-        PortState, PowerRole, SupplyKind,
+        Cable, CableLatency, CableSpeed, DataRole, DeviceError, DeviceResult as Result, PdContract,
+        PeakCurrent, PortPartner, PortSet, PortState, PowerRole, SupplyKind,
     };
 
     use super::{
@@ -381,15 +376,7 @@ mod tests {
 
     #[test]
     fn a_measured_voltage_reads_to_a_tenth_of_a_volt() {
-        let measured = PortState {
-            registers: Some(PortRegisters {
-                measured_millivolts: Some(20_100),
-                ..PortRegisters::default()
-            }),
-            ..port(0)
-        };
-        assert_eq!(measured_label(&measured).as_deref(), Some("20.1 V"));
-        assert_eq!(measured_label(&port(0)), None);
+        assert_eq!(measured_label(20_100), "20.1 V");
     }
 
     #[test]
@@ -588,25 +575,17 @@ mod tests {
 
     #[test]
     fn a_cable_reads_as_the_rate_it_is_certified_for() {
-        assert_eq!(cable_speed_label(CableSpeed::Usb2), Some("480 Mbps"));
-        assert_eq!(cable_speed_label(CableSpeed::Gen1), Some("5 Gbps"));
-        assert_eq!(cable_speed_label(CableSpeed::Gen2), Some("10 Gbps"));
-        assert_eq!(cable_speed_label(CableSpeed::Gen3), Some("40 Gbps"));
-        assert_eq!(cable_speed_label(CableSpeed::Gen4), Some("80 Gbps"));
-        assert_eq!(cable_speed_label(CableSpeed::Unknown), None);
+        assert_eq!(cable_speed_label(CableSpeed::Usb2), "480 Mbps");
+        assert_eq!(cable_speed_label(CableSpeed::Gen1), "5 Gbps");
+        assert_eq!(cable_speed_label(CableSpeed::Gen2), "10 Gbps");
+        assert_eq!(cable_speed_label(CableSpeed::Gen3), "40 Gbps");
+        assert_eq!(cable_speed_label(CableSpeed::Gen4), "80 Gbps");
     }
 
     #[test]
     fn a_cables_rating_reads_in_the_watts_it_is_sold_by() {
-        let standard = Cable {
-            marking: CableMarking::Marked,
-            milliamps: 3000,
-            ..Cable::default()
-        };
-        let five_amp = Cable {
-            milliamps: 5000,
-            ..standard
-        };
+        let standard = marked(Some(3000));
+        let five_amp = marked(Some(5000));
         let extended = Cable {
             epr: true,
             ..five_amp
@@ -624,23 +603,31 @@ mod tests {
 
     #[test]
     fn a_current_the_e_marker_left_reserved_has_no_rating() {
-        assert_eq!(cable_rating_label(&Cable::default()), None);
+        assert_eq!(cable_rating_label(&marked(None)), None);
     }
 
     #[test]
     fn a_cables_length_is_worded_as_the_approximation_it_is() {
-        assert_eq!(
-            cable_length_label(CableLatency::Under30Ns),
-            Some("About 3 m")
-        );
-        assert_eq!(cable_length_label(CableLatency::Over70Ns), Some("Over 7 m"));
-        assert_eq!(cable_length_label(CableLatency::Unknown), None);
+        assert_eq!(cable_length_label(CableLatency::Under30Ns), "About 3 m");
+        assert_eq!(cable_length_label(CableLatency::Over70Ns), "Over 7 m");
+    }
+
+    fn marked(milliamps: Option<u16>) -> Cable {
+        Cable {
+            speed: Some(CableSpeed::Usb2),
+            milliamps,
+            epr: false,
+            latency: Some(CableLatency::Under10Ns),
+            active: false,
+        }
     }
 
     fn fixed() -> PdContract {
         PdContract {
             kind: SupplyKind::Fixed,
-            ..PdContract::default()
+            peak: None,
+            power_limited: None,
+            capability_mismatch: false,
         }
     }
 
@@ -648,8 +635,8 @@ mod tests {
     fn a_programmable_source_says_whether_it_is_power_limited() {
         let pps = PdContract {
             kind: SupplyKind::Pps,
-            power_limited: true,
-            ..PdContract::default()
+            power_limited: Some(true),
+            ..fixed()
         };
         assert_eq!(power_limited_label(&pps, PortPartner::Source), Some("Yes"));
         assert_eq!(power_limited_label(&pps, PortPartner::Sink), None);
@@ -660,7 +647,7 @@ mod tests {
     fn only_a_source_declaring_overload_has_a_peak_row() {
         assert_eq!(peak_label(&fixed(), PortPartner::Source), None);
         let overloading = PdContract {
-            peak: PeakCurrent::Overload150,
+            peak: Some(PeakCurrent::Overload150),
             ..fixed()
         };
         assert_eq!(

@@ -87,7 +87,8 @@ mod tests {
     use std::sync::Arc;
 
     use frameguin_wire::{
-        Cable, CableMarking, PdContract, Platform, PortRegisters, PortSet, PortsControl, SupplyKind,
+        Cable, CableLatency, CableSpeed, PdContract, Platform, PortRegisters, PortSet,
+        PortsControl, SupplyKind,
     };
 
     use super::Ports;
@@ -158,20 +159,24 @@ mod tests {
 
     fn marked() -> Cable {
         Cable {
-            marking: CableMarking::Marked,
-            milliamps: 5000,
-            ..Cable::default()
+            speed: Some(CableSpeed::Usb2),
+            milliamps: Some(5000),
+            epr: true,
+            latency: Some(CableLatency::Under30Ns),
+            active: false,
         }
     }
 
     fn charging() -> PortRegisters {
         PortRegisters {
-            cable: marked(),
+            cable: Some(marked()),
             pd: Some(PdContract {
                 kind: SupplyKind::Fixed,
-                ..PdContract::default()
+                peak: None,
+                power_limited: None,
+                capability_mismatch: false,
             }),
-            measured_millivolts: Some(20_100),
+            measured_millivolts: 20_100,
         }
     }
 

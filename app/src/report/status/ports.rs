@@ -26,7 +26,7 @@ use frameguin_model::control::ports::{
 };
 use frameguin_model::control::usb::{capacity_label, device_name, network_label, speed_label};
 use frameguin_model::port::Placement;
-use frameguin_wire::{Attached, CableMarking, PortPartner, PortRegisters, PortSet, PortState};
+use frameguin_wire::{Attached, PortPartner, PortRegisters, PortSet, PortState};
 use gtk4 as gtk;
 use gtk4::glib;
 
@@ -326,26 +326,20 @@ fn connection_group(placement: Placement, state: &PortState) -> Group {
     group
 }
 
-/// None where nothing is attached or no e-marker was read: the controller's
-/// e-marker bit is clear for a cable that has one on some partners, and for a
-/// card plugged in with no cable at all.
 fn cable_group(state: &PortState) -> Option<Group> {
-    let cable = &state.registers.as_ref()?.cable;
-    if cable.marking != CableMarking::Marked {
-        return None;
-    }
+    let cable = state.registers?.cable?;
     let mut group = Group::new("Cable");
     if let Some(kind) = cable_type_label(cable.active) {
         group.row("Type", kind);
     }
-    if let Some(speed) = cable_speed_label(cable.speed) {
-        group.row("Speed", speed);
+    if let Some(speed) = cable.speed {
+        group.row("Speed", cable_speed_label(speed));
     }
-    if let Some(rating) = cable_rating_label(cable) {
+    if let Some(rating) = cable_rating_label(&cable) {
         group.row("Rating", rating);
     }
-    if let Some(length) = cable_length_label(cable.latency) {
-        group.row("Length", length);
+    if let Some(latency) = cable.latency {
+        group.row("Length", cable_length_label(latency));
     }
     Some(group)
 }
@@ -358,8 +352,8 @@ fn contract_group(state: &PortState) -> Option<Group> {
     if let Some(supply) = carried(state) {
         group.row("Contract", supply);
     }
-    if let Some(measured) = measured_label(state) {
-        group.row("Measured", measured);
+    if let Some(registers) = state.registers {
+        group.row("Measured", measured_label(registers.measured_millivolts));
     }
     if let Some(pd) = state.registers.and_then(|registers| registers.pd) {
         if let Some(kind) = supply_kind_label(pd.kind) {
