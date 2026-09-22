@@ -10,7 +10,9 @@ frameguin-hardware = { path = "hardware" }
 frameguin-model = { path = "model" }
 frameguin-wire = { path = "wire" }
 serde = { version = "1", features = ["derive"] }
-zbus = "5.19.0"
+# `option-as-array` carries an `Option` over D-Bus, which has no maybe type,
+# as an array of zero or one element.
+zbus = { version = "5.19.0", features = ["option-as-array"] }
 
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }

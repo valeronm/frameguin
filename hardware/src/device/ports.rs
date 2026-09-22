@@ -3,10 +3,10 @@
 
 use std::sync::Arc;
 
-use frameguin_wire::{Board, DeviceResult, PortPartner, PortState, PortsControl};
+use frameguin_wire::{Board, DeviceResult, PortPartner, PortSet, PortState, PortsControl};
 
-use crate::cable::{self, PORTS_PER_CONTROLLER};
 use crate::ec::{Ec, PdPorts};
+use crate::pd_controller::{self, PORTS_PER_CONTROLLER};
 
 pub struct Ports {
     ec: Arc<dyn PdPorts>,
@@ -24,7 +24,7 @@ impl Ports {
     /// firmware has no such command included, since a port that cannot be
     /// asked about is one this device has nothing to say about.
     pub(crate) fn detect(ec: &Arc<Ec>, board: &Board) -> Option<Self> {
-        Self::new(ec.clone(), cable::controllers(board.platform()))
+        Self::new(ec.clone(), pd_controller::controllers(board.platform()))
     }
 
     /// The walk is bounded by the controllers rather than by where the EC
@@ -62,26 +62,19 @@ impl PortsControl for Ports {
     /// A port the EC refuses part way through the walk is left out rather
     /// than failing the read: what a caller wants is the set, and one port
     /// gone silent costs its own row and not the window. Registers that will
-    /// not read leave the cable unknown and the voltage unread for that read
-    /// rather than costing the port.
-    async fn ports(&self, controller_ports: u8) -> DeviceResult<Vec<PortState>> {
+    /// not read leave the port without them for that read rather than
+    /// costing the port.
+    async fn ports(&self, controller_ports: PortSet) -> DeviceResult<Vec<PortState>> {
         Ok((0..self.count)
             .filter_map(|port| self.ec.port_state(port).ok().flatten())
             .map(|mut state| {
-                if controller_ports
-                    .checked_shr(u32::from(state.index))
-                    .is_some_and(|bits| bits & 1 == 1)
+                if controller_ports.contains(state.index)
                     && state.partner != PortPartner::Nothing
                     && let Some(&Some(address)) = self
                         .controllers
                         .get(usize::from(state.index / PORTS_PER_CONTROLLER))
                 {
-                    let registers = self
-                        .ec
-                        .port_registers(state.index, address)
-                        .unwrap_or_default();
-                    state.cable = registers.cable;
-                    state.measured_millivolts = registers.measured_millivolts;
+                    state.registers = self.ec.port_registers(state.index, address).ok();
                 }
                 state
             })
@@ -93,21 +86,23 @@ impl PortsControl for Ports {
 mod tests {
     use std::sync::Arc;
 
-    use frameguin_wire::{Cable, CableMarking, Platform, PortsControl};
+    use frameguin_wire::{
+        Cable, CableMarking, PdContract, Platform, PortRegisters, PortSet, PortsControl, SupplyKind,
+    };
 
     use super::Ports;
-    use crate::cable::{self, PortRegisters};
+    use crate::pd_controller;
     use crate::testing::{Connectors, ready};
 
     fn laptop_13_pro() -> &'static [(u8, u16)] {
-        cable::controllers(Platform::Laptop13ProUltra3)
+        pd_controller::controllers(Platform::Laptop13ProUltra3)
     }
 
     #[test]
     fn the_ports_the_ec_answers_for_are_the_ports_there_are() {
         let ports = Ports::new(Arc::new(Connectors::default()), laptop_13_pro())
             .expect("four ports answered");
-        let read = ready(ports.ports(u8::MAX)).unwrap();
+        let read = ready(ports.ports(PortSet::ALL)).unwrap();
         assert_eq!(read.len(), 4);
         assert_eq!(read[3].index, 3);
     }
@@ -141,7 +136,7 @@ mod tests {
         };
         let ports =
             Ports::new(Arc::new(ec), laptop_13_pro()).expect("the ceiling still allows four");
-        assert_eq!(ready(ports.ports(u8::MAX)).unwrap().len(), 4);
+        assert_eq!(ready(ports.ports(PortSet::ALL)).unwrap().len(), 4);
     }
 
     /// A controller's second port can be absent — the Laptop 16's third
@@ -153,9 +148,12 @@ mod tests {
             count: 5,
             ..Connectors::default()
         };
-        let ports = Ports::new(Arc::new(ec), cable::controllers(Platform::Laptop16AmdAi300))
-            .expect("five ports answered");
-        assert_eq!(ready(ports.ports(u8::MAX)).unwrap().len(), 5);
+        let ports = Ports::new(
+            Arc::new(ec),
+            pd_controller::controllers(Platform::Laptop16AmdAi300),
+        )
+        .expect("five ports answered");
+        assert_eq!(ready(ports.ports(PortSet::ALL)).unwrap().len(), 5);
     }
 
     fn marked() -> Cable {
@@ -169,20 +167,23 @@ mod tests {
     fn charging() -> PortRegisters {
         PortRegisters {
             cable: marked(),
-            measured_millivolts: 20_100,
+            pd: Some(PdContract {
+                kind: SupplyKind::Fixed,
+                ..PdContract::default()
+            }),
+            measured_millivolts: Some(20_100),
         }
     }
 
     #[test]
-    fn an_attached_port_carries_its_cable_and_voltage() {
+    fn an_attached_port_carries_its_cable_contract_and_voltage() {
         let ec = Arc::new(Connectors {
             registers: charging(),
             ..Connectors::default()
         });
         let ports = Ports::new(ec, laptop_13_pro()).expect("four ports answered");
-        let read = ready(ports.ports(u8::MAX)).unwrap();
-        assert_eq!(read[0].cable, marked());
-        assert_eq!(read[0].measured_millivolts, 20_100);
+        let read = ready(ports.ports(PortSet::ALL)).unwrap();
+        assert_eq!(read[0].registers, Some(charging()));
     }
 
     #[test]
@@ -193,8 +194,8 @@ mod tests {
         });
         let ports = Ports::new(ec.clone(), laptop_13_pro()).expect("four ports answered");
         ec.registers_read.lock().unwrap().clear();
-        let read = ready(ports.ports(u8::MAX)).unwrap();
-        assert_eq!(read[1].cable, Cable::default());
+        let read = ready(ports.ports(PortSet::ALL)).unwrap();
+        assert_eq!(read[1].registers, None);
         assert_eq!(
             *ec.registers_read.lock().unwrap(),
             vec![(0, laptop_13_pro()[0])]
@@ -210,9 +211,9 @@ mod tests {
         });
         let ports = Ports::new(ec.clone(), laptop_13_pro()).expect("the ports still answered");
         ec.registers_read.lock().unwrap().clear();
-        let read = ready(ports.ports(u8::MAX)).unwrap();
+        let read = ready(ports.ports(PortSet::ALL)).unwrap();
         assert_eq!(read.len(), 4);
-        assert_eq!(read[0].cable, Cable::default());
+        assert_eq!(read[0].registers, None);
         assert!(ec.registers_read.lock().unwrap().is_empty());
     }
 
@@ -226,9 +227,9 @@ mod tests {
         });
         let ports = Ports::new(ec.clone(), laptop_13_pro()).expect("four ports answered");
         ec.registers_read.lock().unwrap().clear();
-        let read = ready(ports.ports(u8::MAX)).unwrap();
-        assert_eq!(read[0].cable, marked());
-        assert_eq!(read[2].cable, Cable::default());
+        let read = ready(ports.ports(PortSet::ALL)).unwrap();
+        assert_eq!(read[0].registers, Some(charging()));
+        assert_eq!(read[2].registers, None);
         assert_eq!(
             *ec.registers_read.lock().unwrap(),
             vec![(0, laptop_13_pro()[0])]
@@ -242,8 +243,8 @@ mod tests {
             ..Connectors::default()
         });
         let ports = Ports::new(ec.clone(), &[]).expect("the ports still answered");
-        let read = ready(ports.ports(u8::MAX)).unwrap();
-        assert_eq!(read[0].cable, Cable::default());
+        let read = ready(ports.ports(PortSet::ALL)).unwrap();
+        assert_eq!(read[0].registers, None);
         assert!(ec.registers_read.lock().unwrap().is_empty());
     }
 
@@ -256,8 +257,8 @@ mod tests {
         });
         let ports = Ports::new(ec.clone(), laptop_13_pro()).expect("four ports answered");
         ec.registers_read.lock().unwrap().clear();
-        let read = ready(ports.ports(u8::MAX)).unwrap();
-        assert_eq!(read[2].cable, marked());
+        let read = ready(ports.ports(PortSet::ALL)).unwrap();
+        assert_eq!(read[2].registers, Some(charging()));
         assert!(
             ec.registers_read
                 .lock()
@@ -274,8 +275,8 @@ mod tests {
         });
         let ports = Ports::new(ec.clone(), laptop_13_pro()).expect("four ports answered");
         ec.registers_read.lock().unwrap().clear();
-        let read = ready(ports.ports(0)).unwrap();
-        assert_eq!(read[0].cable, Cable::default());
+        let read = ready(ports.ports(PortSet::default())).unwrap();
+        assert_eq!(read[0].registers, None);
         assert!(ec.registers_read.lock().unwrap().is_empty());
     }
 
@@ -288,9 +289,9 @@ mod tests {
         });
         let ports = Ports::new(ec.clone(), laptop_13_pro()).expect("four ports answered");
         ec.registers_read.lock().unwrap().clear();
-        let read = ready(ports.ports(1 << 2)).unwrap();
-        assert_eq!(read[0].cable, Cable::default());
-        assert_eq!(read[2].cable, marked());
+        let read = ready(ports.ports(PortSet::of(2))).unwrap();
+        assert_eq!(read[0].registers, None);
+        assert_eq!(read[2].registers, Some(charging()));
         assert_eq!(
             *ec.registers_read.lock().unwrap(),
             vec![(2, laptop_13_pro()[1])]

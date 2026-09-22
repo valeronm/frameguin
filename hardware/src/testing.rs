@@ -9,13 +9,12 @@ use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll, Waker};
 
 use frameguin_wire::{
-    Attached, BatteryCondition, BatteryInfo, BatteryState, Cable, CcPolarity, ChargeFlow,
-    ChassisState, ClickForce, DataRole, DeckState, Detail, DeviceError, DeviceResult, Epr,
-    ExtenderStage, ExtenderState, Identity, LinkState, NetworkLink, PartKind, PortPartner,
+    Attached, BatteryCondition, BatteryInfo, BatteryState, CcPolarity, ChargeFlow, ChassisState,
+    ClickForce, DataRole, DeckState, Detail, DeviceError, DeviceResult, Epr, ExtenderStage,
+    ExtenderState, Identity, LinkState, NetworkLink, PartKind, PortPartner, PortRegisters,
     PortState, PowerLedLevel, PowerRole, PrivacyState, UsbSpeed,
 };
 
-use crate::cable::PortRegisters;
 use crate::ec::{Charger, ChassisEc, Pack, PdPorts, PowerLedEc, PrivacyEc, SideEnables};
 use crate::led::LedClass;
 use crate::lifetime::{EcBoot, Holders};
@@ -418,8 +417,7 @@ pub fn port(index: u8) -> PortState {
         vconn: charging,
         cc: CcPolarity::Cc1,
         epr: Epr::Unsupported,
-        cable: Cable::default(),
-        measured_millivolts: 0,
+        registers: None,
     }
 }
 

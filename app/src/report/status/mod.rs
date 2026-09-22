@@ -97,59 +97,62 @@ fn build(
     let daemon = daemon.clone();
     let feed = feed.clone();
     glib::spawn_future_local(async move {
-        let controls = match daemon.controls().await {
-            Ok(controls) => controls,
-            Err(e) => {
-                shell.toast_error("Reading the hardware", e);
-                return;
-            }
-        };
-        // A window closed while the daemon was being dialled has nothing left
-        // to draw into.
-        if sidebar
-            .split
-            .upgrade()
-            .is_none_or(|split| split.root().is_none())
-        {
-            return;
-        }
-        if let Some(control) = &controls.battery {
-            battery::add(&sidebar, &feed, control);
-            if control.has(BatteryFeature::Extender) {
-                battery_extender::add(&sidebar, &feed);
-            }
-        }
-        if let Some(control) = &controls.chassis {
-            chassis::add(&sidebar, &feed, control);
-        }
-        if controls.privacy_switches.is_some() {
-            privacy_switches::add(&sidebar, &feed);
-        }
-        if let Some(control) = &controls.ports {
-            ports::add(&sidebar, &feed, controls.usb.is_some(), control.placement());
-        }
-        if sidebar.lists.borrow().is_empty() {
-            sidebar.pages.add_child(
-                &adw::StatusPage::builder()
-                    .icon_name("dialog-information-symbolic")
-                    .title("No readings to show")
-                    .description("The daemon found nothing on this machine whose state it reads.")
-                    .build(),
-            );
-        }
-        if let Some(split) = sidebar.split.upgrade() {
-            let failure = match feed.fill(&split).await {
-                Ok((_, failure)) => failure.map(|failure| failure.error),
-                Err(e) => Some(e),
-            };
-            if let Some(e) = failure {
-                shell.toast_error("Reading the hardware", e);
-            }
-        }
-        sidebar.filled.set(true);
-        sidebar.settle();
+        fill(&sidebar, &daemon, &feed, &shell).await;
+        sidebar.pages.set_opacity(1.0);
     });
     split
+}
+
+async fn fill(sidebar: &Rc<Sidebar>, daemon: &Daemon, feed: &Rc<Feed>, shell: &Shell) {
+    let controls = match daemon.controls().await {
+        Ok(controls) => controls,
+        Err(e) => {
+            shell.toast_error("Reading the hardware", e);
+            return;
+        }
+    };
+    // A window closed while the daemon was being dialled has nothing left
+    // to draw into.
+    let Some(split) = sidebar
+        .split
+        .upgrade()
+        .filter(|split| split.root().is_some())
+    else {
+        return;
+    };
+    if let Some(control) = &controls.battery {
+        battery::add(sidebar, feed, control);
+        if control.has(BatteryFeature::Extender) {
+            battery_extender::add(sidebar, feed);
+        }
+    }
+    if let Some(control) = &controls.chassis {
+        chassis::add(sidebar, feed, control);
+    }
+    if controls.privacy_switches.is_some() {
+        privacy_switches::add(sidebar, feed);
+    }
+    if let Some(control) = &controls.ports {
+        ports::add(sidebar, feed, controls.usb.is_some(), control.placement());
+    }
+    if sidebar.lists.borrow().is_empty() {
+        sidebar.pages.add_child(
+            &adw::StatusPage::builder()
+                .icon_name("dialog-information-symbolic")
+                .title("No readings to show")
+                .description("The daemon found nothing on this machine whose state it reads.")
+                .build(),
+        );
+    }
+    let failure = match feed.fill(&split).await {
+        Ok((_, failure)) => failure.map(|failure| failure.error),
+        Err(e) => Some(e),
+    };
+    sidebar.filled.set(true);
+    sidebar.settle();
+    if let Some(e) = failure {
+        shell.toast_error("Reading the hardware", e);
+    }
 }
 
 fn pick(row: &gtk::ListBoxRow) {
@@ -197,6 +200,10 @@ impl Sidebar {
         // only the page on screen has anything to say about the pane's size.
         pages.set_hhomogeneous(false);
         pages.set_vhomogeneous(false);
+        // Transparent rather than hidden until the first fill has picked the
+        // page to open on: a hidden page is unmapped, and an unmapped page
+        // subscribes to nothing the fill would read.
+        pages.set_opacity(0.0);
         let titled = adw::NavigationPage::builder()
             .title(TITLE)
             .child(&headed(&pages))

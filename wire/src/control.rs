@@ -12,8 +12,8 @@
 use crate::error::DeviceResult;
 use crate::vocabulary::{
     Attached, BatteryCondition, BatteryFeature, BatteryInfo, ChargingLedFeature, ChargingLedSide,
-    ChassisFeature, ChassisState, ClickForce, DeckState, ExtenderState, PortState, PowerLedLevel,
-    PrivacyState,
+    ChassisFeature, ChassisState, ClickForce, DeckState, ExtenderState, PortSet, PortState,
+    PowerLedLevel, PrivacyState,
 };
 
 pub trait TouchpadControl {
@@ -70,11 +70,9 @@ pub trait ChargingLedControl {
 /// whatever is plugged in; nothing here is this app's to set.
 pub trait PortsControl {
     /// Every port the EC answers for, in its own port order. Their number is
-    /// fixed for the device's run. Bit n of `controller_ports` asks for port
-    /// n's PD controller registers; a port not asked for has its
-    /// [`PortState::cable`] left unknown and its
-    /// [`PortState::measured_millivolts`] zero.
-    async fn ports(&self, controller_ports: u8) -> DeviceResult<Vec<PortState>>;
+    /// fixed for the device's run. A port outside `controller_ports` has no
+    /// [`PortState::registers`].
+    async fn ports(&self, controller_ports: PortSet) -> DeviceResult<Vec<PortState>>;
 }
 
 pub trait ChassisControl {

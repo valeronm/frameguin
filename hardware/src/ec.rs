@@ -24,11 +24,11 @@ use framework_lib::chromium_ec::i2c_passthrough::i2c_read;
 use framework_lib::chromium_ec::{CrosEc, CrosEcDriver, EcError, EcResponseStatus, EcResult};
 use framework_lib::power;
 
-use crate::cable;
 use crate::extender;
 use crate::lifetime::EcBoot;
 use crate::part::{self, Identity};
 use crate::pd;
+use crate::pd_controller;
 use crate::sbs;
 
 /// The EC's I2C port the pack hangs off, the same on every Framework board
@@ -79,8 +79,7 @@ pub trait PdPorts: Send + Sync {
     fn port_state(&self, port: u8) -> DeviceResult<Option<wire::PortState>>;
     /// Read from `controller` — its (EC I2C port, 7-bit address) — over I2C
     /// passthrough.
-    fn port_registers(&self, port: u8, controller: (u8, u16))
-    -> DeviceResult<cable::PortRegisters>;
+    fn port_registers(&self, port: u8, controller: (u8, u16)) -> DeviceResult<wire::PortRegisters>;
 }
 
 pub trait ChassisEc: Send + Sync {
@@ -340,15 +339,15 @@ impl PdPorts for Ec {
         &self,
         port: u8,
         (bus, address): (u8, u16),
-    ) -> DeviceResult<cable::PortRegisters> {
+    ) -> DeviceResult<wire::PortRegisters> {
         let span = i2c_block(
             &self.ec(),
             bus,
             address,
-            cable::block(port) + cable::PD_STATUS,
-            cable::SPAN,
+            pd_controller::block(port) + pd_controller::PD_STATUS,
+            pd_controller::SPAN,
         )?;
-        Ok(cable::decode(&span))
+        Ok(pd_controller::decode(&span))
     }
 }
 

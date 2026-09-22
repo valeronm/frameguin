@@ -561,7 +561,8 @@ pub enum CableMarking {
     /// Nothing is known of the cable.
     #[default]
     Unknown,
-    /// The controller found no e-marker in the cable.
+    /// The controller's e-marker bit is clear, which it also is for some
+    /// marked cables depending on the partner.
     Unmarked,
     Marked,
 }
@@ -615,13 +616,67 @@ pub struct Cable {
     /// Whether it is rated for extended power range.
     pub epr: bool,
     pub latency: CableLatency,
+    /// Whether it carries its own signal electronics, by the controller's
+    /// active-cable bit.
+    pub active: bool,
+}
+
+/// Which kind of supply a power delivery offer is, by its PDO's type bits.
+#[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[zvariant(crate = "zbus::zvariant", signature = "s")]
+#[serde(rename_all = "kebab-case")]
+pub enum SupplyKind {
+    Fixed,
+    Battery,
+    Variable,
+    /// A programmable supply, stepping its voltage at the sink's request.
+    Pps,
+    /// An adjustable supply within standard power range.
+    SprAvs,
+    /// An adjustable supply within extended power range.
+    EprAvs,
+    /// A type code the PD specification reserves.
+    #[default]
+    Unknown,
+}
+
+/// How far past its rated current a supply lets a sink draw for a moment,
+/// by the PD specification's peak current code.
+#[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[zvariant(crate = "zbus::zvariant", signature = "s")]
+#[serde(rename_all = "kebab-case")]
+pub enum PeakCurrent {
+    #[default]
+    Rated,
+    /// 150% for 1 ms, 125% for 2 ms, 110% for 10 ms.
+    Overload150,
+    /// 200% for 1 ms, 150% for 2 ms, 125% for 10 ms.
+    Overload200,
+    /// 200% for 1 ms, 175% for 2 ms, 150% for 10 ms.
+    Overload200Sustained,
+}
+
+/// The power delivery contract as the port's controller holds it: the
+/// source's offer it stands on and the sink's request against it.
+#[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[zvariant(crate = "zbus::zvariant")]
+pub struct PdContract {
+    pub kind: SupplyKind,
+    /// For a fixed supply and an extended-range adjustable one.
+    pub peak: PeakCurrent,
+    /// A programmable supply's flag that it cannot give its full current
+    /// across its whole range.
+    pub power_limited: bool,
+    /// The sink wanted more than any offer gave.
+    pub capability_mismatch: bool,
 }
 
 /// One USB-C port, as the EC's copy of its controller's state has it.
 ///
-/// Every field but `cable` and `measured_millivolts` is the EC's cache rather
-/// than the port itself: a controller whose ports have been disabled stops
-/// updating it, and the entry then stands at whatever it last saw. `docs/hardware/usb-c.md` has the reading.
+/// Every field but `registers` is the EC's cache rather than the port
+/// itself: a controller whose ports have been disabled stops updating it,
+/// and the entry then stands at whatever it last saw.
+/// `docs/hardware/usb-c.md` has the reading.
 #[derive(Serialize, Deserialize, Type, Clone, PartialEq, Eq, Debug)]
 #[zvariant(crate = "zbus::zvariant")]
 #[allow(
@@ -653,12 +708,53 @@ pub struct PortState {
     pub vconn: bool,
     pub cc: CcPolarity,
     pub epr: Epr,
-    /// Read from the port's controller rather than the EC's cache, and only
-    /// while something is attached.
+    /// None where the controller was not asked, nothing is attached, or the
+    /// read failed.
+    pub registers: Option<PortRegisters>,
+}
+
+/// USB-C ports by the EC's port number: the ones whose controller registers
+/// a read asks for.
+#[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[zvariant(crate = "zbus::zvariant", signature = "y")]
+#[serde(transparent)]
+pub struct PortSet(u8);
+
+impl PortSet {
+    pub const ALL: Self = Self(u8::MAX);
+
+    /// Port `index` alone; empty past the eight ports a set holds.
+    #[must_use]
+    pub fn of(index: u8) -> Self {
+        Self(1u8.checked_shl(u32::from(index)).unwrap_or(0))
+    }
+
+    #[must_use]
+    pub fn contains(self, index: u8) -> bool {
+        self.0 & Self::of(index).0 != 0
+    }
+
+    #[must_use]
+    pub fn union(self, other: Self) -> Self {
+        Self(self.0 | other.0)
+    }
+
+    #[must_use]
+    pub fn is_empty(self) -> bool {
+        self.0 == 0
+    }
+}
+
+/// What a port's PD controller answers from its own registers, rather than
+/// the EC's cache of it.
+#[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[zvariant(crate = "zbus::zvariant")]
+pub struct PortRegisters {
     pub cable: Cable,
-    /// The bus voltage the port's controller measures, in mV, read with
-    /// `cable`; zero where it was not read.
-    pub measured_millivolts: u16,
+    /// None where no power delivery contract stands.
+    pub pd: Option<PdContract>,
+    /// The bus voltage the controller measures, in mV.
+    pub measured_millivolts: Option<u16>,
 }
 
 /// What kind of part a device is, named for the thing a person would buy.

@@ -79,7 +79,7 @@ fn deck_inline(state: DeckState) -> &'static str {
 
 #[must_use]
 pub fn open_now_label(open: bool) -> &'static str {
-    if open { "Yes" } else { "No" }
+    super::yes_no(open)
 }
 
 /// The EC's counts stop at this value.

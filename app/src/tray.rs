@@ -15,7 +15,7 @@ use frameguin_model::control::battery::{
 use frameguin_model::control::ports::supply_summary;
 use frameguin_model::control::touchscreen::{state_at, state_labels, state_row};
 use frameguin_model::port::Placement;
-use frameguin_wire::{BatteryFeature, BatteryState, PortState};
+use frameguin_wire::{BatteryFeature, BatteryState, PortSet, PortState};
 
 use crate::APP_ID;
 use crate::bus::Bus;
@@ -466,7 +466,7 @@ pub(crate) async fn refresh_tray(handle: &ksni::blocking::Handle<TrayIcon>, daem
         }
     }
     if let Some(ports) = &controls.ports {
-        values.ports = ports.read(0).await.ok();
+        values.ports = ports.read(PortSet::default()).await.ok();
     }
     if let Some(touchscreen) = &controls.touchscreen {
         values.touchscreen = touchscreen.read().await.ok();

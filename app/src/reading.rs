@@ -37,7 +37,8 @@ use std::rc::Rc;
 
 use frameguin_wire::{
     Attached, BatteryCondition, BatteryFeature, BatteryInfo, ChargingLedFeature, ChargingLedSide,
-    ChassisState, DeckState, DeviceError, DeviceResult, ExtenderState, PortState, PrivacyState,
+    ChassisState, DeckState, DeviceError, DeviceResult, ExtenderState, PortSet, PortState,
+    PrivacyState,
 };
 use gtk4 as gtk;
 use gtk4::glib;
@@ -82,10 +83,10 @@ pub(crate) struct Wants {
     /// only, so this rides the base cadence rather than being spaced the way
     /// the condition is.
     pub(crate) ports: bool,
-    /// Bit n asks for port n's cable and measured voltage, read with the
-    /// ports and asking for them too: an I2C transfer to a PD controller per
-    /// port asked for that has something attached.
-    pub(crate) controller_ports: u8,
+    /// The ports whose controller registers are read with the ports, asking
+    /// for the ports too: an I2C transfer to a PD controller per port asked
+    /// for that has something attached.
+    pub(crate) controller_ports: PortSet,
     /// Two host commands and no transfer past them: cheap enough for every
     /// tick.
     pub(crate) chassis: bool,
@@ -109,7 +110,7 @@ impl Wants {
             battery: self.battery || other.battery,
             condition: self.condition || other.condition,
             ports: self.ports || other.ports,
-            controller_ports: self.controller_ports | other.controller_ports,
+            controller_ports: self.controller_ports.union(other.controller_ports),
             chassis: self.chassis || other.chassis,
             deck: self.deck || other.deck,
             privacy_switches: self.privacy_switches || other.privacy_switches,
@@ -162,7 +163,7 @@ impl Extra {
         attempt: "Reading the battery's condition",
     };
     const PORTS: Self = Self {
-        wanted: |w| w.ports || w.controller_ports != 0,
+        wanted: |w| w.ports || !w.controller_ports.is_empty(),
         attempt: "Reading the USB-C ports",
     };
     const CHASSIS: Self = Self {
@@ -567,13 +568,6 @@ impl Feed {
         }
         Ok((reading, extras.failures))
     }
-}
-
-/// Raises `wants` for as long as `widget` is on screen, for a view another
-/// subscription draws: the feed merges every view's wants into one read and
-/// hands it to all of them.
-pub(crate) fn want_while_mapped(feed: &Rc<Feed>, widget: &impl IsA<gtk::Widget>, wants: Wants) {
-    show_while_mapped(feed, widget, wants, |_| {});
 }
 
 /// Shows the reading on a view for as long as `widget` is on screen, the

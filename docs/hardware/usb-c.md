@@ -222,7 +222,8 @@ none, and the EC neither clears nor marks the entry.
   controller's [port mask](#port-enable), and a disabled controller's ports
   are unreported, not stale.
 - Voltage and current read alike under a contract and under a Type-C
-  advertisement, and `pd_state` alone separates them.
+  advertisement, and only `pd_state`, or the controller's own `PD_STATUS`
+  contract bit, separates them.
 - `data_role`, `vconn`, `cc_polarity` and `epr_active` read as the partner
   is: two chargers gave opposite `data_role` and `vconn`, the polarity is
   the cable's orientation, and EPR is the charger's contract. None is a
@@ -242,10 +243,31 @@ is `0x1000` for a controller's first connector and `0x2000` for its second.
 | `PORT_HOST_CAP` | `CCG_PORT_HOST_CAP_REG` | block + `0x5C` | |
 | sink PDO EPR mask | `SELECT_SINK_PDO_EPR_MASK` | block + `0x65` | |
 | `PDPORT_ENABLE` | `CCG_PDPORT_ENABLE_REG` | `0x2C` | bitmask, one bit per port |
-| `PD_STATUS` | `CCG_PD_STATUS_REG` | block + `0x08` | byte 1 bit 3 e-marker present; byte 2 bit 6 active cable |
+| `PD_STATUS` | `CCG_PD_STATUS_REG` | block + `0x08` | bits below |
+| `CURRENT_PDO` | `CCG_CURRENT_PDO_REG` | block + `0x10` | the source's PDO the contract stands on, 4 bytes |
+| `CURRENT_RDO` | `CCG_CURRENT_RDO_REG` | block + `0x14` | the sink's RDO against it, 4 bytes |
 | `CABLE_VDO` | — | block + `0x18` | the Cable VDO as the cable's e-marker sent it, 4 bytes |
 
-- The EC reads `BUS_VOLTAGE` and `BUS_CURRENT` only in its console dump; frameguin takes `BUS_VOLTAGE` from the same read as the cable registers, for the port page's measured voltage.
+`PD_STATUS` bits, as the EC's `cypress_pd_common.c` reads them; Infineon's
+host library names the register and no bit of it, and nothing names byte 1
+bits 1, 4, 6 and 7:
+
+| Byte | Bit | Meaning |
+|---|---|---|
+| 0 | 6 | data role DFP, UFP when clear |
+| 1 | 0 | power role source, sink when clear |
+| 1 | 2 | a PD contract stands |
+| 1 | 3 | e-marker present |
+| 1 | 5 | VCONN enabled |
+| 2 | 3 | partner un-chunked |
+| 2 | 6 | active cable |
+| 2 | 7 | EPR |
+
+`CURRENT_PDO` and `CURRENT_RDO` hold the USB PD specification's source PDO
+and request data object, the RDO's layout following the kind of PDO it
+answers.
+
+- The EC reads `BUS_VOLTAGE` and `BUS_CURRENT` only in its console dump; frameguin takes `BUS_VOLTAGE` from the same read as `PD_STATUS` through `CABLE_VDO`, for the port page's measured voltage.
 - No port current reading exists anywhere: the four ports pass through load
   switches into one adapter node before the charger, so no charger-side
   reading can be attributed to a port, and
@@ -266,6 +288,10 @@ is `0x1000` for a controller's first connector and `0x2000` for its second.
 | `PDPORT_ENABLE` | after each write | reads back what was written |
 | `PD_STATUS`, `CABLE_VDO` | charging cable, laptop as sink | `76 9c 25 01` and `0x000a6640`: e-marker present, passive; USB 2.0, 5 A, 50 V, EPR-capable, latency 20–30 ns (about 3 m) |
 | `PD_STATUS`, `CABLE_VDO` | empty port | no e-marker, VDO 0 |
+| `PD_STATUS` to `CABLE_VDO` | 140 W charger, EPR at 28 V | PDO `0x0088c1f4`, fixed 28 V 5 A; RDO `0x82c7d1f4`, position 8 at 5 A, unchunked and EPR capable |
+| `PD_STATUS` to `CABLE_VDO` | expansion card, laptop as source | PDO `0x27019096`, the laptop's 5 V 1.5 A with dual-role power, USB data, dual-role data and unchunked; RDO position 1 at 680 mA; no e-marker |
+| `PD_STATUS` to `CABLE_VDO` | Type-C-only sink on a marked 40 Gbps cable | contract bit clear, PDO and RDO 0, VDO read |
+| `PD_STATUS`, `CABLE_VDO` | one e-marked cable, two different sinks | the e-marker read with one sink and left unread with the other, VCONN on in both |
 | block + `0x08` to `0x1B` in one read | all four ports, one with a charging cable | both registers byte for byte as their separate reads, with `BUS_VOLTAGE` and contract data between |
 
 - Consequence: `BUS_VOLTAGE` is an ADC and not the contract restated, and

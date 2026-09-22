@@ -4,7 +4,7 @@
 use crate::vocabulary::{
     Attached, BUS_NAME, BatteryCondition, BatteryFeature, BatteryInfo, Board, ChargingLedFeature,
     ChargingLedSide, ChassisFeature, ChassisState, ClickForce, DeckState, ExtenderState, Identity,
-    OBJECT_PATH, PortState, PowerLedLevel, PrivacyState,
+    OBJECT_PATH, PortSet, PortState, PowerLedLevel, PrivacyState,
 };
 
 /// Any of the proxies below, on the daemon's one name and path.
@@ -119,7 +119,7 @@ pub trait Battery {
     gen_blocking = false
 )]
 pub trait Ports {
-    async fn get_ports(&self, controller_ports: u8) -> zbus::Result<Vec<PortState>>;
+    async fn get_ports(&self, controller_ports: PortSet) -> zbus::Result<Vec<PortState>>;
 }
 
 /// Absent from the bus where the EC does not answer the chassis commands.

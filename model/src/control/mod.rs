@@ -37,6 +37,12 @@ fn present<T>(probe: DeviceResult<T>) -> DeviceResult<Option<T>> {
 /// of them owns.
 pub(crate) const NO_SUPPLY: &str = "Disconnected";
 
+/// A two-state reading, worded alike by every control that shows one.
+#[must_use]
+pub(crate) fn yes_no(set: bool) -> &'static str {
+    if set { "Yes" } else { "No" }
+}
+
 /// What a reading landing on a preset should do to a combo sitting on its
 /// Custom row. `Keep` is for a value the user is dialling in, where a number
 /// that happens to equal a preset would fold the slider away under them;

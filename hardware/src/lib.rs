@@ -18,21 +18,20 @@
 //! kernel's `NVMe` class, `usb` the kernel's USB bus, `pci` the kernel's PCI
 //! bus, `wireless` the kernel's `ieee80211` class, `net` the kernel's net
 //! class, `scsi` the kernel's SCSI class, `block` the kernel's block layer.
-//! `touchscreen` settles
-//! which of two routes a machine has, and is the role over either. `sbs` is
-//! the pack's own registers and what their words mean, `pd` what the EC's
-//! cached PD controller version means, `cable` what a PD controller reads
-//! of a port's cable and bus and where each board's controllers sit, `ccg3` what
-//! an HDMI or `DisplayPort` card's firmware report means, `platform` which
-//! board the DMI strings name, `extender` what the battery extender
-//! command carries, `edid` what a panel's own block says it is,
-//! `state` the store for what cannot be read back and what was asked for,
-//! `lifetime` what holds a mirrored value and how to tell it still does,
-//! [`mirror`] the mirror a device reads and writes such a value through,
-//! [`restore`] what a control was asked to be and the switch that has it
-//! written back after firmware has moved it, [`part`] what a device is as
-//! a part of the machine, `udev` what udev resolved about one, and
-//! [`device`] the devices themselves.
+//! `touchscreen` settles which of two routes a machine has, and is the role
+//! over either. `sbs` is the pack's own registers and what their words mean,
+//! `pd` what the EC's cached PD controller version means, `pd_controller` what
+//! a PD controller reads of a port's cable, contract and bus and where each
+//! board's controllers sit, `ccg3` what an HDMI or `DisplayPort` card's
+//! firmware report means, `platform` which board the DMI strings name,
+//! `extender` what the battery extender command carries, `edid` what a panel's
+//! own block says it is, `state` the store for what cannot be read back and
+//! what was asked for, `lifetime` what holds a mirrored value and how to tell
+//! it still does, [`mirror`] the mirror a device reads and writes such a value
+//! through, [`restore`] what a control was asked to be and the switch that has
+//! it written back after firmware has moved it, [`part`] what a device is as a
+//! part of the machine, `udev` what udev resolved about one, and [`device`] the
+//! devices themselves.
 
 #![allow(
     clippy::missing_errors_doc,
@@ -43,7 +42,6 @@
 
 pub(crate) mod block;
 pub(crate) mod build_info;
-pub(crate) mod cable;
 pub(crate) mod ccg3;
 pub mod device;
 pub(crate) mod dmi;
@@ -61,6 +59,7 @@ pub(crate) mod panel;
 pub mod part;
 pub(crate) mod pci;
 pub(crate) mod pd;
+pub(crate) mod pd_controller;
 pub(crate) mod platform;
 pub mod restore;
 pub(crate) mod sbs;

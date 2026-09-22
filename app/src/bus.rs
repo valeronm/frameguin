@@ -7,7 +7,7 @@
 use frameguin_wire::{
     Attached, BatteryCondition, BatteryControl, BatteryFeature, BatteryInfo, ChargingLedControl,
     ChargingLedFeature, ChargingLedSide, ChassisControl, ChassisFeature, ChassisState, ClickForce,
-    DeckState, DeviceResult, ExtenderState, FrameguinProxy, PortState, PortsControl,
+    DeckState, DeviceResult, ExtenderState, FrameguinProxy, PortSet, PortState, PortsControl,
     PowerLedControl, PowerLedLevel, PrivacyState, PrivacySwitchesControl, Proxies, TouchpadControl,
     TouchscreenControl, UsbControl, proxy,
 };
@@ -116,7 +116,7 @@ impl ChargingLedControl for Bus {
 }
 
 impl PortsControl for Bus {
-    async fn ports(&self, controller_ports: u8) -> DeviceResult<Vec<PortState>> {
+    async fn ports(&self, controller_ports: PortSet) -> DeviceResult<Vec<PortState>> {
         Ok(self.devices.ports.get_ports(controller_ports).await?)
     }
 }

@@ -34,6 +34,15 @@ it and the non-obvious constraints.
   the bus uncompared, stays where it is read: the board names are
   `hardware`'s, matched there into the `Platform` both binaries carry
   instead.
+- A `wire/` type is shaped for the code that builds and reads it, and the
+  encoding adapts to it rather than the reverse: the control traits hand
+  these types to `hardware` and `model` too, so a limit of D-Bus written
+  into one reaches every layer. A value that can be absent is an `Option`,
+  which zbus's `option-as-array` carries as an array of zero or one
+  element, D-Bus having no maybe type; a default standing in for "not read"
+  is indistinguishable from a reading. Where the codec cannot carry a
+  shape, a serde adapter on that field translates it, and a separate
+  transport type is only for a type no adapter can carry.
 - `io.github.valeronm.Frameguin1` is private to those two binaries rather than
   published API. They are built, installed and upgraded as one — `install.sh`
   stops the app and the daemon and brings both back on the new build — so an
@@ -126,13 +135,12 @@ it and the non-obvious constraints.
   shows it. Everything a subscription's closure holds is a descendant of the
   widget it hangs on, so nothing in it can reach back up the widget tree and
   outlive the window — which is why the sidebar holds the split view weakly.
-  A port's page is redrawn whole when its state moves, because its rows come
-  and go with what is attached, and fed rather than polled like everything
-  else that repeats: the main window's charger row shows the same read,
-  which is what makes the ports an extra on the feed below rather than this
-  window's own timer. That page says everything of the thing attached, so a
-  reading the EC answers for the machine — its power role, its data role —
-  is inverted before it is worded: the page carries the attached device's
+  A port's page is fed rather than polled like everything else that
+  repeats: the main window's charger row shows the same read, which is what
+  makes the ports an extra on the feed below rather than this window's own
+  timer. That page says everything of the thing attached, so a reading the
+  EC answers for the machine — its power role, its data role — is inverted
+  before it is worded: the page carries the attached device's
   own readings beside them, and one screen with two subjects reads as a
   contradiction rather than as two facts. Its groups are the connection and
   what the contract adds, headed by the contract type, because the volts and
@@ -231,9 +239,10 @@ it and the non-obvious constraints.
   asks what machine it is on, the raw entries a
   part's identity comes from — `sbs.rs` the pack's own registers and what
   their words mean, apart from `ec.rs` so the decoding is testable without
-  an EC and `ec.rs` stays every EC call and nothing else — `cable.rs` what a
-  PD controller reads of a port's cable and bus and where each board's
-  controllers sit, apart from `ec.rs` for the same reason — `edid.rs` what a
+  an EC and `ec.rs` stays every EC call and nothing else —
+  `pd_controller.rs` what a PD controller reads of a port's cable, contract
+  and bus and where each board's controllers sit, apart from `ec.rs` for the
+  same reason — `edid.rs` what a
   panel's own block says it is, apart from `drm.rs` for the same reason —
   `udev.rs` the words udev's database holds for an id sysfs gives bare — the
   record it cached for a device it processed, and the vendor list read

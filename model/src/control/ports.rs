@@ -3,8 +3,8 @@
 use std::rc::Rc;
 
 use frameguin_wire::{
-    Cable, CableLatency, CableSpeed, DataRole, DeviceResult as Result, Epr, PortPartner, PortState,
-    PortsControl, PowerRole,
+    Cable, CableLatency, CableSpeed, DataRole, DeviceResult as Result, Epr, PdContract,
+    PeakCurrent, PortPartner, PortSet, PortState, PortsControl, PowerRole, SupplyKind,
 };
 
 use super::present;
@@ -21,10 +21,11 @@ impl<C: PortsControl> Ports<C> {
     }
 
     pub async fn detect(control: &Rc<C>, placement: Placement) -> Result<Option<Self>> {
-        Ok(present(control.ports(0).await)?.map(|_| Self::new(control.clone(), placement)))
+        Ok(present(control.ports(PortSet::default()).await)?
+            .map(|_| Self::new(control.clone(), placement)))
     }
 
-    pub async fn read(&self, controller_ports: u8) -> Result<Vec<PortState>> {
+    pub async fn read(&self, controller_ports: PortSet) -> Result<Vec<PortState>> {
         self.control.ports(controller_ports).await
     }
 
@@ -76,7 +77,7 @@ pub fn carried(port: &PortState) -> Option<String> {
 /// read.
 #[must_use]
 pub fn measured_label(port: &PortState) -> Option<String> {
-    (port.measured_millivolts > 0).then(|| volts(port.measured_millivolts))
+    port.registers?.measured_millivolts.map(volts)
 }
 
 fn volts(millivolts: u16) -> String {
@@ -166,7 +167,7 @@ pub fn supply_summary(ports: &[PortState], placement: Placement) -> String {
 /// None where the port is not the one powering the machine.
 #[must_use]
 pub fn powering_label(port: &PortState) -> Option<&'static str> {
-    port.charging.then_some("Yes")
+    port.charging.then_some(super::yes_no(true))
 }
 
 /// `DisplayPort` alternate mode, and None where the port is not in it.
@@ -205,15 +206,72 @@ pub fn power_role_label(partner: PortPartner, role: PowerRole) -> Option<&'stati
 }
 
 /// Which end drives the data link, said of the far end, the machine's own
-/// role being what the EC reports.
+/// role being what the EC reports. None where the far end is a peripheral,
+/// the usual case.
 #[must_use]
-pub fn data_role_label(role: DataRole) -> &'static str {
+pub fn data_role_label(role: DataRole) -> Option<&'static str> {
     match role {
-        DataRole::UpstreamFacing => "Host",
-        DataRole::DownstreamFacing => "Peripheral",
-        DataRole::Disconnected => "Disconnected",
-        DataRole::Unknown => "Unknown",
+        DataRole::UpstreamFacing => Some("Host"),
+        DataRole::DownstreamFacing => None,
+        DataRole::Disconnected => Some("Disconnected"),
+        DataRole::Unknown => Some("Unknown"),
     }
+}
+
+/// None where this machine is not supplying VCONN, which leaves open whether
+/// the far end is or nothing draws it.
+#[must_use]
+pub fn vconn_label(vconn: bool) -> Option<&'static str> {
+    vconn.then_some("From this machine")
+}
+
+/// The kind of supply the offer is, and None for a fixed one, the kind
+/// nearly every contract is.
+#[must_use]
+pub fn supply_kind_label(kind: SupplyKind) -> Option<&'static str> {
+    match kind {
+        SupplyKind::Fixed | SupplyKind::Unknown => None,
+        SupplyKind::Battery => Some("Battery"),
+        SupplyKind::Variable => Some("Variable"),
+        SupplyKind::Pps => Some("Programmable (PPS)"),
+        SupplyKind::SprAvs => Some("Adjustable (AVS)"),
+        SupplyKind::EprAvs => Some("Adjustable, extended range (AVS)"),
+    }
+}
+
+/// None where the sink found an offer enough.
+#[must_use]
+pub fn mismatch_label(contract: &PdContract) -> Option<&'static str> {
+    contract.capability_mismatch.then_some(super::yes_no(true))
+}
+
+/// How far past its rating the attached source lets a draw go for a moment,
+/// and None where it is not the source or declares none past the rating.
+#[must_use]
+pub fn peak_label(contract: &PdContract, partner: PortPartner) -> Option<&'static str> {
+    if partner != PortPartner::Source {
+        return None;
+    }
+    match contract.peak {
+        PeakCurrent::Rated => None,
+        PeakCurrent::Overload150 => Some("Up to 150% briefly"),
+        PeakCurrent::Overload200 => Some("Up to 200% briefly"),
+        PeakCurrent::Overload200Sustained => Some("Up to 200% briefly, 150% for 10 ms"),
+    }
+}
+
+/// Whether the attached programmable source can give its full current
+/// across its whole range, and None where it is no such source.
+#[must_use]
+pub fn power_limited_label(contract: &PdContract, partner: PortPartner) -> Option<&'static str> {
+    (partner == PortPartner::Source && contract.kind == SupplyKind::Pps)
+        .then_some(super::yes_no(contract.power_limited))
+}
+
+/// None for a passive cable, the kind nearly every cable is.
+#[must_use]
+pub fn cable_type_label(active: bool) -> Option<&'static str> {
+    active.then_some("Active")
 }
 
 /// Extended power range, and None where the port does not offer it — a
@@ -227,17 +285,15 @@ pub fn epr_label(epr: Epr) -> Option<&'static str> {
     }
 }
 
-/// A cable whose controller found no e-marker in it.
-pub const NO_E_MARKER: &str = "None";
-
-/// The rate a full-featured Type-C cable of that signaling carries over both
-/// lanes, as cables are certified and sold, and None for a reserved code.
+/// The rate a cable is certified for: per lane through USB 3.2, whose links
+/// use one, and over both lanes for USB4, whose links use two. None for a
+/// reserved code.
 #[must_use]
 pub fn cable_speed_label(speed: CableSpeed) -> Option<&'static str> {
     match speed {
-        CableSpeed::Usb2 => Some("USB 2.0"),
-        CableSpeed::Gen1 => Some("10 Gbps"),
-        CableSpeed::Gen2 => Some("20 Gbps"),
+        CableSpeed::Usb2 => Some("480 Mbps"),
+        CableSpeed::Gen1 => Some("5 Gbps"),
+        CableSpeed::Gen2 => Some("10 Gbps"),
         CableSpeed::Gen3 => Some("40 Gbps"),
         CableSpeed::Gen4 => Some("80 Gbps"),
         CableSpeed::Unknown => None,
@@ -280,13 +336,15 @@ mod tests {
 
     use frameguin_wire::{
         Cable, CableLatency, CableMarking, CableSpeed, DataRole, DeviceError,
-        DeviceResult as Result, PortPartner, PortState, PowerRole,
+        DeviceResult as Result, PdContract, PeakCurrent, PortPartner, PortRegisters, PortSet,
+        PortState, PowerRole, SupplyKind,
     };
 
     use super::{
         Ports, cable_length_label, cable_rating_label, cable_speed_label, carried, data_role_label,
-        display_port_label, measured_label, partner_label, port_summary, power_role_label,
-        powering, powering_label, supply_label, supply_summary,
+        display_port_label, measured_label, mismatch_label, partner_label, peak_label,
+        port_summary, power_limited_label, power_role_label, powering, powering_label,
+        supply_kind_label, supply_label, supply_summary,
     };
     use crate::port::Placement;
     use crate::testing::{Machine, absent, port, ready};
@@ -316,7 +374,7 @@ mod tests {
     #[test]
     fn a_read_carries_every_port() {
         let ports = Ports::new(Machine::new(), Placement::default());
-        let read = ready(ports.read(0)).unwrap();
+        let read = ready(ports.read(PortSet::default())).unwrap();
         assert_eq!(read.len(), 4);
         assert!(read[0].charging);
     }
@@ -324,7 +382,10 @@ mod tests {
     #[test]
     fn a_measured_voltage_reads_to_a_tenth_of_a_volt() {
         let measured = PortState {
-            measured_millivolts: 20_100,
+            registers: Some(PortRegisters {
+                measured_millivolts: Some(20_100),
+                ..PortRegisters::default()
+            }),
             ..port(0)
         };
         assert_eq!(measured_label(&measured).as_deref(), Some("20.1 V"));
@@ -500,10 +561,13 @@ mod tests {
 
     #[test]
     fn a_data_role_names_what_the_far_end_is_and_not_the_machine() {
-        assert_eq!(data_role_label(DataRole::DownstreamFacing), "Peripheral");
-        assert_eq!(data_role_label(DataRole::UpstreamFacing), "Host");
-        assert_eq!(data_role_label(DataRole::Disconnected), "Disconnected");
-        assert_eq!(data_role_label(DataRole::Unknown), "Unknown");
+        assert_eq!(data_role_label(DataRole::DownstreamFacing), None);
+        assert_eq!(data_role_label(DataRole::UpstreamFacing), Some("Host"));
+        assert_eq!(
+            data_role_label(DataRole::Disconnected),
+            Some("Disconnected")
+        );
+        assert_eq!(data_role_label(DataRole::Unknown), Some("Unknown"));
     }
 
     #[test]
@@ -523,10 +587,10 @@ mod tests {
     }
 
     #[test]
-    fn a_cable_reads_in_the_unit_its_rate_is_sold_in() {
-        assert_eq!(cable_speed_label(CableSpeed::Usb2), Some("USB 2.0"));
-        assert_eq!(cable_speed_label(CableSpeed::Gen1), Some("10 Gbps"));
-        assert_eq!(cable_speed_label(CableSpeed::Gen2), Some("20 Gbps"));
+    fn a_cable_reads_as_the_rate_it_is_certified_for() {
+        assert_eq!(cable_speed_label(CableSpeed::Usb2), Some("480 Mbps"));
+        assert_eq!(cable_speed_label(CableSpeed::Gen1), Some("5 Gbps"));
+        assert_eq!(cable_speed_label(CableSpeed::Gen2), Some("10 Gbps"));
         assert_eq!(cable_speed_label(CableSpeed::Gen3), Some("40 Gbps"));
         assert_eq!(cable_speed_label(CableSpeed::Gen4), Some("80 Gbps"));
         assert_eq!(cable_speed_label(CableSpeed::Unknown), None);
@@ -571,5 +635,48 @@ mod tests {
         );
         assert_eq!(cable_length_label(CableLatency::Over70Ns), Some("Over 7 m"));
         assert_eq!(cable_length_label(CableLatency::Unknown), None);
+    }
+
+    fn fixed() -> PdContract {
+        PdContract {
+            kind: SupplyKind::Fixed,
+            ..PdContract::default()
+        }
+    }
+
+    #[test]
+    fn a_programmable_source_says_whether_it_is_power_limited() {
+        let pps = PdContract {
+            kind: SupplyKind::Pps,
+            power_limited: true,
+            ..PdContract::default()
+        };
+        assert_eq!(power_limited_label(&pps, PortPartner::Source), Some("Yes"));
+        assert_eq!(power_limited_label(&pps, PortPartner::Sink), None);
+        assert_eq!(supply_kind_label(pps.kind), Some("Programmable (PPS)"));
+    }
+
+    #[test]
+    fn only_a_source_declaring_overload_has_a_peak_row() {
+        assert_eq!(peak_label(&fixed(), PortPartner::Source), None);
+        let overloading = PdContract {
+            peak: PeakCurrent::Overload150,
+            ..fixed()
+        };
+        assert_eq!(
+            peak_label(&overloading, PortPartner::Source),
+            Some("Up to 150% briefly")
+        );
+        assert_eq!(peak_label(&overloading, PortPartner::Sink), None);
+    }
+
+    #[test]
+    fn a_mismatch_is_named_only_where_flagged() {
+        assert_eq!(mismatch_label(&fixed()), None);
+        let short = PdContract {
+            capability_mismatch: true,
+            ..fixed()
+        };
+        assert_eq!(mismatch_label(&short), Some("Yes"));
     }
 }

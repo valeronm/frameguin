@@ -1,29 +1,38 @@
 //! The USB-C ports section: a row per port carrying what is plugged into it,
 //! and a page per port with the rest of what the EC's copy of its
-//! controller's state says.
+//! controller's state says and what the controller's own registers add.
+//!
+//! A page is laid out as titled rows before any widget is built and redrawn
+//! whole only when the titles change, its rows coming and going with what is
+//! attached; a reading that keeps them sets the values in place. It keeps
+//! the last registers it read while the same kind of partner stays attached,
+//! for a reading that did not ask for them or failed to read them.
 //!
 //! What each value is *called* is `frameguin_model::control::ports`'s, and
 //! where a socket is on the machine is `frameguin_model::port`'s — which
 //! answers for the boards it has been measured on and no others, asking for
 //! nothing on one nobody measured.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::{Rc, Weak};
 
 use adw::prelude::*;
 use frameguin_model::control::ports::{
-    NO_E_MARKER, NOTHING_ATTACHED, POWERING_THE_MACHINE, cable_length_label, cable_rating_label,
-    cable_speed_label, carried, contract_label, data_role_label, display_port_label, epr_label,
-    measured_label, partner_label, port_summary, power_role_label, powering_label,
+    NOTHING_ATTACHED, POWERING_THE_MACHINE, cable_length_label, cable_rating_label,
+    cable_speed_label, cable_type_label, carried, contract_label, data_role_label,
+    display_port_label, epr_label, measured_label, mismatch_label, partner_label, peak_label,
+    port_summary, power_limited_label, power_role_label, powering_label, supply_kind_label,
+    vconn_label,
 };
 use frameguin_model::control::usb::{capacity_label, device_name, network_label, speed_label};
 use frameguin_model::port::Placement;
-use frameguin_wire::{Attached, CableMarking, PortPartner, PortState};
+use frameguin_wire::{Attached, CableMarking, PortPartner, PortRegisters, PortSet, PortState};
 use gtk4 as gtk;
+use gtk4::glib;
 
 use super::{Sidebar, Target};
-use crate::reading::{Feed, Wants, want_while_mapped};
-use crate::report::value;
+use crate::reading::{Feed, Wants, show_while_mapped};
+use crate::report::{described_value, value};
 
 /// The section's rows, one per port the last reading carried.
 struct Section {
@@ -35,19 +44,79 @@ struct Section {
 struct Port {
     index: u8,
     row: adw::ActionRow,
-    page: adw::PreferencesPage,
+    charging: Cell<bool>,
+}
+
+/// A port's page, fed only while it is on screen.
+struct PortPage {
+    index: u8,
+    /// Weak: the page's own subscription holds this.
+    page: glib::WeakRef<adw::PreferencesPage>,
+    placement: Placement,
+    /// The last registers read while the same kind of partner stayed
+    /// attached, standing in for a reading that did not ask for them or
+    /// failed to read them.
+    registers: Cell<Option<(PortPartner, PortRegisters)>>,
     drawn: RefCell<Option<Drawn>>,
 }
 
 struct Drawn {
     groups: Vec<adw::PreferencesGroup>,
-    state: PortState,
-    devices: Vec<Attached>,
+    /// One per row, in the order `layout` lists them.
+    values: Vec<gtk::Label>,
+    layout: Vec<Group>,
+}
+
+/// A group as the page lays it out, before any widget is built: a reading
+/// that keeps every title moves only the values, which are set in place.
+struct Group {
+    title: String,
+    rows: Vec<Row>,
+    /// One per row.
+    values: Vec<String>,
+}
+
+#[derive(PartialEq)]
+struct Row {
+    title: &'static str,
+    subtitle: Option<&'static str>,
+}
+
+impl Group {
+    fn new(title: impl Into<String>) -> Self {
+        Self {
+            title: title.into(),
+            rows: Vec::new(),
+            values: Vec::new(),
+        }
+    }
+
+    fn row(&mut self, title: &'static str, value: impl Into<String>) {
+        self.push(title, None, value.into());
+    }
+
+    fn described(&mut self, title: &'static str, subtitle: &'static str, value: impl Into<String>) {
+        self.push(title, Some(subtitle), value.into());
+    }
+
+    fn push(&mut self, title: &'static str, subtitle: Option<&'static str>, value: String) {
+        self.rows.push(Row { title, subtitle });
+        self.values.push(value);
+    }
+
+    fn shape(&self) -> (&str, &[Row]) {
+        (&self.title, &self.rows)
+    }
 }
 
 /// The rows arrive with the first reading, which is what says how many ports
 /// there are.
 pub(super) fn add(sidebar: &Rc<Sidebar>, feed: &Rc<Feed>, usb: bool, placement: Placement) {
+    let wants = Wants {
+        ports: true,
+        usb: usb && placement.wired(),
+        ..Wants::default()
+    };
     let section = Rc::new(Section {
         list: sidebar.section(Some("USB-C Ports")),
         ports: RefCell::default(),
@@ -62,18 +131,13 @@ pub(super) fn add(sidebar: &Rc<Sidebar>, feed: &Rc<Feed>, usb: bool, placement: 
             .and_then(|section| section.charger())
     });
 
-    let wants = Wants {
-        ports: true,
-        usb: usb && placement.wired(),
-        ..Wants::default()
-    };
     let showing = sidebar.clone();
     // Weak: this closure is the feed's own subscription.
     let asking = Rc::downgrade(feed);
     sidebar.follow(feed, wants, move |reading| {
         if let Some(ports) = &reading.ports {
             let devices = reading.usb.as_deref().unwrap_or_default();
-            section.show(&showing, &asking, ports, devices);
+            section.show(&showing, &asking, wants, ports, devices);
         }
     });
 }
@@ -85,6 +149,7 @@ impl Section {
         &self,
         sidebar: &Sidebar,
         feed: &Weak<Feed>,
+        wants: Wants,
         ports: &[PortState],
         devices: &[Attached],
     ) {
@@ -106,35 +171,44 @@ impl Section {
             let built = ports
                 .iter()
                 .map(|state| {
-                    let page = adw::PreferencesPage::new();
-                    // The section draws every page; a page on screen only asks
-                    // for its own controller's registers.
-                    if let Some(feed) = &feed {
-                        let controller = Wants {
-                            controller_ports: 1 << state.index,
-                            ..Wants::default()
-                        };
-                        want_while_mapped(feed, &page, controller);
-                    }
-                    let row = sidebar.add(&self.list, &placement.label(state.index), &page);
+                    let widget = adw::PreferencesPage::new();
+                    let page = PortPage {
+                        index: state.index,
+                        page: widget.downgrade(),
+                        placement,
+                        registers: Cell::default(),
+                        drawn: RefCell::default(),
+                    };
+                    let row = sidebar.add(&self.list, &placement.label(state.index), &widget);
                     row.set_use_markup(false);
+                    if let Some(feed) = &feed {
+                        let wants = Wants {
+                            controller_ports: PortSet::of(state.index),
+                            ..wants
+                        };
+                        show_while_mapped(feed, &widget, wants, move |reading| {
+                            if let Some(ports) = &reading.ports {
+                                let devices = reading.usb.as_deref().unwrap_or_default();
+                                page.show(ports, devices);
+                            }
+                        });
+                    }
                     Port {
                         index: state.index,
                         row,
-                        page,
-                        drawn: RefCell::default(),
+                        charging: Cell::default(),
                     }
                 })
                 .collect();
             *self.ports.borrow_mut() = built;
         }
         for (port, state) in self.ports.borrow().iter().zip(&ports) {
-            let here: Vec<Attached> = placement
+            let name = placement
                 .attached(state.index, devices)
-                .into_iter()
-                .cloned()
-                .collect();
-            port.draw(placement, state, here);
+                .first()
+                .map(|device| device_name(device));
+            port.row.set_subtitle(&port_summary(state, name.as_deref()));
+            port.charging.set(state.charging);
         }
         if !same {
             sidebar.settle();
@@ -145,141 +219,190 @@ impl Section {
         let ports = self.ports.borrow();
         ports
             .iter()
-            .find(|port| {
-                port.drawn
-                    .borrow()
-                    .as_ref()
-                    .is_some_and(|drawn| drawn.state.charging)
-            })
+            .find(|port| port.charging.get())
             .or_else(|| ports.first())
             .map(|port| port.row.clone().upcast())
     }
 }
 
-impl Port {
-    /// Redrawn whole: which rows a port has depends on what is plugged into
-    /// it. Skipped where neither the state nor the devices moved.
-    fn draw(&self, placement: Placement, state: &PortState, devices: Vec<Attached>) {
+impl PortPage {
+    fn show(&self, ports: &[PortState], devices: &[Attached]) {
+        let Some(page) = self.page.upgrade() else {
+            return;
+        };
+        let Some(state) = ports.iter().find(|state| state.index == self.index) else {
+            return;
+        };
+        let mut state = state.clone();
+        match state.registers {
+            Some(registers) => self.registers.set(Some((state.partner, registers))),
+            None if state.partner == PortPartner::Nothing => self.registers.set(None),
+            None => {
+                state.registers = self
+                    .registers
+                    .get()
+                    .filter(|&(partner, _)| partner == state.partner)
+                    .map(|(_, registers)| registers);
+            }
+        }
+        let devices = self.placement.attached(self.index, devices);
+        let mut layout = vec![connection_group(self.placement, &state)];
+        layout.extend(cable_group(&state));
+        layout.extend(contract_group(&state));
+        layout.extend(devices.into_iter().map(device_group));
         let mut drawn = self.drawn.borrow_mut();
-        if drawn
-            .as_ref()
-            .is_some_and(|shown| shown.state == *state && shown.devices == devices)
+        if let Some(shown) = drawn.as_mut()
+            && shown
+                .layout
+                .iter()
+                .map(Group::shape)
+                .eq(layout.iter().map(Group::shape))
         {
+            let old = shown.layout.iter().flat_map(|group| &group.values);
+            let fresh = layout.iter().flat_map(|group| &group.values);
+            for ((label, old), new) in shown.values.iter().zip(old).zip(fresh) {
+                if old != new {
+                    label.set_label(new);
+                }
+            }
+            shown.layout = layout;
             return;
         }
         if let Some(shown) = drawn.take() {
             for group in shown.groups {
-                self.page.remove(&group);
+                page.remove(&group);
             }
         }
-        let name = devices.first().map(device_name);
-        self.row.set_subtitle(&port_summary(state, name.as_deref()));
-        let mut groups = vec![connection_group(placement, state)];
-        groups.extend(cable_group(state));
-        groups.extend(contract_group(state));
-        groups.extend(devices.iter().map(device_group));
-        for group in &groups {
-            self.page.add(group);
+        let mut groups = Vec::new();
+        let mut values = Vec::new();
+        for laid in &layout {
+            let group = adw::PreferencesGroup::builder().title(&laid.title).build();
+            for (row, text) in laid.rows.iter().zip(&laid.values) {
+                let label = match row.subtitle {
+                    Some(subtitle) => described_value(&group, row.title, subtitle),
+                    None => value(&group, row.title),
+                };
+                label.set_label(text);
+                values.push(label);
+            }
+            page.add(&group);
+            groups.push(group);
         }
         *drawn = Some(Drawn {
             groups,
-            state: state.clone(),
-            devices,
+            values,
+            layout,
         });
     }
 }
 
-fn connection_group(placement: Placement, state: &PortState) -> adw::PreferencesGroup {
-    let group = adw::PreferencesGroup::new();
-    group.set_title(partner_label(state.partner).unwrap_or(NOTHING_ATTACHED));
+fn connection_group(placement: Placement, state: &PortState) -> Group {
+    let mut group = Group::new(partner_label(state.partner).unwrap_or(NOTHING_ATTACHED));
     if let Some(number) = placement.secondary(state.index) {
-        value(&group, "Port").set_label(&number);
+        group.row("Port", number);
     }
     if state.partner == PortPartner::Nothing {
         return group;
     }
     if let Some(powering) = powering_label(state) {
-        value(&group, POWERING_THE_MACHINE).set_label(powering);
+        group.row(POWERING_THE_MACHINE, powering);
     }
     if let Some(video) = display_port_label(state) {
-        value(&group, "DisplayPort").set_label(video);
+        group.row("DisplayPort", video);
     }
     if let Some(power) = power_role_label(state.partner, state.power_role) {
-        value(&group, "Power role").set_label(power);
+        group.row("Power role", power);
     }
-    value(&group, "Data role").set_label(data_role_label(state.data_role));
+    if let Some(vconn) = vconn_label(state.vconn) {
+        group.described(
+            "VCONN",
+            "Power for the chips inside the cable or accessory",
+            vconn,
+        );
+    }
+    if let Some(data) = data_role_label(state.data_role) {
+        group.row("Data role", data);
+    }
     group
 }
 
-/// None where nothing is attached or the cable could not be read, a guess
-/// being worse than no group.
-fn cable_group(state: &PortState) -> Option<adw::PreferencesGroup> {
-    let cable = &state.cable;
-    if state.partner == PortPartner::Nothing || cable.marking == CableMarking::Unknown {
+/// None where nothing is attached or no e-marker was read: the controller's
+/// e-marker bit is clear for a cable that has one on some partners, and for a
+/// card plugged in with no cable at all.
+fn cable_group(state: &PortState) -> Option<Group> {
+    let cable = &state.registers.as_ref()?.cable;
+    if cable.marking != CableMarking::Marked {
         return None;
     }
-    let group = adw::PreferencesGroup::new();
-    group.set_title("Cable");
-    if cable.marking == CableMarking::Unmarked {
-        value(&group, "E-marker").set_label(NO_E_MARKER);
-        return Some(group);
+    let mut group = Group::new("Cable");
+    if let Some(kind) = cable_type_label(cable.active) {
+        group.row("Type", kind);
     }
     if let Some(speed) = cable_speed_label(cable.speed) {
-        value(&group, "Speed").set_label(speed);
+        group.row("Speed", speed);
     }
     if let Some(rating) = cable_rating_label(cable) {
-        value(&group, "Rating").set_label(&rating);
+        group.row("Rating", rating);
     }
     if let Some(length) = cable_length_label(cable.latency) {
-        value(&group, "Length").set_label(length);
+        group.row("Length", length);
     }
     Some(group)
 }
 
-fn contract_group(state: &PortState) -> Option<adw::PreferencesGroup> {
+fn contract_group(state: &PortState) -> Option<Group> {
     if state.partner == PortPartner::Nothing {
         return None;
     }
-    let supply = carried(state);
-    let measured = measured_label(state);
-    let epr = epr_label(state.epr);
-    if supply.is_none() && measured.is_none() && epr.is_none() {
-        return None;
+    let mut group = Group::new(contract_label(state.contract));
+    if let Some(supply) = carried(state) {
+        group.row("Contract", supply);
     }
-    let group = adw::PreferencesGroup::new();
-    group.set_title(contract_label(state.contract));
-    if let Some(supply) = supply {
-        value(&group, "Supply").set_label(&supply);
+    if let Some(measured) = measured_label(state) {
+        group.row("Measured", measured);
     }
-    if let Some(measured) = measured {
-        value(&group, "Measured").set_label(&measured);
+    if let Some(pd) = state.registers.and_then(|registers| registers.pd) {
+        if let Some(kind) = supply_kind_label(pd.kind) {
+            group.row("Supply type", kind);
+        }
+        if let Some(mismatch) = mismatch_label(&pd) {
+            group.described(
+                "Capability mismatch",
+                "The end drawing power wanted more than any offer",
+                mismatch,
+            );
+        }
+        if let Some(peak) = peak_label(&pd, state.partner) {
+            group.row("Peak current", peak);
+        }
+        if let Some(limited) = power_limited_label(&pd, state.partner) {
+            group.row("Power limited", limited);
+        }
     }
-    if let Some(epr) = epr {
-        value(&group, "Extended power range").set_label(epr);
+    if let Some(epr) = epr_label(state.epr) {
+        group.row("Extended power range", epr);
     }
-    Some(group)
+    (!group.rows.is_empty()).then_some(group)
 }
 
-fn device_group(device: &Attached) -> adw::PreferencesGroup {
-    let group = adw::PreferencesGroup::builder()
-        .title(device_name(device))
-        .build();
+fn device_group(device: &Attached) -> Group {
+    let mut group = Group::new(device_name(device));
     if !device.manufacturer.is_empty() {
-        value(&group, "Manufacturer").set_label(&device.manufacturer);
+        group.row("Manufacturer", device.manufacturer.as_str());
     }
-    value(&group, "Link speed").set_label(speed_label(device.speed));
+    group.row("Link speed", speed_label(device.speed));
     for link in &device.network {
-        value(&group, "Network").set_label(&network_label(link));
-        value(&group, "Interface").set_label(&link.interface);
+        group.row("Network", network_label(link));
+        group.row("Interface", link.interface.as_str());
         if !link.mac.is_empty() {
-            value(&group, "MAC address").set_label(&link.mac);
+            group.row("MAC address", link.mac.as_str());
         }
     }
     for &bytes in &device.storage {
-        value(&group, "Capacity").set_label(&capacity_label(bytes));
+        group.row("Capacity", capacity_label(bytes));
     }
     if !device.firmware.is_empty() {
-        value(&group, "Firmware").set_label(&device.firmware);
+        group.row("Firmware", device.firmware.as_str());
     }
     group
 }

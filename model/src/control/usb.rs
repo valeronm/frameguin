@@ -135,6 +135,7 @@ mod tests {
     #[test]
     fn a_link_reads_in_the_unit_its_rate_is_sold_in() {
         assert_eq!(speed_label(UsbSpeed::Full), "12 Mbps");
+        assert_eq!(speed_label(UsbSpeed::High), "480 Mbps");
         assert_eq!(speed_label(UsbSpeed::Super), "5 Gbps");
         assert_eq!(speed_label(UsbSpeed::SuperPlus2x2), "20 Gbps");
     }
