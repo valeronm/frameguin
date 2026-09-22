@@ -1,7 +1,7 @@
 [Desktop Entry]
 Type=Application
 Name=Frameguin
-Comment=Hardware controls for Framework laptops
+Comment=Hardware settings and readings for Framework laptops
 Exec=frameguin
 Icon=io.github.valeronm.Frameguin
 Categories=Settings;HardwareSettings;

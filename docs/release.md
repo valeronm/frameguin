@@ -20,14 +20,14 @@ re-shoot in its own commit, so this is the backstop rather than the step that
 does it:
 
 ```sh
-git diff "$(git describe --tags --abbrev=0)"..HEAD -- app/src/window/ app/src/tray.rs
+git diff "$(git describe --tags --abbrev=0)"..HEAD -- app/src/window/ app/src/report/ app/src/tray.rs
 ```
 
-Those are the files that draw what the two screenshots show. A non-empty diff
-means checking `screenshot.png` and `screenshot-tray.png` against the running
-app and re-shooting by hand — there is no script for it, so an agent stops
-here and hands back. The diff also fires on formatting passes and module
-splits, which is why this is a look rather than a check.
+Those are the files that draw what the screenshots show. A non-empty diff
+means checking `docs/screenshots/` against the running app and re-shooting
+by hand — there is no script for it, so an agent stops here and hands back.
+The diff also fires on formatting passes and module splits, which is why this
+is a look rather than a check.
 
 **4. Build the tarball.**
 

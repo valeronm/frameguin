@@ -3,7 +3,7 @@ name = "frameguin"
 version.workspace = true
 edition = "2024"
 license = "MIT"
-description = "Hardware controls for Framework laptops"
+description = "Hardware settings and readings for Framework laptops"
 homepage = "https://github.com/valeronm/frameguin"
 repository = "https://github.com/valeronm/frameguin"
 

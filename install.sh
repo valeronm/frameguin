@@ -120,7 +120,7 @@ if [ -n "$outdated" ]; then
     {
         echo "the installed libraries are older than these binaries need:"
         echo "$outdated"
-        echo "README's Requirements names the minimum versions"
+        echo "README's Install section names the minimum versions"
     } >&2
     exit 1
 fi
