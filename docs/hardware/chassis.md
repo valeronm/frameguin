@@ -27,6 +27,7 @@ Every heading in the file appears here.
 | Command | `EC_CMD_CHASSIS_OPEN_CHECK`, `0x3E0F`, in `chassis.c` |
 | Reads | `gpio_chassis_open_l` on the spot, active low; answers 1 for open |
 | Pin | named in the Laptop 13 Intel Core Ultra board's devicetree, which the Pro's includes |
+| Watches | the input cover separating from the bottom cover, the switch sitting between them and lifting the input cover being the only way into the machine; in the EC's code it is the C cover opening, in the comment on the pin in `laptop_led.c` ("C cover detect switch"), in `SHORT_HIBERNATE_TIMER`'s help text, and in the comment on `sunflower`'s pin ("Monitor C cover open") |
 
 ## The intrusion record
 
@@ -154,7 +155,9 @@ takes a mode:
 
 - [FrameworkComputer/EmbeddedController](https://github.com/FrameworkComputer/EmbeddedController)
   — under `zephyr/program/framework/`, `src/chassis.c` for the three
-  chassis commands and their BBRAM slots, `src/board_host_command.c` for the
+  chassis commands and their BBRAM slots, `src/laptop_led.c`, `Kconfig`'s
+  `SHORT_HIBERNATE_TIMER` and `sunflower/gpio.dtsi` for the switch as
+  the C cover opening, `src/board_host_command.c` for the
   privacy switches, `src/input_module_13.c` and `include/input_module_13.h`
   for the deck's detection, states and command, `src/board_function.c` for
   the flash flag, and `include/board_host_command.h` for the command ids.
