@@ -35,7 +35,7 @@ fn present<T>(probe: DeviceResult<T>) -> DeviceResult<Option<T>> {
 /// Nothing is powering the machine — a state two controls reach from
 /// different devices, the EC's own flag and the USB-C ports, and one neither
 /// of them owns.
-pub(crate) const NO_SUPPLY: &str = "Disconnected";
+pub(crate) const NO_SUPPLY: &str = "Not connected";
 
 /// A two-state reading, worded alike by every control that shows one.
 #[must_use]

@@ -23,17 +23,12 @@ use crate::report::{described_value, value, value_row};
 /// Every field is a descendant of the page the feed's subscription hangs on,
 /// the subscription's closure holding this struct.
 struct Report {
-    /// Carries the direction as its subtitle, and only the direction. The
-    /// window's row and the tray's line name the rate there too, because
-    /// neither has anywhere else to put it; here the three rows below say the
-    /// same thing exactly, and a rounded second copy above them would be the
-    /// one a reader trusted.
     charge_row: adw::ActionRow,
     charge: gtk::Label,
+    charger: gtk::Label,
     current: gtk::Label,
     voltage: gtk::Label,
     power: gtk::Label,
-    charger: gtk::Label,
     /// Hidden on a board whose pack will not answer over I2C, which is the
     /// same feature the spread's row below waits on.
     temperature_row: adw::ActionRow,
@@ -81,11 +76,11 @@ impl Report {
         }
         self.charge.set_label(&percent_label(info.state.percent));
         self.charge_row.set_subtitle(charge_direction(info.state));
+        self.charger
+            .set_label(charger_label(info.charger_connected));
         self.current.set_label(&milliamps(info.state.milliamps));
         self.voltage.set_label(&volts(info.state.millivolts));
         self.power.set_label(&power_label(info.state));
-        self.charger
-            .set_label(charger_label(info.charger_connected));
         self.critical_row.set_visible(info.critical);
 
         // All three against the nominal voltage rather than the one the pack
@@ -144,11 +139,11 @@ pub(super) fn add(sidebar: &Rc<Sidebar>, feed: &Rc<Feed>, battery: &Battery<Bus>
 fn build_rows(page: &adw::PreferencesPage) -> Rc<Report> {
     let status_group = adw::PreferencesGroup::new();
     let (charge_row, charge) = value_row(&status_group, "Charge");
+    let charger = value(&status_group, "Charger");
     let current = value(&status_group, "Current");
     let voltage = value(&status_group, "Voltage");
     // Under the two it is the product of, so the arithmetic is visible.
     let power = value(&status_group, "Power");
-    let charger = value(&status_group, "Charger");
     let (temperature_row, temperature) = value_row(&status_group, "Temperature");
     // Hidden until the pack's features say there is a sensor; a row that
     // appeared empty would read as one that failed to fill.
@@ -189,10 +184,10 @@ fn build_rows(page: &adw::PreferencesPage) -> Rc<Report> {
     Rc::new(Report {
         charge_row,
         charge,
+        charger,
         current,
         voltage,
         power,
-        charger,
         temperature_row,
         temperature,
         critical_row,

@@ -201,9 +201,6 @@ impl Group {
         self.state_row.set_subtitle(&charge_flow_label(state));
     }
 
-    /// Shows what is powering the machine. The subtitle names the port it
-    /// comes in on, and is cleared where nothing does — a port number left
-    /// standing under "Disconnected" would name the port that stopped.
     fn show_charger(&self, ports: &[PortState]) {
         self.charger.set_label(&supply_label(ports));
         self.charger_row

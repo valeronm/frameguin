@@ -140,7 +140,7 @@ pub fn supply_label(ports: &[PortState]) -> String {
 }
 
 /// Where the power is coming in, to sit under [`supply_label`]. None where
-/// nothing is supplying — a port named under "Disconnected" would name the
+/// nothing is supplying — a port named under "Not connected" would name the
 /// one that stopped.
 #[must_use]
 pub fn supply_port(ports: &[PortState], placement: Placement) -> Option<String> {
@@ -408,11 +408,11 @@ mod tests {
     }
 
     #[test]
-    fn nothing_supplying_reads_as_disconnected_rather_than_zero_watts() {
+    fn nothing_supplying_reads_as_not_connected_rather_than_zero_watts() {
         let ports: Vec<_> = (1..4).map(port).collect();
         assert!(powering(&ports).is_none());
-        assert_eq!(supply_label(&ports), "Disconnected");
-        assert_eq!(supply_label(&[]), "Disconnected");
+        assert_eq!(supply_label(&ports), "Not connected");
+        assert_eq!(supply_label(&[]), "Not connected");
     }
 
     /// One line carrying what the window spreads over a value and a
@@ -433,11 +433,9 @@ mod tests {
         );
     }
 
-    /// Nothing supplying means no port to name, and the separator would
-    /// otherwise dangle.
     #[test]
     fn a_line_with_nothing_supplying_names_no_port() {
-        assert_eq!(supply_summary(&[], Placement::default()), "Disconnected");
+        assert_eq!(supply_summary(&[], Placement::default()), "Not connected");
     }
 
     #[test]

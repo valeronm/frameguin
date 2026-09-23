@@ -230,7 +230,7 @@ impl TrayIcon {
     /// nothing to show until the first one arrives.
     ///
     /// Unnamed, unlike the supply below it: a percentage and a direction say
-    /// what they are, where a bare "Disconnected" would not.
+    /// what they are, where a bare "Not connected" would not.
     fn battery_item(&self) -> Option<ksni::MenuItem<Self>> {
         Some(report_item(
             battery_summary(self.battery?),
