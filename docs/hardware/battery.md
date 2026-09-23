@@ -21,6 +21,7 @@ Every heading in the file appears here.
 - [The flag byte](#the-flag-byte)
 - [The pack over I²C](#the-pack-over-ic)
 - [Cycle count](#cycle-count)
+- [Charge percentage](#charge-percentage)
 - [Temperature](#temperature)
 - [Status bits](#status-bits)
 - [Health verdicts](#health-verdicts)
@@ -61,9 +62,6 @@ differently:
   on the first successful read.
 - An 8-byte string field holds seven characters and a terminator,
   `EC_MEMMAP_TEXT_MAX`.
-- `framework_lib` computes the charge percentage as
-  `100 * remaining / last_full`, dividing by a value the pack supplies; a
-  pack reporting zero there panics inside the library.
 
 ### Observed
 
@@ -170,6 +168,29 @@ Registers read, all plain word reads:
 | Setup | Reading |
 |---|---|
 | EC block against the gauge's `CycleCount` | 3 against 8 |
+
+## Charge percentage
+
+- The EC's block carries no percentage, only remaining and last full
+  charge capacity. `framework_lib`'s `charge_percentage` divides the two
+  and truncates, and a pack reporting a last full charge of zero panics
+  inside the library. The kernel's ACPI battery `capacity` rounds the same
+  two to the nearest percent with `DIV_ROUND_CLOSEST_ULL`, and
+  `ec::charge_percent` does likewise.
+- The gauge computes its own, `RelativeStateOfCharge` (`0x0d`), which
+  `framework_tool --smartbattery` prints beside `RemainingCapacity`
+  (`0x0f`) and `FullChargeCapacity` (`0x10`). This code does not read it.
+  It rounds up, so it runs up to a percent ahead of a percentage computed
+  from the capacities.
+
+### Observed
+
+| Remaining / full, mAh | Exact | Reading |
+|---|---|---|
+| 2012 / 4730 | 42.54 % | gauge 43, the desktop's battery indicator, which reads the kernel, 43, `charge_percentage` 42 |
+| 2002 / 4730 | 42.33 % | gauge 43 |
+| 1994 / 4730 | 42.16 % | gauge 43, kernel `capacity` and UPower 42 |
+| 1985 / 4730 | 41.97 % | gauge 42 |
 
 ## Temperature
 
@@ -386,8 +407,10 @@ Framework's own addition beside the charge limit, in `battery_extender.c`.
 - [FrameworkComputer/framework-system](https://github.com/FrameworkComputer/framework-system)
   — `framework_lib/src/power.rs` for the percentage and the temperature
   decode, `chromium_ec/mod.rs` for `set_charge_rate_limit` and
-  `set_charge_current_limit`, `smart_battery.rs` for the health analysis,
-  and issues #180 and #342.
+  `set_charge_current_limit`, `smart_battery.rs` for the health analysis
+  and the gauge's percentage, and issues #180 and #342.
+- [torvalds/linux](https://github.com/torvalds/linux) —
+  `drivers/acpi/battery.c` for the kernel's `capacity`.
 - TI bq40z50 technical reference manual — the register map and every
   status bit's set conditions. SLUUA43A covers the R2 revision and SLUUBU5A
   the R3, which differ in their `ManufacturerAccess` status bits. The

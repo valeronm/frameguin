@@ -671,9 +671,10 @@ fn wire_battery_state(
     battery: &power::BatteryInformation,
 ) -> wire::BatteryState {
     wire::BatteryState {
-        // Against the last full charge, which is the EC's own denominator; a
-        // pack reporting more than full is clamped rather than shown.
-        percent: u8::try_from(battery.charge_percentage.min(100)).unwrap_or(100),
+        percent: charge_percent(
+            battery.remaining_capacity,
+            battery.last_full_charge_capacity,
+        ),
         flow: charge_flow(ChargeSignals {
             charging: battery.charging,
             discharging: battery.discharging,
@@ -683,6 +684,21 @@ fn wire_battery_state(
         milliamps: battery.present_rate,
         millivolts: battery.present_voltage,
     }
+}
+
+/// Rounded to the nearest percent as the kernel's ACPI battery `capacity` is,
+/// where `framework_lib`'s `charge_percentage` truncates; a pack can report
+/// more remaining than its last full charge.
+fn charge_percent(remaining: u32, last_full: u32) -> u8 {
+    // `last_full` is nonzero: `framework_lib` divides by it building the block.
+    let rounded = div_round_closest(100 * u64::from(remaining), u64::from(last_full));
+    u8::try_from(rounded.min(100)).unwrap_or(100)
+}
+
+/// Half rounds up.
+fn div_round_closest(numerator: u64, denominator: u64) -> u64 {
+    let remainder = numerator % denominator;
+    numerator / denominator + u64::from(remainder >= denominator - remainder)
 }
 
 /// The readings a direction is decided from, carried together because
@@ -734,7 +750,8 @@ fn charge_flow(
 #[cfg(test)]
 mod tests {
     use super::{
-        ChargeSignals, charge_flow, ec_power_led_level, wire, wire_deck_state, wire_power_led_level,
+        ChargeSignals, charge_flow, charge_percent, div_round_closest, ec_power_led_level, wire,
+        wire_deck_state, wire_power_led_level,
     };
 
     #[test]
@@ -856,5 +873,24 @@ mod tests {
             milliamps: 2320,
         };
         assert_eq!(charge_flow(charging), wire::ChargeFlow::Charging);
+    }
+
+    #[test]
+    fn a_charge_past_the_half_percent_rounds_up() {
+        assert_eq!(charge_percent(2012, 4730), 43);
+        assert_eq!(charge_percent(2000, 4730), 42);
+    }
+
+    #[test]
+    fn a_quotient_rounds_to_the_closest_and_half_up() {
+        assert_eq!(div_round_closest(7, 3), 2);
+        assert_eq!(div_round_closest(8, 3), 3);
+        assert_eq!(div_round_closest(3, 2), 2);
+        assert_eq!(div_round_closest(6, 3), 2);
+    }
+
+    #[test]
+    fn a_pack_reporting_more_than_full_reads_full() {
+        assert_eq!(charge_percent(4800, 4730), 100);
     }
 }
