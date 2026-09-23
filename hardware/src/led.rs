@@ -119,11 +119,7 @@ impl LedClass for Sysfs {
         Ok(())
     }
 
-    /// A brightness write takes the LED from the EC, undoing a trigger written
-    /// before it. A nonzero one lights whichever subled holds the driver's
-    /// default intensity until the EC's next tick.
     fn release(&self, dir: &Path) -> DeviceResult<()> {
-        std::fs::write(dir.join("brightness"), "0")?;
         std::fs::write(dir.join("trigger"), AUTO_TRIGGER)?;
         Ok(())
     }
