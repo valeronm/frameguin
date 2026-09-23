@@ -16,6 +16,7 @@ Every heading in the file appears here.
 - [Identity](#identity)
 - [Settings](#settings)
 - [Persistence](#persistence)
+- [Windows](#windows)
 - [Open](#open)
 - [Sources](#sources)
 
@@ -56,6 +57,8 @@ Every heading in the file appears here.
   `Lifetime::Permanent`.
 - `framework_lib` states the five steps are the pad's firmware, not the
   descriptor's, and `set_haptic_intensity` refuses any other value.
+- The descriptor's intensity collection holds the Intensity usage alone,
+  `0x0E`/`0x23`, logical 0 to 100 in 8 bits: nothing in it marks the steps.
 
 ### Observed
 
@@ -70,7 +73,7 @@ Every heading in the file appears here.
 | Suspend | kept | the pad keeps its settings in its own flash |
 | Reboot | kept | same |
 | EC restart | kept | the EC is not on the path |
-| Windows boot | replaced | Windows sends the pad its own saved settings |
+| Windows boot | replaced | Windows sends the pad its own saved settings; see [Windows](#windows) |
 
 - Nothing needs re-applying after a resume. That independence is no help to
   a host that forgot what it set: the interface answers nothing.
@@ -84,18 +87,47 @@ Every heading in the file appears here.
 |---|---|
 | Click force high and intensity 100 set from Linux, then Windows booted | the click light from Windows' first boot on, and still light back in Linux |
 
+## Windows
+
+What Windows' own touchpad settings send, from Microsoft's haptics
+implementation and touchpad tuning guides:
+
+| Setting | Windows value | Settings step | Reaches the pad as |
+|---|---|---|---|
+| Intensity, `FeedbackIntensity` | 0 to 100, default 50 | 25 | scaled linearly onto the descriptor's logical range, 0 meaning no feedback: 0, 25, 50, 75, 100 here |
+| Click sensitivity, `ClickForceSensitivity` | 0 to 100, default 50 | 50 | the descriptor's logical minimum, default and maximum as low, medium and high: codes 1, 2, 3 here |
+
+- The steps are Windows' for every touchpad, not read from the pad; the
+  firmware's five intensity steps are the values Windows' step of 25 lands
+  on over a 0 to 100 range.
+- The guide requires a logical maximum of at least 4 for intensity, so a pad
+  declaring 0 to 4 receives the same five settings as this one.
+- Windows sends both settings whenever one changes, on a user switch, and
+  when the pad enumerates or resets, which is why a Windows boot replaces
+  what Linux set.
+
 ## Open
 
 - Whether intensity takes values between the five steps. Framework's
   knowledge base gives the Linux write as any value from 0 to 100, against
   `framework_lib`'s statement that the firmware implements only the five.
+- Whether the pad resets within a running session, and whether a reset
+  returns it to its defaults: Windows sends its settings again on a reset,
+  and the daemon resends only at boot and on resume.
 
 ## Sources
 
 - [FrameworkComputer/framework-system](https://github.com/FrameworkComputer/framework-system)
   — `framework_lib/src/touchpad.rs` for the vendor id, the report ids, the
   five intensity steps and the click forces.
-- The pad's report descriptor, for the click force's physical range.
+- The pad's report descriptor, for the click force's physical range and
+  the intensity collection's contents.
+- Microsoft's
+  [Input Device Haptics Implementation Guide](https://learn.microsoft.com/en-us/windows-hardware/design/component-guidelines/haptic-touchpad-implementation-guide),
+  for the intensity scaling, the button press threshold's three levels and
+  when Windows sends the settings; and
+  [Precision touchpad tuning](https://learn.microsoft.com/en-us/windows-hardware/design/component-guidelines/touchpad-tuning-guidelines),
+  for the settings' ranges, defaults and steps.
 - Framework's knowledge base,
   [How to adjust Haptic Touchpad Settings](https://knowledgebase.frame.work/how-to-adjust-haptic-touchpad-settings-BJjHJdU6bl),
   for the Linux writes and the 0 to 100 intensity range.
