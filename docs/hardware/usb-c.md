@@ -419,16 +419,25 @@ From the kernel:
 - What the EC adds is a 30 s timeout: a partner whose VDM carries a
   Framework vendor and product id from `cypd_altmode_ids` (the HDMI and
   DisplayPort cards and five Framework power adapters) and has not entered
-  DisplayPort mode by then has its port's mux set to safe.
+  DisplayPort mode by then has its port's mux set to safe and the
+  controller's port deinitialized, printing `P<n>: Safe`. Both registers
+  are vendor-specific to Framework's PD controller firmware, so the EC tree
+  does not say what the deinit does. The timer is one deferred call for
+  every port, re-armed by each matching VDM.
+- Every board's branch carries the timeout: `cypress_pd_common.c` on the
+  Zephyr boards, `board/hx20/cypress5525.c` and `board/hx30/cypress5525.c`
+  on `hx20` and `hx30`.
 
 #### Observed
 
 | Setup | Reading |
 |---|---|
 | One USB-C DisplayPort monitor in the left rear, left front and right front slots | `DP-1` every time |
+| HDMI card replugged with no display, well past `P1: Safe` | still on USB 2, runtime `active`; 4900 mV of VBUS measured on the port |
 
 - Consequence: a connector does not name a slot; the board hands an output
   to whichever slot asks for one.
+- Consequence: the timeout leaves an idle card powered and on the USB bus.
 
 ## Port enable
 
