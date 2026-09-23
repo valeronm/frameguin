@@ -483,7 +483,11 @@ the product it was read from.
   switch is on. Switching it on records what each device finds in force,
   a value set before the switch being what a user turning it on means to
   keep; where that is what firmware would re-send anyway, pinning it costs
-  nothing.
+  nothing. The same call writes the touchpad's mirrored settings back
+  whether or not the switch is on: Windows sends the pad its own at boot,
+  and keeping a mirror true is not the switch's to decide, a mirror being
+  a claim about the hardware rather than a wanted value. A pad nothing set
+  here is left as the other system left it.
 - What the pack is asked directly falls into two groups, and the split is why
   one is a feature the battery offers and the other is not. The temperature,
   cell voltages and alarms have no fallback, so they are one operation behind

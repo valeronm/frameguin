@@ -1,6 +1,8 @@
 //! The haptic touchpad: two write-only settings and the mirror that answers
 //! for them.
 
+use std::sync::Arc;
+
 use frameguin_wire::{
     self as wire, DeviceError, DeviceResult, HAPTIC_INTENSITY_LEVELS, TouchpadControl,
 };
@@ -47,7 +49,7 @@ impl Stored for wire::ClickForce {
 }
 
 pub struct Touchpad {
-    pad: Box<dyn HapticPad>,
+    pad: Arc<dyn HapticPad>,
     identity: Identity,
     haptic_intensity: Mirror<Intensity>,
     click_force: Mirror<wire::ClickForce>,
@@ -66,10 +68,10 @@ impl Touchpad {
                 .collect(),
             ..part::of_hid(PartKind::Touchpad, pad, &resolved)
         };
-        Some(Self::new(Box::new(touchpad::Hid), mirrors, identity))
+        Some(Self::new(Arc::new(touchpad::Hid), mirrors, identity))
     }
 
-    pub fn new(pad: Box<dyn HapticPad>, mirrors: &Mirrors, identity: Identity) -> Self {
+    pub fn new(pad: Arc<dyn HapticPad>, mirrors: &Mirrors, identity: Identity) -> Self {
         Self {
             pad,
             identity,
@@ -86,6 +88,26 @@ impl Part for Touchpad {
 }
 
 impl Touchpad {
+    pub fn mirrored(&self) -> bool {
+        self.haptic_intensity.current().is_some() || self.click_force.current().is_some()
+    }
+
+    /// Another system on the machine sends the pad its own settings when it
+    /// boots. A setting never set here is left as that system left it.
+    pub fn resend(&self) -> DeviceResult<()> {
+        let intensity = self
+            .haptic_intensity
+            .current()
+            .map_or(Ok(()), |Intensity(percent)| {
+                self.pad.set_haptic_intensity(percent)
+            });
+        let force = self
+            .click_force
+            .current()
+            .map_or(Ok(()), |force| self.pad.set_click_force(force));
+        intensity.and(force)
+    }
+
     /// Separate from the setter so a server can refuse an argument before it
     /// prompts for authorization.
     pub fn check_haptic_intensity(percent: u8) -> DeviceResult<()> {
@@ -136,23 +158,27 @@ mod tests {
     use super::{KEY_CLICK_FORCE, KEY_HAPTIC_INTENSITY, Touchpad};
     use crate::part::Part;
     use crate::state::Store;
-    use crate::testing::{Haptic, Memory, mirrors, ready, touchpad_identity};
+    use crate::testing::{Haptic, Memory, OTHER_SYSTEMS, mirrors, ready, touchpad_identity};
 
-    fn over(pad: Haptic, store: &Arc<Memory>) -> Touchpad {
-        Touchpad::new(
-            Box::new(pad),
-            &mirrors(store, None, None),
-            touchpad_identity(),
-        )
+    fn over(pad: Arc<Haptic>, store: &Arc<Memory>) -> Touchpad {
+        Touchpad::new(pad, &mirrors(store, None, None), touchpad_identity())
     }
 
-    const TAKING: Haptic = Haptic { refusing: false };
-    const REFUSING: Haptic = Haptic { refusing: true };
+    fn taking() -> Arc<Haptic> {
+        Arc::new(Haptic::default())
+    }
+
+    fn refusing() -> Arc<Haptic> {
+        Arc::new(Haptic {
+            refusing: true,
+            ..Haptic::default()
+        })
+    }
 
     #[test]
     fn a_descriptor_without_a_serial_is_a_part_without_one() {
         let store = Arc::new(Memory::default());
-        let identity = over(TAKING, &store).identity().clone();
+        let identity = over(taking(), &store).identity().clone();
         assert_eq!(identity.serial, "");
         assert_eq!(identity.id, "hid:093a:1343");
     }
@@ -160,7 +186,7 @@ mod tests {
     #[test]
     fn an_empty_store_answers_the_factory_defaults() {
         let store = Arc::new(Memory::default());
-        let touchpad = over(TAKING, &store);
+        let touchpad = over(taking(), &store);
         assert_eq!(ready(touchpad.haptic_intensity()), Ok(75));
         assert_eq!(ready(touchpad.click_force()), Ok(ClickForce::Medium));
     }
@@ -168,12 +194,12 @@ mod tests {
     #[test]
     fn a_write_the_pad_takes_is_mirrored_and_stored() {
         let store = Arc::new(Memory::default());
-        let touchpad = over(TAKING, &store);
+        let touchpad = over(taking(), &store);
         ready(touchpad.set_haptic_intensity(25)).unwrap();
         ready(touchpad.set_click_force(ClickForce::High)).unwrap();
         assert_eq!(ready(touchpad.haptic_intensity()), Ok(25));
         assert_eq!(ready(touchpad.click_force()), Ok(ClickForce::High));
-        let reloaded = over(TAKING, &store);
+        let reloaded = over(taking(), &store);
         assert_eq!(ready(reloaded.haptic_intensity()), Ok(25));
         assert_eq!(ready(reloaded.click_force()), Ok(ClickForce::High));
     }
@@ -181,7 +207,7 @@ mod tests {
     #[test]
     fn a_write_the_pad_refuses_leaves_the_mirror_standing() {
         let store = Arc::new(Memory::default());
-        let touchpad = over(REFUSING, &store);
+        let touchpad = over(refusing(), &store);
         assert!(ready(touchpad.set_haptic_intensity(25)).is_err());
         assert!(ready(touchpad.set_click_force(ClickForce::Low)).is_err());
         assert_eq!(ready(touchpad.haptic_intensity()), Ok(75));
@@ -193,7 +219,7 @@ mod tests {
     #[test]
     fn an_intensity_off_the_steps_is_an_invalid_argument() {
         let store = Arc::new(Memory::default());
-        let touchpad = over(REFUSING, &store);
+        let touchpad = over(refusing(), &store);
         assert!(matches!(
             ready(touchpad.set_haptic_intensity(33)),
             Err(DeviceError::InvalidArgs(_))
@@ -209,8 +235,33 @@ mod tests {
         let store = Arc::new(Memory::default());
         store.set(KEY_HAPTIC_INTENSITY, Some("33".into()));
         store.set(KEY_CLICK_FORCE, Some("9".into()));
-        let touchpad = over(TAKING, &store);
+        let touchpad = over(taking(), &store);
         assert_eq!(ready(touchpad.haptic_intensity()), Ok(75));
         assert_eq!(ready(touchpad.click_force()), Ok(ClickForce::Medium));
+    }
+
+    #[test]
+    fn a_resend_writes_what_was_set_here_over_what_another_system_sent() {
+        let store = Arc::new(Memory::default());
+        let pad = taking();
+        let touchpad = over(pad.clone(), &store);
+        ready(touchpad.set_haptic_intensity(25)).unwrap();
+        ready(touchpad.set_click_force(ClickForce::High)).unwrap();
+        pad.sent_by_another_system();
+        let rebooted = over(pad.clone(), &store);
+        assert!(rebooted.mirrored());
+        rebooted.resend().unwrap();
+        assert_eq!(pad.held(), (Some(25), Some(ClickForce::High)));
+    }
+
+    #[test]
+    fn a_pad_never_set_here_is_left_as_it_is() {
+        let store = Arc::new(Memory::default());
+        let pad = taking();
+        pad.sent_by_another_system();
+        let touchpad = over(pad.clone(), &store);
+        assert!(!touchpad.mirrored());
+        touchpad.resend().unwrap();
+        assert_eq!(pad.held(), OTHER_SYSTEMS);
     }
 }

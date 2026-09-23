@@ -70,9 +70,19 @@ Every heading in the file appears here.
 | Suspend | kept | the pad keeps its settings in its own flash |
 | Reboot | kept | same |
 | EC restart | kept | the EC is not on the path |
+| Windows boot | replaced | Windows sends the pad its own saved settings |
 
 - Nothing needs re-applying after a resume. That independence is no help to
   a host that forgot what it set: the interface answers nothing.
+- Consequence: on a machine that also boots Windows, the mirror holds only
+  where the daemon writes it to the pad again at boot, which `Restore` does
+  whether or not the restore switch is on.
+
+### Observed
+
+| Setup | Reading |
+|---|---|
+| Click force high and intensity 100 set from Linux, then Windows booted | the click light from Windows' first boot on, and still light back in Linux |
 
 ## Open
 

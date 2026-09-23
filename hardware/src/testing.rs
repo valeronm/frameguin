@@ -378,13 +378,31 @@ impl SideEnables for Sides {
     }
 }
 
-/// A pad that takes every write, or refuses every one.
+/// A pad that takes every write, or refuses every one, holding what it took.
 #[derive(Default)]
 pub struct Haptic {
     pub refusing: bool,
+    pub haptic_intensity: Mutex<Option<u8>>,
+    pub click_force: Mutex<Option<ClickForce>>,
 }
 
+/// What [`Haptic::sent_by_another_system`] leaves the pad holding.
+pub const OTHER_SYSTEMS: (Option<u8>, Option<ClickForce>) = (Some(100), Some(ClickForce::Low));
+
 impl Haptic {
+    pub fn held(&self) -> (Option<u8>, Option<ClickForce>) {
+        (
+            *self.haptic_intensity.lock().unwrap(),
+            *self.click_force.lock().unwrap(),
+        )
+    }
+
+    pub fn sent_by_another_system(&self) {
+        let (intensity, force) = OTHER_SYSTEMS;
+        *self.haptic_intensity.lock().unwrap() = intensity;
+        *self.click_force.lock().unwrap() = force;
+    }
+
     fn answer(&self) -> DeviceResult<()> {
         if self.refusing {
             Err(DeviceError::Failed("no pad".into()))
@@ -395,12 +413,16 @@ impl Haptic {
 }
 
 impl HapticPad for Haptic {
-    fn set_haptic_intensity(&self, _percent: u8) -> DeviceResult<()> {
-        self.answer()
+    fn set_haptic_intensity(&self, percent: u8) -> DeviceResult<()> {
+        self.answer()?;
+        *self.haptic_intensity.lock().unwrap() = Some(percent);
+        Ok(())
     }
 
-    fn set_click_force(&self, _force: ClickForce) -> DeviceResult<()> {
-        self.answer()
+    fn set_click_force(&self, force: ClickForce) -> DeviceResult<()> {
+        self.answer()?;
+        *self.click_force.lock().unwrap() = Some(force);
+        Ok(())
     }
 }
 

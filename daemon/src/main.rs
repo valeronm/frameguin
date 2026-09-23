@@ -76,17 +76,31 @@ impl Daemon {
         Ok(())
     }
 
+    /// A mirror is a claim about the hardware rather than a wanted value,
+    /// which the switch does not govern.
     async fn restore(
         &self,
         #[zbus(header)] header: Header<'_>,
         #[zbus(object_server)] server: &ObjectServer,
     ) -> fdo::Result<()> {
         self.service.touch();
-        if !self.restore.enabled() {
+        let mirrored = interface::mirrors_to_resend(server).await;
+        let enabled = self.restore.enabled();
+        if !mirrored && !enabled {
             return Ok(());
         }
         self.service.authorize(&header).await?;
-        Ok(interface::each_restorable(server, Op::Restore).await?)
+        let resent = if mirrored {
+            interface::resend_mirrors(server).await
+        } else {
+            Ok(())
+        };
+        let restored = if enabled {
+            interface::each_restorable(server, Op::Restore).await
+        } else {
+            Ok(())
+        };
+        Ok(resent.and(restored)?)
     }
 
     /// The daemon's version and the path it was started from. The path is the

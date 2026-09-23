@@ -21,7 +21,8 @@ use frameguin_hardware::part::Identity;
 use frameguin_hardware::restore::Restore;
 use frameguin_hardware::testing::{
     Connectors, Cover, EC_BOOT, EXTENDER, EcCharger, Gauge, Haptic, Hub, LedEc, Leds, Memory,
-    Route, Sides, Sliders, battery_identity, block, display_identity, mirrors, touchpad_identity,
+    OTHER_SYSTEMS, Route, Sides, Sliders, battery_identity, block, display_identity, mirrors,
+    touchpad_identity,
 };
 use frameguin_wire::{
     BatteryFeature, Board, ChargingLedFeature, ChargingLedSide, ChassisFeature, ClickForce,
@@ -40,6 +41,7 @@ struct Machine {
     store: Arc<Memory>,
     charger: Arc<EcCharger>,
     led: Arc<LedEc>,
+    haptic: Arc<Haptic>,
 }
 
 impl Machine {
@@ -48,6 +50,7 @@ impl Machine {
             store: Arc::new(Memory::default()),
             charger: Arc::new(EcCharger::default()),
             led: Arc::new(LedEc::default()),
+            haptic: Arc::new(Haptic::default()),
         }
     }
 
@@ -75,7 +78,7 @@ impl Machine {
                 battery_identity(),
             )),
             touchpad: Some(Touchpad::new(
-                Box::new(Haptic::default()),
+                self.haptic.clone(),
                 mirrors,
                 touchpad_identity(),
             )),
@@ -455,6 +458,34 @@ fn what_was_set_before_the_switch_went_on_is_restored_too() {
     });
     assert_eq!(*machine.charger.limit.lock().unwrap(), 80);
     assert_eq!(machine.led.level.lock().unwrap().1, PowerLedLevel::Low);
+}
+
+#[test]
+fn the_touchpad_is_written_back_with_the_switch_off() {
+    let machine = Machine::new();
+    machine.serve(true).run(|p| async move {
+        p.touchpad.set_haptic_intensity(25).await.unwrap();
+        p.touchpad.set_click_force(ClickForce::High).await.unwrap();
+    });
+    machine.haptic.sent_by_another_system();
+    machine.serve(false).run(|p| async move {
+        assert!(denied(root(&p).await.restore().await));
+    });
+    assert_eq!(machine.haptic.held(), OTHER_SYSTEMS);
+    machine.serve(true).run(|p| async move {
+        root(&p).await.restore().await.unwrap();
+    });
+    assert_eq!(machine.haptic.held(), (Some(25), Some(ClickForce::High)));
+}
+
+#[test]
+fn a_touchpad_never_set_here_is_left_to_the_other_system() {
+    let machine = Machine::new();
+    machine.haptic.sent_by_another_system();
+    machine.serve(false).run(|p| async move {
+        root(&p).await.restore().await.unwrap();
+    });
+    assert_eq!(machine.haptic.held(), OTHER_SYSTEMS);
 }
 
 #[test]

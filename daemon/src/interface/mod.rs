@@ -27,6 +27,7 @@ use std::sync::Arc;
 use frameguin_hardware::device::Devices;
 use frameguin_hardware::device::battery::Battery;
 use frameguin_hardware::device::power_led::PowerLed;
+use frameguin_hardware::device::touchpad::Touchpad;
 use frameguin_hardware::device::touchscreen::Touchscreen;
 use frameguin_hardware::restore::Restorable;
 use frameguin_wire::{DeviceResult, OBJECT_PATH};
@@ -102,6 +103,22 @@ pub(crate) async fn each_restorable(server: &ObjectServer, op: Op) -> DeviceResu
     battery.and(power_led).and(touchscreen)
 }
 
+/// Whether a device on the bus holds a mirror [`resend_mirrors`] would write.
+pub(crate) async fn mirrors_to_resend(server: &ObjectServer) -> bool {
+    match server.interface::<_, Served<Touchpad>>(OBJECT_PATH).await {
+        Ok(touchpad) => touchpad.get().await.device().mirrored(),
+        Err(_) => false,
+    }
+}
+
+pub(crate) async fn resend_mirrors(server: &ObjectServer) -> DeviceResult<()> {
+    let Ok(touchpad) = server.interface::<_, Served<Touchpad>>(OBJECT_PATH).await else {
+        return Ok(());
+    };
+    let outcome = touchpad.get().await.device().resend();
+    logged::<Touchpad>("resent", "resend", outcome)
+}
+
 async fn one_restorable<D: Restorable>(server: &ObjectServer, op: Op) -> DeviceResult<()>
 where
     Served<D>: Interface,
@@ -115,10 +132,17 @@ where
         Op::Remember => device.remember().await,
         Op::Restore => device.restore().await,
     };
+    logged::<D>(op.done(), op.verb(), outcome)
+}
+
+fn logged<D>(done: &str, verb: &str, outcome: DeviceResult<()>) -> DeviceResult<()>
+where
+    Served<D>: Interface,
+{
     let name = <Served<D> as Interface>::name();
     outcome
-        .inspect(|()| eprintln!("{} {name}", op.done()))
-        .inspect_err(|e| eprintln!("could not {} {name}: {e}", op.verb()))
+        .inspect(|()| eprintln!("{done} {name}"))
+        .inspect_err(|e| eprintln!("could not {verb} {name}: {e}"))
 }
 
 async fn serve_one<D>(
