@@ -26,7 +26,7 @@ use frameguin_model::control::ports::{
 };
 use frameguin_model::control::usb::{capacity_label, device_name, network_label, speed_label};
 use frameguin_model::port::Placement;
-use frameguin_wire::{Attached, PortPartner, PortRegisters, PortSet, PortState};
+use frameguin_wire::{Attached, PortPartner, PortRegisters, PortSet, PortState, PowerRole};
 use gtk4 as gtk;
 use gtk4::glib;
 
@@ -350,7 +350,7 @@ fn contract_group(state: &PortState) -> Option<Group> {
     }
     let mut group = Group::new(contract_label(state.contract));
     if let Some(supply) = carried(state) {
-        group.row("Contract", supply);
+        group.described("Contract", contract_ceiling(state.power_role), supply);
     }
     if let Some(registers) = state.registers {
         group.row("Measured", measured_label(registers.measured_millivolts));
@@ -377,6 +377,15 @@ fn contract_group(state: &PortState) -> Option<Group> {
         group.row("Extended power range", epr);
     }
     (!group.rows.is_empty()).then_some(group)
+}
+
+/// The power role is the machine's.
+fn contract_ceiling(role: PowerRole) -> &'static str {
+    match role {
+        PowerRole::Sink => "The most the device can supply",
+        PowerRole::Source => "The most the device can draw",
+        PowerRole::Unknown => "The most the port can carry",
+    }
 }
 
 fn device_group(device: &Attached) -> Group {
