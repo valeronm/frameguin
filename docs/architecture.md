@@ -117,9 +117,9 @@ too, and are placed in a port's page by `model::port` rather than by the
 daemon, which knows the board's name but not where its sockets are. The
 battery extender is a feature of the battery's column rather than a column
 of its own, and still takes a Readings
-section beside the battery's: a section is drawn for what a reader looks
-for, not for the column behind it. By the same measure the input deck, a
-feature of the chassis, is a row on the Chassis page.
+page beside the pack's: a page is drawn for what a reader looks for, not
+for the column behind it. By the same measure the input deck, a feature of
+the chassis, is a row on the Chassis page.
 
 | Layer | Crate | Links | Owns | Must not know | Tested against |
 |---|---|---|---|---|---|

@@ -1,4 +1,4 @@
-//! The battery extender section: one row naming its stage, and a page adding
+//! The battery extender: one row naming its stage, and a page adding
 //! when the first stage starts and what resets it.
 //!
 //! What each value is *called* is
@@ -10,20 +10,20 @@ use adw::prelude::*;
 use frameguin_model::control::battery::extender::{
     first_stage_label, reset_label, stage_label, trigger_label,
 };
+use gtk4 as gtk;
 
 use super::Sidebar;
 use crate::reading::{Feed, Wants};
 use crate::report::{value, value_row};
 
-pub(super) fn add(sidebar: &Rc<Sidebar>, feed: &Rc<Feed>) {
-    let list = sidebar.section(None);
+pub(super) fn add(sidebar: &Rc<Sidebar>, list: &gtk::ListBox, feed: &Rc<Feed>) {
     let page = adw::PreferencesPage::new();
     let group = adw::PreferencesGroup::new();
     let stage = value(&group, "Stage");
     let (first_stage_row, first_stage) = value_row(&group, "Starts in");
     let (reset_row, reset) = value_row(&group, "Resets after");
     page.add(&group);
-    let row = sidebar.add(&list, "Battery extender", &page);
+    let row = sidebar.add(list, "Extender", &page);
 
     let wants = Wants {
         extender: true,

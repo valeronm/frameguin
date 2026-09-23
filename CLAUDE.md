@@ -127,9 +127,10 @@ it and the non-obvious constraints.
   `report/status/` is the Readings window: no sync guard, no debounce, no tray
   push, a sidebar of sections beside the selected row's page. Its `mod.rs`
   holds the window, the one selection across every section's list, and the
-  targets it can be opened on; each section is a module of its own, adding
-  its rows where the detected controls say the board has what it shows.
-  Whether a section's rows carry a summary is the section's call, made by
+  targets it can be opened on. A section is a heading over one list, and
+  each page is a module of its own, adding its rows to the section `mod.rs`
+  hands it where the detected controls say the board has what it shows.
+  Whether a row carries a summary is its module's call, made by
   what its read costs: a summary is fed for as long as the window is on
   screen whatever page is selected, where a page is fed only while the stack
   shows it. Everything a subscription's closure holds is a descendant of the
@@ -200,7 +201,7 @@ it and the non-obvious constraints.
 - Which window a thing goes in is decided by what kind of fact it is: the main
   window holds what can be set, Hardware what the hardware is — fixed for the
   daemon's run and read once — and Readings what the hardware is doing now,
-  read only while it is on screen. A new reading is a section in Readings
+  read only while it is on screen. A new reading is a page in Readings
   rather than a window of its own or a row in the main window.
 - The main window and the reports are reached differently, and which way is
   decided by whether the window survives being closed. The main window hides rather than closing

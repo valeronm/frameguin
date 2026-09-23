@@ -1,4 +1,4 @@
-//! The battery section: one row carrying the charge, and a page naming what
+//! The pack: one row carrying the charge, and a page naming what
 //! the pack is doing.
 //!
 //! What each value is *called* is `frameguin_model::control::battery::reading`'s;
@@ -103,11 +103,15 @@ impl Report {
 
 /// The pack's condition costs a transfer per cell, so only the page asks for
 /// it.
-pub(super) fn add(sidebar: &Rc<Sidebar>, feed: &Rc<Feed>, battery: &Battery<Bus>) {
-    let list = sidebar.section(None);
+pub(super) fn add(
+    sidebar: &Rc<Sidebar>,
+    list: &gtk::ListBox,
+    feed: &Rc<Feed>,
+    battery: &Battery<Bus>,
+) {
     let page = adw::PreferencesPage::new();
     let report = build_rows(&page);
-    let row = sidebar.add(&list, "Battery", &page);
+    let row = sidebar.add(list, "Pack", &page);
 
     let answering: gtk::ListBoxRow = row.clone().upcast();
     sidebar.answer(move |target| (target == Target::Battery).then(|| answering.clone()));

@@ -121,16 +121,20 @@ async fn fill(sidebar: &Rc<Sidebar>, daemon: &Daemon, feed: &Rc<Feed>, shell: &S
         return;
     };
     if let Some(control) = &controls.battery {
-        battery::add(sidebar, feed, control);
+        let list = sidebar.section("Battery");
+        battery::add(sidebar, &list, feed, control);
         if control.has(BatteryFeature::Extender) {
-            battery_extender::add(sidebar, feed);
+            battery_extender::add(sidebar, &list, feed);
         }
     }
-    if let Some(control) = &controls.chassis {
-        chassis::add(sidebar, feed, control);
-    }
-    if controls.privacy_switches.is_some() {
-        privacy_switches::add(sidebar, feed);
+    if controls.chassis.is_some() || controls.privacy_switches.is_some() {
+        let list = sidebar.section("Switches");
+        if let Some(control) = &controls.chassis {
+            chassis::add(sidebar, &list, feed, control);
+        }
+        if controls.privacy_switches.is_some() {
+            privacy_switches::add(sidebar, &list, feed);
+        }
     }
     if let Some(control) = &controls.ports {
         ports::add(sidebar, feed, controls.usb.is_some(), control.placement());
@@ -169,7 +173,7 @@ struct SidebarRow {
 
 type Find = dyn Fn(Target) -> Option<gtk::ListBoxRow>;
 
-/// Holds the split view weakly, the sections' subscriptions hanging on it and
+/// Holds the split view weakly, the rows' subscriptions hanging on it and
 /// holding this. Everything else here is a descendant of it.
 struct Sidebar {
     split: glib::WeakRef<adw::NavigationSplitView>,
@@ -177,6 +181,7 @@ struct Sidebar {
     lists: RefCell<Vec<gtk::ListBox>>,
     pages: gtk::Stack,
     titled: adw::NavigationPage,
+    heading: adw::WindowTitle,
     rows: RefCell<Vec<SidebarRow>>,
     finds: RefCell<Vec<Box<Find>>>,
     /// A target whose row has not arrived, or that arrived before the fill.
@@ -204,9 +209,13 @@ impl Sidebar {
         // page to open on: a hidden page is unmapped, and an unmapped page
         // subscribes to nothing the fill would read.
         pages.set_opacity(0.0);
+        let heading = adw::WindowTitle::new(TITLE, "");
+        let content = adw::ToolbarView::new();
+        content.add_top_bar(&adw::HeaderBar::builder().title_widget(&heading).build());
+        content.set_content(Some(&pages));
         let titled = adw::NavigationPage::builder()
             .title(TITLE)
-            .child(&headed(&pages))
+            .child(&content)
             .build();
         let sidebar = adw::NavigationPage::builder()
             .title(TITLE)
@@ -225,6 +234,7 @@ impl Sidebar {
             lists: RefCell::default(),
             pages,
             titled,
+            heading,
             rows: RefCell::default(),
             finds: RefCell::default(),
             pending: Cell::default(),
@@ -233,32 +243,30 @@ impl Sidebar {
         (this, split)
     }
 
-    /// A section's list, under `heading` where the section has more than one
-    /// row to gather. Both stay hidden until the section adds a row.
-    fn section(self: &Rc<Self>, heading: Option<&str>) -> gtk::ListBox {
+    /// A list under `heading`, both hidden until a row is added.
+    fn section(self: &Rc<Self>, heading: &str) -> gtk::ListBox {
         let list = gtk::ListBox::new();
         list.add_css_class("navigation-sidebar");
         list.set_visible(false);
-        if let Some(heading) = heading {
-            let label = gtk::Label::builder()
-                .label(heading)
-                .xalign(0.0)
-                .margin_start(12)
-                .margin_top(12)
-                .margin_bottom(6)
-                .css_classes(["heading"])
-                .build();
-            list.bind_property("visible", &label, "visible")
-                .sync_create()
-                .build();
-            self.sections.append(&label);
-        }
+        let label = gtk::Label::builder()
+            .label(heading)
+            .xalign(0.0)
+            .margin_start(12)
+            .margin_top(12)
+            .margin_bottom(6)
+            .css_classes(["heading"])
+            .build();
+        list.bind_property("visible", &label, "visible")
+            .sync_create()
+            .build();
+        self.sections.append(&label);
         self.sections.append(&list);
         // Weak: the list is a descendant of what this holds.
         let showing = Rc::downgrade(self);
+        let heading = heading.to_owned();
         list.connect_row_selected(move |list, row| {
             if let (Some(sidebar), Some(row)) = (showing.upgrade(), row) {
-                sidebar.show(list, row);
+                sidebar.show(list, &heading, row);
             }
         });
         let revealing = Rc::downgrade(self);
@@ -314,7 +322,7 @@ impl Sidebar {
         self.finds.borrow_mut().push(Box::new(find));
     }
 
-    /// Feeds a section's rows for as long as the window is on screen,
+    /// Feeds sidebar rows for as long as the window is on screen,
     /// whichever page is selected.
     fn follow(&self, feed: &Rc<Feed>, wants: Wants, show: impl Fn(&Reading) + 'static) {
         if let Some(split) = self.split.upgrade() {
@@ -330,7 +338,7 @@ impl Sidebar {
     }
 
     /// A target no row answers for yet stays pending, and the first row stands
-    /// in for it until a section adds the one it names.
+    /// in for it until a module adds the one it names.
     fn settle(&self) {
         if !self.filled.get() {
             return;
@@ -370,7 +378,7 @@ impl Sidebar {
         }
     }
 
-    fn show(&self, list: &gtk::ListBox, row: &gtk::ListBoxRow) {
+    fn show(&self, list: &gtk::ListBox, heading: &str, row: &gtk::ListBoxRow) {
         let others: Vec<_> = self
             .lists
             .borrow()
@@ -390,6 +398,8 @@ impl Sidebar {
         if let Some((page, title)) = shown {
             self.pages.set_visible_child(&page);
             self.titled.set_title(&title);
+            self.heading.set_title(heading);
+            self.heading.set_subtitle(&title);
         }
     }
 }

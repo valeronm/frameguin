@@ -1,4 +1,4 @@
-//! The USB-C ports section: a row per port carrying what is plugged into it,
+//! The USB-C ports: a row per port carrying what is plugged into it,
 //! and a page per port with the rest of what the EC's copy of its
 //! controller's state says and what the controller's own registers add.
 //!
@@ -118,7 +118,7 @@ pub(super) fn add(sidebar: &Rc<Sidebar>, feed: &Rc<Feed>, usb: bool, placement: 
         ..Wants::default()
     };
     let section = Rc::new(Section {
-        list: sidebar.section(Some("USB-C Ports")),
+        list: sidebar.section("USB-C Ports"),
         ports: RefCell::default(),
         placement,
     });
