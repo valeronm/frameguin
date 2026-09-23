@@ -17,6 +17,16 @@ pub(crate) const MANUFACTURE_DATE: u16 = 0x1b;
 /// registers run backwards against that numbering, which is the datasheet's
 /// doing rather than a mistake here: 0x3F is cell 1 and 0x3C is cell 4.
 pub(crate) const CELL_VOLTAGES: [u16; 4] = [0x3f, 0x3e, 0x3d, 0x3c];
+/// A pack of fewer cells answers 0 for the [`CELL_VOLTAGES`] registers past
+/// its last.
+pub(crate) fn cell_millivolts(words: &[u16]) -> Vec<u32> {
+    words
+        .iter()
+        .filter(|&&millivolts| millivolts != 0)
+        .map(|&millivolts| u32::from(millivolts))
+        .collect()
+}
+
 /// `SB_BATTERY_STATUS`, whose alarm bits are decoded by [`alarms`]. The EC
 /// reads this register too, but publishes only the two direction flags out of
 /// it — the alarms have nowhere in the memmap to go.
@@ -93,10 +103,19 @@ pub(crate) fn decicelsius(decikelvin: u16) -> i16 {
 #[cfg(test)]
 mod tests {
     use super::{
-        TERMINATE_CHARGE, TERMINATE_DISCHARGE, alarms, decicelsius, manufactured_iso, wire,
+        TERMINATE_CHARGE, TERMINATE_DISCHARGE, alarms, cell_millivolts, decicelsius,
+        manufactured_iso, wire,
     };
 
     /// The reading `framework_tool` prints as 34.2 C for the same word.
+    #[test]
+    fn a_three_cell_pack_reads_three_cells() {
+        assert_eq!(
+            cell_millivolts(&[3_901, 3_905, 3_898, 0]),
+            [3_901, 3_905, 3_898]
+        );
+    }
+
     #[test]
     fn the_packs_decikelvin_reads_as_tenths_of_a_degree() {
         assert_eq!(decicelsius(3074), 342);

@@ -65,12 +65,17 @@ impl Battery {
         if charger.extender().is_ok() {
             features.push(BatteryFeature::Extender);
         }
+        let current_limit_holder = if charger.current_limit_lifted_on_sleep() {
+            Lifetime::HostAwake
+        } else {
+            Lifetime::Ec
+        };
         Self {
             pack,
             charger,
             identity,
             features,
-            current_limit: mirrors.value(KEY_CURRENT_LIMIT, Lifetime::Ec),
+            current_limit: mirrors.value(KEY_CURRENT_LIMIT, current_limit_holder),
             wanted_charge_limit: mirrors.wanted(KEY_CHARGE_LIMIT),
             wanted_current_limit: mirrors.wanted(KEY_CURRENT_LIMIT),
         }
@@ -198,7 +203,8 @@ mod tests {
     use crate::mirror::{Mirrors, evidence_key};
     use crate::state::Store;
     use crate::testing::{
-        EC_BOOT, EC_RESTARTED, EXTENDER, EcCharger, Gauge, Memory, block, mirrors, ready,
+        EC_BOOT, EC_RESTARTED, EXTENDER, EcCharger, Gauge, HOST_BOOT, HOST_EARLIER, Memory, block,
+        mirrors, ready,
     };
 
     #[allow(
@@ -211,6 +217,8 @@ mod tests {
         extender: bool,
         refusing: bool,
         ec_boot: Option<EcBoot>,
+        host_boot: &'static str,
+        lifted_on_sleep: bool,
     }
 
     const FULL: Machine = Machine {
@@ -219,6 +227,13 @@ mod tests {
         extender: true,
         refusing: false,
         ec_boot: Some(EC_BOOT),
+        host_boot: HOST_BOOT,
+        lifted_on_sleep: false,
+    };
+
+    const LIFTED_ON_SLEEP: Machine = Machine {
+        lifted_on_sleep: true,
+        ..FULL
     };
 
     const RESTARTED: Machine = Machine {
@@ -232,11 +247,14 @@ mod tests {
     }
 
     fn over(machine: &Machine, store: &Arc<Memory>) -> Bench {
-        over_mirrors(machine, &mirrors(store, machine.ec_boot, None))
+        over_mirrors(
+            machine,
+            &mirrors(store, machine.ec_boot, Some(machine.host_boot)),
+        )
     }
 
     fn restoring(machine: &Machine, store: &Arc<Memory>) -> Bench {
-        let mirrors = mirrors(store, machine.ec_boot, None);
+        let mirrors = mirrors(store, machine.ec_boot, Some(machine.host_boot));
         mirrors.restore().set_enabled(true);
         over_mirrors(machine, &mirrors)
     }
@@ -248,6 +266,7 @@ mod tests {
         let ec = Arc::new(EcCharger {
             caps: machine.caps,
             extender: machine.extender,
+            lifted_on_sleep: machine.lifted_on_sleep,
             refusing: machine.refusing,
             ..EcCharger::default()
         });
@@ -383,6 +402,50 @@ mod tests {
         let store = Arc::new(Memory::default());
         ready(over(&FULL, &store).battery.set_charge_current_limit(1_500)).unwrap();
         let Bench { battery, .. } = over(&RESTARTED, &store);
+        assert_eq!(
+            ready(battery.charge_current_limit()),
+            Ok(NO_CHARGE_CURRENT_LIMIT)
+        );
+    }
+
+    #[test]
+    fn a_cap_the_ec_keeps_outlives_the_hosts_boot() {
+        let store = Arc::new(Memory::default());
+        ready(over(&FULL, &store).battery.set_charge_current_limit(1_500)).unwrap();
+        let Bench { battery, .. } = over(
+            &Machine {
+                host_boot: HOST_EARLIER,
+                ..FULL
+            },
+            &store,
+        );
+        assert_eq!(ready(battery.charge_current_limit()), Ok(1_500));
+    }
+
+    #[test]
+    fn a_cap_lifted_on_sleep_ends_with_the_hosts_boot() {
+        let store = Arc::new(Memory::default());
+        ready(
+            over(&LIFTED_ON_SLEEP, &store)
+                .battery
+                .set_charge_current_limit(1_500),
+        )
+        .unwrap();
+        assert_eq!(
+            ready(
+                over(&LIFTED_ON_SLEEP, &store)
+                    .battery
+                    .charge_current_limit()
+            ),
+            Ok(1_500)
+        );
+        let Bench { battery, .. } = over(
+            &Machine {
+                host_boot: HOST_EARLIER,
+                ..LIFTED_ON_SLEEP
+            },
+            &store,
+        );
         assert_eq!(
             ready(battery.charge_current_limit()),
             Ok(NO_CHARGE_CURRENT_LIMIT)

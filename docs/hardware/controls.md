@@ -2,7 +2,7 @@
 
 Every control the daemon sets, and what each survives. The mechanism behind
 each row is in the file the row links to; [`parts.md`](parts.md) is the
-matching index by part.
+matching index by part, and [`boards.md`](boards.md) the index by board.
 
 ## Contents
 
@@ -29,6 +29,9 @@ section marks its finding untested, means exactly that.
 | [Touchscreen, pad route](touchscreen.md#persistence) | **Lost** | **Lost** | not a case |
 | [Touchscreen, panel route](touchscreen.md#persistence) | Unknown | Unknown | Unknown |
 | [USB-C port enable](usb-c.md#persistence) | Unknown | Unknown | Unknown |
+
+On `hx20` and `hx30` the charge current limit is also lost at every
+suspend and shutdown.
 
 The pad route loses its setting to a fourth event the columns cannot carry —
 the lid opening — and the panel route is the Laptop 12's, where none of the

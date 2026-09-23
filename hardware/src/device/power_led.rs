@@ -82,16 +82,18 @@ impl PowerLed {
     }
 
     /// Which levels the board has is settled here, once: the fixed levels on
-    /// every firmware, the rest where the firmware takes a percentage, and
-    /// off where the kernel has a node this could take and give back.
+    /// every firmware, the rest where the firmware takes them, and off where
+    /// the kernel has a node this could take and give back.
     pub fn new(ec: Arc<dyn PowerLedEc>, leds: Box<dyn LedClass>, mirrors: &Mirrors) -> Self {
         let custom = ec.custom_power_led_levels();
+        let auto = ec.power_led_auto();
         let off_node = leds.controllable().is_some();
         let levels = PowerLedLevel::ALL
             .into_iter()
             .filter(|level| match level {
                 PowerLedLevel::High | PowerLedLevel::Medium | PowerLedLevel::Low => true,
-                PowerLedLevel::Auto | PowerLedLevel::UltraLow | PowerLedLevel::Custom => custom,
+                PowerLedLevel::UltraLow | PowerLedLevel::Custom => custom,
+                PowerLedLevel::Auto => auto,
                 PowerLedLevel::Off => off_node,
             })
             .collect();
@@ -240,12 +242,14 @@ mod tests {
 
     struct Machine {
         custom: bool,
+        auto: bool,
         node: bool,
         refusing: Refusing,
     }
 
     const FULL: Machine = Machine {
         custom: true,
+        auto: true,
         node: true,
         refusing: Refusing::Neither,
     };
@@ -263,6 +267,7 @@ mod tests {
         let log = Log::default();
         let ec = Arc::new(LedEc {
             custom: machine.custom,
+            auto: machine.auto,
             refusing: matches!(machine.refusing, Refusing::Ec),
             log: log.clone(),
             ..LedEc::default()
@@ -331,6 +336,7 @@ mod tests {
     fn the_fixed_levels_are_every_firmwares_and_the_rest_are_earned() {
         let bare = over(&Machine {
             custom: false,
+            auto: false,
             node: false,
             ..FULL
         });
@@ -344,6 +350,17 @@ mod tests {
         );
         let full = over(&FULL);
         assert_eq!(ready(full.led.levels()), Ok(PowerLedLevel::ALL.to_vec()));
+    }
+
+    #[test]
+    fn an_ec_taking_percentages_without_auto_is_offered_no_auto() {
+        let no_auto = over(&Machine {
+            auto: false,
+            ..FULL
+        });
+        let levels = ready(no_auto.led.levels()).unwrap();
+        assert!(!levels.contains(&PowerLedLevel::Auto));
+        assert!(levels.contains(&PowerLedLevel::UltraLow));
     }
 
     #[test]

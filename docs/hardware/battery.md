@@ -127,6 +127,13 @@ is what separates the packs the EC tree knows:
 - Every pack in the EC's devicetree is `battery-smart` at the same place:
   EC I²C port 3, 7-bit address `0x0b`, the `0x16` the datasheet writes in
   8-bit form.
+- `hx20` and `hx30`, with no devicetree, put the pack on port 1
+  (`I2C_PORT_BATTERY` is `MCHP_I2C_PORT1` in their `board.h`); their port
+  3 is the thermal sensor bus. `battery_i2c_port` in `ec.rs` names those
+  boards.
+- `sunflower`'s `atc,framework50w` pack is three cells in series, its
+  `voltage_max` 13440 mV against the four-cell packs' 17600 and up.
+  Consequence: `sbs::cell_millivolts` drops a cell register reading 0.
 - The gauge is a TI bq40z50. Its Smart Battery registers are generic; its
   `ManufacturerAccess` map, safety status, permanent-failure status, state of
   health and the lifetime blocks, is that part's alone.
@@ -337,6 +344,11 @@ Framework's own addition beside the charge limit, in `battery_extender.c`.
 
 - The EC runs straight through a host reboot and a suspend, so neither
   costs it anything of its own.
+- The old EC on `hx20` and `hx30` lifts the charge current limit in
+  `reset_current_limit`, hooked to `HOOK_CHIPSET_SUSPEND` and
+  `HOOK_CHIPSET_SHUTDOWN` in `common/charge_state_v2.c`; the Zephyr
+  `common/charge_state.c` has no such hook. Consequence: on those boards
+  the device's mirror lasts only while the host stays awake.
 
 ### Observed
 

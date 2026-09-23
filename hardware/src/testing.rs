@@ -193,6 +193,7 @@ pub const EXTENDER: ExtenderState = ExtenderState {
 pub struct EcCharger {
     pub limit: Mutex<u8>,
     pub caps: bool,
+    pub lifted_on_sleep: bool,
     pub refusing: bool,
     pub written: Mutex<Vec<u32>>,
     pub extender: bool,
@@ -203,6 +204,7 @@ impl Default for EcCharger {
         Self {
             limit: Mutex::new(100),
             caps: true,
+            lifted_on_sleep: false,
             refusing: false,
             written: Mutex::default(),
             extender: true,
@@ -232,6 +234,10 @@ impl Charger for EcCharger {
         self.caps
     }
 
+    fn current_limit_lifted_on_sleep(&self) -> bool {
+        self.lifted_on_sleep
+    }
+
     fn extender(&self) -> DeviceResult<ExtenderState> {
         if self.extender {
             Ok(EXTENDER)
@@ -253,6 +259,7 @@ pub fn writes(log: &Log) -> Vec<String> {
 pub struct LedEc {
     pub level: Mutex<(u8, PowerLedLevel)>,
     pub custom: bool,
+    pub auto: bool,
     pub refusing: bool,
     pub log: Log,
 }
@@ -262,6 +269,7 @@ impl Default for LedEc {
         Self {
             level: Mutex::new((55, PowerLedLevel::High)),
             custom: true,
+            auto: true,
             refusing: false,
             log: Log::default(),
         }
@@ -293,6 +301,10 @@ impl PowerLedEc for LedEc {
 
     fn custom_power_led_levels(&self) -> bool {
         self.custom
+    }
+
+    fn power_led_auto(&self) -> bool {
+        self.auto
     }
 }
 

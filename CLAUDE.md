@@ -399,8 +399,8 @@ looks up the LED node rather than consulting the levels it offered.
 ## What the hardware forces on the code
 
 `docs/hardware/` is what the machine does, a file per transport or control,
-with `parts.md` and `controls.md` as its indexes — naming the files here as
-well would be a third index to keep true. Findings belong there
+with `parts.md`, `controls.md` and `boards.md` as its indexes — naming the
+files here as well would be another index to keep true. Findings belong there
 rather than here, since they stay true whoever is talking to the hardware;
 what belongs here is what they force on *this* code. The exception is a
 finding that is the evidence for a rule stated here, like the touchscreen's
@@ -427,7 +427,9 @@ the product it was read from.
   is shorter: `Permanent` for the touchpad, which keeps its own in flash;
   `Ec` for the charge current limit, firmware having been shown to leave it
   where the charge limit and the LED level are both re-asserted at POST, so
-  it expires with the EC that took it and not with the host; `HostAwake` for
+  it expires with the EC that took it and not with the host, on the boards
+  whose firmware keeps it that long — the holder is the firmware's, so it
+  can differ by board; `HostAwake` for
   the touch panel — the host's boot together with the time it has spent
   asleep, since the controller is expected to come up reporting from a
   reboot and from a resume alike. The evidence for `Ec` is the EC's boot

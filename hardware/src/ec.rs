@@ -14,7 +14,7 @@
 use std::sync::{Mutex, MutexGuard, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use frameguin_wire::{self as wire, Board, DeviceError, DeviceResult};
+use frameguin_wire::{self as wire, Board, DeviceError, DeviceResult, Platform};
 use framework_lib::chromium_ec::command::{EcCommands, EcRequestRaw};
 use framework_lib::chromium_ec::commands::{
     DeckStateMode, EcRequestDeckState, EcRequestGetPdPortState, EcRequestGetUptimeInfo,
@@ -31,10 +31,6 @@ use crate::pd;
 use crate::pd_controller;
 use crate::sbs;
 
-/// The EC's I2C port the pack hangs off, the same on every Framework board
-/// — one Nuvoton EC.
-const BATTERY_I2C_PORT: u8 = 3;
-
 /// What the power LED's device needs of the EC: the level it holds, the two
 /// writes that move it, and whether the firmware has the levels that came
 /// with command v1.
@@ -47,8 +43,9 @@ pub trait PowerLedEc: Send + Sync {
     fn set_power_led_level(&self, level: wire::PowerLedLevel) -> DeviceResult<()>;
     fn set_power_led_percentage(&self, percent: u8) -> DeviceResult<()>;
     /// Whether the firmware takes a raw percentage, and with it the
-    /// ultra-low and auto levels.
+    /// ultra-low level.
     fn custom_power_led_levels(&self) -> bool;
+    fn power_led_auto(&self) -> bool;
 }
 
 /// What the battery's device needs of the pack: whether one answers in the
@@ -106,6 +103,9 @@ pub trait Charger: Send + Sync {
     /// Whether the firmware implements the current cap at all, there being
     /// no readback to probe it by.
     fn charge_current_limit_supported(&self) -> bool;
+    /// Whether the cap ends when the host sleeps or shuts down, rather than
+    /// only with the EC.
+    fn current_limit_lifted_on_sleep(&self) -> bool;
     fn extender(&self) -> DeviceResult<wire::ExtenderState>;
 }
 
@@ -139,8 +139,9 @@ fn i2c_block<const N: usize>(
 /// here rather than everywhere. A value is remembered only where asking again
 /// could not change what the answer settles.
 pub(crate) struct Ec {
-    ec: Mutex<CrosEc>,
+    driver: Mutex<CrosEc>,
     memo: Memo,
+    platform: Platform,
 }
 
 /// What this run has already learned from the EC and will not ask for again.
@@ -183,13 +184,14 @@ impl Ec {
     /// I/O, where a non-Framework EC spin-waits every command to a timeout.
     pub(crate) fn open(board: &Board) -> Option<Self> {
         board.is_framework().then(|| Self {
-            ec: Mutex::new(CrosEc::new()),
+            driver: Mutex::new(CrosEc::new()),
             memo: Memo::default(),
+            platform: board.platform(),
         })
     }
 
     fn ec(&self) -> MutexGuard<'_, CrosEc> {
-        self.ec.lock().unwrap()
+        self.driver.lock().unwrap()
     }
 
     /// The EC's whole memmap battery block.
@@ -232,7 +234,8 @@ impl Ec {
     /// read is a transfer to a device the EC is also driving, so callers ask
     /// for one only where the EC's own copy is absent or known stale.
     fn sb_word(&self, register: u16) -> Option<u16> {
-        let data = i2c_block::<2>(&self.ec(), BATTERY_I2C_PORT, sbs::I2C_ADDR, register).ok()?;
+        let port = battery_i2c_port(self.platform);
+        let data = i2c_block::<2>(&self.ec(), port, sbs::I2C_ADDR, register).ok()?;
         Some(u16::from_le_bytes(data))
     }
 
@@ -301,6 +304,11 @@ impl Ec {
 
 impl PowerLedEc for Ec {
     fn power_led_level(&self) -> DeviceResult<(u8, wire::PowerLedLevel)> {
+        if !keeps_power_led_level(self.platform) {
+            return Err(DeviceError::NotSupported(
+                "the EC keeps no power LED level".into(),
+            ));
+        }
         let (percent, level) = self.ec().get_fp_led_level().map_err(device_error)?;
         Ok((percent, wire_power_led_level(level.as_ref(), percent)))
     }
@@ -323,10 +331,13 @@ impl PowerLedEc for Ec {
     /// Older EC firmware implements only command v0 of `FpLedLevelControl`:
     /// presets high/medium/low. V1 added the raw-percentage write, and the
     /// same firmware generation added the ultra-low and auto levels
-    /// (framework-system issue #211) — so V1 support stands in for all of
-    /// them.
+    /// (framework-system issue #211) — so V1 support stands in for them.
     fn custom_power_led_levels(&self) -> bool {
         self.offers(EcCommands::FpLedLevelControl, 1)
+    }
+
+    fn power_led_auto(&self) -> bool {
+        self.custom_power_led_levels() && takes_power_led_auto(self.platform)
     }
 }
 
@@ -449,12 +460,12 @@ impl Pack for Ec {
     /// transfer per cell plus two, which is why only a caller showing them
     /// asks.
     fn condition(&self) -> Option<wire::BatteryCondition> {
-        let cell_millivolts: Vec<u32> = sbs::CELL_VOLTAGES
+        let cells: Vec<u16> = sbs::CELL_VOLTAGES
             .iter()
-            .map(|register| self.sb_word(*register).map(u32::from))
+            .map(|register| self.sb_word(*register))
             .collect::<Option<_>>()?;
         Some(wire::BatteryCondition {
-            cell_millivolts,
+            cell_millivolts: sbs::cell_millivolts(&cells),
             alarms: sbs::alarms(self.sb_word(sbs::BATTERY_STATUS)?),
             decicelsius: sbs::decicelsius(self.sb_word(sbs::TEMPERATURE)?),
         })
@@ -489,6 +500,10 @@ impl Charger for Ec {
         self.offers(EcCommands::ChargeCurrentLimit, 0)
     }
 
+    fn current_limit_lifted_on_sleep(&self) -> bool {
+        lifts_current_limit_on_sleep(self.platform)
+    }
+
     fn extender(&self) -> DeviceResult<wire::ExtenderState> {
         let raw = self
             .ec()
@@ -496,6 +511,86 @@ impl Charger for Ec {
             .map_err(device_error)?;
         extender::state(&raw)
             .ok_or_else(|| DeviceError::Failed("the EC answered no extender state".into()))
+    }
+}
+
+/// Whether a board's EC keeps the power LED level it is sent.
+const fn keeps_power_led_level(platform: Platform) -> bool {
+    match platform {
+        // `dogwood` has no BBRAM region to keep the level in.
+        Platform::DesktopAmdAiMax300 => false,
+        Platform::Laptop13Gen11
+        | Platform::Laptop13Gen12
+        | Platform::Laptop13Gen13
+        | Platform::Laptop13Ultra1
+        | Platform::Laptop13Amd7040
+        | Platform::Laptop13AmdAi300
+        | Platform::Laptop13ProUltra3
+        | Platform::Laptop12Gen13
+        | Platform::Laptop12Core3
+        | Platform::Laptop16Amd7040
+        | Platform::Laptop16AmdAi300
+        | Platform::Unknown => true,
+    }
+}
+
+/// Whether a board's EC that takes command v1 of `FpLedLevelControl` also
+/// takes the auto level.
+const fn takes_power_led_auto(platform: Platform) -> bool {
+    match platform {
+        // `sunflower` takes v1 and has no `FP_LED_BRIGHTNESS_AUTO`.
+        Platform::Laptop12Gen13 => false,
+        // No firmware for `Laptop12Core3` has been read; v1 stands in as
+        // elsewhere.
+        Platform::Laptop12Core3
+        | Platform::Laptop13Gen11
+        | Platform::Laptop13Gen12
+        | Platform::Laptop13Gen13
+        | Platform::Laptop13Ultra1
+        | Platform::Laptop13Amd7040
+        | Platform::Laptop13AmdAi300
+        | Platform::Laptop13ProUltra3
+        | Platform::Laptop16Amd7040
+        | Platform::Laptop16AmdAi300
+        | Platform::DesktopAmdAiMax300
+        | Platform::Unknown => true,
+    }
+}
+
+/// The EC I2C port a board's pack is on, as the passthrough numbers it.
+const fn battery_i2c_port(platform: Platform) -> u8 {
+    match platform {
+        // The old EC's `I2C_PORT_BATTERY` is `MCHP_I2C_PORT1`.
+        Platform::Laptop13Gen11 | Platform::Laptop13Gen12 | Platform::Laptop13Gen13 => 1,
+        Platform::Laptop13Ultra1
+        | Platform::Laptop13Amd7040
+        | Platform::Laptop13AmdAi300
+        | Platform::Laptop13ProUltra3
+        | Platform::Laptop12Gen13
+        | Platform::Laptop12Core3
+        | Platform::Laptop16Amd7040
+        | Platform::Laptop16AmdAi300
+        | Platform::DesktopAmdAiMax300
+        | Platform::Unknown => 3,
+    }
+}
+
+/// Whether a board's EC lifts the charge current cap when the host sleeps.
+const fn lifts_current_limit_on_sleep(platform: Platform) -> bool {
+    match platform {
+        // The old EC's `reset_current_limit` runs at every chipset suspend
+        // and shutdown.
+        Platform::Laptop13Gen11 | Platform::Laptop13Gen12 | Platform::Laptop13Gen13 => true,
+        Platform::Laptop13Ultra1
+        | Platform::Laptop13Amd7040
+        | Platform::Laptop13AmdAi300
+        | Platform::Laptop13ProUltra3
+        | Platform::Laptop12Gen13
+        | Platform::Laptop12Core3
+        | Platform::Laptop16Amd7040
+        | Platform::Laptop16AmdAi300
+        | Platform::DesktopAmdAiMax300
+        | Platform::Unknown => false,
     }
 }
 

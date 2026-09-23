@@ -158,6 +158,15 @@ turned over shows the mirror image of every one.
 | `EC_CMD_GET_PD_PORT_STATE` | | the EC's `pd_port_states` entry for one index, plus `pd_alt_mode_status` read live from the controller | the cache, not the port; see [Port state fields](#port-state-fields) |
 | `EC_CMD_USB_PD_POWER_INFO` | `0x0103` | `charge_manager_fill_power_info` for one port | restates what `cypress_pd_common.c` fed the charge manager, the same voltage and current it stores in `pd_port_states`; measures nothing |
 
+- `EC_CMD_GET_PD_PORT_STATE` is absent from `fwk-lotus-azalea-19573`, so
+  from `azalea` and `lotus`'s 3.x line, and from `hx20` and `hx30`; the
+  `lilac` branch's `azalea` build has it.
+- `EC_CMD_READ_PD_VERSION` is v0 alone on `marigold`, `azalea`, `lilac`,
+  `sunflower` and `hx30`, and absent on `hx20`.
+- The port index check is `>` rather than `>=` on `marigold`, `lilac`,
+  `sunflower` and `dogwood`, so one index past the last answers with
+  whatever follows `pd_port_states`.
+
 `EC_CMD_USB_PD_POWER_INFO` fields on a build with
 `CONFIG_PLATFORM_EC_USB_PD_VBUS_MEASURE_NOT_PRESENT` (`sakura`, `marigold`,
 `azalea`, `sunflower`, `lotus`):
@@ -193,7 +202,7 @@ None of it is a measurement.
 | `vconn` | whether the machine powers the cable's or accessory's chips |
 | `pd_alt_mode_status` | the controller's `DP_ALT_MODE_CONFIG` register, read live and passed on untouched; bits below |
 | `active_port` | whether this port is the active charge port |
-| `epr_active`, `epr_support` | whether an extended-power-range contract is active, and whether the partner supports one |
+| `epr_active`, `epr_support` | whether an extended-power-range contract is active, and whether the partner supports one; `lilac`'s CCG8 code leaves `epr_active` at `0xff` after a failed entry, so only 1 is read as active |
 | `cc_polarity` | which CC line the connection is on |
 
 `pd_alt_mode_status` bits, as `framework_lib` decodes them:

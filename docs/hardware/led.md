@@ -92,6 +92,10 @@ Every heading in the file appears here.
   `ec.rs` carries no LED off.
 - Consequence: the file answers whether the host holds the LED dark, and
   never whether the EC's policy has it lit.
+- Writing `none` runs `led_trigger_set` with no trigger, which sets the
+  LED off only when a trigger was attached. Consequence: an LED already on
+  `none` and left lit stays lit until a brightness of 0 is written, which
+  is why `darken` writes one after the trigger.
 - The driver registers a multicolor device with one subled per color the
   EC gives a range for, and at probe sets `multi_intensity` to 100 for the
   first of them in the EC's color order and 0 for the rest. Consequence: at
@@ -123,6 +127,20 @@ Every heading in the file appears here.
   Ultra-low and auto need no v1, but arrived with the same firmware
   generation, so `Ec::custom_power_led_levels` asks for v1 as a stand-in.
   It is a proxy for what to offer, not a rule for what to refuse.
+- Their get answers the raw BBRAM byte, 0 where no level was ever set,
+  while `led_configure` lights the LED at high.
+- `marigold` on `fwk-marigold-*`, and `azalea` and `lotus`'s 3.x line on
+  `fwk-lotus-azalea-*`, also declare the command for v0 alone, taking
+  high, medium and low.
+- `sunflower` takes v1 and ultra-low but has no `FP_LED_BRIGHTNESS_AUTO`,
+  refusing it with `EC_RES_INVALID_PARAM`, and builds without
+  `CONFIG_PLATFORM_EC_DEDICATED_ALS`. The v1 stand-in would offer auto
+  there, so `takes_power_led_auto` in `ec.rs` names the board.
+- `dogwood` declares the command for v0, but its `bbram.dtsi` names no
+  `fp_led_level` region: a set succeeds and changes nothing, and a get
+  leaves the response's level unwritten. `keeps_power_led_level` in
+  `ec.rs` names the board, and `Ec::power_led_level` answers
+  `NotSupported` there.
 - Storage is two BBRAM slots: `SYSTEM_BBRAM_IDX_FP_LED_LEVEL` for the
   percentage, and the `ALS_AUTO_FP` bit of `SYSTEM_BBRAM_IDX_BIOS_FUNCTION`
   for auto. Setting any level or percentage clears the bit; setting auto
@@ -187,6 +205,8 @@ Every heading in the file appears here.
   handback: a nonzero brightness written just before the auto trigger lights
   both sides until the policy's next tick, 200 ms at most, where a zero one
   leaves them dark.
+- `sunflower`'s devicetree declares both `left_side` and `right_side`; how
+  many side LEDs the Laptop 12 fits is not in the source.
 - `EC_CMD_GPIO_GET` reads a pin by name on a locked EC; only
   `EC_CMD_GPIO_SET` is refused there with `EC_RES_ACCESS_DENIED`. So which
   side is lit is readable, `Ec::side_enables`, and reads "both" for a LED
@@ -248,7 +268,8 @@ blink pattern with no other channel to reach anyone by, in `laptop_led.c`:
   and `board/hx20/led.c` and `board/hx30/led.c` on `hx20-hx30`.
 - The Linux kernel's `drivers/leds/leds-cros_ec.c`, the driver that
   registers the `chromeos-auto` trigger and sets the default intensities,
-  and `drivers/leds/led-class.c` for the `ENODATA` read under a hardware-controlled trigger.
+  `drivers/leds/led-class.c` for the `ENODATA` read under a hardware-controlled trigger,
+  and `drivers/leds/led-triggers.c` for `led_trigger_set`.
 - [FrameworkComputer/framework-system](https://github.com/FrameworkComputer/framework-system)
   — `framework_lib/src/chromium_ec/commands.rs` for `FpLedBrightnessLevel`,
   and issue #211.

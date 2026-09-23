@@ -272,7 +272,8 @@ in one that exists, with a stub in `hardware::testing` for any role it
 adds; its interface in the daemon, and its field in `device::Devices` with
 the line in `device::detect()` that fills it, which is what puts it on the
 bus and in front of the proxies in `interface/tests.rs`; the client control
-in `model`; the group; the tray item, where the menu offers it. What another device shares is a line in a struct or a fan-out — the
+in `model`; the group; the tray item, where the menu offers it; its rows
+in `docs/hardware/controls.md` and `docs/hardware/boards.md`. What another device shares is a line in a struct or a fan-out — the
 `Devices`, `Proxies` and `Controls` fields, the window's `gate`, `watch`,
 `load_values` and `connect_handlers` arms, the daemon's `each_restorable` line
 for a device with a wanted value — never a body. Adding a part with

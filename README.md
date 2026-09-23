@@ -186,8 +186,11 @@ Issues and pull requests welcome:
 <https://github.com/valeronm/frameguin/issues>
 
 Frameguin is developed and tested on the Laptop 13 Pro (Intel Core Ultra
-Series 3). Other Framework boards should work, and reports from them are
-especially useful. Include the output of `frameguin --debug-info` — the same
+Series 3). Other Framework boards should work, and
+[`docs/hardware/boards.md`](docs/hardware/boards.md) lists what each is
+expected to offer and read; on the Desktop that is no controls, only the
+Hardware and Readings windows. Reports from other boards are especially
+useful. Include the output of `frameguin --debug-info` — the same
 report the main menu → **About Frameguin** → **Troubleshooting** page offers
 behind a copy button.
 

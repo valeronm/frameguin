@@ -10,7 +10,8 @@ rows on the mainboard rather than as parts of their own.
 
 Each transport has a file in this folder holding how detection reads it
 and what every part found over it reports. [`controls.md`](controls.md) is
-the matching index by control.
+the matching index by control, and [`boards.md`](boards.md) the index by
+board.
 
 | Part | Transport |
 |---|---|

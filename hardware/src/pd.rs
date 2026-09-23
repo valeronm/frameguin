@@ -83,7 +83,8 @@ pub(crate) fn port_state(index: u8, raw: &EcResponseGetPdPortState) -> PortState
             3 => CcPolarity::Cc2Debug,
             _ => CcPolarity::Unknown,
         },
-        epr: match (raw.epr_active != 0, raw.epr_support != 0) {
+        // A failed EPR entry leaves `epr_active` at 0xff on some boards.
+        epr: match (raw.epr_active == 1, raw.epr_support != 0) {
             (true, _) => Epr::Active,
             (false, true) => Epr::Supported,
             (false, false) => Epr::Unsupported,
@@ -94,7 +95,7 @@ pub(crate) fn port_state(index: u8, raw: &EcResponseGetPdPortState) -> PortState
 
 #[cfg(test)]
 mod tests {
-    use frameguin_wire::{CcPolarity, DataRole, PortPartner, PowerRole};
+    use frameguin_wire::{CcPolarity, DataRole, Epr, PortPartner, PowerRole};
     use framework_lib::chromium_ec::commands::EcResponseGetPdPortState;
 
     use super::{port_state, version};
@@ -168,6 +169,21 @@ mod tests {
         let port = port_state(0, &raw);
         assert_eq!(port.partner, PortPartner::Nothing);
         assert!(!port.contract);
+    }
+
+    #[test]
+    fn only_an_epr_flag_of_one_is_active() {
+        let failed = EcResponseGetPdPortState {
+            epr_active: 0xff,
+            epr_support: 1,
+            ..display()
+        };
+        assert_eq!(port_state(0, &failed).epr, Epr::Supported);
+        let active = EcResponseGetPdPortState {
+            epr_active: 1,
+            ..failed
+        };
+        assert_eq!(port_state(0, &active).epr, Epr::Active);
     }
 
     #[test]

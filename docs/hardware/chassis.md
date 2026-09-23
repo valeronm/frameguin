@@ -70,7 +70,7 @@ when both request bytes are zero and writes when either is not:
 | Reads | `gpio_mic_sw` inverted and `gpio_cam_sw` as is: the camera's pin is low when off, the microphone's high |
 | Answers | 1 for a device connected |
 | Console | prints both levels on every read |
-| Boards | every Framework EC branch, the 11th to 13th Gen Intel boards' included |
+| Boards | every Framework laptop EC branch, the 11th to 13th Gen Intel boards' included; `dogwood` builds without it |
 
 - The handler has no path for a board that wires something else to those
   pins. Consequence: a command that answers vouches for the command and not
@@ -87,12 +87,16 @@ when both request bytes are zero and writes when either is not:
 
 - The 11th Gen Intel board's pin table names the camera pin a monitor of the
   camera's power, which fits the readings above.
+- Every Zephyr laptop board reads the same `cam_sw` pin; what drives it off
+  the Laptop 13 Pro is not in the source.
 
 ## The input deck
 
 The EC powers the input deck only once it detects it, polling every 10 ms
 while the host is on: `input_module_13.c` on a Laptop 13, `input_module.c`
-on a Laptop 16.
+on a Laptop 16. `EC_CMD_CHECK_DECK_STATE` comes from those two files, and
+`input_module_13.c` is `sakura`'s alone, so the other Laptop 13 boards, the
+Laptop 12 and `dogwood` refuse it.
 
 Detection on a Laptop 13 is the touchpad board's ID resistor on an ADC pin,
 whose band depends on the deck's own rail:
