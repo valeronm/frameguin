@@ -22,6 +22,7 @@ Every heading in the file appears here.
 - [The pack over I²C](#the-pack-over-ic)
 - [Cycle count](#cycle-count)
 - [Charge percentage](#charge-percentage)
+- [Time estimates](#time-estimates)
 - [Temperature](#temperature)
 - [Status bits](#status-bits)
 - [Health verdicts](#health-verdicts)
@@ -149,9 +150,11 @@ Registers read, all plain word reads:
 - The gauge's firmware version is a `ManufacturerAccess` block command: a
   write of the subcommand to `0x00`, then a block read from `0x44`. Nothing
   above needs a write.
-- A sealed pack answers the generic registers and returns zeros or empty
-  blocks for safety status, permanent-failure status and the lifetime data.
-  Unsealing is itself a write.
+- A sealed pack answers the generic registers and `StateOfHealth`
+  (`0x4f`), and NAKs every extended register from `0x50` up: the safety
+  and permanent-failure status, the lifetime data, `DAStatus1` and
+  `DAStatus2`. The NAK is the gauge's: a passthrough the EC itself refuses
+  answers `EC_RES_ACCESS_DENIED` instead. Unsealing is itself a write.
 
 ## Cycle count
 
@@ -191,6 +194,23 @@ Registers read, all plain word reads:
 | 2002 / 4730 | 42.33 % | gauge 43 |
 | 1994 / 4730 | 42.16 % | gauge 43, kernel `capacity` and UPower 42 |
 | 1985 / 4730 | 41.97 % | gauge 42 |
+
+## Time estimates
+
+- The gauge's `RunTimeToEmpty` (`0x11`), `AverageTimeToEmpty` (`0x12`) and
+  `AverageTimeToFull` (`0x13`) are in minutes, and each reads 65535 while
+  the pack is not moving in its direction. This code reads none of them.
+- The bq40z50 manual defines both averages as predictions from
+  `AverageCurrent()` and says nothing further of how either is computed.
+- The charge limit is the EC's sustainer, which the gauge knows nothing of,
+  so `AverageTimeToFull` counts to a full charge.
+
+### Observed
+
+| Setup | Reading |
+|---|---|
+| Discharging, 2871 mAh remaining at an average −234 mA | `AverageTimeToEmpty` 736 min, remaining over average current to the minute |
+| Charging at 62 % under a 0.5C limit, 1820 mAh short of full at an average 2040 mA | `AverageTimeToFull` 120 min, where the same division gives 54 |
 
 ## Temperature
 
@@ -245,13 +265,37 @@ Registers read, all plain word reads:
 ## Health verdicts
 
 - `framework_tool --smartbattery` ends with a health analysis. On a sealed
-  pack its safety-status and permanent-failure reads come back zero and its
-  lifetime blocks empty, and the code cannot tell "nothing wrong" from
-  "could not look", so a sealed `HEALTHY` rests on the alarm bits, capacity
-  retention and cell balance alone.
+  pack its safety-status and permanent-failure reads are refused, and it
+  records each refusal as zero and each lifetime block as empty, so it
+  cannot tell "nothing wrong" from "could not look": a sealed `HEALTHY`
+  rests on the alarm bits, capacity retention and cell balance alone.
 - Capacity retention, last full against design capacity, can exceed 100% on
   a new pack and carries nothing about internal resistance or cell balance. The
   EC publishes only the pack total, so cell spread comes from the gauge.
+- The gauge's `StateOfHealth` (`0x4f`), a word in percent of design
+  capacity, answers on a sealed pack. The bq40z50 computes it from a full
+  charge capacity simulated at 25 °C and at the current its `SoH Load
+  Rate` sets, so the load and temperature that move the runtime
+  `FullChargeCapacity` leave it alone.
+- `MaxError` (`0x0c`) is the gauge's expected error in its state of charge,
+  in percent, set by what its last learning updated and raised 0.05 per
+  cycle after its last `QMax` update:
+
+| Last update | `MaxError` |
+|---|---|
+| full device reset | 100 % |
+| resistance table only | 5 % |
+| `QMax` only | 3 % |
+| both | 1 % |
+
+- Bit 7 of `BatteryMode` (`0x03`), `CONDITION_FLAG`, is the gauge's request
+  for a calibration cycle. This code reads none of these registers.
+
+### Observed
+
+| Setup | Reading |
+|---|---|
+| 19 cycles, last full 4694 mAh of a design 4640 | `StateOfHealth` 98 % against a retention of 101 %; `MaxError` 3 %; `CONDITION_FLAG` clear |
 
 ## Charge limit
 
@@ -342,6 +386,12 @@ Framework's own addition beside the charge limit, in `battery_extender.c`.
   what the charger was told rather than anything it measured. Its set-param
   sub-command writes the charger's voltage, current, input limit and options,
   refused only on locked firmware.
+- The pack's request is its `ChargingVoltage` (`0x15`) and
+  `ChargingCurrent` (`0x14`), which `battery_get_params` in
+  `driver/battery/smart.c` reads into `desired_voltage` and
+  `desired_current`. `EC_CMD_BATTERY_GET_DYNAMIC` hands both to the host on
+  battery API v2 firmware only; `EC_CMD_CHARGE_STATE`'s charger voltage and
+  current are what the charger was told, not the request.
 - The input current limit is 95% of the negotiated contract's current,
   `charge_ma * 95 / 100` in `sakura/src/charger.c`'s `board_set_charge_limit`. The charge current is what the pack asks for,
   lowered to the charge current limit. The charge voltage is what the pack
@@ -355,6 +405,7 @@ Framework's own addition beside the charge limit, in `battery_extender.c`.
 | Setup | Reading |
 |---|---|
 | Charge current over seconds, pack near full | moves between 1C, 0.5C and nothing as the pack changes its request |
+| The pack's request idle at the charge limit, charging at 62 % and discharging | 18040 mV and 4640 mA in all three: the `voltage_max` of `atc,framework75w.yaml`, and 1C |
 
 ## Persistence
 
@@ -387,6 +438,9 @@ Framework's own addition beside the charge limit, in `battery_extender.c`.
 
 ## Open
 
+- Why `AverageTimeToFull` read more than twice the remaining capacity
+  over average current, when the manual defines it from `AverageCurrent()`
+  alone.
 - Whether `FRANDZG`'s absence from `board_get_battery_type` matters on
   `sunflower`, which is the one board declaring it.
 
@@ -397,10 +451,14 @@ Framework's own addition beside the charge limit, in `battery_extender.c`.
   `EC_CMD_BATTERY_GET_STATIC`, `EC_CMD_CHARGE_CURRENT_LIMIT`,
   `EC_CMD_CHARGE_STATE` and the thermal encoding; `common/charge_state.c`
   for `need_static`, the sustainer and `user_current_limit`;
-  `common/battery_v1.c` and `battery_v2.c` for the API split;
+  `common/battery_v1.c` and `battery_v2.c` for the API split and
+  `EC_CMD_BATTERY_GET_DYNAMIC`; `driver/battery/smart.c` for
+  `battery_get_params`;
+  `common/i2c_passthru.c` for the passthrough's own refusals;
   `zephyr/program/framework/src/battery_extender.c` for the extender and
   the charge limit command, `src/board_function.c` for the battery types,
-  each board's `battery.dtsi` for the packs, `sakura/src/charger.c` for
+  each board's `battery.dtsi` for the packs and
+  `zephyr/dts/bindings/battery/` for their profiles, `sakura/src/charger.c` for
   the input current limit, `driver/charger/isl923x.c` for the AMON read;
   `zephyr/dts/bindings/temp/`
   for the battery sensor binding.
