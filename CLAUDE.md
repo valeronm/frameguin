@@ -325,10 +325,11 @@ it and the non-obvious constraints.
   above in its other form — there a widget's position stood in for the
   command, here the gesture would.
 - A setter skips a write already in place where a client's idea of the value
-  can be stale. The skip belongs in the daemon rather than in a caller, asked
-  of the closest thing to the truth each one has: the battery's
-  `set_charge_limit` asks the EC, its `set_charge_current_limit` the
-  device's mirror, the touchscreen's `set_enabled` the pad — and on the
+  can be stale. The skip belongs in the device's setter, after its argument
+  check, rather than in a caller, asked of the closest thing to the truth
+  each one has: the battery's `set_charge_limit` asks the EC, its
+  `set_charge_current_limit` its mirror, the charging LED's `set_enabled`
+  the kernel's hold, the touchscreen's `set_enabled` the pad — and on the
   route with no pad, nothing: it skips no write at all. A
   mirror is worth skipping on only where the event that invalidates it is the
   one its lifetime ends on, which holds for the charge current limit and not
@@ -353,7 +354,8 @@ it and the non-obvious constraints.
   implies it touches the hardware. zbus boxes sync and async alike, so never
   reach for `async` to get concurrency. A `Served<Device>` interface is
   `async` throughout, the control trait it forwards to being async for the
-  bus's sake; there the meaning is carried by the order in the body instead.
+  bus's sake; there a setter is told by taking its device from
+  `Served::authorized`.
 - The daemon's connection runs on one executor thread and every hardware call
   blocks rather than awaits, so a slow one stalls every other task on that
   connection. Detection — the pinctrl walk for the touchscreen's pad, the EC
@@ -464,7 +466,8 @@ the product it was read from.
 - A wanted value is the other record a setter keeps, and it is not a mirror:
   a mirror claims what the hardware holds and is withdrawn with its
   holder's life, a `Wanted` claims what was asked for and is withdrawn only
-  by the next ask or by the restore switch going off. The writes it is
+  by the next ask, a write skipped as already in place included, or by the
+  restore switch going off. The writes it is
   written back through are the ordinary setters, so the mirror moves with
   it. The one trigger is `frameguin-restore.service`, wanted by
   `multi-user.target` and the sleep targets and calling `Restore` on the

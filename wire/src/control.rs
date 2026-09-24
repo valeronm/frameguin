@@ -107,11 +107,7 @@ pub trait BatteryControl {
     async fn features(&self) -> DeviceResult<Vec<BatteryFeature>>;
     async fn charge_limit(&self) -> DeviceResult<u8>;
     /// True when the hardware was written; false when the value was found
-    /// already in place and left alone. The one place the bus's skip shows
-    /// in a contract: a caller announces a change and not a request for
-    /// what already held, and only the bus, which skips a write already in
-    /// place, can tell the two apart — the device writes whatever it is
-    /// handed and answers true.
+    /// already in place and left alone.
     async fn set_charge_limit(&self, percent: u8) -> DeviceResult<bool>;
     /// The cap in mA, or [`NO_CHARGE_CURRENT_LIMIT`] when nothing caps it.
     /// The EC cannot be asked what it holds, so this is what was last

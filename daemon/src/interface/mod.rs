@@ -3,11 +3,8 @@
 //! that control trait, and the one function that puts them and the root
 //! interface at the path.
 //!
-//! What an adapter adds is the idle clock, the polkit check every setter
-//! makes before anything else, and skipping a write already in place. The
-//! operation itself, its argument check included, is the device's, so a
-//! caller reaching the hardware crate directly gets the same refusals
-//! without this layer.
+//! What an adapter adds is the idle clock and the polkit check every setter
+//! makes before anything else.
 
 pub(crate) mod battery;
 pub(crate) mod charging_led;

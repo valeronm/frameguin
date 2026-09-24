@@ -430,8 +430,7 @@ pub(crate) async fn apply_charge_limit(
             return;
         }
     };
-    // Silent when the daemon found the ceiling already there: announcing a
-    // write that didn't happen is a confirmation of nothing.
+    // Announcing a write that didn't happen would confirm nothing.
     if written {
         if percent == NO_CHARGE_LIMIT {
             sink.toast("Charge limit switched off");

@@ -450,7 +450,7 @@ fn what_was_set_is_written_back_on_request_after_a_boot() {
         assert!(!p.touchscreen.get_enabled().await.unwrap());
     });
     assert_eq!(*machine.charger.limit.lock().unwrap(), 80);
-    assert_eq!(*machine.charger.written.lock().unwrap(), [1_500, 1_500]);
+    assert_eq!(*machine.charger.written.lock().unwrap(), [1_500]);
     assert_eq!(machine.led.level.lock().unwrap().1, PowerLedLevel::Low);
 }
 

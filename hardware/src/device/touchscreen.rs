@@ -50,12 +50,6 @@ impl Touchscreen {
     fn want_off(&self, off: bool) {
         self.wanted_off.set(off.then_some(&true));
     }
-
-    /// What the hardware itself says, and None on the route that keeps no
-    /// account.
-    pub fn reading(&self) -> DeviceResult<Option<bool>> {
-        self.route.reading()
-    }
 }
 
 impl Restorable for Touchscreen {
@@ -82,16 +76,16 @@ impl TouchscreenControl for Touchscreen {
         Ok(self.off.current().is_none())
     }
 
+    /// The panel route's mirror is never skipped on: a lid opening can move
+    /// the panel within the mirror's lifetime.
     async fn set_enabled(&self, enabled: bool) -> DeviceResult<()> {
         let write = || self.route.set_enabled(enabled);
-        // A route with a reading of its own gets no mirror: nothing would
-        // read it.
-        if self.route.reading()?.is_some() {
-            write()?;
-        } else if enabled {
-            self.off.clear(write)?;
-        } else {
-            self.off.record(true, write)?;
+        match self.route.reading()? {
+            Some(level) if level == enabled => {}
+            // Nothing reads a mirror on a route with a reading of its own.
+            Some(_) => write()?,
+            None if enabled => self.off.clear(write)?,
+            None => self.off.record(true, write)?,
         }
         self.want_off(!enabled);
         Ok(())
@@ -146,7 +140,7 @@ mod tests {
         let touchscreen = over(pad(), &store);
         assert_eq!(ready(touchscreen.enabled()), Ok(true));
         ready(touchscreen.set_enabled(false)).unwrap();
-        assert_eq!(touchscreen.reading(), Ok(Some(false)));
+        assert_eq!(touchscreen.route.reading(), Ok(Some(false)));
         assert_eq!(ready(touchscreen.enabled()), Ok(false));
         assert_eq!(store.get(KEY_OFF), None);
     }
@@ -155,7 +149,7 @@ mod tests {
     fn a_route_with_no_reading_answers_from_the_mirror() {
         let store = Arc::new(Memory::default());
         let touchscreen = over(panel(), &store);
-        assert_eq!(touchscreen.reading(), Ok(None));
+        assert_eq!(touchscreen.route.reading(), Ok(None));
         assert_eq!(ready(touchscreen.enabled()), Ok(true));
         ready(touchscreen.set_enabled(false)).unwrap();
         assert_eq!(ready(touchscreen.enabled()), Ok(false));
@@ -165,6 +159,39 @@ mod tests {
         ready(touchscreen.set_enabled(true)).unwrap();
         assert_eq!(ready(touchscreen.enabled()), Ok(true));
         assert_eq!(store.get(KEY_OFF), None);
+    }
+
+    #[test]
+    fn a_state_the_route_already_reads_is_not_written_again() {
+        let store = Arc::new(Memory::default());
+        let touchscreen = over(
+            Route {
+                refusing: true,
+                ..pad()
+            },
+            &store,
+        );
+        ready(touchscreen.set_enabled(true)).unwrap();
+        assert!(ready(touchscreen.set_enabled(false)).is_err());
+    }
+
+    #[test]
+    fn a_route_with_no_reading_is_written_every_time() {
+        let store = Arc::new(Memory::default());
+        let touchscreen = over(refusing_panel(), &store);
+        assert!(ready(touchscreen.set_enabled(true)).is_err());
+    }
+
+    #[test]
+    fn on_found_in_force_is_still_the_on_asked_for() {
+        let store = Arc::new(Memory::default());
+        let mirrors = mirrors(&store, None, Some(BOOT));
+        mirrors.restore().set_enabled(true);
+        ready(Touchscreen::new(Box::new(pad()), &mirrors).set_enabled(false)).unwrap();
+        let reopened = over(pad(), &store);
+        ready(reopened.set_enabled(true)).unwrap();
+        ready(reopened.restore()).unwrap();
+        assert_eq!(reopened.route.reading(), Ok(Some(true)));
     }
 
     #[test]
@@ -216,9 +243,9 @@ mod tests {
         mirrors.restore().set_enabled(true);
         ready(Touchscreen::new(Box::new(pad()), &mirrors).set_enabled(false)).unwrap();
         let touchscreen = over(pad(), &store);
-        assert_eq!(touchscreen.reading(), Ok(Some(true)));
+        assert_eq!(touchscreen.route.reading(), Ok(Some(true)));
         ready(touchscreen.restore()).unwrap();
-        assert_eq!(touchscreen.reading(), Ok(Some(false)));
+        assert_eq!(touchscreen.route.reading(), Ok(Some(false)));
         ready(touchscreen.set_enabled(true)).unwrap();
         let untouched = over(
             Route {
@@ -228,7 +255,7 @@ mod tests {
             &store,
         );
         ready(untouched.restore()).unwrap();
-        assert_eq!(untouched.reading(), Ok(Some(true)));
+        assert_eq!(untouched.route.reading(), Ok(Some(true)));
     }
 
     /// A route with an account of its own is one the mirror never records,

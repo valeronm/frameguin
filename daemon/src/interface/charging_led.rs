@@ -19,11 +19,7 @@ impl Served<ChargingLed> {
         enabled: bool,
         #[zbus(header)] header: Header<'_>,
     ) -> fdo::Result<()> {
-        let device = self.authorized(&header).await?;
-        if device.enabled().await? == enabled {
-            return Ok(());
-        }
-        Ok(device.set_enabled(enabled).await?)
+        Ok(self.authorized(&header).await?.set_enabled(enabled).await?)
     }
 
     async fn get_features(&self) -> fdo::Result<Vec<ChargingLedFeature>> {

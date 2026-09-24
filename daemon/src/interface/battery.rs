@@ -26,36 +26,32 @@ impl Served<Battery> {
         Ok(self.device().charge_limit().await?)
     }
 
-    /// Skipped where the EC already holds the ceiling, asked of the hardware
-    /// rather than the caller so no client can act on a stale idea of it.
     async fn set_charge_limit(
         &self,
         percent: u8,
         #[zbus(header)] header: Header<'_>,
     ) -> fdo::Result<bool> {
-        let device = self.authorized(&header).await?;
-        if device.charge_limit().await? == percent {
-            return Ok(false);
-        }
-        Ok(device.set_charge_limit(percent).await?)
+        Ok(self
+            .authorized(&header)
+            .await?
+            .set_charge_limit(percent)
+            .await?)
     }
 
     async fn get_charge_current_limit(&self) -> fdo::Result<u32> {
         Ok(self.device().charge_current_limit().await?)
     }
 
-    /// Skipped as the ceiling is, except that the closest thing to the truth
-    /// here is the device's own mirror, the EC having no readback to offer.
     async fn set_charge_current_limit(
         &self,
         milliamps: u32,
         #[zbus(header)] header: Header<'_>,
     ) -> fdo::Result<bool> {
-        let device = self.authorized(&header).await?;
-        if device.charge_current_limit().await? == milliamps {
-            return Ok(false);
-        }
-        Ok(device.set_charge_current_limit(milliamps).await?)
+        Ok(self
+            .authorized(&header)
+            .await?
+            .set_charge_current_limit(milliamps)
+            .await?)
     }
 
     async fn get_extender(&self) -> fdo::Result<wire::ExtenderState> {

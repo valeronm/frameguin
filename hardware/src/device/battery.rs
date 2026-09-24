@@ -160,9 +160,12 @@ impl BatteryControl for Battery {
 
     async fn set_charge_limit(&self, percent: u8) -> DeviceResult<bool> {
         Self::check_charge_limit(percent)?;
-        self.charger.set_charge_limit(percent)?;
+        let written = self.charger.charge_limit()? != percent;
+        if written {
+            self.charger.set_charge_limit(percent)?;
+        }
         self.wanted_charge_limit.set(Some(&percent));
-        Ok(true)
+        Ok(written)
     }
 
     async fn charge_current_limit(&self) -> DeviceResult<u32> {
@@ -176,12 +179,15 @@ impl BatteryControl for Battery {
         Self::check_charge_current_limit(milliamps)?;
         let write = || self.charger.set_charge_current_limit(milliamps);
         let cap = NonZeroU32::new(milliamps).filter(|cap| cap.get() != NO_CHARGE_CURRENT_LIMIT);
-        match cap {
-            Some(cap) => self.current_limit.record(cap, write)?,
-            None => self.current_limit.clear(write)?,
+        let written = self.current_limit.current() != cap;
+        if written {
+            match cap {
+                Some(cap) => self.current_limit.record(cap, write)?,
+                None => self.current_limit.clear(write)?,
+            }
         }
         self.wanted_current_limit.set(cap.as_ref());
-        Ok(true)
+        Ok(written)
     }
 
     async fn extender(&self) -> DeviceResult<ExtenderState> {
@@ -343,6 +349,25 @@ mod tests {
     }
 
     #[test]
+    fn a_ceiling_already_in_force_is_left_alone() {
+        let store = Arc::new(Memory::default());
+        let Bench { battery, .. } = over(&FULL, &store);
+        assert_eq!(ready(battery.set_charge_limit(100)), Ok(false));
+    }
+
+    #[test]
+    fn a_ceiling_found_in_force_is_still_the_one_asked_for() {
+        let store = Arc::new(Memory::default());
+        let Bench { battery, ec } = restoring(&FULL, &store);
+        ready(battery.set_charge_limit(80)).unwrap();
+        *ec.limit.lock().unwrap() = 100;
+        assert_eq!(ready(battery.set_charge_limit(100)), Ok(false));
+        let restarted = over(&RESTARTED, &store);
+        ready(restarted.battery.restore()).unwrap();
+        assert_eq!(*restarted.ec.limit.lock().unwrap(), 100);
+    }
+
+    #[test]
     fn an_empty_store_answers_no_current_limit() {
         let store = Arc::new(Memory::default());
         let Bench { battery, .. } = over(&FULL, &store);
@@ -381,6 +406,33 @@ mod tests {
             Ok(NO_CHARGE_CURRENT_LIMIT)
         );
         assert_eq!(store.get(KEY_CURRENT_LIMIT), None);
+    }
+
+    #[test]
+    fn a_cap_already_in_force_is_left_alone() {
+        let store = Arc::new(Memory::default());
+        let Bench { battery, ec } = over(&FULL, &store);
+        assert_eq!(
+            ready(battery.set_charge_current_limit(NO_CHARGE_CURRENT_LIMIT)),
+            Ok(false)
+        );
+        assert_eq!(ready(battery.set_charge_current_limit(1_500)), Ok(true));
+        assert_eq!(ready(battery.set_charge_current_limit(1_500)), Ok(false));
+        assert_eq!(*ec.written.lock().unwrap(), [1_500]);
+    }
+
+    #[test]
+    fn a_cap_found_lifted_is_still_the_lift_asked_for() {
+        let store = Arc::new(Memory::default());
+        let first = restoring(&FULL, &store);
+        ready(first.battery.set_charge_current_limit(1_500)).unwrap();
+        let Bench { battery, ec } = over(&RESTARTED, &store);
+        assert_eq!(
+            ready(battery.set_charge_current_limit(NO_CHARGE_CURRENT_LIMIT)),
+            Ok(false)
+        );
+        ready(battery.restore()).unwrap();
+        assert!(ec.written.lock().unwrap().is_empty());
     }
 
     #[test]
@@ -513,7 +565,7 @@ mod tests {
         *ec.limit.lock().unwrap() = 80;
         mirrors.restore().set_enabled(true);
         ready(battery.remember()).unwrap();
-        *ec.limit.lock().unwrap() = 100;
+        let Bench { battery, ec } = over(&RESTARTED, &store);
         ready(battery.restore()).unwrap();
         assert_eq!(*ec.limit.lock().unwrap(), 80);
         assert_eq!(*ec.written.lock().unwrap(), [1_500]);

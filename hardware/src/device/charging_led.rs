@@ -45,11 +45,11 @@ impl ChargingLedControl for ChargingLed {
     /// Returns once the EC's policy has had a tick to drive the LED it was
     /// handed, so a read of the side that follows sees the side it lit.
     async fn set_enabled(&self, enabled: bool) -> DeviceResult<()> {
+        if self.enabled().await? == enabled {
+            return Ok(());
+        }
         if !enabled {
             return self.leds.hold_dark();
-        }
-        if self.leds.held_dark().is_none() {
-            return Ok(());
         }
         self.leds.release_held()?;
         Timer::after(POLICY_TICK).await;
@@ -134,6 +134,14 @@ mod tests {
         let Bench { led, log } = fresh();
         ready(led.set_enabled(true)).unwrap();
         assert!(writes(&log).is_empty());
+    }
+
+    #[test]
+    fn off_leaves_a_led_already_held_dark_alone() {
+        let Bench { led, log } = fresh();
+        ready(led.set_enabled(false)).unwrap();
+        ready(led.set_enabled(false)).unwrap();
+        assert_eq!(writes(&log), ["darken"]);
     }
 
     #[test]
