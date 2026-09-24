@@ -1,9 +1,10 @@
-//! A device on the bus, and the two things an interface impl can reach on it.
+//! A device on the bus, and the two ways an interface impl reaches it: to
+//! read, and once authorized, to write.
 //!
 //! Its own module rather than the parent of the device modules, because a
 //! child module sees its parent's private fields: here the fields are
-//! private to this file, so an interface impl reaches the device and the
-//! polkit check only through the two methods below.
+//! private to this file, so an interface impl reaches the device only
+//! through the two methods below.
 
 use std::sync::Arc;
 
@@ -27,9 +28,9 @@ impl<D> Served<D> {
         &self.device
     }
 
-    /// Call only once the arguments have been validated — see
-    /// [`Service::authorize`].
-    pub(crate) async fn authorize(&self, header: &Header<'_>) -> fdo::Result<()> {
-        self.service.authorize(header).await
+    /// The device, once the caller is authorized to write to it.
+    pub(crate) async fn authorized(&self, header: &Header<'_>) -> fdo::Result<&D> {
+        self.service.authorize(header).await?;
+        Ok(&self.device)
     }
 }

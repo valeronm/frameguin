@@ -26,20 +26,17 @@ impl Served<Battery> {
         Ok(self.device().charge_limit().await?)
     }
 
-    /// Skipped where the EC already holds the ceiling: nothing to write, and
-    /// nothing worth an authorization prompt either. Asked of the hardware
-    /// rather than the caller, so no client can act on a stale idea of it.
+    /// Skipped where the EC already holds the ceiling, asked of the hardware
+    /// rather than the caller so no client can act on a stale idea of it.
     async fn set_charge_limit(
         &self,
         percent: u8,
         #[zbus(header)] header: Header<'_>,
     ) -> fdo::Result<bool> {
-        Battery::check_charge_limit(percent)?;
-        let device = self.device();
+        let device = self.authorized(&header).await?;
         if device.charge_limit().await? == percent {
             return Ok(false);
         }
-        self.authorize(&header).await?;
         Ok(device.set_charge_limit(percent).await?)
     }
 
@@ -54,12 +51,10 @@ impl Served<Battery> {
         milliamps: u32,
         #[zbus(header)] header: Header<'_>,
     ) -> fdo::Result<bool> {
-        Battery::check_charge_current_limit(milliamps)?;
-        let device = self.device();
+        let device = self.authorized(&header).await?;
         if device.charge_current_limit().await? == milliamps {
             return Ok(false);
         }
-        self.authorize(&header).await?;
         Ok(device.set_charge_current_limit(milliamps).await?)
     }
 

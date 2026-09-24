@@ -362,23 +362,34 @@ fn a_refused_write_leaves_the_device_untouched() {
 }
 
 #[test]
-fn a_bad_argument_and_a_write_in_place_never_reach_polkit() {
+fn a_bad_argument_and_a_write_in_place_are_refused_where_polkit_refuses() {
     let peer = serve(false);
+    peer.run(|p| async move {
+        assert!(denied(p.battery.set_charge_limit(5).await));
+        assert!(denied(p.battery.set_charge_current_limit(0).await));
+        assert!(denied(p.battery.set_charge_limit(100).await));
+        assert!(denied(
+            p.battery
+                .set_charge_current_limit(NO_CHARGE_CURRENT_LIMIT)
+                .await
+        ));
+        assert!(denied(p.power_led.set_brightness(0).await));
+        assert!(denied(p.power_led.set_level(PowerLedLevel::Custom).await));
+        assert!(denied(p.touchpad.set_haptic_intensity(33).await));
+        assert!(denied(p.touchscreen.set_enabled(true).await));
+        assert!(denied(p.charging_led.set_enabled(true).await));
+    });
+}
+
+#[test]
+fn a_bad_argument_is_refused_once_authorized() {
+    let peer = serve(true);
     peer.run(|p| async move {
         assert!(invalid(p.battery.set_charge_limit(5).await));
         assert!(invalid(p.battery.set_charge_current_limit(0).await));
-        assert!(!p.battery.set_charge_limit(100).await.unwrap());
-        assert!(
-            !p.battery
-                .set_charge_current_limit(NO_CHARGE_CURRENT_LIMIT)
-                .await
-                .unwrap()
-        );
         assert!(invalid(p.power_led.set_brightness(0).await));
         assert!(invalid(p.power_led.set_level(PowerLedLevel::Custom).await));
         assert!(invalid(p.touchpad.set_haptic_intensity(33).await));
-        p.touchscreen.set_enabled(true).await.unwrap();
-        p.charging_led.set_enabled(true).await.unwrap();
     });
 }
 
@@ -402,7 +413,7 @@ async fn root(p: &Proxies) -> FrameguinProxy<'static> {
 }
 
 #[test]
-fn the_restore_switch_reaches_polkit_only_when_it_moves() {
+fn the_restore_switch_moves_only_where_polkit_allows() {
     let peer = serve(true);
     peer.run(|p| async move {
         let daemon = root(&p).await;
@@ -414,7 +425,7 @@ fn the_restore_switch_reaches_polkit_only_when_it_moves() {
     peer.run(|p| async move {
         let daemon = root(&p).await;
         assert!(denied(daemon.set_restore(true).await));
-        daemon.set_restore(false).await.unwrap();
+        assert!(denied(daemon.set_restore(false).await));
         assert!(!daemon.get_restore().await.unwrap());
     });
 }
@@ -482,14 +493,14 @@ fn the_touchpad_is_written_back_with_the_switch_off() {
 fn a_touchpad_never_set_here_is_left_to_the_other_system() {
     let machine = Machine::new();
     machine.haptic.sent_by_another_system();
-    machine.serve(false).run(|p| async move {
+    machine.serve(true).run(|p| async move {
         root(&p).await.restore().await.unwrap();
     });
     assert_eq!(machine.haptic.held(), OTHER_SYSTEMS);
 }
 
 #[test]
-fn a_restore_is_refused_where_polkit_refuses_and_skipped_while_off() {
+fn a_restore_is_refused_where_polkit_refuses_and_writes_nothing_while_off() {
     let machine = Machine::new();
     machine.serve(true).run(|p| async move {
         root(&p).await.set_restore(true).await.unwrap();
@@ -504,6 +515,9 @@ fn a_restore_is_refused_where_polkit_refuses_and_skipped_while_off() {
         root(&p).await.set_restore(false).await.unwrap();
     });
     machine.serve(false).run(|p| async move {
+        assert!(denied(root(&p).await.restore().await));
+    });
+    machine.serve(true).run(|p| async move {
         root(&p).await.restore().await.unwrap();
     });
     assert_eq!(*machine.charger.limit.lock().unwrap(), 100);

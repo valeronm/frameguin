@@ -62,11 +62,10 @@ impl Daemon {
         #[zbus(header)] header: Header<'_>,
         #[zbus(object_server)] server: &ObjectServer,
     ) -> fdo::Result<()> {
-        self.service.touch();
+        self.service.authorize(&header).await?;
         if self.restore.enabled() == enabled {
             return Ok(());
         }
-        self.service.authorize(&header).await?;
         self.restore.set_enabled(enabled);
         // A device that cannot be read is in the journal and the switch is
         // on regardless: nothing here is the caller's to act on.
@@ -83,19 +82,9 @@ impl Daemon {
         #[zbus(header)] header: Header<'_>,
         #[zbus(object_server)] server: &ObjectServer,
     ) -> fdo::Result<()> {
-        self.service.touch();
-        let mirrored = interface::mirrors_to_resend(server).await;
-        let enabled = self.restore.enabled();
-        if !mirrored && !enabled {
-            return Ok(());
-        }
         self.service.authorize(&header).await?;
-        let resent = if mirrored {
-            interface::resend_mirrors(server).await
-        } else {
-            Ok(())
-        };
-        let restored = if enabled {
+        let resent = interface::resend_mirrors(server).await;
+        let restored = if self.restore.enabled() {
             interface::each_restorable(server, Op::Restore).await
         } else {
             Ok(())

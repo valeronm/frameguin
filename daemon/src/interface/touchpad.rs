@@ -19,9 +19,11 @@ impl Served<Touchpad> {
         percent: u8,
         #[zbus(header)] header: Header<'_>,
     ) -> fdo::Result<()> {
-        Touchpad::check_haptic_intensity(percent)?;
-        self.authorize(&header).await?;
-        Ok(self.device().set_haptic_intensity(percent).await?)
+        Ok(self
+            .authorized(&header)
+            .await?
+            .set_haptic_intensity(percent)
+            .await?)
     }
 
     async fn get_click_force(&self) -> fdo::Result<wire::ClickForce> {
@@ -33,7 +35,10 @@ impl Served<Touchpad> {
         force: wire::ClickForce,
         #[zbus(header)] header: Header<'_>,
     ) -> fdo::Result<()> {
-        self.authorize(&header).await?;
-        Ok(self.device().set_click_force(force).await?)
+        Ok(self
+            .authorized(&header)
+            .await?
+            .set_click_force(force)
+            .await?)
     }
 }

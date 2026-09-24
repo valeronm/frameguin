@@ -271,14 +271,14 @@ it and the non-obvious constraints.
   module doc. `daemon/src/main.rs` keeps the
   `Daemon` object with the root interface, polkit, the idle exit and the
   serving of every device `detect()` found; `daemon/src/interface/`
-  holds those interfaces, and what stays inline in each is the *order* —
-  validate, skip a write already in place, authorize, write. That order is
-  the policy, and splitting the write out would leave it legible at neither
-  end — and would not enforce it either, since `device()` hands out the
-  device to any body, so a setter that never authorizes compiles with or
-  without a helper. What holds the invariant is `interface/tests.rs`, where
-  every setter is refused when polkit refuses and the device left untouched,
-  not a shape the bodies pass through.
+  holds those interfaces, and every setter in them authorizes before it
+  does anything else — before its argument is checked or the value in
+  place is read — because authorization is for the attempt, not for the
+  write it turns out to be. A setter takes its device from
+  `Served::authorized`, but `device()` hands the same device to any body,
+  so what holds the order is `interface/tests.rs`, where every setter, a
+  bad argument and a write already in place included, is refused when
+  polkit refuses and the device left untouched.
 - A control the tray can also set gets an `apply_*` function owning the whole
   write: the daemon call, the toast, the tray's copy, and moving the widget to
   match. Both the window's handler and the tray item call it; neither writes
@@ -325,9 +325,7 @@ it and the non-obvious constraints.
   above in its other form — there a widget's position stood in for the
   command, here the gesture would.
 - A setter skips a write already in place where a client's idea of the value
-  can be stale, and skips it before the polkit call for the same reason
-  argument checks come first — nobody should answer a prompt for a write that
-  won't happen. The skip belongs in the daemon rather than in a caller, asked
+  can be stale. The skip belongs in the daemon rather than in a caller, asked
   of the closest thing to the truth each one has: the battery's
   `set_charge_limit` asks the EC, its `set_charge_current_limit` the
   device's mirror, the touchscreen's `set_enabled` the pad — and on the
@@ -394,7 +392,7 @@ the v0 handler takes on any firmware that has them. Narrowing an offer on a
 proxy costs at worst a row nobody could have used; refusing a write on one
 denies a call the EC would have honoured — and what a device offers is
 settled once per daemon lifetime, so one transient read would deny it for the
-whole run. So setters validate against the thing itself: `PowerLed::check_level`
+whole run. So setters validate against the thing itself: `PowerLed::set_level`
 looks up the LED node rather than consulting the levels it offered.
 
 ## What the hardware forces on the code

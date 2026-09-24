@@ -88,12 +88,10 @@ interacts with. The interface is private to the pair — they are built,
 installed and upgraded together — so renaming, dropping or regrouping a
 method is a free change.
 
-What the daemon adds over the device is the bus's business alone: the idle
-clock, and the order validate → skip → authorize → write with the polkit
-prompt in the place that order puts it. A device exposes its argument check
-separately (`Touchpad::check_haptic_intensity`) so the daemon can refuse
-before it prompts; the setter runs the same check again for a caller that
-came straight to it.
+What the daemon adds over the device is the idle clock, the polkit check
+every setter makes before anything else, and skipping a write already in
+place. The argument check is the device's alone, inside its setter, so a
+caller that came straight to it gets the same refusals.
 
 ## Rows are layers, columns are devices
 
@@ -126,7 +124,7 @@ the chassis, is a row on the Chassis page.
 | Groups, tray | `app` | GTK, libadwaita, ksni, `model` | Widgets, toasts, the sync guard, timers, the tray thread's copy of each value | Which daemon operation a command becomes; any preset's value | Kept thin; the widgets not at all, a pure function beside them in place |
 | Client controls | `model` | `wire` | One object per control: its read, its commands, its presets and words — and, beside them, the words no one control owns, which are here because more than one view spells them and because this is the layer a test can reach | GTK, the bus, another control's trait | A stub of the control trait |
 | Control traits | `wire` | zbus, serde | One trait per device, one async fn per operation; `DeviceError` | How an operation is reached | — |
-| Bus | `wire`, `app`, `daemon` | zbus, polkit | One proxy per interface and the vocabularies (`wire`); `Bus` implementing the traits over them (`app`); `Served<Device>` with the validate → skip → authorize → write order (`daemon`) | Anything that touches hardware (`wire`, `app`); which EC command a role sends (`daemon`) | Its own `wire` proxies over a socket pair, the devices on the same stubs |
+| Bus | `wire`, `app`, `daemon` | zbus, polkit | One proxy per interface and the vocabularies (`wire`); `Bus` implementing the traits over them (`app`); `Served<Device>`, authorizing every write attempt before anything else (`daemon`) | Anything that touches hardware (`wire`, `app`); which EC command a role sends (`daemon`) | Its own `wire` proxies over a socket pair, the devices on the same stubs |
 | Devices | `hardware` | `wire` | `detect()`, the control impl with its argument checks, the `Part` impl, mirrors under a declared lifetime, arbitrations | The bus, polkit | The stub per role and the store in memory, in `hardware::testing` |
 | Roles | `hardware` | — | One trait per hardware need: `Charger`, `Pack`, `PowerLedEc`, `LedClass`, `SideEnables`, `HapticPad`, `TouchSwitch`, `PdPorts`, `ChassisEc`, `PrivacyEc`, `Store`, `UsbTree` | Who calls them | — |
 | Transports | `hardware` | `framework_lib`, hidapi, libc | `Ec` and its lock, the sysfs LED node, the GPIO pad, the panel and touchpad HID, the SMBIOS table, the state file, the sysfs USB tree, the net and SCSI classes | Devices, policy, the bus | The machine |
@@ -192,8 +190,7 @@ The logic that protects hardware stays on the root side, in the device:
 validating arguments, ordering a level write before the LED is handed back,
 believing a mirror only for the lifetime of whatever holds the state it
 claims. Any client gets
-that, which is why it cannot live in the app. Skipping a write already in
-place is the daemon's, because what it protects is the polkit prompt.
+that, which is why it cannot live in the app.
 
 ### The app's side
 

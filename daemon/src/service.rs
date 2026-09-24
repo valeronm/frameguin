@@ -48,11 +48,8 @@ impl Service {
         *self.last_used.lock().unwrap() = Instant::now();
     }
 
-    /// Call only once the arguments have been validated: this can raise a
-    /// password prompt, and a caller that authorizes first makes the user
-    /// answer one for a request that can only end in `InvalidArgs`. The idle
-    /// clock is stamped on both sides of the prompt, so a body is free to
-    /// hold the device across it.
+    /// The idle clock is stamped on both sides of the prompt, however long it
+    /// stays open.
     pub(crate) async fn authorize(&self, header: &Header<'_>) -> fdo::Result<()> {
         self.touch();
         let authorized = match &self.authority {

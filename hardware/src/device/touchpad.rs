@@ -108,9 +108,7 @@ impl Touchpad {
         intensity.and(force)
     }
 
-    /// Separate from the setter so a server can refuse an argument before it
-    /// prompts for authorization.
-    pub fn check_haptic_intensity(percent: u8) -> DeviceResult<()> {
+    fn check_haptic_intensity(percent: u8) -> DeviceResult<()> {
         if HAPTIC_INTENSITY_LEVELS.contains(&percent) {
             Ok(())
         } else {

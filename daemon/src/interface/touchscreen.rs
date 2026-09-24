@@ -19,13 +19,12 @@ impl Served<Touchscreen> {
         enabled: bool,
         #[zbus(header)] header: Header<'_>,
     ) -> fdo::Result<()> {
+        let device = self.authorized(&header).await?;
         // Skipped only where a reading can say the value is already there;
         // the route with none never skips.
-        let device = self.device();
         if device.reading()? == Some(enabled) {
             return Ok(());
         }
-        self.authorize(&header).await?;
         Ok(device.set_enabled(enabled).await?)
     }
 }

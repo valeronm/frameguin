@@ -3,11 +3,11 @@
 //! that control trait, and the one function that puts them and the root
 //! interface at the path.
 //!
-//! What an adapter adds is the bus's business alone — the idle clock, and
-//! the order validate → skip → authorize → write, with the polkit prompt in
-//! the place that order puts it. The operation itself, its argument check
-//! included, is the device's, so a caller reaching the hardware crate
-//! directly gets the same refusals without this layer.
+//! What an adapter adds is the idle clock, the polkit check every setter
+//! makes before anything else, and skipping a write already in place. The
+//! operation itself, its argument check included, is the device's, so a
+//! caller reaching the hardware crate directly gets the same refusals
+//! without this layer.
 
 pub(crate) mod battery;
 pub(crate) mod charging_led;
@@ -103,20 +103,17 @@ pub(crate) async fn each_restorable(server: &ObjectServer, op: Op) -> DeviceResu
     battery.and(power_led).and(touchscreen)
 }
 
-/// Whether a device on the bus holds a mirror [`resend_mirrors`] would write.
-pub(crate) async fn mirrors_to_resend(server: &ObjectServer) -> bool {
-    match server.interface::<_, Served<Touchpad>>(OBJECT_PATH).await {
-        Ok(touchpad) => touchpad.get().await.device().mirrored(),
-        Err(_) => false,
-    }
-}
-
+/// A touchpad holding no mirror is left alone, and nothing is logged for it.
 pub(crate) async fn resend_mirrors(server: &ObjectServer) -> DeviceResult<()> {
     let Ok(touchpad) = server.interface::<_, Served<Touchpad>>(OBJECT_PATH).await else {
         return Ok(());
     };
-    let outcome = touchpad.get().await.device().resend();
-    logged::<Touchpad>("resent", "resend", outcome)
+    let touchpad = touchpad.get().await;
+    let device = touchpad.device();
+    if !device.mirrored() {
+        return Ok(());
+    }
+    logged::<Touchpad>("resent", "resend", device.resend())
 }
 
 async fn one_restorable<D: Restorable>(server: &ObjectServer, op: Op) -> DeviceResult<()>

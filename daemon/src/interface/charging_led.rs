@@ -19,11 +19,10 @@ impl Served<ChargingLed> {
         enabled: bool,
         #[zbus(header)] header: Header<'_>,
     ) -> fdo::Result<()> {
-        let device = self.device();
+        let device = self.authorized(&header).await?;
         if device.enabled().await? == enabled {
             return Ok(());
         }
-        self.authorize(&header).await?;
         Ok(device.set_enabled(enabled).await?)
     }
 

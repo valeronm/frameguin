@@ -81,9 +81,7 @@ impl Battery {
         }
     }
 
-    /// Separate from the setter so a server can refuse an argument before it
-    /// prompts for authorization.
-    pub fn check_charge_limit(percent: u8) -> DeviceResult<()> {
+    fn check_charge_limit(percent: u8) -> DeviceResult<()> {
         if (MIN_CHARGE_LIMIT..=100).contains(&percent) {
             Ok(())
         } else {
@@ -96,7 +94,7 @@ impl Battery {
     /// Zero is refused: the EC clamps its requested current against this
     /// value, so zero stops charging altogether rather than meaning
     /// "unrestricted", and nothing would report that back.
-    pub fn check_charge_current_limit(milliamps: u32) -> DeviceResult<()> {
+    fn check_charge_current_limit(milliamps: u32) -> DeviceResult<()> {
         if milliamps == 0 {
             Err(DeviceError::InvalidArgs(format!(
                 "0 stops charging; pass {NO_CHARGE_CURRENT_LIMIT} to remove the limit"

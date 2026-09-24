@@ -105,16 +105,8 @@ impl PowerLed {
         }
     }
 
-    /// Separate from the setter so a server can refuse a level before it
-    /// prompts for authorization. Both ways of being impossible are answered
-    /// here: `Custom` is what the EC reports after a percentage write, not a
-    /// level to set, and `Off` needs a kernel node to hold the LED with.
-    pub fn check_level(&self, level: PowerLedLevel) -> DeviceResult<()> {
-        self.write_for(level).map(drop)
-    }
-
     /// 0xFF, past the top, is the protocol's read sentinel.
-    pub fn check_brightness(percent: u8) -> DeviceResult<()> {
+    fn check_brightness(percent: u8) -> DeviceResult<()> {
         if (MIN_POWER_LED_BRIGHTNESS..=100).contains(&percent) {
             Ok(())
         } else {
