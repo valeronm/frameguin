@@ -1,18 +1,23 @@
 use std::cell::Cell;
+use std::num::NonZeroU32;
 use std::rc::Rc;
 use std::task::{Context, Poll, Waker};
 
 use frameguin_wire::{
     Attached, BatteryCondition, BatteryControl, BatteryFeature, BatteryInfo, BatteryState,
-    CcPolarity, ChargeFlow, ChargingLedControl, ChargingLedFeature, ChargingLedSide,
-    ChassisControl, ChassisFeature, ChassisState, ClickForce, DataRole, DeckState, DeviceError,
-    DeviceResult, Epr, ExtenderStage, ExtenderState, NO_CHARGE_CURRENT_LIMIT, PortPartner, PortSet,
-    PortState, PortsControl, PowerLedControl, PowerLedLevel, PowerRole, PrivacyState,
-    PrivacySwitchesControl, TouchpadControl, TouchscreenControl, UsbControl, UsbSpeed,
+    CcPolarity, ChargeCurrentLimit, ChargeFlow, ChargingLedControl, ChargingLedFeature,
+    ChargingLedSide, ChassisControl, ChassisFeature, ChassisState, ClickForce, DataRole, DeckState,
+    DeviceError, DeviceResult, Epr, ExtenderStage, ExtenderState, PortPartner, PortSet, PortState,
+    PortsControl, PowerLedControl, PowerLedLevel, PowerRole, PrivacyState, PrivacySwitchesControl,
+    TouchpadControl, TouchscreenControl, UsbControl, UsbSpeed,
 };
 
 /// A 4640 mAh pack, the Laptop 13's.
 pub(crate) const CAPACITY: u32 = 4640;
+
+pub(crate) const fn cap(milliamps: u32) -> ChargeCurrentLimit {
+    ChargeCurrentLimit::Limit(NonZeroU32::new(milliamps).unwrap())
+}
 
 /// Mid-charge on the same pack's four cells.
 pub(crate) const MILLIVOLTS: u32 = 15_400;
@@ -97,7 +102,7 @@ pub(crate) struct Machine {
     pub(crate) privacy_switches: Fault,
     pub(crate) usb: Fault,
     pub(crate) limit: Cell<u8>,
-    pub(crate) cap: Cell<u32>,
+    pub(crate) cap: Cell<ChargeCurrentLimit>,
     pub(crate) haptic_intensity: Cell<u8>,
     pub(crate) click_force: Cell<ClickForce>,
     pub(crate) enabled: Cell<bool>,
@@ -119,7 +124,7 @@ impl Default for Machine {
             privacy_switches: Fault::default(),
             usb: Fault::default(),
             limit: Cell::new(100),
-            cap: Cell::new(NO_CHARGE_CURRENT_LIMIT),
+            cap: Cell::new(ChargeCurrentLimit::NoLimit),
             haptic_intensity: Cell::new(50),
             click_force: Cell::new(ClickForce::Low),
             enabled: Cell::new(true),
@@ -178,13 +183,13 @@ impl BatteryControl for Machine {
         Ok(true)
     }
 
-    async fn charge_current_limit(&self) -> DeviceResult<u32> {
+    async fn charge_current_limit(&self) -> DeviceResult<ChargeCurrentLimit> {
         self.battery.read(self.cap.get())
     }
 
-    async fn set_charge_current_limit(&self, milliamps: u32) -> DeviceResult<bool> {
+    async fn set_charge_current_limit(&self, limit: ChargeCurrentLimit) -> DeviceResult<bool> {
         self.battery.write()?;
-        self.cap.set(milliamps);
+        self.cap.set(limit);
         Ok(true)
     }
 

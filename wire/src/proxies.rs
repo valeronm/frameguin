@@ -2,9 +2,9 @@
 //! name and path.
 
 use crate::vocabulary::{
-    Attached, BUS_NAME, BatteryCondition, BatteryFeature, BatteryInfo, Board, ChargingLedFeature,
-    ChargingLedSide, ChassisFeature, ChassisState, ClickForce, DeckState, ExtenderState, Identity,
-    OBJECT_PATH, PortSet, PortState, PowerLedLevel, PrivacyState,
+    Attached, BUS_NAME, BatteryCondition, BatteryFeature, BatteryInfo, Board, ChargeCurrentLimit,
+    ChargingLedFeature, ChargingLedSide, ChassisFeature, ChassisState, ClickForce, DeckState,
+    ExtenderState, Identity, OBJECT_PATH, PortSet, PortState, PowerLedLevel, PrivacyState,
 };
 
 /// Any of the proxies below, on the daemon's one name and path.
@@ -107,8 +107,8 @@ pub trait Battery {
     async fn get_features(&self) -> zbus::Result<Vec<BatteryFeature>>;
     async fn get_charge_limit(&self) -> zbus::Result<u8>;
     async fn set_charge_limit(&self, percent: u8) -> zbus::Result<bool>;
-    async fn get_charge_current_limit(&self) -> zbus::Result<u32>;
-    async fn set_charge_current_limit(&self, milliamps: u32) -> zbus::Result<bool>;
+    async fn get_charge_current_limit(&self) -> zbus::Result<ChargeCurrentLimit>;
+    async fn set_charge_current_limit(&self, limit: ChargeCurrentLimit) -> zbus::Result<bool>;
     async fn get_extender(&self) -> zbus::Result<ExtenderState>;
 }
 

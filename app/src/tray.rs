@@ -8,14 +8,14 @@ use std::rc::Rc;
 
 use frameguin_model::control::Controls;
 use frameguin_model::control::battery::{
-    charge_cap, charge_limit_at, charge_limit_labels, charge_limit_preset_row, charge_speed_at,
+    charge_limit_at, charge_limit_labels, charge_limit_preset_row, charge_speed_at,
     charge_speed_names, charge_speed_preset_row,
     reading::{amps, battery_summary, percent_label},
 };
 use frameguin_model::control::ports::supply_summary;
 use frameguin_model::control::touchscreen::{state_at, state_labels, state_row};
 use frameguin_model::port::Placement;
-use frameguin_wire::{BatteryFeature, BatteryState, PortSet, PortState};
+use frameguin_wire::{BatteryFeature, BatteryState, ChargeCurrentLimit, PortSet, PortState};
 
 use crate::APP_ID;
 use crate::bus::Bus;
@@ -37,9 +37,9 @@ pub(crate) enum TrayEvent {
     ShowCharger,
     Refresh,
     SetChargeLimit(u8),
-    /// Already resolved to milliamps against the capacity the menu was drawn
+    /// Already resolved to a limit against the capacity the menu was drawn
     /// from, so applying it needs nothing the window has to supply.
-    SetChargeSpeed(u32),
+    SetChargeSpeed(ChargeCurrentLimit),
     /// The state to move to, which is what the row that was clicked names.
     /// The menu's mark can be a moment stale — the pad is where the truth is
     /// and a suspend moves it — so "off" has to still mean off when it
@@ -67,10 +67,9 @@ pub(crate) struct TrayIcon {
     /// Currently applied charge limit, pushed in from the app so the radio
     /// group can mark it; None until the first daemon read.
     charge_limit: Option<u8>,
-    /// The charge current limit in mA and the battery capacity that names the
-    /// speeds, both pushed in from the app. Without the capacity the submenu
-    /// stays out: a fraction then has no rate to show or to send.
-    charge_current_limit: Option<u32>,
+    charge_current_limit: Option<ChargeCurrentLimit>,
+    /// Without it the charge speed submenu stays out: a fraction has no rate
+    /// to show or to send.
     design_capacity: Option<u32>,
     /// Whether the touch panel is on, pushed in from the app; None until the
     /// first read, which a machine with no panel to switch never makes.
@@ -288,7 +287,7 @@ impl TrayIcon {
         if !self.offers(BatteryFeature::ChargeCurrentLimit) {
             return None;
         }
-        // Still needed to turn the chosen speed into the milliamps the daemon
+        // Still needed to turn the chosen speed into the limit the daemon
         // takes, even though the menu names speeds rather than currents.
         let design_capacity = self.design_capacity?;
         // Bare preset names, not the window's `charge_speed_labels`: those
@@ -297,19 +296,22 @@ impl TrayIcon {
         let labels = charge_speed_names();
         let selected = self
             .charge_current_limit
-            .and_then(|milliamps| charge_speed_preset_row(design_capacity, milliamps));
+            .and_then(|limit| charge_speed_preset_row(design_capacity, limit));
         // Named by its preset where there is one, and by the current itself
         // where there isn't — a menu that can only show presets would say
         // nothing at all about a limit dialled in from the window.
-        let unlisted = self.charge_current_limit.and_then(charge_cap).map(amps);
+        let unlisted = self
+            .charge_current_limit
+            .and_then(ChargeCurrentLimit::milliamps)
+            .map(|milliamps| amps(milliamps.get()));
         Some(radio_submenu(
             "Charge speed",
             selected,
             unlisted.as_deref(),
             labels,
             move |tray, row| {
-                if let Some(milliamps) = charge_speed_at(design_capacity, row) {
-                    tray.send(TrayEvent::SetChargeSpeed(milliamps));
+                if let Some(limit) = charge_speed_at(design_capacity, row) {
+                    tray.send(TrayEvent::SetChargeSpeed(limit));
                 }
             },
         ))
@@ -350,7 +352,7 @@ pub(crate) struct TrayValues {
     pub(crate) ports: Option<Vec<PortState>>,
     pub(crate) charge_limit: Option<u8>,
     pub(crate) design_capacity: Option<u32>,
-    pub(crate) charge_current_limit: Option<u32>,
+    pub(crate) charge_current_limit: Option<ChargeCurrentLimit>,
     pub(crate) touchscreen: Option<bool>,
 }
 
@@ -398,9 +400,9 @@ impl TrayValues {
         }
     }
 
-    pub(crate) fn charge_speed(milliamps: u32) -> Self {
+    pub(crate) fn charge_speed(limit: ChargeCurrentLimit) -> Self {
         Self {
-            charge_current_limit: Some(milliamps),
+            charge_current_limit: Some(limit),
             ..Self::default()
         }
     }

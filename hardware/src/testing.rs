@@ -4,15 +4,16 @@
 //! one way of not doing so.
 
 use std::collections::BTreeMap;
+use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll, Waker};
 
 use frameguin_wire::{
-    Attached, BatteryCondition, BatteryInfo, BatteryState, CcPolarity, ChargeFlow, ChassisState,
-    ClickForce, DataRole, DeckState, Detail, DeviceError, DeviceResult, Epr, ExtenderStage,
-    ExtenderState, Identity, LinkState, NetworkLink, PartKind, PortPartner, PortRegisters,
-    PortState, PowerLedLevel, PowerRole, PrivacyState, UsbSpeed,
+    Attached, BatteryCondition, BatteryInfo, BatteryState, CcPolarity, ChargeCurrentLimit,
+    ChargeFlow, ChassisState, ClickForce, DataRole, DeckState, Detail, DeviceError, DeviceResult,
+    Epr, ExtenderStage, ExtenderState, Identity, LinkState, NetworkLink, PartKind, PortPartner,
+    PortRegisters, PortState, PowerLedLevel, PowerRole, PrivacyState, UsbSpeed,
 };
 
 use crate::ec::{Charger, ChassisEc, Pack, PdPorts, PowerLedEc, PrivacyEc, SideEnables};
@@ -188,6 +189,10 @@ pub const EXTENDER: ExtenderState = ExtenderState {
     reset_minutes: 30,
 };
 
+pub const fn cap(milliamps: u32) -> ChargeCurrentLimit {
+    ChargeCurrentLimit::Limit(NonZeroU32::new(milliamps).unwrap())
+}
+
 /// A charger holding one ceiling, taking every cap unless told to refuse
 /// them, and logging what it took.
 pub struct EcCharger {
@@ -195,7 +200,7 @@ pub struct EcCharger {
     pub caps: bool,
     pub lifted_on_sleep: bool,
     pub refusing: bool,
-    pub written: Mutex<Vec<u32>>,
+    pub written: Mutex<Vec<ChargeCurrentLimit>>,
     pub extender: bool,
 }
 
@@ -222,11 +227,11 @@ impl Charger for EcCharger {
         Ok(())
     }
 
-    fn set_charge_current_limit(&self, milliamps: u32) -> DeviceResult<()> {
+    fn set_charge_current_limit(&self, limit: ChargeCurrentLimit) -> DeviceResult<()> {
         if self.refusing {
             return Err(DeviceError::Failed("no EC".into()));
         }
-        self.written.lock().unwrap().push(milliamps);
+        self.written.lock().unwrap().push(limit);
         Ok(())
     }
 

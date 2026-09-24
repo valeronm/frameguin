@@ -4,9 +4,9 @@
 //! no compiler on either side would report.
 
 use frameguin_wire::{
-    BatteryAlarm, BatteryCondition, BatteryFeature, BatteryInfo, BatteryState, Board, ChargeFlow,
-    ChassisFeature, ClickForce, DeckState, ExtenderStage, ExtenderState, Identity, PartKind,
-    Platform, PowerLedLevel, VENDOR,
+    BatteryAlarm, BatteryCondition, BatteryFeature, BatteryInfo, BatteryState, Board,
+    ChargeCurrentLimit, ChargeFlow, ChassisFeature, ClickForce, DeckState, ExtenderStage,
+    ExtenderState, Identity, PartKind, Platform, PowerLedLevel, VENDOR,
 };
 use zbus::zvariant::serialized::Context;
 use zbus::zvariant::{LE, Type, to_bytes};
@@ -48,6 +48,7 @@ fn the_composite_signatures_are_the_ones_the_methods_declare() {
     // in tenths of a degree.
     assert_eq!(BatteryCondition::SIGNATURE, "(auasn)");
     assert_eq!(Board::SIGNATURE, "(sss)");
+    assert_eq!(ChargeCurrentLimit::SIGNATURE, "au");
     assert_eq!(ExtenderState::SIGNATURE, "(bsquq)");
     assert_eq!(Identity::SIGNATURE, "(sssssssa((sy)sss)a(sv))");
 }

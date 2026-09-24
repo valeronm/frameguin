@@ -9,11 +9,12 @@
 pub mod extender;
 pub mod reading;
 
+use std::num::NonZeroU32;
 use std::rc::Rc;
 
 use frameguin_wire::{
-    BatteryCondition, BatteryControl, BatteryFeature, BatteryInfo, DeviceResult as Result,
-    ExtenderState, NO_CHARGE_CURRENT_LIMIT,
+    BatteryCondition, BatteryControl, BatteryFeature, BatteryInfo, ChargeCurrentLimit,
+    DeviceResult as Result, ExtenderState,
 };
 
 use super::{Custom, names, present};
@@ -64,12 +65,12 @@ impl<C: BatteryControl> Battery<C> {
         self.control.set_charge_limit(percent).await
     }
 
-    pub async fn charge_current_limit(&self) -> Result<u32> {
+    pub async fn charge_current_limit(&self) -> Result<ChargeCurrentLimit> {
         self.control.charge_current_limit().await
     }
 
-    pub async fn set_charge_current_limit(&self, milliamps: u32) -> Result<bool> {
-        self.control.set_charge_current_limit(milliamps).await
+    pub async fn set_charge_current_limit(&self, limit: ChargeCurrentLimit) -> Result<bool> {
+        self.control.set_charge_current_limit(limit).await
     }
 
     pub async fn extender(&self) -> Result<ExtenderState> {
@@ -94,8 +95,7 @@ pub const CHARGE_LIMIT_CUSTOM: usize = CHARGE_PRESETS.len();
 pub use frameguin_wire::MIN_CHARGE_LIMIT;
 
 /// The charge speeds the combo offers, each beside the divisor it applies to
-/// the battery's 1C design current; `None` is full speed, which the daemon
-/// takes as no limit at all.
+/// the battery's 1C design current; `None` is full speed, no limit at all.
 const CHARGE_SPEEDS: [(&str, Option<u32>); 3] = [
     ("Full speed", None),
     ("Half", Some(2)),
@@ -110,7 +110,7 @@ pub const CHARGE_SPEED_CUSTOM: usize = CHARGE_SPEEDS.len();
 /// The slowest the custom slider will ask for. The EC takes anything above
 /// zero, but a limit this side of it charges so slowly that it reads as a
 /// fault rather than a setting.
-pub const MIN_CUSTOM_CHARGE_MA: u32 = 100;
+pub const MIN_CUSTOM_CHARGE_MA: NonZeroU32 = NonZeroU32::new(100).unwrap();
 
 /// What the custom slider rounds to. A `GtkScale` is continuous while
 /// dragged — its step increment reaches only keys and the wheel — so without
@@ -118,40 +118,35 @@ pub const MIN_CUSTOM_CHARGE_MA: u32 = 100;
 /// "1.0 A", reporting a current nobody chose.
 pub const CUSTOM_CHARGE_STEP_MA: u32 = 100;
 
-/// The cap a charge speed reading carries, in mA, and None at full speed —
-/// a value the wire spells as a number, which the slider cannot show and a
-/// toast should not read out.
+/// The limit a charge speed row asks for; None for a row nothing is listed
+/// at, and for a fraction that comes to zero.
 #[must_use]
-pub fn charge_cap(milliamps: u32) -> Option<u32> {
-    (milliamps != NO_CHARGE_CURRENT_LIMIT).then_some(milliamps)
-}
-
-/// The milliamps a charge speed row asks the daemon for; None for a row
-/// nothing is listed at. Shared by the window and the tray so the two can't
-/// disagree about what "Half" sends.
-#[must_use]
-pub fn charge_speed_at(design_capacity: u32, row: usize) -> Option<u32> {
-    let (_, divisor) = CHARGE_SPEEDS.get(row)?;
-    Some(divisor.map_or(NO_CHARGE_CURRENT_LIMIT, |divisor| design_capacity / divisor))
+pub fn charge_speed_at(design_capacity: u32, row: usize) -> Option<ChargeCurrentLimit> {
+    match CHARGE_SPEEDS.get(row)? {
+        (_, None) => Some(ChargeCurrentLimit::NoLimit),
+        (_, Some(divisor)) => {
+            NonZeroU32::new(design_capacity / divisor).map(ChargeCurrentLimit::Limit)
+        }
+    }
 }
 
 /// Which preset row a limit sits on, and `None` when it matches no preset —
 /// `framework_tool` can set any value, and guessing the nearest would
 /// misreport it.
 #[must_use]
-pub fn charge_speed_preset_row(design_capacity: u32, milliamps: u32) -> Option<usize> {
-    (0..CHARGE_SPEEDS.len()).find(|&row| charge_speed_at(design_capacity, row) == Some(milliamps))
+pub fn charge_speed_preset_row(design_capacity: u32, limit: ChargeCurrentLimit) -> Option<usize> {
+    (0..CHARGE_SPEEDS.len()).find(|&row| charge_speed_at(design_capacity, row) == Some(limit))
 }
 
 /// Which row the window's combo shows for a limit, Custom included.
 #[must_use]
 pub fn charge_speed_row(
     design_capacity: u32,
-    milliamps: u32,
+    limit: ChargeCurrentLimit,
     selected: Option<usize>,
     custom: Custom,
 ) -> Option<usize> {
-    let preset = charge_speed_preset_row(design_capacity, milliamps);
+    let preset = charge_speed_preset_row(design_capacity, limit);
     super::row_for(preset, Some(CHARGE_SPEED_CUSTOM), selected, custom)
 }
 
@@ -226,15 +221,15 @@ pub fn with_custom_row(mut labels: Vec<String>) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use frameguin_wire::{BatteryFeature, DeviceError, NO_CHARGE_CURRENT_LIMIT};
+    use frameguin_wire::{BatteryFeature, ChargeCurrentLimit, DeviceError};
 
     use super::{
         Battery, CHARGE_LIMIT_CUSTOM, CHARGE_SPEED_CUSTOM, CHARGE_SPEEDS, Custom, NO_CHARGE_LIMIT,
-        charge_cap, charge_limit_at, charge_limit_labels, charge_limit_preset_row,
-        charge_limit_row, charge_speed_at, charge_speed_labels, charge_speed_preset_row,
-        charge_speed_row, with_custom_row,
+        charge_limit_at, charge_limit_labels, charge_limit_preset_row, charge_limit_row,
+        charge_speed_at, charge_speed_labels, charge_speed_preset_row, charge_speed_row,
+        with_custom_row,
     };
-    use crate::testing::{CAPACITY, Machine, absent, ready};
+    use crate::testing::{CAPACITY, Machine, absent, cap, ready};
 
     #[test]
     fn a_pack_the_hardware_answers_for_is_detected_with_its_features() {
@@ -261,8 +256,11 @@ mod tests {
         let battery = Battery::new(Machine::new(), Vec::new());
         assert_eq!(ready(battery.set_charge_limit(80)), Ok(true));
         assert_eq!(ready(battery.charge_limit()), Ok(80));
-        assert_eq!(ready(battery.set_charge_current_limit(1_160)), Ok(true));
-        assert_eq!(ready(battery.charge_current_limit()), Ok(1_160));
+        assert_eq!(
+            ready(battery.set_charge_current_limit(cap(1_160))),
+            Ok(true)
+        );
+        assert_eq!(ready(battery.charge_current_limit()), Ok(cap(1_160)));
     }
 
     #[test]
@@ -291,35 +289,35 @@ mod tests {
 
     #[test]
     fn full_speed_lifts_the_limit_rather_than_naming_the_pack_rate() {
-        // Sending the capacity would install a real cap at 1C; the EC only
-        // stops clamping when the limit is the maximum.
-        assert_eq!(charge_speed_at(CAPACITY, 0), Some(NO_CHARGE_CURRENT_LIMIT));
-    }
-
-    #[test]
-    fn full_speed_carries_no_cap_and_a_fraction_carries_its_own() {
-        assert_eq!(charge_cap(charge_speed_at(CAPACITY, 0).unwrap()), None);
-        assert_eq!(charge_cap(2320), Some(2320));
+        assert_eq!(
+            charge_speed_at(CAPACITY, 0),
+            Some(ChargeCurrentLimit::NoLimit)
+        );
     }
 
     #[test]
     fn presets_are_fractions_of_the_pack_rate() {
-        assert_eq!(charge_speed_at(CAPACITY, 1), Some(2320));
-        assert_eq!(charge_speed_at(CAPACITY, 2), Some(1160));
+        assert_eq!(charge_speed_at(CAPACITY, 1), Some(cap(2320)));
+        assert_eq!(charge_speed_at(CAPACITY, 2), Some(cap(1160)));
+    }
+
+    #[test]
+    fn a_fraction_that_comes_to_zero_sends_nothing() {
+        assert_eq!(charge_speed_at(3, 2), None);
     }
 
     #[test]
     fn a_preset_round_trips_to_its_own_row() {
         for row in 0..CHARGE_SPEEDS.len() {
-            let milliamps = charge_speed_at(CAPACITY, row).expect("every preset has a row");
-            assert_eq!(charge_speed_preset_row(CAPACITY, milliamps), Some(row));
+            let limit = charge_speed_at(CAPACITY, row).expect("every preset has a row");
+            assert_eq!(charge_speed_preset_row(CAPACITY, limit), Some(row));
         }
         assert_eq!(charge_speed_at(CAPACITY, CHARGE_SPEEDS.len()), None);
     }
 
     #[test]
     fn a_dialled_in_value_matches_no_preset() {
-        assert_eq!(charge_speed_preset_row(CAPACITY, 1500), None);
+        assert_eq!(charge_speed_preset_row(CAPACITY, cap(1500)), None);
     }
 
     /// Each combo asks the shared rule about its own Custom row; the other's

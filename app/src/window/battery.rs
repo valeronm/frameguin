@@ -9,20 +9,21 @@
 //! standalone has that row and no pack at all.
 
 use std::cell::Cell;
+use std::num::NonZeroU32;
 use std::rc::Rc;
 
 use adw::prelude::*;
 use frameguin_model::control::Custom;
 use frameguin_model::control::battery::{
     self, CHARGE_LIMIT_CUSTOM, CHARGE_SPEED_CUSTOM, CUSTOM_CHARGE_STEP_MA, MIN_CHARGE_LIMIT,
-    MIN_CUSTOM_CHARGE_MA, NO_CHARGE_LIMIT, charge_cap, charge_limit_at, charge_limit_labels,
-    charge_limit_row, charge_speed_at, charge_speed_labels, charge_speed_names, charge_speed_row,
+    MIN_CUSTOM_CHARGE_MA, NO_CHARGE_LIMIT, charge_limit_at, charge_limit_labels, charge_limit_row,
+    charge_speed_at, charge_speed_labels, charge_speed_names, charge_speed_row,
     reading::{amps, charge_flow_label, percent_label},
     with_custom_row,
 };
 use frameguin_model::control::ports::{self, supply_label, supply_port};
 use frameguin_model::port::Placement;
-use frameguin_wire::{BatteryFeature, BatteryState, PortState};
+use frameguin_wire::{BatteryFeature, BatteryState, ChargeCurrentLimit, PortState};
 use gtk4 as gtk;
 
 use crate::bus::Bus;
@@ -81,7 +82,7 @@ pub(crate) struct Group {
     speed_scale: gtk::Scale,
     /// The battery's design capacity in mAh, None until read. Numerically it
     /// is the 1C current, which is what turns the combo's fractions into the
-    /// milliamps the daemon takes.
+    /// limit the daemon takes.
     design_capacity: Cell<Option<u32>>,
     /// Where the ports are, set when gated.
     placement: Cell<Placement>,
@@ -139,7 +140,7 @@ impl Group {
         // never binds. Explicit adjustment: with_range would set
         // page_increment to 10x the step, and a mouse wheel click on a
         // GtkRange moves by the page increment.
-        let floor = f64::from(MIN_CUSTOM_CHARGE_MA);
+        let floor = f64::from(MIN_CUSTOM_CHARGE_MA.get());
         let step = f64::from(CUSTOM_CHARGE_STEP_MA);
         let speed_adjustment = gtk::Adjustment::new(floor, floor, floor, step, step, 0.0);
         #[expect(
@@ -222,19 +223,19 @@ impl Group {
     /// Moves the charge-speed widgets onto a limit without writing it back.
     /// Shared by the reload and the write, so the combo and the slider can't
     /// disagree about which one is in effect.
-    fn show_charge_speed(&self, ui: &Ui, milliamps: u32, custom: Custom) {
+    fn show_charge_speed(&self, ui: &Ui, limit: ChargeCurrentLimit, custom: Custom) {
         let Some(capacity) = self.design_capacity.get() else {
             ui.sync(|| self.speed_combo.set_selected(combo_selection(None)));
             return;
         };
         ui.sync(|| {
             select_row(&self.speed_combo, |selected| {
-                charge_speed_row(capacity, milliamps, selected, custom)
+                charge_speed_row(capacity, limit, selected, custom)
             });
             // Full speed is the absence of a limit, not a position on a
             // slider that can only express one.
-            if let Some(cap) = charge_cap(milliamps) {
-                self.speed_scale.set_value(f64::from(cap));
+            if let Some(milliamps) = limit.milliamps() {
+                self.speed_scale.set_value(f64::from(milliamps.get()));
             }
         });
     }
@@ -300,8 +301,8 @@ impl Group {
             control,
             &self.speed_combo,
             move |index| charge_speed_at(at_ui.battery.design_capacity.get()?, index),
-            |ui, control, milliamps| async move {
-                apply_charge_speed(Sink::Window(&ui), &control, milliamps, Custom::Rederive).await;
+            |ui, control, limit| async move {
+                apply_charge_speed(Sink::Window(&ui), &control, limit, Custom::Rederive).await;
             },
         );
 
@@ -312,7 +313,8 @@ impl Group {
             &self.speed_scale,
             scale_milliamps,
             |ui, control, milliamps| async move {
-                apply_charge_speed(Sink::Window(&ui), &control, milliamps, Custom::Keep).await;
+                let limit = ChargeCurrentLimit::Limit(milliamps);
+                apply_charge_speed(Sink::Window(&ui), &control, limit, Custom::Keep).await;
             },
             SliderWrites::OnRelease,
         );
@@ -338,7 +340,7 @@ impl Group {
             self.speed_combo.set_model(Some(&string_list(&labels)));
             self.speed_scale
                 .adjustment()
-                .set_upper(top.max(f64::from(MIN_CUSTOM_CHARGE_MA)));
+                .set_upper(top.max(f64::from(MIN_CUSTOM_CHARGE_MA.get())));
         });
     }
 
@@ -361,8 +363,8 @@ impl Group {
         }
         if control.has(BatteryFeature::ChargeCurrentLimit) {
             match control.charge_current_limit().await {
-                Ok(milliamps) => {
-                    self.show_charge_speed(ui, milliamps, Custom::Rederive);
+                Ok(limit) => {
+                    self.show_charge_speed(ui, limit, Custom::Rederive);
                     // Without the battery's capacity the fractions have no
                     // milliamps behind them, so the row stays read-only.
                     let known = self.design_capacity.get().is_some();
@@ -370,7 +372,7 @@ impl Group {
                         self.speed_combo.set_sensitive(known);
                         self.speed_scale.set_sensitive(known);
                     });
-                    values.charge_current_limit = Some(milliamps);
+                    values.charge_current_limit = Some(limit);
                 }
                 Err(e) => ui.toast_error("Reading the charge speed", e),
             }
@@ -380,17 +382,17 @@ impl Group {
     }
 }
 
-/// GTK carries the slider's value as f64; the clamp is what holds the result
-/// inside what the daemon accepts, its floor coming from the adjustment.
 #[expect(
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,
-    reason = "clamped into range before the cast"
+    reason = "a float cast saturates, and the floor is applied after it"
 )]
-fn scale_milliamps(value: f64) -> u32 {
+fn scale_milliamps(value: f64) -> NonZeroU32 {
     let step = f64::from(CUSTOM_CHARGE_STEP_MA);
     let snapped = (value / step).round() * step;
-    snapped.clamp(f64::from(MIN_CUSTOM_CHARGE_MA), f64::from(u32::MAX)) as u32
+    NonZeroU32::new(snapped as u32).map_or(MIN_CUSTOM_CHARGE_MA, |milliamps| {
+        milliamps.max(MIN_CUSTOM_CHARGE_MA)
+    })
 }
 
 fn show_limit(sink: Sink<'_>, percent: u8, custom: Custom) {
@@ -400,10 +402,10 @@ fn show_limit(sink: Sink<'_>, percent: u8, custom: Custom) {
     }
 }
 
-fn show_speed(sink: Sink<'_>, milliamps: u32, custom: Custom) {
-    sink.push_tray(TrayValues::charge_speed(milliamps));
+fn show_speed(sink: Sink<'_>, limit: ChargeCurrentLimit, custom: Custom) {
+    sink.push_tray(TrayValues::charge_speed(limit));
     if let Sink::Window(ui) = sink {
-        ui.battery.show_charge_speed(ui, milliamps, custom);
+        ui.battery.show_charge_speed(ui, limit, custom);
     }
 }
 
@@ -413,9 +415,9 @@ fn show_speed(sink: Sink<'_>, milliamps: u32, custom: Custom) {
 ///
 /// [`apply_charge_speed`] is the same shape for the other control here.
 /// They are deliberately two functions rather than one generic: the values
-/// differ (`u8` against `u32`), the speed resolves its presets against the
-/// battery's capacity where the ceiling's are constants, and each carries its
-/// own sentinel for no limit at all. A change to one is usually a change to
+/// differ (a percentage against a `ChargeCurrentLimit`), the speed resolves its
+/// presets against the battery's capacity where the ceiling's are constants,
+/// and each names no limit its own way. A change to one is usually a change to
 /// both — read the sibling before editing either.
 pub(crate) async fn apply_charge_limit(
     sink: Sink<'_>,
@@ -441,17 +443,16 @@ pub(crate) async fn apply_charge_limit(
     show_limit(sink, percent, custom);
 }
 
-/// The one write for the charge speed, in mA, with the uncapped value
-/// `charge_speed_at` answers for full speed. Callers resolve a speed to
-/// milliamps against the battery capacity they hold — the window's, or the
-/// tray's own copy.
+/// The one write for the charge speed. Callers resolve a speed to a limit
+/// against the battery capacity they hold — the window's, or the tray's own
+/// copy.
 pub(crate) async fn apply_charge_speed(
     sink: Sink<'_>,
     control: &Battery,
-    milliamps: u32,
+    limit: ChargeCurrentLimit,
     custom: Custom,
 ) {
-    let written = match control.set_charge_current_limit(milliamps).await {
+    let written = match control.set_charge_current_limit(limit).await {
         Ok(written) => written,
         Err(e) => {
             sink.toast_error("Setting the charge speed", e);
@@ -459,12 +460,14 @@ pub(crate) async fn apply_charge_speed(
         }
     };
     if written {
-        match charge_cap(milliamps) {
-            Some(cap) => sink.toast(&format!("Charge speed capped at {}", amps(cap))),
-            None => sink.toast("Charge speed uncapped"),
+        match limit {
+            ChargeCurrentLimit::Limit(milliamps) => {
+                sink.toast(&format!("Charge speed capped at {}", amps(milliamps.get())));
+            }
+            ChargeCurrentLimit::NoLimit => sink.toast("Charge speed uncapped"),
         }
     }
-    show_speed(sink, milliamps, custom);
+    show_speed(sink, limit, custom);
 }
 
 #[cfg(test)]
@@ -477,15 +480,15 @@ mod tests {
     /// lands on values like 984 mA that the row then displays as "1.0 A".
     #[test]
     fn the_slider_snaps_to_whole_steps() {
-        assert_eq!(scale_milliamps(984.0), 1000);
-        assert_eq!(scale_milliamps(1049.0), 1000);
-        assert_eq!(scale_milliamps(1050.0), 1100);
+        assert_eq!(scale_milliamps(984.0).get(), 1000);
+        assert_eq!(scale_milliamps(1049.0).get(), 1000);
+        assert_eq!(scale_milliamps(1050.0).get(), 1100);
     }
 
     #[test]
     fn the_slider_never_asks_for_a_current_that_stops_charging() {
-        let floor = scale_milliamps(f64::from(MIN_CUSTOM_CHARGE_MA));
-        assert!(floor > 0);
+        let floor = scale_milliamps(f64::from(MIN_CUSTOM_CHARGE_MA.get()));
+        assert_eq!(floor, MIN_CUSTOM_CHARGE_MA);
         assert_eq!(scale_milliamps(0.0), floor);
         assert_eq!(scale_milliamps(-50.0), floor);
     }

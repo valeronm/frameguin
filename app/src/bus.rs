@@ -5,11 +5,11 @@
 //! [`crate::daemon::Daemon`] for who holds it.
 
 use frameguin_wire::{
-    Attached, BatteryCondition, BatteryControl, BatteryFeature, BatteryInfo, ChargingLedControl,
-    ChargingLedFeature, ChargingLedSide, ChassisControl, ChassisFeature, ChassisState, ClickForce,
-    DeckState, DeviceResult, ExtenderState, FrameguinProxy, PortSet, PortState, PortsControl,
-    PowerLedControl, PowerLedLevel, PrivacyState, PrivacySwitchesControl, Proxies, TouchpadControl,
-    TouchscreenControl, UsbControl, proxy,
+    Attached, BatteryCondition, BatteryControl, BatteryFeature, BatteryInfo, ChargeCurrentLimit,
+    ChargingLedControl, ChargingLedFeature, ChargingLedSide, ChassisControl, ChassisFeature,
+    ChassisState, ClickForce, DeckState, DeviceResult, ExtenderState, FrameguinProxy, PortSet,
+    PortState, PortsControl, PowerLedControl, PowerLedLevel, PrivacyState, PrivacySwitchesControl,
+    Proxies, TouchpadControl, TouchscreenControl, UsbControl, proxy,
 };
 
 pub(crate) struct Bus {
@@ -52,16 +52,12 @@ impl BatteryControl for Bus {
         Ok(self.devices.battery.set_charge_limit(percent).await?)
     }
 
-    async fn charge_current_limit(&self) -> DeviceResult<u32> {
+    async fn charge_current_limit(&self) -> DeviceResult<ChargeCurrentLimit> {
         Ok(self.devices.battery.get_charge_current_limit().await?)
     }
 
-    async fn set_charge_current_limit(&self, milliamps: u32) -> DeviceResult<bool> {
-        Ok(self
-            .devices
-            .battery
-            .set_charge_current_limit(milliamps)
-            .await?)
+    async fn set_charge_current_limit(&self, limit: ChargeCurrentLimit) -> DeviceResult<bool> {
+        Ok(self.devices.battery.set_charge_current_limit(limit).await?)
     }
 
     async fn extender(&self) -> DeviceResult<ExtenderState> {

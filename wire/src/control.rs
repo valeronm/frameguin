@@ -11,9 +11,9 @@
 
 use crate::error::DeviceResult;
 use crate::vocabulary::{
-    Attached, BatteryCondition, BatteryFeature, BatteryInfo, ChargingLedFeature, ChargingLedSide,
-    ChassisFeature, ChassisState, ClickForce, DeckState, ExtenderState, PortSet, PortState,
-    PowerLedLevel, PrivacyState,
+    Attached, BatteryCondition, BatteryFeature, BatteryInfo, ChargeCurrentLimit,
+    ChargingLedFeature, ChargingLedSide, ChassisFeature, ChassisState, ClickForce, DeckState,
+    ExtenderState, PortSet, PortState, PowerLedLevel, PrivacyState,
 };
 
 pub trait TouchpadControl {
@@ -109,20 +109,12 @@ pub trait BatteryControl {
     /// True when the hardware was written; false when the value was found
     /// already in place and left alone.
     async fn set_charge_limit(&self, percent: u8) -> DeviceResult<bool>;
-    /// The cap in mA, or [`NO_CHARGE_CURRENT_LIMIT`] when nothing caps it.
     /// The EC cannot be asked what it holds, so this is what was last
     /// written, and reports no limit once the EC has restarted and dropped
     /// the value — or will not say whether it has.
-    ///
-    /// [`NO_CHARGE_CURRENT_LIMIT`]: crate::NO_CHARGE_CURRENT_LIMIT
-    async fn charge_current_limit(&self) -> DeviceResult<u32>;
-    /// Caps how fast the battery charges; [`NO_CHARGE_CURRENT_LIMIT`] lifts
-    /// the cap. Zero is refused: the EC clamps its requested current against
-    /// this value, so zero stops charging altogether. Returns whether the
-    /// hardware was written, as `set_charge_limit` does.
-    ///
-    /// [`NO_CHARGE_CURRENT_LIMIT`]: crate::NO_CHARGE_CURRENT_LIMIT
-    async fn set_charge_current_limit(&self, milliamps: u32) -> DeviceResult<bool>;
+    async fn charge_current_limit(&self) -> DeviceResult<ChargeCurrentLimit>;
+    /// Returns whether the hardware was written, as `set_charge_limit` does.
+    async fn set_charge_current_limit(&self, limit: ChargeCurrentLimit) -> DeviceResult<bool>;
     /// Offered only under [`BatteryFeature::Extender`].
     async fn extender(&self) -> DeviceResult<ExtenderState>;
 }

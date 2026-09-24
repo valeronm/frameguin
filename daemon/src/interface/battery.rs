@@ -38,19 +38,19 @@ impl Served<Battery> {
             .await?)
     }
 
-    async fn get_charge_current_limit(&self) -> fdo::Result<u32> {
+    async fn get_charge_current_limit(&self) -> fdo::Result<wire::ChargeCurrentLimit> {
         Ok(self.device().charge_current_limit().await?)
     }
 
     async fn set_charge_current_limit(
         &self,
-        milliamps: u32,
+        limit: wire::ChargeCurrentLimit,
         #[zbus(header)] header: Header<'_>,
     ) -> fdo::Result<bool> {
         Ok(self
             .authorized(&header)
             .await?
-            .set_charge_current_limit(milliamps)
+            .set_charge_current_limit(limit)
             .await?)
     }
 

@@ -5,12 +5,13 @@
 //! releases it before returning, and none calls another through the handle —
 //! `Mutex` does not re-enter, so a method that wants two commands under one
 //! lock issues both against the guard it already holds, as
-//! `Ec::set_charge_current_limit` does.
+//! `Ec::side_enables` does.
 //!
 //! Deliberately absent: the LEDs' off, which the kernel arbitrates
 //! ([`crate::led`]), and the haptic touchpad, which `framework_lib` drives
 //! over HID ([`crate::touchpad`]).
 
+use std::num::NonZeroU32;
 use std::sync::{Mutex, MutexGuard, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -94,12 +95,16 @@ pub trait SideEnables: Send + Sync {
     fn side_enables(&self) -> DeviceResult<(bool, bool)>;
 }
 
+/// The charge current limit command has no "none": the EC clamps every
+/// requested current against its value, so the largest imposes none.
+pub(crate) const NO_CURRENT_LIMIT_MA: u32 = u32::MAX;
+
 /// What the battery's device needs of the charger: the ceiling, the current
 /// cap, and the extender that lowers where a charged pack is held.
 pub trait Charger: Send + Sync {
     fn charge_limit(&self) -> DeviceResult<u8>;
     fn set_charge_limit(&self, percent: u8) -> DeviceResult<()>;
-    fn set_charge_current_limit(&self, milliamps: u32) -> DeviceResult<()>;
+    fn set_charge_current_limit(&self, limit: wire::ChargeCurrentLimit) -> DeviceResult<()>;
     /// Whether the firmware implements the current cap at all, there being
     /// no readback to probe it by.
     fn charge_current_limit_supported(&self) -> bool;
@@ -487,7 +492,10 @@ impl Charger for Ec {
     /// Always the unconditional form. The command's state-of-charge variant
     /// latches inside the EC: once applied it is never re-evaluated, so a
     /// later threshold cannot lift it (framework-system issue #342).
-    fn set_charge_current_limit(&self, milliamps: u32) -> DeviceResult<()> {
+    fn set_charge_current_limit(&self, limit: wire::ChargeCurrentLimit) -> DeviceResult<()> {
+        let milliamps = limit
+            .milliamps()
+            .map_or(NO_CURRENT_LIMIT_MA, NonZeroU32::get);
         self.ec()
             .set_charge_current_limit(milliamps, None)
             .map_err(device_error)

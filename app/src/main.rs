@@ -146,17 +146,12 @@ fn setup_tray(app: &adw::Application, state: Rc<AppState>) {
                     }
                 }
                 TrayEvent::Refresh => refresh_tray(&handle, &state.daemon).await,
-                TrayEvent::SetChargeSpeed(milliamps) => {
+                TrayEvent::SetChargeSpeed(limit) => {
                     if let Ok(controls) = state.daemon.controls().await
                         && let Some(control) = &controls.battery
                     {
-                        window::battery::apply_charge_speed(
-                            sink,
-                            control,
-                            milliamps,
-                            Custom::Rederive,
-                        )
-                        .await;
+                        window::battery::apply_charge_speed(sink, control, limit, Custom::Rederive)
+                            .await;
                     }
                 }
                 TrayEvent::SetTouchscreen(enabled) => {

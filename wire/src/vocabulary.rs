@@ -12,6 +12,8 @@
 //! is the plain string the variant is named after. zvariant encodes an enum's
 //! fields only where every variant carries the same ones.
 
+use std::num::NonZeroU32;
+
 use serde::{Deserialize, Serialize};
 use zbus::zvariant::{Type, Value};
 
@@ -21,10 +23,38 @@ pub const OBJECT_PATH: &str = "/io/github/valeronm/Frameguin";
 /// The DMI `sys_vendor` of the hardware this is for.
 pub const VENDOR: &str = "Framework";
 
-/// Charge as fast as the battery asks. The EC clamps every requested charge
-/// current against its limit, so the largest value is the one that imposes
-/// none; 0 at the other end would mean never charge, which no setter accepts.
-pub const NO_CHARGE_CURRENT_LIMIT: u32 = u32::MAX;
+/// What the EC clamps every requested charge current against. A limit is
+/// never zero, which would stop charging altogether.
+#[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug)]
+#[zvariant(crate = "zbus::zvariant", signature = "au")]
+#[serde(from = "Option<NonZeroU32>", into = "Option<NonZeroU32>")]
+pub enum ChargeCurrentLimit {
+    NoLimit,
+    /// In mA.
+    Limit(NonZeroU32),
+}
+
+impl From<Option<NonZeroU32>> for ChargeCurrentLimit {
+    fn from(milliamps: Option<NonZeroU32>) -> Self {
+        milliamps.map_or(Self::NoLimit, Self::Limit)
+    }
+}
+
+impl ChargeCurrentLimit {
+    #[must_use]
+    pub const fn milliamps(self) -> Option<NonZeroU32> {
+        match self {
+            Self::NoLimit => None,
+            Self::Limit(milliamps) => Some(milliamps),
+        }
+    }
+}
+
+impl From<ChargeCurrentLimit> for Option<NonZeroU32> {
+    fn from(limit: ChargeCurrentLimit) -> Self {
+        limit.milliamps()
+    }
+}
 
 /// The lowest charge limit `SetChargeLimit` accepts, and so a slider's
 /// floor. Spelled here because both ends must agree on it and neither can
@@ -1085,8 +1115,11 @@ mod tests {
     use zbus::zvariant::serialized::Context;
     use zbus::zvariant::{LE, to_bytes};
 
+    use std::num::NonZeroU32;
+
     use super::{
-        Attached, Detail, FirmwareKind, LinkState, NetworkLink, Platform, Series, UsbSpeed,
+        Attached, ChargeCurrentLimit, Detail, FirmwareKind, LinkState, NetworkLink, Platform,
+        Series, UsbSpeed,
     };
 
     #[test]
@@ -1134,6 +1167,23 @@ mod tests {
         let encoded = to_bytes(Context::new_dbus(LE, 0), &details).unwrap();
         let decoded: Vec<Detail> = encoded.deserialize().unwrap().0;
         assert_eq!(decoded, details);
+    }
+
+    #[test]
+    fn a_charge_current_limit_crosses_the_bus_as_itself() {
+        let limits = vec![
+            ChargeCurrentLimit::NoLimit,
+            ChargeCurrentLimit::Limit(NonZeroU32::new(1_500).unwrap()),
+        ];
+        let encoded = to_bytes(Context::new_dbus(LE, 0), &limits).unwrap();
+        let decoded: Vec<ChargeCurrentLimit> = encoded.deserialize().unwrap().0;
+        assert_eq!(decoded, limits);
+    }
+
+    #[test]
+    fn a_zero_charge_current_limit_does_not_decode() {
+        let encoded = to_bytes(Context::new_dbus(LE, 0), &vec![0_u32]).unwrap();
+        assert!(encoded.deserialize::<ChargeCurrentLimit>().is_err());
     }
 
     #[test]

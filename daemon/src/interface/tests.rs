@@ -21,13 +21,13 @@ use frameguin_hardware::part::Identity;
 use frameguin_hardware::restore::Restore;
 use frameguin_hardware::testing::{
     Connectors, Cover, EC_BOOT, EXTENDER, EcCharger, Gauge, Haptic, Hub, LedEc, Leds, Memory,
-    OTHER_SYSTEMS, Route, Sides, Sliders, battery_identity, block, display_identity, mirrors,
+    OTHER_SYSTEMS, Route, Sides, Sliders, battery_identity, block, cap, display_identity, mirrors,
     touchpad_identity,
 };
 use frameguin_wire::{
-    BatteryFeature, Board, ChargingLedFeature, ChargingLedSide, ChassisFeature, ClickForce,
-    DeckState, DeviceError, FrameguinProxy, NO_CHARGE_CURRENT_LIMIT, Platform, PortPartner,
-    PortSet, PowerLedLevel, Proxies, VENDOR, proxy,
+    BatteryFeature, Board, ChargeCurrentLimit, ChargingLedFeature, ChargingLedSide, ChassisFeature,
+    ClickForce, DeckState, DeviceError, FrameguinProxy, Platform, PortPartner, PortSet,
+    PowerLedLevel, Proxies, VENDOR, proxy,
 };
 use futures_lite::future::{block_on, or};
 use zbus::{Connection, Guid, connection};
@@ -241,7 +241,7 @@ fn every_getter_answers_through_its_proxy() {
         assert_eq!(p.battery.get_charge_limit().await.unwrap(), 100);
         assert_eq!(
             p.battery.get_charge_current_limit().await.unwrap(),
-            NO_CHARGE_CURRENT_LIMIT
+            ChargeCurrentLimit::NoLimit
         );
         assert_eq!(p.battery.get_extender().await.unwrap(), EXTENDER);
         assert_eq!(
@@ -292,8 +292,16 @@ fn every_setter_writes_when_polkit_allows() {
         assert!(p.battery.set_charge_limit(80).await.unwrap());
         assert_eq!(p.battery.get_charge_limit().await.unwrap(), 80);
         assert!(!p.battery.set_charge_limit(80).await.unwrap());
-        assert!(p.battery.set_charge_current_limit(1_500).await.unwrap());
-        assert_eq!(p.battery.get_charge_current_limit().await.unwrap(), 1_500);
+        assert!(
+            p.battery
+                .set_charge_current_limit(cap(1_500))
+                .await
+                .unwrap()
+        );
+        assert_eq!(
+            p.battery.get_charge_current_limit().await.unwrap(),
+            cap(1_500)
+        );
         p.power_led.set_level(PowerLedLevel::Low).await.unwrap();
         assert_eq!(
             p.power_led.get_brightness().await.unwrap().1,
@@ -334,11 +342,11 @@ fn a_refused_write_leaves_the_device_untouched() {
     let peer = serve(false);
     peer.run(|p| async move {
         assert!(denied(p.battery.set_charge_limit(80).await));
-        assert!(denied(p.battery.set_charge_current_limit(1_500).await));
+        assert!(denied(p.battery.set_charge_current_limit(cap(1_500)).await));
         assert_eq!(p.battery.get_charge_limit().await.unwrap(), 100);
         assert_eq!(
             p.battery.get_charge_current_limit().await.unwrap(),
-            NO_CHARGE_CURRENT_LIMIT
+            ChargeCurrentLimit::NoLimit
         );
         assert!(denied(p.power_led.set_level(PowerLedLevel::Low).await));
         assert!(denied(p.power_led.set_brightness(20).await));
@@ -366,11 +374,10 @@ fn a_bad_argument_and_a_write_in_place_are_refused_where_polkit_refuses() {
     let peer = serve(false);
     peer.run(|p| async move {
         assert!(denied(p.battery.set_charge_limit(5).await));
-        assert!(denied(p.battery.set_charge_current_limit(0).await));
         assert!(denied(p.battery.set_charge_limit(100).await));
         assert!(denied(
             p.battery
-                .set_charge_current_limit(NO_CHARGE_CURRENT_LIMIT)
+                .set_charge_current_limit(ChargeCurrentLimit::NoLimit)
                 .await
         ));
         assert!(denied(p.power_led.set_brightness(0).await));
@@ -386,7 +393,9 @@ fn a_bad_argument_is_refused_once_authorized() {
     let peer = serve(true);
     peer.run(|p| async move {
         assert!(invalid(p.battery.set_charge_limit(5).await));
-        assert!(invalid(p.battery.set_charge_current_limit(0).await));
+        assert!(invalid(
+            p.battery.set_charge_current_limit(cap(u32::MAX)).await
+        ));
         assert!(invalid(p.power_led.set_brightness(0).await));
         assert!(invalid(p.power_led.set_level(PowerLedLevel::Custom).await));
         assert!(invalid(p.touchpad.set_haptic_intensity(33).await));
@@ -437,7 +446,10 @@ fn what_was_set_is_written_back_on_request_after_a_boot() {
     peer.run(|p| async move {
         root(&p).await.set_restore(true).await.unwrap();
         p.battery.set_charge_limit(80).await.unwrap();
-        p.battery.set_charge_current_limit(1_500).await.unwrap();
+        p.battery
+            .set_charge_current_limit(cap(1_500))
+            .await
+            .unwrap();
         p.power_led.set_level(PowerLedLevel::Low).await.unwrap();
         p.touchscreen.set_enabled(false).await.unwrap();
     });
@@ -450,7 +462,7 @@ fn what_was_set_is_written_back_on_request_after_a_boot() {
         assert!(!p.touchscreen.get_enabled().await.unwrap());
     });
     assert_eq!(*machine.charger.limit.lock().unwrap(), 80);
-    assert_eq!(*machine.charger.written.lock().unwrap(), [1_500]);
+    assert_eq!(*machine.charger.written.lock().unwrap(), [cap(1_500)]);
     assert_eq!(machine.led.level.lock().unwrap().1, PowerLedLevel::Low);
 }
 
