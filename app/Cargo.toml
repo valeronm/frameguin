@@ -16,6 +16,7 @@ async-channel = "2.5.0"
 async-lock = "3.4.2"
 frameguin-contract = { workspace = true }
 frameguin-model = { workspace = true }
+frameguin-modelview = { workspace = true }
 frameguin-wire = { workspace = true }
 # v4_6 for the label's natural-wrap mode; libadwaita 1.5 already needs a
 # newer GTK, so no platform this runs on lacks it.

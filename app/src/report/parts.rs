@@ -6,11 +6,11 @@ use std::rc::Rc;
 
 use adw::prelude::*;
 use frameguin_contract::{DeviceResult, Identity, Platform};
-use frameguin_model::date;
 use frameguin_model::part::{
     Catalogue, catalogue, detail_rows, firmware_name, generation, inventory, maker, name,
     part_number,
 };
+use frameguin_modelview::date;
 use frameguin_wire::from_bus_error;
 use gtk4 as gtk;
 use gtk4::gio;

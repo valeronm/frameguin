@@ -13,7 +13,7 @@
 )]
 
 pub mod control;
-pub mod date;
+mod date;
 pub mod part;
 pub mod port;
 pub mod reading;

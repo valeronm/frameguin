@@ -22,7 +22,7 @@ const MONTHS: [&str; 12] = [
 /// The values that reach here carry no zone, so this spells what was
 /// announced rather than converting it to the reader's clock.
 #[must_use]
-pub(crate) fn spelled(value: &str) -> String {
+pub fn spelled(value: &str) -> String {
     read(value).unwrap_or_else(|| value.to_owned())
 }
 

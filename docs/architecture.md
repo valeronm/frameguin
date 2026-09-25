@@ -127,6 +127,7 @@ the chassis, is a row on the Chassis page.
 |---|---|---|---|---|---|
 | Groups, tray | `app` | GTK, libadwaita, ksni, `model` | Widgets, toasts, the sync guard, timers, the tray thread's copy of each value | Which daemon operation a command becomes; any preset's value | Kept thin; the widgets not at all, a pure function beside them in place |
 | Client controls | `model` | `contract` | One object per control: its read, and what a read leaves that its presets derive from; its commands, its presets and words — and, beside them, the words no one control owns, which are here because more than one view spells them and because this is the layer a test can reach | GTK, the bus, another control's trait | A stub of the control trait |
+| Words and presets | `modelview` | `model`, `contract` | Every word for a value, the preset tables with their rows, the names for `model`'s curated facts | GTK, the bus | Plain unit tests, a stub control where a row needs one |
 | Control traits | `contract` | serde, zvariant | One trait per device, one async fn per operation; the values they carry and the encoding those cross the bus in; `DeviceError` | How an operation is reached; the bus | Its own encodings, round-tripped |
 | Bus | `wire`, `daemon` | zbus, polkit | One proxy per interface, `Bus` implementing the traits over them, and how `DeviceError` crosses (`wire`); `Served<Device>`, authorizing every write attempt before anything else (`daemon`) | Anything that touches hardware (`wire`); which EC command a role sends (`daemon`) | Its own `wire` proxies over a socket pair, the devices on the same stubs |
 | Devices | `hardware` | `contract` | `detect()`, the control impl with its argument checks and skips, the `Part` impl, mirrors under a declared lifetime, arbitrations | The bus, polkit | The stub per role and the store in memory, in `hardware::testing` |
@@ -275,7 +276,8 @@ in one that exists, with a stub in `hardware::testing` for any role it
 adds; its interface in the daemon, and its field in `device::Devices` with
 the line in `device::detect()` that fills it, which is what puts it on the
 bus and in front of the proxies in `interface/tests.rs`; the client control
-in `model`; the group; the tray item, where the menu offers it; its rows
+in `model`; its words and presets in `modelview`; the group; the tray item,
+where the menu offers it; its rows
 in `docs/hardware/controls.md` and `docs/hardware/boards.md`. What another device shares is a line in a struct or a fan-out — the
 `Devices`, `Proxies` and `Controls` fields, the window's `gate`, `watch`,
 `load_values` and `connect_handlers` arms, the daemon's `each_restorable` line

@@ -5,7 +5,9 @@ it and the non-obvious constraints.
 
 ## Layout and contracts
 
-- Six crates, two binaries: `hardware/` is direct access to the machine —
+- `hardware/`, `daemon/`, `app/`, `contract/`, `wire/`, `model/` and
+  `modelview/` are the crates behind the two binaries: `hardware/` is direct
+  access to the machine —
   the transports, the roles, and the devices implementing the control
   traits `contract` declares — and the only crate linking `framework_lib` and
   `hidapi`, whose one `HidApi` `detect()` builds for every HID probe, since
@@ -20,17 +22,21 @@ it and the non-obvious constraints.
   binaries talk over — the bus name and path, a proxy per interface, and
   `Bus`, every control trait answered by a call on the daemon;
   `model/` is the controls as the app holds
-  them, over those traits, and the words for a part. `docs/architecture.md` opens with the vocabulary
-  — transport, role, device, part, control, interface, bus, client control,
-  group — and each word means one thing; "device" is the real thing on the
-  machine and nothing on the app side. The
+  them, over those traits, and the words for a part. `modelview/` is how the
+  app shows them — every word for a value, the presets a control offers with
+  the row each one sits on, and the names for the curated facts `model`
+  holds. `docs/architecture.md` opens with the vocabulary, and each word
+  means one thing; "device" is the real thing on the machine and nothing on
+  the app side. The
   split is the security model — the root process carries no GUI, the GUI
   process has no hardware access — and the D-Bus interface
   `io.github.valeronm.Frameguin1` is their only bridge. Nothing that touches
   hardware may enter `contract/` or `wire/`: the app links both, so a
   dependency added there lands in the unprivileged process too. Nothing GUI
   may enter `model/`, for the reasons its manifest gives. Nothing of the bus may enter `contract/`: `hardware` and
-  `model` link it, and neither reaches D-Bus by any path.
+  `model` link it, and neither reaches D-Bus by any path. Nothing GUI and
+  nothing of the bus may enter `modelview/`, for the reasons its manifest
+  gives.
 - A string is admitted to `contract/` because a second spelling of it could
   disagree — the vendor, matched by both binaries against the string the
   same firmware gives. A value only one binary reads, or one that crosses

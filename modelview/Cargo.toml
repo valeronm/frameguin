@@ -1,0 +1,14 @@
+[package]
+name = "frameguin-modelview"
+version.workspace = true
+edition = "2024"
+license = "MIT"
+
+[lints]
+workspace = true
+
+# Neither GTK nor a bus connection belongs here: the tray draws from this
+# crate on ksni's own thread, and its words are tested without a display.
+[dependencies]
+frameguin-contract = { workspace = true }
+frameguin-model = { workspace = true }

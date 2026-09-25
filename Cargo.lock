@@ -619,6 +619,7 @@ dependencies = [
  "async-lock",
  "frameguin-contract",
  "frameguin-model",
+ "frameguin-modelview",
  "frameguin-wire",
  "gtk4",
  "ksni",
@@ -664,6 +665,14 @@ name = "frameguin-model"
 version = "0.5.1"
 dependencies = [
  "frameguin-contract",
+]
+
+[[package]]
+name = "frameguin-modelview"
+version = "0.5.1"
+dependencies = [
+ "frameguin-contract",
+ "frameguin-model",
 ]
 
 [[package]]

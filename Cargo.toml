@@ -1,5 +1,5 @@
 [workspace]
-members = ["daemon", "app", "wire", "contract", "model", "hardware"]
+members = ["daemon", "app", "wire", "contract", "model", "modelview", "hardware"]
 resolver = "2"
 
 [workspace.package]
@@ -9,6 +9,7 @@ version = "0.5.1"
 frameguin-contract = { path = "contract" }
 frameguin-hardware = { path = "hardware" }
 frameguin-model = { path = "model" }
+frameguin-modelview = { path = "modelview" }
 frameguin-wire = { path = "wire" }
 serde = { version = "1", features = ["derive"] }
 zbus = "5.19.0"
