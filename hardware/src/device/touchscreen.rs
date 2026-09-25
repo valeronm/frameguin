@@ -84,8 +84,7 @@ impl TouchscreenControl for Touchscreen {
             Some(level) if level == enabled => {}
             // Nothing reads a mirror on a route with a reading of its own.
             Some(_) => write()?,
-            None if enabled => self.off.clear(write)?,
-            None => self.off.record(true, write)?,
+            None => self.off.put((!enabled).then_some(true), write)?,
         }
         self.want_off(!enabled);
         Ok(())

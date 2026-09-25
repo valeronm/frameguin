@@ -178,11 +178,9 @@ impl BatteryControl for Battery {
         Self::check_charge_current_limit(limit)?;
         let written = self.charge_current_limit().await? != limit;
         if written {
-            let write = || self.charger.set_charge_current_limit(limit);
-            match limit {
-                ChargeCurrentLimit::Limit(cap) => self.current_limit.record(cap, write)?,
-                ChargeCurrentLimit::NoLimit => self.current_limit.clear(write)?,
-            }
+            self.current_limit.put(limit.milliamps(), || {
+                self.charger.set_charge_current_limit(limit)
+            })?;
         }
         self.wanted_current_limit.set(limit.milliamps().as_ref());
         Ok(written)

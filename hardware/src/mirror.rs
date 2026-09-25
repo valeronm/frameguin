@@ -79,6 +79,17 @@ impl<V: Stored> Mirror<V> {
         Ok(())
     }
 
+    pub(crate) fn put(
+        &self,
+        value: Option<V>,
+        write: impl FnOnce() -> DeviceResult<()>,
+    ) -> DeviceResult<()> {
+        match value {
+            Some(value) => self.record(value, write),
+            None => self.clear(write),
+        }
+    }
+
     pub(crate) fn current(&self) -> Option<V> {
         let held = self.held.lock().unwrap();
         held.as_ref()
