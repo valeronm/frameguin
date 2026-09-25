@@ -40,6 +40,7 @@ use frameguin_contract::{
     ChassisState, DeckState, DeviceError, DeviceResult, ExtenderState, PortSet, PortState,
     PrivacyState,
 };
+use frameguin_model::control::battery::ChargeSpeeds;
 use gtk4 as gtk;
 use gtk4::glib;
 use gtk4::prelude::*;
@@ -131,6 +132,8 @@ pub(crate) struct Reading {
     /// None on a board with no pack, which is a machine this feed still
     /// serves: the USB-C ports are read whether or not one answered.
     pub(crate) info: Option<BatteryInfo>,
+    /// Arrives with the block.
+    pub(crate) charge_speeds: Option<ChargeSpeeds>,
     pub(crate) condition: Option<BatteryCondition>,
     pub(crate) ports: Option<Vec<PortState>>,
     pub(crate) chassis: Option<ChassisState>,
@@ -480,6 +483,7 @@ impl Feed {
         };
         let battery = controls.battery.as_ref();
         let info = extras.read(Extra::BATTERY, battery.map(|b| b.read())).await;
+        let charge_speeds = info.as_ref().and(battery).and_then(|b| b.charge_speeds());
         // Every read wants the block; the condition only on the reads that come
         // round to it. Subscribing rewinds the count, so the fill that follows
         // a view arriving is always one of them and the spacing only applies
@@ -544,6 +548,7 @@ impl Feed {
             .await;
         let reading = Reading {
             info,
+            charge_speeds,
             condition,
             ports,
             chassis,

@@ -9,8 +9,7 @@ use std::rc::Rc;
 use frameguin_contract::{BatteryFeature, BatteryState, ChargeCurrentLimit, PortSet, PortState};
 use frameguin_model::control::Controls;
 use frameguin_model::control::battery::{
-    charge_limit_at, charge_limit_labels, charge_limit_preset_row, charge_speed_at,
-    charge_speed_names, charge_speed_preset_row,
+    ChargeSpeeds, charge_limit_at, charge_limit_labels, charge_limit_preset_row,
     reading::{amps, battery_summary, percent_label},
 };
 use frameguin_model::control::ports::supply_summary;
@@ -70,7 +69,7 @@ pub(crate) struct TrayIcon {
     charge_current_limit: Option<ChargeCurrentLimit>,
     /// Without it the charge speed submenu stays out: a fraction has no rate
     /// to show or to send.
-    design_capacity: Option<u32>,
+    charge_speeds: Option<ChargeSpeeds>,
     /// Whether the touch panel is on, pushed in from the app; None until the
     /// first read, which a machine with no panel to switch never makes.
     touchscreen: Option<bool>,
@@ -87,7 +86,7 @@ impl TrayIcon {
             ports: None,
             charge_limit: None,
             charge_current_limit: None,
-            design_capacity: None,
+            charge_speeds: None,
             touchscreen: None,
         }
     }
@@ -287,16 +286,14 @@ impl TrayIcon {
         if !self.offers(BatteryFeature::ChargeCurrentLimit) {
             return None;
         }
-        // Still needed to turn the chosen speed into the limit the daemon
-        // takes, even though the menu names speeds rather than currents.
-        let design_capacity = self.design_capacity?;
-        // Bare preset names, not the window's `charge_speed_labels`: those
+        let speeds = self.charge_speeds?;
+        // Bare preset names, not `ChargeSpeeds::labels`: those
         // carry the rate in brackets, which would nest inside the submenu
         // title's own brackets.
-        let labels = charge_speed_names();
+        let labels = ChargeSpeeds::names();
         let selected = self
             .charge_current_limit
-            .and_then(|limit| charge_speed_preset_row(design_capacity, limit));
+            .and_then(|limit| speeds.preset_row(limit));
         // Named by its preset where there is one, and by the current itself
         // where there isn't — a menu that can only show presets would say
         // nothing at all about a limit dialled in from the window.
@@ -310,7 +307,7 @@ impl TrayIcon {
             unlisted.as_deref(),
             labels,
             move |tray, row| {
-                if let Some(limit) = charge_speed_at(design_capacity, row) {
+                if let Some(limit) = speeds.at(row) {
                     tray.send(TrayEvent::SetChargeSpeed(limit));
                 }
             },
@@ -351,7 +348,7 @@ pub(crate) struct TrayValues {
     pub(crate) placement: Option<Placement>,
     pub(crate) ports: Option<Vec<PortState>>,
     pub(crate) charge_limit: Option<u8>,
-    pub(crate) design_capacity: Option<u32>,
+    pub(crate) charge_speeds: Option<ChargeSpeeds>,
     pub(crate) charge_current_limit: Option<ChargeCurrentLimit>,
     pub(crate) touchscreen: Option<bool>,
 }
@@ -366,7 +363,7 @@ impl TrayValues {
             placement,
             ports,
             charge_limit,
-            design_capacity,
+            charge_speeds,
             charge_current_limit,
             touchscreen,
         } = self;
@@ -375,7 +372,7 @@ impl TrayValues {
             && placement.is_none()
             && ports.is_none()
             && charge_limit.is_none()
-            && design_capacity.is_none()
+            && charge_speeds.is_none()
             && charge_current_limit.is_none()
             && touchscreen.is_none()
     }
@@ -429,7 +426,7 @@ pub(crate) fn tray_push(handle: &ksni::blocking::Handle<TrayIcon>, values: TrayV
         tray.placement = values.placement.unwrap_or(tray.placement);
         tray.ports = values.ports.or(tray.ports.take());
         tray.charge_limit = values.charge_limit.or(tray.charge_limit);
-        tray.design_capacity = values.design_capacity.or(tray.design_capacity);
+        tray.charge_speeds = values.charge_speeds.or(tray.charge_speeds);
         tray.charge_current_limit = values.charge_current_limit.or(tray.charge_current_limit);
         tray.touchscreen = values.touchscreen.or(tray.touchscreen);
     });
@@ -457,13 +454,13 @@ pub(crate) async fn refresh_tray(handle: &ksni::blocking::Handle<TrayIcon>, daem
         // half of that trade.
         let info = pack.read().await.ok();
         values.battery = info.as_ref().map(|info| info.state);
-        values.design_capacity = info.as_ref().map(|info| info.design_capacity);
+        values.charge_speeds = pack.charge_speeds();
         if pack.has(BatteryFeature::ChargeLimit) {
             values.charge_limit = pack.charge_limit().await.ok();
         }
         // Without a capacity the speeds have no rate to name, so the menu
         // leaves the submenu out and the limit goes unasked.
-        if pack.has(BatteryFeature::ChargeCurrentLimit) && values.design_capacity.is_some() {
+        if pack.has(BatteryFeature::ChargeCurrentLimit) && values.charge_speeds.is_some() {
             values.charge_current_limit = pack.charge_current_limit().await.ok();
         }
     }

@@ -9,6 +9,7 @@
 pub mod extender;
 pub mod reading;
 
+use std::cell::Cell;
 use std::num::NonZeroU32;
 use std::rc::Rc;
 
@@ -22,11 +23,17 @@ use super::{Custom, names, present};
 pub struct Battery<C> {
     control: Rc<C>,
     features: Vec<BatteryFeature>,
+    /// The last reading's; the pack cannot be swapped while the machine runs.
+    charge_speeds: Cell<Option<ChargeSpeeds>>,
 }
 
 impl<C: BatteryControl> Battery<C> {
     pub fn new(control: Rc<C>, features: Vec<BatteryFeature>) -> Self {
-        Self { control, features }
+        Self {
+            control,
+            features,
+            charge_speeds: Cell::new(None),
+        }
     }
 
     /// Probed by the features, which are wanted anyway and fixed for the
@@ -49,7 +56,20 @@ impl<C: BatteryControl> Battery<C> {
     }
 
     pub async fn read(&self) -> Result<BatteryInfo> {
-        self.control.info().await
+        let info = self.control.info().await?;
+        self.charge_speeds.set(Some(ChargeSpeeds {
+            design_capacity: info.design_capacity,
+        }));
+        Ok(info)
+    }
+
+    /// None until a reading has arrived, with nothing to fall back to and
+    /// nothing that should be: every rate offered or sent is a fraction of the
+    /// pack's capacity, so a second guess would be a second answer to "how
+    /// fast is full speed".
+    #[must_use]
+    pub fn charge_speeds(&self) -> Option<ChargeSpeeds> {
+        self.charge_speeds.get()
     }
 
     pub async fn condition(&self) -> Result<BatteryCondition> {
@@ -112,61 +132,93 @@ pub const CHARGE_SPEED_CUSTOM: usize = CHARGE_SPEEDS.len();
 /// fault rather than a setting.
 pub const MIN_CUSTOM_CHARGE_MA: NonZeroU32 = NonZeroU32::new(100).unwrap();
 
+/// Never below the slowest current the custom slider offers.
+#[must_use]
+pub fn custom_charge_ma(milliamps: u32) -> NonZeroU32 {
+    NonZeroU32::new(milliamps)
+        .unwrap_or(MIN_CUSTOM_CHARGE_MA)
+        .max(MIN_CUSTOM_CHARGE_MA)
+}
+
 /// What the custom slider rounds to. A `GtkScale` is continuous while
 /// dragged — its step increment reaches only keys and the wheel — so without
 /// this a drag lands on a value like 984 mA that the row then displays as
 /// "1.0 A", reporting a current nobody chose.
 pub const CUSTOM_CHARGE_STEP_MA: u32 = 100;
 
-/// The limit a charge speed row asks for; None for a row nothing is listed
-/// at, and for a fraction that comes to zero.
-#[must_use]
-pub fn charge_speed_at(design_capacity: u32, row: usize) -> Option<ChargeCurrentLimit> {
-    match CHARGE_SPEEDS.get(row)? {
-        (_, None) => Some(ChargeCurrentLimit::NoLimit),
-        (_, Some(divisor)) => {
-            NonZeroU32::new(design_capacity / divisor).map(ChargeCurrentLimit::Limit)
+/// The charge speeds one pack offers, each preset a fraction of its 1C
+/// design current, which is its design capacity read as a current.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ChargeSpeeds {
+    design_capacity: u32,
+}
+
+impl ChargeSpeeds {
+    /// The preset names without their rates, which are the same for every
+    /// pack.
+    #[must_use]
+    pub fn names() -> Vec<String> {
+        names(&CHARGE_SPEEDS)
+    }
+
+    /// The limit a row asks for; None for a row nothing is listed at, and
+    /// for a fraction that comes to zero.
+    #[must_use]
+    pub fn at(self, row: usize) -> Option<ChargeCurrentLimit> {
+        match CHARGE_SPEEDS.get(row)? {
+            (_, None) => Some(ChargeCurrentLimit::NoLimit),
+            (_, Some(divisor)) => {
+                NonZeroU32::new(self.design_capacity / divisor).map(ChargeCurrentLimit::Limit)
+            }
         }
     }
-}
 
-/// Which preset row a limit sits on, and `None` when it matches no preset —
-/// `framework_tool` can set any value, and guessing the nearest would
-/// misreport it.
-#[must_use]
-pub fn charge_speed_preset_row(design_capacity: u32, limit: ChargeCurrentLimit) -> Option<usize> {
-    (0..CHARGE_SPEEDS.len()).find(|&row| charge_speed_at(design_capacity, row) == Some(limit))
-}
+    /// Which preset row a limit sits on, and `None` when it matches no
+    /// preset — `framework_tool` can set any value, and guessing the nearest
+    /// would misreport it.
+    #[must_use]
+    pub fn preset_row(self, limit: ChargeCurrentLimit) -> Option<usize> {
+        (0..CHARGE_SPEEDS.len()).find(|&row| self.at(row) == Some(limit))
+    }
 
-/// Which row the window's combo shows for a limit, Custom included.
-#[must_use]
-pub fn charge_speed_row(
-    design_capacity: u32,
-    limit: ChargeCurrentLimit,
-    selected: Option<usize>,
-    custom: Custom,
-) -> Option<usize> {
-    let preset = charge_speed_preset_row(design_capacity, limit);
-    super::row_for(preset, Some(CHARGE_SPEED_CUSTOM), selected, custom)
-}
+    /// Which row a limit shows on, Custom included.
+    #[must_use]
+    pub fn row_for(
+        self,
+        limit: ChargeCurrentLimit,
+        selected: Option<usize>,
+        custom: Custom,
+    ) -> Option<usize> {
+        super::row_for(
+            self.preset_row(limit),
+            Some(CHARGE_SPEED_CUSTOM),
+            selected,
+            custom,
+        )
+    }
 
-/// The bare preset names, for a menu whose title already brackets a rate.
-#[must_use]
-pub fn charge_speed_names() -> Vec<String> {
-    names(&CHARGE_SPEEDS)
-}
+    /// Labels carrying the rate each fraction works out to — "Half" alone
+    /// doesn't say half of what.
+    #[must_use]
+    pub fn labels(self) -> Vec<String> {
+        CHARGE_SPEEDS
+            .iter()
+            .map(|(name, divisor)| match divisor {
+                Some(divisor) => {
+                    format!("{name} ({})", reading::amps(self.design_capacity / divisor))
+                }
+                None => (*name).to_string(),
+            })
+            .collect()
+    }
 
-/// Combo labels carrying the rate each fraction works out to — "Half" alone
-/// doesn't say half of what.
-#[must_use]
-pub fn charge_speed_labels(design_capacity: u32) -> Vec<String> {
-    CHARGE_SPEEDS
-        .iter()
-        .map(|(name, divisor)| match divisor {
-            Some(divisor) => format!("{name} ({})", reading::amps(design_capacity / divisor)),
-            None => (*name).to_string(),
-        })
-        .collect()
+    /// 1C is as fast as the pack ever asks, so a limit above it never binds.
+    /// Floored to the step the custom slider rounds to, so the far end of its
+    /// track sends what it shows.
+    #[must_use]
+    pub fn fastest_custom(self) -> NonZeroU32 {
+        custom_charge_ma(self.design_capacity / CUSTOM_CHARGE_STEP_MA * CUSTOM_CHARGE_STEP_MA)
+    }
 }
 
 /// The ceiling a preset row asks the daemon for; None for a row nothing is
@@ -224,12 +276,15 @@ mod tests {
     use frameguin_contract::{BatteryFeature, ChargeCurrentLimit, DeviceError};
 
     use super::{
-        Battery, CHARGE_LIMIT_CUSTOM, CHARGE_SPEED_CUSTOM, CHARGE_SPEEDS, Custom, NO_CHARGE_LIMIT,
-        charge_limit_at, charge_limit_labels, charge_limit_preset_row, charge_limit_row,
-        charge_speed_at, charge_speed_labels, charge_speed_preset_row, charge_speed_row,
-        with_custom_row,
+        Battery, CHARGE_LIMIT_CUSTOM, CHARGE_SPEED_CUSTOM, CHARGE_SPEEDS, ChargeSpeeds, Custom,
+        MIN_CUSTOM_CHARGE_MA, NO_CHARGE_LIMIT, charge_limit_at, charge_limit_labels,
+        charge_limit_preset_row, charge_limit_row, with_custom_row,
     };
     use crate::testing::{CAPACITY, Machine, absent, cap, ready};
+
+    const SPEEDS: ChargeSpeeds = ChargeSpeeds {
+        design_capacity: CAPACITY,
+    };
 
     #[test]
     fn a_pack_the_hardware_answers_for_is_detected_with_its_features() {
@@ -289,35 +344,58 @@ mod tests {
 
     #[test]
     fn full_speed_lifts_the_limit_rather_than_naming_the_pack_rate() {
-        assert_eq!(
-            charge_speed_at(CAPACITY, 0),
-            Some(ChargeCurrentLimit::NoLimit)
-        );
+        assert_eq!(SPEEDS.at(0), Some(ChargeCurrentLimit::NoLimit));
     }
 
     #[test]
     fn presets_are_fractions_of_the_pack_rate() {
-        assert_eq!(charge_speed_at(CAPACITY, 1), Some(cap(2320)));
-        assert_eq!(charge_speed_at(CAPACITY, 2), Some(cap(1160)));
+        assert_eq!(SPEEDS.at(1), Some(cap(2320)));
+        assert_eq!(SPEEDS.at(2), Some(cap(1160)));
     }
 
     #[test]
     fn a_fraction_that_comes_to_zero_sends_nothing() {
-        assert_eq!(charge_speed_at(3, 2), None);
+        let tiny = ChargeSpeeds { design_capacity: 3 };
+        assert_eq!(tiny.at(2), None);
+    }
+
+    #[test]
+    fn a_reading_is_what_the_speeds_are_taken_from() {
+        let battery = Battery::new(Machine::new(), Vec::new());
+        assert_eq!(battery.charge_speeds(), None);
+        ready(battery.read()).unwrap();
+        assert_eq!(battery.charge_speeds(), Some(SPEEDS));
+    }
+
+    #[test]
+    fn a_failed_reading_leaves_no_speeds() {
+        let error = DeviceError::Failed("no reply".into());
+        let battery = Battery::new(Machine::failing(error), Vec::new());
+        assert!(ready(battery.read()).is_err());
+        assert_eq!(battery.charge_speeds(), None);
+    }
+
+    #[test]
+    fn the_fastest_custom_speed_is_one_c_floored_to_the_step() {
+        assert_eq!(SPEEDS.fastest_custom().get(), 4600);
+        let tiny = ChargeSpeeds {
+            design_capacity: 50,
+        };
+        assert_eq!(tiny.fastest_custom(), MIN_CUSTOM_CHARGE_MA);
     }
 
     #[test]
     fn a_preset_round_trips_to_its_own_row() {
         for row in 0..CHARGE_SPEEDS.len() {
-            let limit = charge_speed_at(CAPACITY, row).expect("every preset has a row");
-            assert_eq!(charge_speed_preset_row(CAPACITY, limit), Some(row));
+            let limit = SPEEDS.at(row).expect("every preset has a row");
+            assert_eq!(SPEEDS.preset_row(limit), Some(row));
         }
-        assert_eq!(charge_speed_at(CAPACITY, CHARGE_SPEEDS.len()), None);
+        assert_eq!(SPEEDS.at(CHARGE_SPEEDS.len()), None);
     }
 
     #[test]
     fn a_dialled_in_value_matches_no_preset() {
-        assert_eq!(charge_speed_preset_row(CAPACITY, cap(1500)), None);
+        assert_eq!(SPEEDS.preset_row(cap(1500)), None);
     }
 
     /// Each combo asks the shared rule about its own Custom row; the other's
@@ -332,21 +410,15 @@ mod tests {
             Some(1)
         );
 
-        let half = charge_speed_at(CAPACITY, 1).expect("half is a preset");
+        let half = SPEEDS.at(1).expect("half is a preset");
         let on_custom = Some(CHARGE_SPEED_CUSTOM);
-        assert_eq!(
-            charge_speed_row(CAPACITY, half, on_custom, Custom::Keep),
-            on_custom
-        );
-        assert_eq!(
-            charge_speed_row(CAPACITY, half, on_custom, Custom::Rederive),
-            Some(1)
-        );
+        assert_eq!(SPEEDS.row_for(half, on_custom, Custom::Keep), on_custom);
+        assert_eq!(SPEEDS.row_for(half, on_custom, Custom::Rederive), Some(1));
     }
 
     #[test]
     fn labels_name_the_rate_and_end_with_the_custom_row() {
-        let labels = with_custom_row(charge_speed_labels(CAPACITY));
+        let labels = with_custom_row(SPEEDS.labels());
         assert_eq!(labels.len(), CHARGE_SPEEDS.len() + 1);
         assert_eq!(labels[0], "Full speed");
         assert_eq!(labels[1], "Half (2.3 A)");

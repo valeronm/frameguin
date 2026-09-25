@@ -16,9 +16,9 @@ use adw::prelude::*;
 use frameguin_contract::{BatteryFeature, BatteryState, ChargeCurrentLimit, PortState};
 use frameguin_model::control::Custom;
 use frameguin_model::control::battery::{
-    self, CHARGE_LIMIT_CUSTOM, CHARGE_SPEED_CUSTOM, CUSTOM_CHARGE_STEP_MA, MIN_CHARGE_LIMIT,
-    MIN_CUSTOM_CHARGE_MA, NO_CHARGE_LIMIT, charge_limit_at, charge_limit_labels, charge_limit_row,
-    charge_speed_at, charge_speed_labels, charge_speed_names, charge_speed_row,
+    self, CHARGE_LIMIT_CUSTOM, CHARGE_SPEED_CUSTOM, CUSTOM_CHARGE_STEP_MA, ChargeSpeeds,
+    MIN_CHARGE_LIMIT, MIN_CUSTOM_CHARGE_MA, NO_CHARGE_LIMIT, charge_limit_at, charge_limit_labels,
+    charge_limit_row, custom_charge_ma,
     reading::{amps, charge_flow_label, percent_label},
     with_custom_row,
 };
@@ -80,10 +80,9 @@ pub(crate) struct Group {
     limit_scale: gtk::Scale,
     speed_combo: adw::ComboRow,
     speed_scale: gtk::Scale,
-    /// The battery's design capacity in mAh, None until read. Numerically it
-    /// is the 1C current, which is what turns the combo's fractions into the
-    /// limit the daemon takes.
-    design_capacity: Cell<Option<u32>>,
+    /// What the speed combo's rows were built from, so a row sends the limit
+    /// it names; None until the pack has been read.
+    speeds: Cell<Option<ChargeSpeeds>>,
     /// Where the ports are, set when gated.
     placement: Cell<Placement>,
 }
@@ -130,16 +129,14 @@ impl Group {
         let speed_combo = adw::ComboRow::builder()
             .title("Charge speed")
             .subtitle("Maximum charging rate")
-            .model(&string_list(&charge_speed_names()))
+            .model(&string_list(&ChargeSpeeds::names()))
             .sensitive(false)
             .build();
         limits.add(&speed_combo);
         let speed_custom_row = adw::ActionRow::builder().title("Maximum current").build();
-        // The upper bound is the battery's 1C current, filled in once it is
-        // read; asking for more than the pack requests would be a limit that
-        // never binds. Explicit adjustment: with_range would set
-        // page_increment to 10x the step, and a mouse wheel click on a
-        // GtkRange moves by the page increment.
+        // The upper bound waits on the pack's speeds. Explicit adjustment:
+        // with_range would set page_increment to 10x the step, and a mouse
+        // wheel click on a GtkRange moves by the page increment.
         let floor = f64::from(MIN_CUSTOM_CHARGE_MA.get());
         let step = f64::from(CUSTOM_CHARGE_STEP_MA);
         let speed_adjustment = gtk::Adjustment::new(floor, floor, floor, step, step, 0.0);
@@ -163,7 +160,7 @@ impl Group {
             limit_scale,
             speed_combo,
             speed_scale,
-            design_capacity: Cell::default(),
+            speeds: Cell::default(),
             placement: Cell::default(),
         }
     }
@@ -224,13 +221,13 @@ impl Group {
     /// Shared by the reload and the write, so the combo and the slider can't
     /// disagree about which one is in effect.
     fn show_charge_speed(&self, ui: &Ui, limit: ChargeCurrentLimit, custom: Custom) {
-        let Some(capacity) = self.design_capacity.get() else {
+        let Some(speeds) = self.speeds.get() else {
             ui.sync(|| self.speed_combo.set_selected(combo_selection(None)));
             return;
         };
         ui.sync(|| {
             select_row(&self.speed_combo, |selected| {
-                charge_speed_row(capacity, limit, selected, custom)
+                speeds.row_for(limit, selected, custom)
             });
             // Full speed is the absence of a limit, not a position on a
             // slider that can only express one.
@@ -258,13 +255,11 @@ impl Group {
             let group = &row_ui.battery;
             if let Some(info) = &reading.info {
                 group.show_state(info.state);
-                // Learned from whichever reading arrives first rather than
-                // from the fill alone: the speed slider has no range without
-                // it, and a fill that read nothing would otherwise leave the
-                // combo insensitive until the next time the window is mapped.
-                if group.design_capacity.get().is_none() {
-                    group.learn_capacity(&row_ui, info.design_capacity);
-                }
+            }
+            // The load has only what an earlier reading left, so the first
+            // reading after it names the rates where the load found none.
+            if let Some(speeds) = reading.charge_speeds {
+                group.learn_speeds(&row_ui, speeds);
             }
             if let Some(ports) = &reading.ports {
                 group.show_charger(ports);
@@ -300,7 +295,7 @@ impl Group {
             ui,
             control,
             &self.speed_combo,
-            move |index| charge_speed_at(at_ui.battery.design_capacity.get()?, index),
+            move |index| at_ui.battery.speeds.get()?.at(index),
             |ui, control, limit| async move {
                 apply_charge_speed(Sink::Window(&ui), &control, limit, Custom::Rederive).await;
             },
@@ -320,27 +315,16 @@ impl Group {
         );
     }
 
-    /// A pack's design capacity can't change under a running app, so it is
-    /// read once and the labels built from it stay put. Nothing to fall back
-    /// to where the reading failed, and nothing that should be: every rate
-    /// this control offers or sends is a fraction of this figure, so a
-    /// second guess at it would be a second answer to "how fast is full
-    /// speed". The combo stays insensitive until it arrives, and the next
-    /// reload asks again.
-    fn learn_capacity(&self, ui: &Ui, capacity: u32) {
-        self.design_capacity.set(Some(capacity));
-        let labels = with_custom_row(charge_speed_labels(capacity));
-        // 1C is as fast as the pack ever asks, so a slider beyond it would
-        // only offer limits that never bind. Floored to the step the value
-        // rounds to, so the far end of the track is a position that sends
-        // what it shows rather than a sliver that rounds back down.
-        let step = f64::from(CUSTOM_CHARGE_STEP_MA);
-        let top = (f64::from(capacity) / step).floor() * step;
+    fn learn_speeds(&self, ui: &Ui, speeds: ChargeSpeeds) {
+        if self.speeds.replace(Some(speeds)) == Some(speeds) {
+            return;
+        }
+        let labels = with_custom_row(speeds.labels());
         ui.sync(|| {
             self.speed_combo.set_model(Some(&string_list(&labels)));
             self.speed_scale
                 .adjustment()
-                .set_upper(top.max(f64::from(MIN_CUSTOM_CHARGE_MA.get())));
+                .set_upper(f64::from(speeds.fastest_custom().get()));
         });
     }
 
@@ -362,12 +346,15 @@ impl Group {
             }
         }
         if control.has(BatteryFeature::ChargeCurrentLimit) {
+            if let Some(speeds) = control.charge_speeds() {
+                self.learn_speeds(ui, speeds);
+            }
             match control.charge_current_limit().await {
                 Ok(limit) => {
                     self.show_charge_speed(ui, limit, Custom::Rederive);
                     // Without the battery's capacity the fractions have no
                     // milliamps behind them, so the row stays read-only.
-                    let known = self.design_capacity.get().is_some();
+                    let known = self.speeds.get().is_some();
                     ui.sync(|| {
                         self.speed_combo.set_sensitive(known);
                         self.speed_scale.set_sensitive(known);
@@ -377,8 +364,7 @@ impl Group {
                 Err(e) => ui.toast_error("Reading the charge speed", e),
             }
         }
-        // Learned from the first reading that carried one, and kept.
-        values.design_capacity = self.design_capacity.get();
+        values.charge_speeds = self.speeds.get();
     }
 }
 
@@ -390,9 +376,7 @@ impl Group {
 fn scale_milliamps(value: f64) -> NonZeroU32 {
     let step = f64::from(CUSTOM_CHARGE_STEP_MA);
     let snapped = (value / step).round() * step;
-    NonZeroU32::new(snapped as u32).map_or(MIN_CUSTOM_CHARGE_MA, |milliamps| {
-        milliamps.max(MIN_CUSTOM_CHARGE_MA)
-    })
+    custom_charge_ma(snapped as u32)
 }
 
 fn show_limit(sink: Sink<'_>, percent: u8, custom: Custom) {
@@ -444,7 +428,7 @@ pub(crate) async fn apply_charge_limit(
 }
 
 /// The one write for the charge speed. Callers resolve a speed to a limit
-/// against the battery capacity they hold — the window's, or the tray's own
+/// against the `ChargeSpeeds` they hold — the window's, or the tray's own
 /// copy.
 pub(crate) async fn apply_charge_speed(
     sink: Sink<'_>,
