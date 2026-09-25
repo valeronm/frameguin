@@ -126,23 +126,6 @@ impl Extra {
             Self::ChargingLedSide => request.charging_led_side,
         }
     }
-
-    /// What a report of this read's failure calls the attempt.
-    #[must_use]
-    pub fn attempt(self) -> &'static str {
-        match self {
-            Self::Battery => "Reading the battery",
-            Self::Condition => "Reading the battery's condition",
-            Self::Ports => "Reading the USB-C ports",
-            Self::Chassis => "Reading the chassis",
-            Self::Deck => "Reading the input deck",
-            Self::PrivacySwitches => "Reading the privacy switches",
-            Self::Extender => "Reading the battery extender",
-            Self::ChargeLimit => "Reading the charge limit",
-            Self::Usb => "Reading the USB devices",
-            Self::ChargingLedSide => "Reading the charging LED's side",
-        }
-    }
 }
 
 #[derive(Debug)]

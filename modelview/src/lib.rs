@@ -6,9 +6,12 @@
 
 pub mod battery;
 pub mod charging_led;
+pub mod chassis;
 pub mod date;
 pub mod extender;
 pub mod power_led;
+pub mod privacy_switches;
+pub mod reading;
 pub mod rows;
 pub mod touchpad;
 pub mod touchscreen;

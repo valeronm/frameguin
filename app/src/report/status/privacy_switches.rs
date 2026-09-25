@@ -1,13 +1,13 @@
 //! The privacy switches: one row naming where both switches sit, and
 //! a page with a row for each.
 //!
-//! What each value is *called* is `frameguin_model::control::privacy_switches`'s.
+//! What each value is *called* is `frameguin_modelview::privacy_switches`'s.
 
 use std::rc::Rc;
 
 use adw::prelude::*;
-use frameguin_model::control::privacy_switches::{switch_label, switches_summary};
 use frameguin_model::reading::Request;
+use frameguin_modelview::privacy_switches::{switch_label, switches_summary};
 use gtk4 as gtk;
 
 use super::Sidebar;

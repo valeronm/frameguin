@@ -2,16 +2,15 @@
 //! the input deck's state where it is not on, and a page adding how often the
 //! EC has counted it opened and the input deck's power state.
 //!
-//! What each value is *called* is `frameguin_model::control::chassis`'s.
+//! What each value is *called* is `frameguin_modelview::chassis`'s.
 
 use std::rc::Rc;
 
 use adw::prelude::*;
 use frameguin_contract::ChassisFeature;
-use frameguin_model::control::chassis::{
-    Chassis, chassis_summary, deck_label, open_now_label, times_label,
-};
+use frameguin_model::control::chassis::Chassis;
 use frameguin_model::reading::Request;
+use frameguin_modelview::chassis::{chassis_summary, deck_label, open_now_label, times_label};
 use frameguin_wire::Bus;
 use gtk4 as gtk;
 

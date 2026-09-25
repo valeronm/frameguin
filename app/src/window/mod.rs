@@ -26,6 +26,7 @@ use adw::prelude::*;
 use frameguin_contract::{DeviceError, Platform};
 use frameguin_model::control::Controls;
 use frameguin_model::part;
+use frameguin_modelview::reading::attempt;
 use frameguin_wire::Bus;
 use gtk4 as gtk;
 use gtk4::gio;
@@ -180,7 +181,7 @@ impl Ui {
         match self.feed.fill(&self.stack).await {
             Ok((reading, failure)) => {
                 if let Some(failure) = failure {
-                    self.toast_error(failure.extra.attempt(), failure.error);
+                    self.toast_error(attempt(failure.extra), failure.error);
                 }
                 values.battery = reading.info.map(|info| info.state);
                 values.ports = reading.ports;
