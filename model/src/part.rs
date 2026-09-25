@@ -554,10 +554,9 @@ fn names_the_machine(detail: &Detail) -> bool {
     }
 }
 
-/// The machine's parts as the daemon's journal and the app's debug report
-/// both print them, so a bug report and the log it is read against spell a
-/// part the same. The serial and any detail naming the machine are left out,
-/// a report being pasted into a public issue.
+/// The machine's parts as plain text for a bug report. The serial and any
+/// detail naming the machine are left out, a report being pasted into a
+/// public issue.
 #[must_use]
 pub fn listing(parts: &[Identity]) -> String {
     if parts.is_empty() {

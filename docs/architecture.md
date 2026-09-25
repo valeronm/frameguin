@@ -86,8 +86,7 @@ there are three implementations:
 The bridge is therefore optional by construction: a process that links
 `frameguin-hardware` needs no daemon. What ships keeps the bridge, because
 the split is the security model: `frameguin-daemon` runs as root, links the
-hardware crate and serves it over `io.github.valeronm.Frameguin`, and links
-`frameguin-model` for the words it logs a part in; `frameguin`
+hardware crate and serves it over `io.github.valeronm.Frameguin`; `frameguin`
 is the GTK app, links no hardware code, and is the only process a user
 interacts with. The interface is private to the pair — they are built,
 installed and upgraded together — so renaming, dropping or regrouping a
@@ -240,7 +239,7 @@ lives in `contract`, being what that caller receives: the daemon collects one
 per part at startup, `GetDevices` answers with the list, and the app's parts
 window draws it with the words `model::part` gives. Those words include
 every detail, label and value alike, and every firmware's name, so `hardware` sends numbers
-rather than sentences, and the daemon's own listing, spelled by the same
+rather than sentences, and the debug report's listing, spelled by the same
 module, names every detail and firmware as the window does, its own field
 keys aside. Detection sees the identity
 anyway, so a device keeps it rather than reducing it to a bool, and a device

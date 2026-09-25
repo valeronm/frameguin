@@ -8,8 +8,7 @@ license = "MIT"
 workspace = true
 
 # Neither GTK nor a bus connection belongs here: the tray draws from this
-# crate on ksni's own thread, a device is exercised in tests against a stub
-# of its hardware trait, and the daemon links it into the root process for
-# the words it logs a part in.
+# crate on ksni's own thread, and a control is exercised in tests against a
+# stub of its trait.
 [dependencies]
 frameguin-contract = { workspace = true }

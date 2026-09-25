@@ -642,7 +642,6 @@ dependencies = [
  "async-io",
  "frameguin-contract",
  "frameguin-hardware",
- "frameguin-model",
  "frameguin-wire",
  "futures-lite",
  "zbus",
