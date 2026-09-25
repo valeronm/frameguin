@@ -5,7 +5,11 @@
 //! called or what a row sends.
 
 pub mod battery;
+pub mod charging_led;
 pub mod date;
 pub mod extender;
+pub mod power_led;
 pub mod rows;
+pub mod touchpad;
+pub mod touchscreen;
 pub mod words;

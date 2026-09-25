@@ -42,16 +42,6 @@ impl<C: ChargingLedControl> ChargingLed<C> {
     }
 }
 
-#[must_use]
-pub fn side_label(side: ChargingLedSide) -> &'static str {
-    match side {
-        ChargingLedSide::Neither => "None",
-        ChargingLedSide::Left => "Left",
-        ChargingLedSide::Right => "Right",
-        ChargingLedSide::Both => "Both",
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use frameguin_contract::{ChargingLedFeature, ChargingLedSide, DeviceError};

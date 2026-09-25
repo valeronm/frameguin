@@ -3,9 +3,9 @@
 use std::rc::Rc;
 
 use adw::prelude::*;
-use frameguin_model::control::touchpad::{
-    self, Snapshot, click_force_at, click_force_labels, click_force_row, haptic_at, haptic_labels,
-    haptic_row,
+use frameguin_model::control::touchpad::{self, Snapshot};
+use frameguin_modelview::touchpad::{
+    click_force_at, click_force_labels, click_force_row, haptic_at, haptic_labels, haptic_row,
 };
 use frameguin_wire::Bus;
 

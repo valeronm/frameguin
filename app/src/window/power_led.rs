@@ -5,8 +5,9 @@ use std::rc::Rc;
 
 use adw::prelude::*;
 use frameguin_contract::PowerLedLevel;
-use frameguin_model::control::Custom;
-use frameguin_model::control::power_led::{self, MIN_POWER_LED_BRIGHTNESS, Snapshot, labels};
+use frameguin_model::control::power_led::{self, MIN_POWER_LED_BRIGHTNESS, Snapshot};
+use frameguin_modelview::power_led::LevelRows;
+use frameguin_modelview::rows::Custom;
 use frameguin_wire::Bus;
 use gtk4 as gtk;
 
@@ -60,9 +61,9 @@ impl Group {
     pub(crate) fn gate(&self, control: Option<&Rc<PowerLed>>) {
         self.widget.set_visible(control.is_some());
         if let Some(control) = control {
-            self.combo
-                .set_model(Some(&string_list(&labels(control.rows()))));
-            if let Some(index) = control.custom_row() {
+            let rows = LevelRows::new(control.levels());
+            self.combo.set_model(Some(&string_list(&rows.labels())));
+            if let Some(index) = rows.custom_row() {
                 reveal_under(&self.combo, &self.custom_row, index);
             }
         }
@@ -84,7 +85,7 @@ impl Group {
             self.scale.set_sensitive(true);
             self.combo.set_sensitive(true);
             select_row(&self.combo, |selected| {
-                control.row_for(snapshot.level, selected, custom)
+                LevelRows::new(control.levels()).row(snapshot.level, selected, custom)
             });
         });
     }
@@ -117,7 +118,7 @@ impl Group {
             ui,
             control,
             &self.combo,
-            move |index| at_control.at(index),
+            move |index| LevelRows::new(at_control.levels()).at(index),
             |ui, control, level| {
                 let percent = scale_percent(ui.power_led.scale.value());
                 async move {

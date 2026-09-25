@@ -5,7 +5,7 @@ use std::rc::Rc;
 
 use frameguin_contract::{DeviceResult as Result, PowerLedControl, PowerLedLevel};
 
-use super::{Custom, present};
+use super::present;
 
 pub use frameguin_contract::MIN_POWER_LED_BRIGHTNESS;
 
@@ -19,15 +19,13 @@ pub struct Snapshot {
 
 pub struct PowerLed<C> {
     control: Rc<C>,
-    rows: Vec<PowerLedLevel>,
+    levels: Vec<PowerLedLevel>,
 }
 
 impl<C: PowerLedControl> PowerLed<C> {
-    /// `rows` is every level the device has, and is kept in the order a
-    /// front-end lists them.
-    pub fn new(control: Rc<C>, mut rows: Vec<PowerLedLevel>) -> Self {
-        rows.sort_unstable_by_key(|&level| rank(level));
-        Self { control, rows }
+    /// `levels` is every level the device has, in the order it answered.
+    pub fn new(control: Rc<C>, levels: Vec<PowerLedLevel>) -> Self {
+        Self { control, levels }
     }
 
     /// The levels are asked for once here, being fixed for the device's run.
@@ -52,93 +50,24 @@ impl<C: PowerLedControl> PowerLed<C> {
         self.control.set_brightness(percent).await
     }
 
-    /// The window's rows: every level this board has, Custom included.
+    /// The levels this board offers.
     #[must_use]
-    pub fn rows(&self) -> &[PowerLedLevel] {
-        &self.rows
+    pub fn levels(&self) -> &[PowerLedLevel] {
+        &self.levels
     }
-
-    /// Which row a level sits on; None for one this board does not list.
-    /// Private because a level is not on its own an answer to which row to
-    /// show: the EC names the level by deducing it from the percentage it
-    /// holds, so one dialled in that equals a named level's comes back under
-    /// that name. [`PowerLed::row_for`] is the answer.
-    fn row(&self, level: PowerLedLevel) -> Option<usize> {
-        self.rows.iter().position(|&l| l == level)
-    }
-
-    /// Where the row that reveals the slider sits, and None on a board whose
-    /// firmware takes no raw percentage.
-    #[must_use]
-    pub fn custom_row(&self) -> Option<usize> {
-        self.row(PowerLedLevel::Custom)
-    }
-
-    /// Which row the window's combo shows for a level, given where it sits
-    /// now.
-    #[must_use]
-    pub fn row_for(
-        &self,
-        level: PowerLedLevel,
-        selected: Option<usize>,
-        custom: Custom,
-    ) -> Option<usize> {
-        super::row_for(self.row(level), self.custom_row(), selected, custom)
-    }
-
-    /// The level a row sends; None for a row nothing is listed at.
-    #[must_use]
-    pub fn at(&self, row: usize) -> Option<PowerLedLevel> {
-        self.rows.get(row).copied()
-    }
-}
-
-/// Where a level's row sits. A match rather than a second list of the levels,
-/// so a level added to the vocabulary fails to build here rather than landing
-/// wherever it happened to be declared.
-fn rank(level: PowerLedLevel) -> u8 {
-    match level {
-        PowerLedLevel::Auto => 0,
-        PowerLedLevel::Off => 1,
-        PowerLedLevel::UltraLow => 2,
-        PowerLedLevel::Low => 3,
-        PowerLedLevel::Medium => 4,
-        PowerLedLevel::High => 5,
-        PowerLedLevel::Custom => 6,
-    }
-}
-
-fn level_label(level: PowerLedLevel) -> &'static str {
-    match level {
-        PowerLedLevel::Auto => "Auto",
-        PowerLedLevel::Off => "Off",
-        PowerLedLevel::UltraLow => "Ultra-low",
-        PowerLedLevel::Low => "Low",
-        PowerLedLevel::Medium => "Medium",
-        PowerLedLevel::High => "High",
-        PowerLedLevel::Custom => "Custom",
-    }
-}
-
-#[must_use]
-pub fn labels(levels: &[PowerLedLevel]) -> Vec<String> {
-    levels
-        .iter()
-        .map(|&level| level_label(level).to_string())
-        .collect()
 }
 
 #[cfg(test)]
 mod tests {
     use frameguin_contract::{DeviceError, PowerLedLevel};
 
-    use super::{Custom, PowerLed, Snapshot, rank};
+    use super::{PowerLed, Snapshot};
     use crate::testing::{Machine, absent, ready};
 
     #[test]
     fn an_led_the_hardware_answers_for_is_detected_with_its_levels() {
         let led = ready(PowerLed::detect(&Machine::new())).unwrap().unwrap();
-        assert_eq!(led.rows().len(), PowerLedLevel::ALL.len());
+        assert_eq!(led.levels().len(), PowerLedLevel::ALL.len());
     }
 
     #[test]
@@ -176,73 +105,5 @@ mod tests {
             Err(DeviceError::AccessDenied("not authorized".into()))
         );
         assert_eq!(machine.level.get(), PowerLedLevel::High);
-    }
-
-    /// The rows are the board's levels in display order, whatever order the
-    /// device listed them in, and a level the board lacks has no row.
-    #[test]
-    fn the_rows_are_the_offered_levels_in_display_order() {
-        let led = PowerLed::new(
-            Machine::new(),
-            vec![PowerLedLevel::High, PowerLedLevel::Off, PowerLedLevel::Low],
-        );
-        assert_eq!(
-            led.rows(),
-            [PowerLedLevel::Off, PowerLedLevel::Low, PowerLedLevel::High]
-        );
-        assert_eq!(led.row(PowerLedLevel::Auto), None);
-        assert_eq!(led.at(3), None);
-    }
-
-    #[test]
-    fn a_row_sends_the_level_it_is_marked_for() {
-        let led = PowerLed::new(Machine::new(), PowerLedLevel::ALL.to_vec());
-        for level in PowerLedLevel::ALL {
-            let row = led.row(level).expect("every level is listed");
-            assert_eq!(led.at(row), Some(level));
-        }
-    }
-
-    /// Every level the EC can name is one a dialled-in percentage can be
-    /// stored as, so the rule is asked about all of them rather than about
-    /// the one a fixture happened to pick.
-    #[test]
-    fn a_level_the_ec_named_never_moves_a_combo_off_its_custom_row() {
-        let led = PowerLed::new(Machine::new(), PowerLedLevel::ALL.to_vec());
-        let custom = Some(PowerLedLevel::ALL.len() - 1);
-        assert_eq!(led.custom_row(), custom);
-        for row in 0..PowerLedLevel::ALL.len() {
-            let level = led.at(row).expect("every level is listed");
-            assert_eq!(led.row_for(level, custom, Custom::Keep), custom);
-            assert_eq!(led.row_for(level, custom, Custom::Rederive), Some(row));
-        }
-    }
-
-    /// Firmware that takes no raw percentage lists no Custom row, and can
-    /// still report `Custom` — for a brightness no level of its own stands
-    /// for — which is a row such a board does not have.
-    #[test]
-    fn a_board_without_a_custom_row_keeps_nothing() {
-        let rows = vec![
-            PowerLedLevel::High,
-            PowerLedLevel::Medium,
-            PowerLedLevel::Low,
-        ];
-        let led = PowerLed::new(Machine::new(), rows);
-        assert_eq!(led.custom_row(), None);
-        assert_eq!(led.row_for(PowerLedLevel::Custom, None, Custom::Keep), None);
-        assert_eq!(led.row_for(PowerLedLevel::Low, None, Custom::Keep), Some(0));
-    }
-
-    /// The match is exhaustive, so being ranked at all is the compiler's
-    /// business; being ranked apart is this. Two levels sharing a rank would
-    /// fall back to whichever the vocabulary lists first, which is the
-    /// inheritance the rank exists to stop.
-    #[test]
-    fn no_two_levels_share_a_row() {
-        let mut ranks = PowerLedLevel::ALL.map(rank).to_vec();
-        ranks.sort_unstable();
-        ranks.dedup();
-        assert_eq!(ranks.len(), PowerLedLevel::ALL.len());
     }
 }

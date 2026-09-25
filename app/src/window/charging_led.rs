@@ -4,8 +4,9 @@ use std::rc::Rc;
 
 use adw::prelude::*;
 use frameguin_contract::ChargingLedFeature;
-use frameguin_model::control::charging_led::{self, side_label};
+use frameguin_model::control::charging_led;
 use frameguin_model::reading::Request;
+use frameguin_modelview::charging_led::side_label;
 use frameguin_wire::Bus;
 use gtk4 as gtk;
 

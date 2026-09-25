@@ -2,9 +2,7 @@
 
 use std::rc::Rc;
 
-use frameguin_contract::{
-    ClickForce, DeviceResult as Result, HAPTIC_INTENSITY_LEVELS, TouchpadControl,
-};
+use frameguin_contract::{ClickForce, DeviceResult as Result, TouchpadControl};
 
 use super::present;
 
@@ -45,68 +43,11 @@ impl<C: TouchpadControl> Touchpad<C> {
     }
 }
 
-/// The haptic combo's rows, derived from the steps they select rather than
-/// kept in step with them by hand, which a step added upstream would break
-/// silently.
-#[must_use]
-pub fn haptic_labels() -> Vec<String> {
-    HAPTIC_INTENSITY_LEVELS
-        .iter()
-        .map(|&percent| {
-            if percent == 0 {
-                "Off".to_string()
-            } else {
-                format!("{percent}%")
-            }
-        })
-        .collect()
-}
-
-/// Which row an intensity sits on; None for one not among the steps.
-#[must_use]
-pub fn haptic_row(percent: u8) -> Option<usize> {
-    HAPTIC_INTENSITY_LEVELS.iter().position(|&p| p == percent)
-}
-
-/// The intensity a row sends; None for a row nothing is listed at.
-#[must_use]
-pub fn haptic_at(row: usize) -> Option<u8> {
-    HAPTIC_INTENSITY_LEVELS.get(row).copied()
-}
-
-#[must_use]
-pub fn click_force_label(force: ClickForce) -> &'static str {
-    match force {
-        ClickForce::Low => "Low",
-        ClickForce::Medium => "Medium",
-        ClickForce::High => "High",
-    }
-}
-
-/// The click force combo's rows, lightest to firmest.
-#[must_use]
-pub fn click_force_labels() -> Vec<String> {
-    ClickForce::ALL
-        .iter()
-        .map(|&force| click_force_label(force).to_string())
-        .collect()
-}
-
-#[must_use]
-pub fn click_force_row(force: ClickForce) -> Option<usize> {
-    ClickForce::ALL.iter().position(|&f| f == force)
-}
-
-#[must_use]
-pub fn click_force_at(row: usize) -> Option<ClickForce> {
-    ClickForce::ALL.get(row).copied()
-}
-
 #[cfg(test)]
 mod tests {
-    use frameguin_contract::{ClickForce, DeviceError, HAPTIC_INTENSITY_LEVELS};
+    use frameguin_contract::{ClickForce, DeviceError};
 
-    use super::{Snapshot, Touchpad, haptic_at, haptic_row};
+    use super::{Snapshot, Touchpad};
     use crate::testing::{Machine, absent, ready};
 
     #[test]
@@ -163,24 +104,5 @@ mod tests {
             Err(DeviceError::AccessDenied("not authorized".into()))
         );
         assert_eq!(machine.haptic_intensity.get(), 50);
-    }
-
-    /// The steps are the touchpad's list, not this module's, and the rows are
-    /// those steps in order — so a scale that stopped climbing would be drawn
-    /// as one anyway. What this catches is `contract`'s copy being updated to a
-    /// reordered upstream list; that the copy matches upstream at all is the
-    /// daemon's test, one boundary over.
-    #[test]
-    fn the_haptic_steps_climb() {
-        assert!(HAPTIC_INTENSITY_LEVELS.is_sorted_by(|low, high| low < high));
-    }
-
-    #[test]
-    fn a_haptic_row_sends_the_step_it_is_marked_for() {
-        for &percent in &HAPTIC_INTENSITY_LEVELS {
-            let row = haptic_row(percent).expect("every step has a row");
-            assert_eq!(haptic_at(row), Some(percent));
-        }
-        assert_eq!(haptic_row(33), None);
     }
 }
