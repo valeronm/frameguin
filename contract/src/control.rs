@@ -2,7 +2,8 @@
 //! the hardware, and what three implementations answer — `frameguin_hardware`'s
 //! device, which touches the machine; `frameguin_wire`'s `Bus`, which calls
 //! the daemon over the bus; and a test's stub. A device holds only its own trait, so a stub
-//! implements one and a device cannot reach past its column.
+//! implements one and a device cannot reach past its column. `BoardControl`
+//! is no device's: it answers which machine the devices are on.
 //!
 //! `async` for the bus, where every call is; the direct implementation never
 //! pends. No `Send` bound — the app's implementor lives on one thread — and
@@ -11,10 +12,15 @@
 
 use crate::error::DeviceResult;
 use crate::vocabulary::{
-    Attached, BatteryCondition, BatteryFeature, BatteryInfo, ChargeCurrentLimit,
+    Attached, BatteryCondition, BatteryFeature, BatteryInfo, Board, ChargeCurrentLimit,
     ChargingLedFeature, ChargingLedSide, ChassisFeature, ChassisState, ClickForce, DeckState,
     ExtenderState, PortSet, PortState, PowerLedLevel, PrivacyState,
 };
+
+/// The machine every device is on; fixed for the implementor's run.
+pub trait BoardControl {
+    async fn board(&self) -> DeviceResult<Board>;
+}
 
 pub trait TouchpadControl {
     async fn haptic_intensity(&self) -> DeviceResult<u8>;

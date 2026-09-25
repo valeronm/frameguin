@@ -33,8 +33,9 @@ One meaning per word, and each word names one place in the tree.
   its controller and whatever is plugged in. `DeviceError` is the one error every control and every
   detection raises.
 - **Board** — what the firmware reports about the machine, vendor and
-  product, beside the `Platform` those two settle: `contract::Board`, answered by
-  the root interface.
+  product, beside the `Platform` those two settle: `contract::Board`, answered
+  through `BoardControl` — by the root interface over the bus — and kept in
+  `Controls` beside the controls detected on it.
 - **Platform** — which Framework board this is, as one enum variant:
   `contract::Platform`. The DMI product strings behind it are matched in
   `hardware/src/dmi.rs` and go no further, so every table keyed on a board —
@@ -49,10 +50,11 @@ One meaning per word, and each word names one place in the tree.
   `Served<Device>`. `daemon/src/interface/<name>.rs`. The root interface,
   for what belongs to no device, is `Daemon`'s own.
 - **Bus** — the implementation of every control trait over the daemon's
-  interfaces, each operation a call on the daemon. `wire/src/bus.rs`, `Bus`.
-- **Daemon**, on the app side — its end of the daemon: the connection, the
-  controls detection registered and the board it runs on, dialled and asked
-  once for the run.
+  interfaces, and of `BoardControl` over its root interface, each operation
+  a call on the daemon. `wire/src/bus.rs`, `Bus`.
+- **Daemon**, on the app side — its end of the daemon: the connection and
+  the controls detection registered, with the board they run on, dialled
+  and asked once for the run.
   `app/src/daemon.rs`, `Daemon`.
 - **Client control** — the app's side of one control: its read, its
   commands, its presets and words. `model/src/control/`,

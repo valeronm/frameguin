@@ -13,9 +13,9 @@ pub mod usb;
 use std::rc::Rc;
 
 use frameguin_contract::{
-    BatteryControl, ChargingLedControl, ChassisControl, DeviceError, DeviceResult, Platform,
-    PortsControl, PowerLedControl, PrivacySwitchesControl, TouchpadControl, TouchscreenControl,
-    UsbControl,
+    BatteryControl, Board, BoardControl, ChargingLedControl, ChassisControl, DeviceError,
+    DeviceResult, PortsControl, PowerLedControl, PrivacySwitchesControl, TouchpadControl,
+    TouchscreenControl, UsbControl,
 };
 
 use crate::port::Placement;
@@ -80,6 +80,7 @@ fn names<T>(rows: &[(&str, T)]) -> Vec<String> {
 /// control traits. `None` is a control whose device answered for itself as
 /// absent, and the front-ends gate on that.
 pub struct Controls<C> {
+    pub board: Board,
     pub battery: Option<Rc<battery::Battery<C>>>,
     pub touchpad: Option<Rc<touchpad::Touchpad<C>>>,
     pub touchscreen: Option<Rc<touchscreen::Touchscreen<C>>>,
@@ -92,7 +93,8 @@ pub struct Controls<C> {
 }
 
 impl<
-    C: BatteryControl
+    C: BoardControl
+        + BatteryControl
         + TouchpadControl
         + TouchscreenControl
         + PowerLedControl
@@ -107,7 +109,8 @@ impl<
     /// device could not be asked at all — an absent device is an answer, not
     /// a failure. The ports' device does not know where its sockets are, and
     /// nothing it reads says so.
-    pub async fn detect(control: &Rc<C>, platform: Platform) -> DeviceResult<Self> {
+    pub async fn detect(control: &Rc<C>) -> DeviceResult<Self> {
+        let board = control.board().await?;
         Ok(Self {
             battery: battery::Battery::detect(control).await?.map(Rc::new),
             touchpad: touchpad::Touchpad::detect(control).await?.map(Rc::new),
@@ -118,7 +121,7 @@ impl<
             charging_led: charging_led::ChargingLed::detect(control)
                 .await?
                 .map(Rc::new),
-            ports: ports::Ports::detect(control, Placement::of(platform))
+            ports: ports::Ports::detect(control, Placement::of(board.platform()))
                 .await?
                 .map(Rc::new),
             chassis: chassis::Chassis::detect(control).await?.map(Rc::new),
@@ -126,6 +129,7 @@ impl<
                 .await?
                 .map(Rc::new),
             usb: usb::Usb::detect(control).await?.map(Rc::new),
+            board,
         })
     }
 
@@ -152,10 +156,7 @@ mod tests {
     use crate::testing::{Fault, Machine, absent, ready};
 
     fn detect(machine: &Rc<Machine>) -> frameguin_contract::DeviceResult<Controls<Machine>> {
-        ready(Controls::detect(
-            machine,
-            frameguin_contract::Platform::Unknown,
-        ))
+        ready(Controls::detect(machine))
     }
 
     const PRESET: usize = 1;
@@ -240,6 +241,16 @@ mod tests {
         assert!(controls.chassis.is_some());
         assert!(controls.privacy_switches.is_some());
         assert!(controls.usb.is_some());
+    }
+
+    #[test]
+    fn a_board_that_cannot_be_read_fails_the_whole_detection() {
+        let error = DeviceError::Failed("no reply".into());
+        let machine = Machine {
+            board: Fault::failing(error.clone()),
+            ..Machine::default()
+        };
+        assert_eq!(detect(&Rc::new(machine)).err(), Some(error));
     }
 
     #[test]

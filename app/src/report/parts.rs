@@ -5,7 +5,7 @@
 use std::rc::Rc;
 
 use adw::prelude::*;
-use frameguin_contract::{Board, DeviceResult, Identity, Platform};
+use frameguin_contract::{DeviceResult, Identity, Platform};
 use frameguin_model::date;
 use frameguin_model::part::{
     Catalogue, catalogue, detail_rows, firmware_name, generation, inventory, maker, name,
@@ -40,17 +40,17 @@ fn build(shell: Shell, window: &adw::Window, daemon: &Rc<Daemon>) -> adw::Naviga
     glib::spawn_future_local(async move {
         // A part sold as a kit per machine is named by the machine and not by
         // anything the part announces.
-        let inventory: DeviceResult<(Vec<Identity>, Rc<Board>)> = async {
+        let inventory: DeviceResult<(Vec<Identity>, Platform)> = async {
             let bus = daemon.bus().await?;
             let parts = bus.frameguin.get_devices().await.map_err(from_bus_error)?;
-            Ok((parts, daemon.detected().await?.board))
+            Ok((parts, daemon.controls().await?.board.platform()))
         }
         .await;
         match inventory {
             // A window closed while the daemon was being dialled has nothing
             // left to draw into.
-            Ok((parts, board)) if panes.split.root().is_some() => {
-                panes.fill(&parts, board.platform());
+            Ok((parts, platform)) if panes.split.root().is_some() => {
+                panes.fill(&parts, platform);
             }
             Ok(_) => (),
             Err(e) => shell.toast_error("Reading the parts", e),

@@ -4,12 +4,12 @@ use std::rc::Rc;
 use std::task::{Context, Poll, Waker};
 
 use frameguin_contract::{
-    Attached, BatteryCondition, BatteryControl, BatteryFeature, BatteryInfo, BatteryState,
-    CcPolarity, ChargeCurrentLimit, ChargeFlow, ChargingLedControl, ChargingLedFeature,
-    ChargingLedSide, ChassisControl, ChassisFeature, ChassisState, ClickForce, DataRole, DeckState,
-    DeviceError, DeviceResult, Epr, ExtenderStage, ExtenderState, PortPartner, PortSet, PortState,
-    PortsControl, PowerLedControl, PowerLedLevel, PowerRole, PrivacyState, PrivacySwitchesControl,
-    TouchpadControl, TouchscreenControl, UsbControl, UsbSpeed,
+    Attached, BatteryCondition, BatteryControl, BatteryFeature, BatteryInfo, BatteryState, Board,
+    BoardControl, CcPolarity, ChargeCurrentLimit, ChargeFlow, ChargingLedControl,
+    ChargingLedFeature, ChargingLedSide, ChassisControl, ChassisFeature, ChassisState, ClickForce,
+    DataRole, DeckState, DeviceError, DeviceResult, Epr, ExtenderStage, ExtenderState, PortPartner,
+    PortSet, PortState, PortsControl, PowerLedControl, PowerLedLevel, PowerRole, PrivacyState,
+    PrivacySwitchesControl, TouchpadControl, TouchscreenControl, UsbControl, UsbSpeed,
 };
 
 /// A 4640 mAh pack, the Laptop 13's.
@@ -92,6 +92,7 @@ pub(crate) fn absent() -> DeviceError {
 /// trait: detecting the set at once asks for that, and a control asks only
 /// its own column.
 pub(crate) struct Machine {
+    pub(crate) board: Fault,
     pub(crate) battery: Fault,
     pub(crate) touchpad: Fault,
     pub(crate) touchscreen: Fault,
@@ -114,6 +115,7 @@ pub(crate) struct Machine {
 impl Default for Machine {
     fn default() -> Self {
         Self {
+            board: Fault::default(),
             battery: Fault::default(),
             touchpad: Fault::default(),
             touchscreen: Fault::default(),
@@ -153,6 +155,12 @@ impl Machine {
             usb: Fault::failing(error),
             ..Self::default()
         })
+    }
+}
+
+impl BoardControl for Machine {
+    async fn board(&self) -> DeviceResult<Board> {
+        self.board.read(Board::default())
     }
 }
 

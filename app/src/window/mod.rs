@@ -83,8 +83,8 @@ impl Ui {
     /// Shows each group where its control is, each tab where one of its
     /// groups is, and the switcher where more than one tab is left to switch
     /// between, each tab captioned with the mainboard's listing.
-    fn gate(&self, controls: &Controls<Bus>, platform: Platform) {
-        let caption = caption(platform);
+    fn gate(&self, controls: &Controls<Bus>) {
+        let caption = caption(controls.board.platform());
         self.battery
             .gate(controls.battery.as_ref(), controls.ports.as_ref());
         self.power_led.gate(controls.power_led.as_ref());

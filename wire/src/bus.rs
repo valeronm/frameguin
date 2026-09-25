@@ -1,11 +1,12 @@
-//! Every control trait answered by a call on the daemon's interface for that
-//! device, over one connection the caller dialled.
+//! Every control trait answered by a call on the daemon — a device's on the
+//! interface for that device, the board's on the root interface — over one
+//! connection the caller dialled.
 
 use frameguin_contract::{
-    Attached, BatteryCondition, BatteryControl, BatteryFeature, BatteryInfo, ChargeCurrentLimit,
-    ChargingLedControl, ChargingLedFeature, ChargingLedSide, ChassisControl, ChassisFeature,
-    ChassisState, ClickForce, DeckState, DeviceResult, ExtenderState, PortSet, PortState,
-    PortsControl, PowerLedControl, PowerLedLevel, PrivacyState, PrivacySwitchesControl,
+    Attached, BatteryCondition, BatteryControl, BatteryFeature, BatteryInfo, Board, BoardControl,
+    ChargeCurrentLimit, ChargingLedControl, ChargingLedFeature, ChargingLedSide, ChassisControl,
+    ChassisFeature, ChassisState, ClickForce, DeckState, DeviceResult, ExtenderState, PortSet,
+    PortState, PortsControl, PowerLedControl, PowerLedLevel, PrivacyState, PrivacySwitchesControl,
     TouchpadControl, TouchscreenControl, UsbControl,
 };
 
@@ -35,6 +36,12 @@ impl Bus {
             frameguin: proxy(&conn).await?,
             devices: Proxies::dial(&conn).await?,
         })
+    }
+}
+
+impl BoardControl for Bus {
+    async fn board(&self) -> DeviceResult<Board> {
+        call(self.frameguin.get_board()).await
     }
 }
 

@@ -5,20 +5,14 @@
 use std::rc::Rc;
 
 use async_lock::OnceCell;
-use frameguin_contract::{Board, DeviceResult};
+use frameguin_contract::DeviceResult;
 use frameguin_model::control::Controls;
 use frameguin_wire::{Bus, from_bus_error};
-
-#[derive(Clone)]
-pub(crate) struct Detected {
-    pub(crate) controls: Rc<Controls<Bus>>,
-    pub(crate) board: Rc<Board>,
-}
 
 #[derive(Default)]
 pub(crate) struct Daemon {
     bus: OnceCell<Rc<Bus>>,
-    detected: OnceCell<Detected>,
+    controls: OnceCell<Rc<Controls<Bus>>>,
 }
 
 impl Daemon {
@@ -32,23 +26,14 @@ impl Daemon {
             .cloned()
     }
 
-    /// The controls whose devices detected themselves, shared by every window
-    /// so a control is one object however many views reach it.
+    /// The controls whose devices detected themselves and the board they
+    /// were detected on, shared by every window so a control is one object
+    /// however many views reach it. A failure is not remembered — detection
+    /// is the cold call, and caching one unlucky answer would hold the app to
+    /// it for the session.
     pub(crate) async fn controls(&self) -> DeviceResult<Rc<Controls<Bus>>> {
-        Ok(self.detected().await?.controls)
-    }
-
-    /// The controls and the board they were detected for. A failure is not
-    /// remembered — detection is the cold call, and caching one unlucky
-    /// answer would hold the app to it for the session.
-    pub(crate) async fn detected(&self) -> DeviceResult<Detected> {
-        self.detected
-            .get_or_try_init(async || {
-                let bus = self.bus().await?;
-                let board = Rc::new(bus.frameguin.get_board().await.map_err(from_bus_error)?);
-                let controls = Rc::new(Controls::detect(&bus, board.platform()).await?);
-                Ok(Detected { controls, board })
-            })
+        self.controls
+            .get_or_try_init(async || Ok(Rc::new(Controls::detect(&self.bus().await?).await?)))
             .await
             .cloned()
     }

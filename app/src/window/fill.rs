@@ -10,7 +10,6 @@ use gtk4::glib;
 
 use super::{TabKind, Ui, widgets};
 use crate::about;
-use crate::daemon::Detected;
 use crate::mapped::{Once, while_mapped};
 
 /// How long the window waits before asking an unreachable daemon again, and
@@ -369,8 +368,8 @@ impl Init {
         // what a window answering for itself costs, and that handle outlives
         // any of them. The answer reaching it here is also what spares the
         // report a detection of its own.
-        let Detected { controls, board } = match ui.daemon.detected().await {
-            Ok(detected) => detected,
+        let controls = match ui.daemon.controls().await {
+            Ok(controls) => controls,
             Err(e) => {
                 // The page is replaced by the retry that succeeds, so the
                 // failure is also written where it stays.
@@ -378,7 +377,7 @@ impl Init {
                 return Some(Empty::DaemonUnavailable(e.to_string()));
             }
         };
-        ui.gate(&controls, board.platform());
+        ui.gate(&controls);
         // Set whatever the answer was: what a later map needs to know is
         // that this daemon has said its piece, not what it said.
         self.answered.set(true);
@@ -386,10 +385,10 @@ impl Init {
             // The daemon gates its EC on the vendor it reports, so an empty
             // answer is expected on anything else and says nothing about the
             // board; only a Framework answering with none is a finding.
-            return Some(if board.is_framework() {
+            return Some(if controls.board.is_framework() {
                 Empty::NoControls
             } else {
-                Empty::NoHardware(board.vendor().to_owned())
+                Empty::NoHardware(controls.board.vendor().to_owned())
             });
         }
         // Back to the controls, for a run that got here after an earlier one
