@@ -4,6 +4,8 @@
 //! rows from here, so two of them cannot disagree about what a value is
 //! called or what a row sends.
 
+pub mod battery;
 pub mod date;
+pub mod extender;
 pub mod rows;
 pub mod words;

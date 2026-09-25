@@ -14,17 +14,21 @@ use std::rc::Rc;
 
 use adw::prelude::*;
 use frameguin_contract::{BatteryFeature, BatteryState, ChargeCurrentLimit, PortState};
-use frameguin_model::control::Custom;
 use frameguin_model::control::battery::{
-    self, CHARGE_LIMIT_CUSTOM, CHARGE_SPEED_CUSTOM, CUSTOM_CHARGE_STEP_MA, ChargeSpeeds,
-    MIN_CHARGE_LIMIT, MIN_CUSTOM_CHARGE_MA, NO_CHARGE_LIMIT, charge_limit_at, charge_limit_labels,
-    charge_limit_row, custom_charge_ma,
-    reading::{amps, charge_flow_label, percent_label},
-    with_custom_row,
+    self, CUSTOM_CHARGE_STEP_MA, ChargeSpeeds, MIN_CHARGE_LIMIT, MIN_CUSTOM_CHARGE_MA,
+    custom_charge_ma,
 };
 use frameguin_model::control::ports::{self, supply_label, supply_port};
 use frameguin_model::port::Placement;
 use frameguin_model::reading::Request;
+use frameguin_modelview::battery::{
+    CHARGE_LIMIT_CUSTOM, CHARGE_SPEED_CUSTOM, NO_CHARGE_LIMIT, charge_limit_at,
+    charge_limit_labels, charge_limit_row, charge_speed_at, charge_speed_labels,
+    charge_speed_names, charge_speed_row, fastest_custom,
+    reading::{amps, charge_flow_label, percent_label},
+    with_custom_row,
+};
+use frameguin_modelview::rows::Custom;
 use frameguin_wire::Bus;
 use gtk4 as gtk;
 
@@ -130,7 +134,7 @@ impl Group {
         let speed_combo = adw::ComboRow::builder()
             .title("Charge speed")
             .subtitle("Maximum charging rate")
-            .model(&string_list(&ChargeSpeeds::names()))
+            .model(&string_list(&charge_speed_names()))
             .sensitive(false)
             .build();
         limits.add(&speed_combo);
@@ -228,7 +232,7 @@ impl Group {
         };
         ui.sync(|| {
             select_row(&self.speed_combo, |selected| {
-                speeds.row_for(limit, selected, custom)
+                charge_speed_row(speeds, limit, selected, custom)
             });
             // Full speed is the absence of a limit, not a position on a
             // slider that can only express one.
@@ -296,7 +300,7 @@ impl Group {
             ui,
             control,
             &self.speed_combo,
-            move |index| at_ui.battery.speeds.get()?.at(index),
+            move |index| charge_speed_at(at_ui.battery.speeds.get()?, index),
             |ui, control, limit| async move {
                 apply_charge_speed(Sink::Window(&ui), &control, limit, Custom::Rederive).await;
             },
@@ -320,12 +324,12 @@ impl Group {
         if self.speeds.replace(Some(speeds)) == Some(speeds) {
             return;
         }
-        let labels = with_custom_row(speeds.labels());
+        let labels = with_custom_row(charge_speed_labels(speeds));
         ui.sync(|| {
             self.speed_combo.set_model(Some(&string_list(&labels)));
             self.speed_scale
                 .adjustment()
-                .set_upper(f64::from(speeds.fastest_custom().get()));
+                .set_upper(f64::from(fastest_custom(speeds).get()));
         });
     }
 

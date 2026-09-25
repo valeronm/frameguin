@@ -10,5 +10,9 @@ workspace = true
 # Neither GTK nor a bus connection belongs here: the tray draws from this
 # crate on ksni's own thread, and a control is exercised in tests against a
 # stub of its trait.
+[features]
+# The stub figures modelview's tests share.
+testing = []
+
 [dependencies]
 frameguin-contract = { workspace = true }

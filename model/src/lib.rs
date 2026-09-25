@@ -18,5 +18,7 @@ pub mod part;
 pub mod port;
 pub mod reading;
 
+#[cfg(any(test, feature = "testing"))]
+pub mod fixtures;
 #[cfg(test)]
 pub(crate) mod testing;

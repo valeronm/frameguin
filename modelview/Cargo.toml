@@ -12,3 +12,6 @@ workspace = true
 [dependencies]
 frameguin-contract = { workspace = true }
 frameguin-model = { workspace = true }
+
+[dev-dependencies]
+frameguin-model = { workspace = true, features = ["testing"] }

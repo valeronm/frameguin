@@ -1,16 +1,13 @@
 //! The battery extender: one row naming its stage, and a page adding
 //! when the first stage starts and what resets it.
 //!
-//! What each value is *called* is
-//! `frameguin_model::control::battery::extender`'s.
+//! What each value is *called* is `frameguin_modelview::extender`'s.
 
 use std::rc::Rc;
 
 use adw::prelude::*;
-use frameguin_model::control::battery::extender::{
-    first_stage_label, reset_label, stage_label, trigger_label,
-};
 use frameguin_model::reading::Request;
+use frameguin_modelview::extender::{first_stage_label, reset_label, stage_label, trigger_label};
 use gtk4 as gtk;
 
 use super::Sidebar;

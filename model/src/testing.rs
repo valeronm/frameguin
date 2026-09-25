@@ -1,39 +1,17 @@
 use std::cell::{Cell, RefCell};
-use std::num::NonZeroU32;
 use std::rc::Rc;
 use std::task::{Context, Poll, Waker};
 
 use frameguin_contract::{
-    Attached, BatteryCondition, BatteryControl, BatteryFeature, BatteryInfo, BatteryState, Board,
-    BoardControl, CcPolarity, ChargeCurrentLimit, ChargeFlow, ChargingLedControl,
-    ChargingLedFeature, ChargingLedSide, ChassisControl, ChassisFeature, ChassisState, ClickForce,
-    DataRole, DeckState, DeviceError, DeviceResult, Epr, ExtenderStage, ExtenderState, PortPartner,
-    PortSet, PortState, PortsControl, PowerLedControl, PowerLedLevel, PowerRole, PrivacyState,
-    PrivacySwitchesControl, TouchpadControl, TouchscreenControl, UsbControl, UsbSpeed,
+    Attached, BatteryCondition, BatteryControl, BatteryFeature, BatteryInfo, Board, BoardControl,
+    CcPolarity, ChargeCurrentLimit, ChargeFlow, ChargingLedControl, ChargingLedFeature,
+    ChargingLedSide, ChassisControl, ChassisFeature, ChassisState, ClickForce, DataRole, DeckState,
+    DeviceError, DeviceResult, Epr, ExtenderStage, ExtenderState, PortPartner, PortSet, PortState,
+    PortsControl, PowerLedControl, PowerLedLevel, PowerRole, PrivacyState, PrivacySwitchesControl,
+    TouchpadControl, TouchscreenControl, UsbControl, UsbSpeed,
 };
 
-/// A 4640 mAh pack, the Laptop 13's.
-pub(crate) const CAPACITY: u32 = 4640;
-
-pub(crate) const fn cap(milliamps: u32) -> ChargeCurrentLimit {
-    ChargeCurrentLimit::Limit(NonZeroU32::new(milliamps).unwrap())
-}
-
-/// Mid-charge on the same pack's four cells.
-pub(crate) const MILLIVOLTS: u32 = 15_400;
-
-/// What that pack is rated at, which is what its energy is measured against
-/// however charged it happens to be.
-pub(crate) const NOMINAL_MILLIVOLTS: u32 = 15_640;
-
-pub(crate) fn state(flow: ChargeFlow, milliamps: u32) -> BatteryState {
-    BatteryState {
-        percent: 62,
-        flow,
-        milliamps,
-        millivolts: MILLIVOLTS,
-    }
-}
+pub(crate) use crate::fixtures::{CAPACITY, NOMINAL_MILLIVOLTS, cap, state};
 
 /// The pack's block, part way through a charge.
 pub(crate) fn block() -> BatteryInfo {

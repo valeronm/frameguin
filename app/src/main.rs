@@ -18,7 +18,7 @@ use std::ops::ControlFlow;
 use std::rc::Rc;
 
 use adw::prelude::*;
-use frameguin_model::control::Custom;
+use frameguin_modelview::rows::Custom;
 use gtk4::gio;
 use gtk4::glib;
 

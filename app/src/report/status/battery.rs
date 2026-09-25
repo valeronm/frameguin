@@ -1,7 +1,7 @@
 //! The pack: one row carrying the charge, and a page naming what
 //! the pack is doing.
 //!
-//! What each value is *called* is `frameguin_model::control::battery::reading`'s;
+//! What each value is *called* is `frameguin_modelview::battery::reading`'s;
 //! which rows there are and what fills them is this module's.
 
 use std::rc::Rc;
@@ -9,11 +9,11 @@ use std::rc::Rc;
 use adw::prelude::*;
 use frameguin_contract::BatteryFeature;
 use frameguin_model::control::battery::Battery;
-use frameguin_model::control::battery::reading::{
+use frameguin_model::reading::{Reading, Request};
+use frameguin_modelview::battery::reading::{
     alarms_label, capacity, cell_spread, cell_voltages, charge_brief, charge_direction,
     charger_label, milliamps, percent_label, power_label, retention_label, temperature, volts,
 };
-use frameguin_model::reading::{Reading, Request};
 use frameguin_wire::Bus;
 use gtk4 as gtk;
 

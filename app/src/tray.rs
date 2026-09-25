@@ -8,13 +8,15 @@ use std::rc::Rc;
 
 use frameguin_contract::{BatteryFeature, BatteryState, ChargeCurrentLimit, PortSet, PortState};
 use frameguin_model::control::Controls;
-use frameguin_model::control::battery::{
-    ChargeSpeeds, charge_limit_at, charge_limit_labels, charge_limit_preset_row,
-    reading::{amps, battery_summary, percent_label},
-};
+use frameguin_model::control::battery::ChargeSpeeds;
 use frameguin_model::control::ports::supply_summary;
 use frameguin_model::control::touchscreen::{state_at, state_labels, state_row};
 use frameguin_model::port::Placement;
+use frameguin_modelview::battery::{
+    charge_limit_at, charge_limit_labels, charge_limit_preset_row, charge_speed_at,
+    charge_speed_names, charge_speed_preset_row,
+    reading::{amps, battery_summary, percent_label},
+};
 use frameguin_wire::Bus;
 
 use crate::APP_ID;
@@ -287,13 +289,13 @@ impl TrayIcon {
             return None;
         }
         let speeds = self.charge_speeds?;
-        // Bare preset names, not `ChargeSpeeds::labels`: those
-        // carry the rate in brackets, which would nest inside the submenu
-        // title's own brackets.
-        let labels = ChargeSpeeds::names();
+        // Bare preset names, not `charge_speed_labels`: those carry the rate in
+        // brackets, which would nest inside the submenu title's own
+        // brackets.
+        let labels = charge_speed_names();
         let selected = self
             .charge_current_limit
-            .and_then(|limit| speeds.preset_row(limit));
+            .and_then(|limit| charge_speed_preset_row(speeds, limit));
         // Named by its preset where there is one, and by the current itself
         // where there isn't — a menu that can only show presets would say
         // nothing at all about a limit dialled in from the window.
@@ -307,7 +309,7 @@ impl TrayIcon {
             unlisted.as_deref(),
             labels,
             move |tray, row| {
-                if let Some(limit) = speeds.at(row) {
+                if let Some(limit) = charge_speed_at(speeds, row) {
                     tray.send(TrayEvent::SetChargeSpeed(limit));
                 }
             },
