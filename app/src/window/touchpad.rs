@@ -7,8 +7,8 @@ use frameguin_model::control::touchpad::{
     self, Snapshot, click_force_at, click_force_labels, click_force_row, haptic_at, haptic_labels,
     haptic_row,
 };
+use frameguin_wire::Bus;
 
-use crate::bus::Bus;
 use crate::window::Ui;
 use crate::window::widgets::{combo_selection, connect_combo, string_list};
 

@@ -1,5 +1,5 @@
 //! The devices, one module each: what detects it, the mirror it keeps, and
-//! the facets it offers — its control trait from `frameguin_wire`, its
+//! the facets it offers — its control trait from `frameguin_contract`, its
 //! [`crate::part::Part`], or both.
 //!
 //! A device holds only the roles it needs — a `dyn` transport, and a
@@ -26,7 +26,7 @@ pub(crate) mod wifi;
 
 use std::sync::Arc;
 
-use frameguin_wire::Board;
+use frameguin_contract::Board;
 
 use crate::device::battery::Battery;
 use crate::device::camera::Camera;

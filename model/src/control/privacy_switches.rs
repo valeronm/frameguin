@@ -2,7 +2,7 @@
 
 use std::rc::Rc;
 
-use frameguin_wire::{DeviceResult as Result, PrivacyState, PrivacySwitchesControl};
+use frameguin_contract::{DeviceResult as Result, PrivacyState, PrivacySwitchesControl};
 
 use super::present;
 
@@ -44,7 +44,7 @@ pub fn switches_summary(switches: PrivacyState) -> String {
 
 #[cfg(test)]
 mod tests {
-    use frameguin_wire::PrivacyState;
+    use frameguin_contract::PrivacyState;
 
     use super::{switch_label, switches_summary};
 

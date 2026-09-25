@@ -15,7 +15,7 @@ use std::num::NonZeroU32;
 use std::sync::{Mutex, MutexGuard, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use frameguin_wire::{self as wire, Board, DeviceError, DeviceResult, Platform};
+use frameguin_contract::{self as contract, Board, DeviceError, DeviceResult, Platform};
 use framework_lib::chromium_ec::command::{EcCommands, EcRequestRaw};
 use framework_lib::chromium_ec::commands::{
     DeckStateMode, EcRequestDeckState, EcRequestGetPdPortState, EcRequestGetUptimeInfo,
@@ -39,9 +39,9 @@ pub trait PowerLedEc: Send + Sync {
     /// The brightness percentage and the level the EC reports it as.
     /// `Custom` is what it answers after any raw percentage write, and on
     /// firmware that names no level, for a percentage no level stands for.
-    fn power_led_level(&self) -> DeviceResult<(u8, wire::PowerLedLevel)>;
+    fn power_led_level(&self) -> DeviceResult<(u8, contract::PowerLedLevel)>;
     /// Refuses `Custom` and `Off`, the two levels the EC has no setting for.
-    fn set_power_led_level(&self, level: wire::PowerLedLevel) -> DeviceResult<()>;
+    fn set_power_led_level(&self, level: contract::PowerLedLevel) -> DeviceResult<()>;
     fn set_power_led_percentage(&self, percent: u8) -> DeviceResult<()>;
     /// Whether the firmware takes a raw percentage, and with it the
     /// ultra-low level.
@@ -58,8 +58,8 @@ pub trait Pack: Send + Sync {
     /// date is a transfer to the pack, and a pack that will not give one is
     /// still a pack.
     fn identity(&self) -> Option<Identity>;
-    fn info(&self) -> Option<wire::BatteryInfo>;
-    fn condition(&self) -> Option<wire::BatteryCondition>;
+    fn info(&self) -> Option<contract::BatteryInfo>;
+    fn condition(&self) -> Option<contract::BatteryCondition>;
 }
 
 /// What the ports' device needs of the EC: how many PD controllers answered,
@@ -74,19 +74,23 @@ pub trait PdPorts: Send + Sync {
     /// None where the EC refuses the number as out of range. A second bound
     /// rather than the only one, since a board has been seen to answer past
     /// its last port instead of refusing.
-    fn port_state(&self, port: u8) -> DeviceResult<Option<wire::PortState>>;
+    fn port_state(&self, port: u8) -> DeviceResult<Option<contract::PortState>>;
     /// Read from `controller` — its (EC I2C port, 7-bit address) — over I2C
     /// passthrough.
-    fn port_registers(&self, port: u8, controller: (u8, u16)) -> DeviceResult<wire::PortRegisters>;
+    fn port_registers(
+        &self,
+        port: u8,
+        controller: (u8, u16),
+    ) -> DeviceResult<contract::PortRegisters>;
 }
 
 pub trait ChassisEc: Send + Sync {
-    fn chassis(&self) -> DeviceResult<wire::ChassisState>;
-    fn deck_state(&self) -> DeviceResult<wire::DeckState>;
+    fn chassis(&self) -> DeviceResult<contract::ChassisState>;
+    fn deck_state(&self) -> DeviceResult<contract::DeckState>;
 }
 
 pub trait PrivacyEc: Send + Sync {
-    fn privacy_switches(&self) -> DeviceResult<wire::PrivacyState>;
+    fn privacy_switches(&self) -> DeviceResult<contract::PrivacyState>;
 }
 
 /// The enables of the two indicators behind the charging LED's one id, left
@@ -104,14 +108,14 @@ pub(crate) const NO_CURRENT_LIMIT_MA: u32 = u32::MAX;
 pub trait Charger: Send + Sync {
     fn charge_limit(&self) -> DeviceResult<u8>;
     fn set_charge_limit(&self, percent: u8) -> DeviceResult<()>;
-    fn set_charge_current_limit(&self, limit: wire::ChargeCurrentLimit) -> DeviceResult<()>;
+    fn set_charge_current_limit(&self, limit: contract::ChargeCurrentLimit) -> DeviceResult<()>;
     /// Whether the firmware implements the current cap at all, there being
     /// no readback to probe it by.
     fn charge_current_limit_supported(&self) -> bool;
     /// Whether the cap ends when the host sleeps or shuts down, rather than
     /// only with the EC.
     fn current_limit_lifted_on_sleep(&self) -> bool;
-    fn extender(&self) -> DeviceResult<wire::ExtenderState>;
+    fn extender(&self) -> DeviceResult<contract::ExtenderState>;
 }
 
 /// An EC failure as a device raises it.
@@ -308,7 +312,7 @@ impl Ec {
 }
 
 impl PowerLedEc for Ec {
-    fn power_led_level(&self) -> DeviceResult<(u8, wire::PowerLedLevel)> {
+    fn power_led_level(&self) -> DeviceResult<(u8, contract::PowerLedLevel)> {
         if !keeps_power_led_level(self.platform) {
             return Err(DeviceError::NotSupported(
                 "the EC keeps no power LED level".into(),
@@ -318,7 +322,7 @@ impl PowerLedEc for Ec {
         Ok((percent, wire_power_led_level(level.as_ref(), percent)))
     }
 
-    fn set_power_led_level(&self, level: wire::PowerLedLevel) -> DeviceResult<()> {
+    fn set_power_led_level(&self, level: contract::PowerLedLevel) -> DeviceResult<()> {
         let Some(level) = ec_power_led_level(level) else {
             return Err(DeviceError::InvalidArgs(format!(
                 "{level:?} is not a level the EC takes"
@@ -351,7 +355,7 @@ impl PdPorts for Ec {
         u8::try_from(self.pd_versions().len()).unwrap_or(u8::MAX)
     }
 
-    fn port_state(&self, port: u8) -> DeviceResult<Option<wire::PortState>> {
+    fn port_state(&self, port: u8) -> DeviceResult<Option<contract::PortState>> {
         let request = EcRequestGetPdPortState { port };
         match request.send_command(&self.ec()) {
             Ok(raw) => Ok(Some(pd::port_state(port, &raw))),
@@ -366,7 +370,7 @@ impl PdPorts for Ec {
         &self,
         port: u8,
         (bus, address): (u8, u16),
-    ) -> DeviceResult<wire::PortRegisters> {
+    ) -> DeviceResult<contract::PortRegisters> {
         let span = i2c_block(
             &self.ec(),
             bus,
@@ -380,9 +384,9 @@ impl PdPorts for Ec {
 impl ChassisEc for Ec {
     /// `get_intrusion_status` sends the intrusion command with both clear
     /// bytes zero, the one form of it that only reads.
-    fn chassis(&self) -> DeviceResult<wire::ChassisState> {
+    fn chassis(&self) -> DeviceResult<contract::ChassisState> {
         let status = self.ec().get_intrusion_status().map_err(device_error)?;
-        Ok(wire::ChassisState {
+        Ok(contract::ChassisState {
             open: status.currently_open,
             opened: status.total_opened,
             found_open: status.vtr_open_count,
@@ -391,7 +395,7 @@ impl ChassisEc for Ec {
 
     /// Any mode but `ReadOnly` sets the deck's detection mode, and forcing it
     /// off cuts the deck's power.
-    fn deck_state(&self) -> DeviceResult<wire::DeckState> {
+    fn deck_state(&self) -> DeviceResult<contract::DeckState> {
         let request = EcRequestDeckState {
             mode: DeckStateMode::ReadOnly,
         };
@@ -403,9 +407,9 @@ impl ChassisEc for Ec {
 }
 
 impl PrivacyEc for Ec {
-    fn privacy_switches(&self) -> DeviceResult<wire::PrivacyState> {
+    fn privacy_switches(&self) -> DeviceResult<contract::PrivacyState> {
         let (microphone, camera) = self.ec().get_privacy_info().map_err(device_error)?;
-        Ok(wire::PrivacyState { camera, microphone })
+        Ok(contract::PrivacyState { camera, microphone })
     }
 }
 
@@ -441,10 +445,10 @@ impl Pack for Ec {
 
     /// One walk, so the reading it carries is that walk's rather than a
     /// second one taken a moment later.
-    fn info(&self) -> Option<wire::BatteryInfo> {
+    fn info(&self) -> Option<contract::BatteryInfo> {
         let info = self.power()?;
         let battery = info.battery.as_ref()?;
-        Some(wire::BatteryInfo {
+        Some(contract::BatteryInfo {
             state: wire_battery_state(&info, battery),
             remaining_capacity: battery.remaining_capacity,
             last_full_capacity: battery.last_full_charge_capacity,
@@ -464,12 +468,12 @@ impl Pack for Ec {
     /// the alarms, and all of these move, so they are read afresh — a
     /// transfer per cell plus two, which is why only a caller showing them
     /// asks.
-    fn condition(&self) -> Option<wire::BatteryCondition> {
+    fn condition(&self) -> Option<contract::BatteryCondition> {
         let cells: Vec<u16> = sbs::CELL_VOLTAGES
             .iter()
             .map(|register| self.sb_word(*register))
             .collect::<Option<_>>()?;
-        Some(wire::BatteryCondition {
+        Some(contract::BatteryCondition {
             cell_millivolts: sbs::cell_millivolts(&cells),
             alarms: sbs::alarms(self.sb_word(sbs::BATTERY_STATUS)?),
             decicelsius: sbs::decicelsius(self.sb_word(sbs::TEMPERATURE)?),
@@ -492,7 +496,7 @@ impl Charger for Ec {
     /// Always the unconditional form. The command's state-of-charge variant
     /// latches inside the EC: once applied it is never re-evaluated, so a
     /// later threshold cannot lift it (framework-system issue #342).
-    fn set_charge_current_limit(&self, limit: wire::ChargeCurrentLimit) -> DeviceResult<()> {
+    fn set_charge_current_limit(&self, limit: contract::ChargeCurrentLimit) -> DeviceResult<()> {
         let milliamps = limit
             .milliamps()
             .map_or(NO_CURRENT_LIMIT_MA, NonZeroU32::get);
@@ -512,7 +516,7 @@ impl Charger for Ec {
         lifts_current_limit_on_sleep(self.platform)
     }
 
-    fn extender(&self) -> DeviceResult<wire::ExtenderState> {
+    fn extender(&self) -> DeviceResult<contract::ExtenderState> {
         let raw = self
             .ec()
             .send_command(extender::COMMAND, 0, &extender::READ_REQUEST)
@@ -619,14 +623,14 @@ fn uptime_secs(ec: &CrosEc) -> EcResult<u64> {
 
 /// None for the levels the EC has no setting for: `Custom`, which it only
 /// ever reports, and `Off`, which is not the EC's to give.
-fn ec_power_led_level(level: wire::PowerLedLevel) -> Option<FpLedBrightnessLevel> {
+fn ec_power_led_level(level: contract::PowerLedLevel) -> Option<FpLedBrightnessLevel> {
     Some(match level {
-        wire::PowerLedLevel::High => FpLedBrightnessLevel::High,
-        wire::PowerLedLevel::Medium => FpLedBrightnessLevel::Medium,
-        wire::PowerLedLevel::Low => FpLedBrightnessLevel::Low,
-        wire::PowerLedLevel::UltraLow => FpLedBrightnessLevel::UltraLow,
-        wire::PowerLedLevel::Auto => FpLedBrightnessLevel::Auto,
-        wire::PowerLedLevel::Custom | wire::PowerLedLevel::Off => return None,
+        contract::PowerLedLevel::High => FpLedBrightnessLevel::High,
+        contract::PowerLedLevel::Medium => FpLedBrightnessLevel::Medium,
+        contract::PowerLedLevel::Low => FpLedBrightnessLevel::Low,
+        contract::PowerLedLevel::UltraLow => FpLedBrightnessLevel::UltraLow,
+        contract::PowerLedLevel::Auto => FpLedBrightnessLevel::Auto,
+        contract::PowerLedLevel::Custom | contract::PowerLedLevel::Off => return None,
     })
 }
 
@@ -639,46 +643,49 @@ const POWER_LED_LOW: u8 = 15;
 /// named none. Firmware that names none stores only these three or a zero
 /// meaning the level was never set, so the deduction is exhaustive over what
 /// such a board holds and the zero is the one reading left custom.
-fn wire_power_led_level(level: Option<&FpLedBrightnessLevel>, percent: u8) -> wire::PowerLedLevel {
+fn wire_power_led_level(
+    level: Option<&FpLedBrightnessLevel>,
+    percent: u8,
+) -> contract::PowerLedLevel {
     match level {
-        Some(FpLedBrightnessLevel::High) => wire::PowerLedLevel::High,
-        Some(FpLedBrightnessLevel::Medium) => wire::PowerLedLevel::Medium,
-        Some(FpLedBrightnessLevel::Low) => wire::PowerLedLevel::Low,
-        Some(FpLedBrightnessLevel::UltraLow) => wire::PowerLedLevel::UltraLow,
-        Some(FpLedBrightnessLevel::Auto) => wire::PowerLedLevel::Auto,
-        Some(FpLedBrightnessLevel::Custom) => wire::PowerLedLevel::Custom,
+        Some(FpLedBrightnessLevel::High) => contract::PowerLedLevel::High,
+        Some(FpLedBrightnessLevel::Medium) => contract::PowerLedLevel::Medium,
+        Some(FpLedBrightnessLevel::Low) => contract::PowerLedLevel::Low,
+        Some(FpLedBrightnessLevel::UltraLow) => contract::PowerLedLevel::UltraLow,
+        Some(FpLedBrightnessLevel::Auto) => contract::PowerLedLevel::Auto,
+        Some(FpLedBrightnessLevel::Custom) => contract::PowerLedLevel::Custom,
         None => match percent {
-            POWER_LED_HIGH => wire::PowerLedLevel::High,
-            POWER_LED_MEDIUM => wire::PowerLedLevel::Medium,
-            POWER_LED_LOW => wire::PowerLedLevel::Low,
-            _ => wire::PowerLedLevel::Custom,
+            POWER_LED_HIGH => contract::PowerLedLevel::High,
+            POWER_LED_MEDIUM => contract::PowerLedLevel::Medium,
+            POWER_LED_LOW => contract::PowerLedLevel::Low,
+            _ => contract::PowerLedLevel::Custom,
         },
     }
 }
 
 /// Not `framework_lib`'s `InputDeckState`, whose conversion panics on a state
 /// it does not know.
-fn wire_deck_state(raw: u8) -> Option<wire::DeckState> {
+fn wire_deck_state(raw: u8) -> Option<contract::DeckState> {
     Some(match raw {
-        0 => wire::DeckState::Off,
-        1 => wire::DeckState::Disconnected,
-        2 => wire::DeckState::TurningOn,
-        3 => wire::DeckState::On,
-        4 => wire::DeckState::ForceOff,
-        5 => wire::DeckState::ForceOn,
-        6 => wire::DeckState::NoDetection,
+        0 => contract::DeckState::Off,
+        1 => contract::DeckState::Disconnected,
+        2 => contract::DeckState::TurningOn,
+        3 => contract::DeckState::On,
+        4 => contract::DeckState::ForceOff,
+        5 => contract::DeckState::ForceOn,
+        6 => contract::DeckState::NoDetection,
         _ => return None,
     })
 }
 
-/// The moving part of the battery block in the wire's terms, taken from a
+/// The moving part of the battery block in the contract's terms, taken from a
 /// block the caller already holds rather than read for itself — so a report
 /// and the reading inside it come from one walk.
 fn wire_battery_state(
     info: &power::PowerInfo,
     battery: &power::BatteryInformation,
-) -> wire::BatteryState {
-    wire::BatteryState {
+) -> contract::BatteryState {
+    contract::BatteryState {
         percent: charge_percent(
             battery.remaining_capacity,
             battery.last_full_charge_capacity,
@@ -744,29 +751,29 @@ fn charge_flow(
         ac_present,
         milliamps,
     }: ChargeSignals,
-) -> wire::ChargeFlow {
+) -> contract::ChargeFlow {
     let draining = discharging && milliamps > 0;
     if charging {
-        wire::ChargeFlow::Charging
+        contract::ChargeFlow::Charging
     } else if ac_present && !draining {
-        wire::ChargeFlow::Idle
+        contract::ChargeFlow::Idle
     } else {
-        wire::ChargeFlow::Discharging
+        contract::ChargeFlow::Discharging
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        ChargeSignals, charge_flow, charge_percent, div_round_closest, ec_power_led_level, wire,
-        wire_deck_state, wire_power_led_level,
+        ChargeSignals, charge_flow, charge_percent, contract, div_round_closest,
+        ec_power_led_level, wire_deck_state, wire_power_led_level,
     };
 
     #[test]
     fn every_deck_state_the_firmware_defines_is_named_and_no_other() {
-        assert_eq!(wire_deck_state(3), Some(wire::DeckState::On));
-        assert_eq!(wire_deck_state(5), Some(wire::DeckState::ForceOn));
-        assert_eq!(wire_deck_state(6), Some(wire::DeckState::NoDetection));
+        assert_eq!(wire_deck_state(3), Some(contract::DeckState::On));
+        assert_eq!(wire_deck_state(5), Some(contract::DeckState::ForceOn));
+        assert_eq!(wire_deck_state(6), Some(contract::DeckState::NoDetection));
         assert_eq!(wire_deck_state(7), None);
     }
 
@@ -786,7 +793,7 @@ mod tests {
     /// alone would compile, and would report back a level nobody set.
     #[test]
     fn every_level_the_ec_has_a_setting_for_comes_back_as_itself() {
-        for level in wire::PowerLedLevel::ALL {
+        for level in contract::PowerLedLevel::ALL {
             if let Some(ec_level) = ec_power_led_level(level) {
                 assert_eq!(wire_power_led_level(Some(&ec_level), 0), level);
             }
@@ -800,10 +807,10 @@ mod tests {
     #[test]
     fn only_the_three_percentages_a_level_stands_for_are_named() {
         let named = |percent| wire_power_led_level(None, percent);
-        assert_eq!(named(55), wire::PowerLedLevel::High);
-        assert_eq!(named(40), wire::PowerLedLevel::Medium);
-        assert_eq!(named(15), wire::PowerLedLevel::Low);
-        assert_eq!(named(0), wire::PowerLedLevel::Custom);
+        assert_eq!(named(55), contract::PowerLedLevel::High);
+        assert_eq!(named(40), contract::PowerLedLevel::Medium);
+        assert_eq!(named(15), contract::PowerLedLevel::Low);
+        assert_eq!(named(0), contract::PowerLedLevel::Custom);
     }
 
     /// The state a full laptop sits in all day, and the one the EC's own
@@ -815,7 +822,7 @@ mod tests {
             discharging: true,
             ..at_the_ceiling()
         };
-        assert_eq!(charge_flow(full), wire::ChargeFlow::Idle);
+        assert_eq!(charge_flow(full), contract::ChargeFlow::Idle);
     }
 
     /// The decaying window the function's own doc describes: 303 mA is well
@@ -826,7 +833,7 @@ mod tests {
             milliamps: 303,
             ..at_the_ceiling()
         };
-        assert_eq!(charge_flow(decaying), wire::ChargeFlow::Idle);
+        assert_eq!(charge_flow(decaying), contract::ChargeFlow::Idle);
     }
 
     /// A charger too weak for the load leaves the pack covering the
@@ -838,7 +845,7 @@ mod tests {
             milliamps: 900,
             ..at_the_ceiling()
         };
-        assert_eq!(charge_flow(weak), wire::ChargeFlow::Discharging);
+        assert_eq!(charge_flow(weak), contract::ChargeFlow::Discharging);
     }
 
     #[test]
@@ -848,7 +855,7 @@ mod tests {
             milliamps: 1400,
             ..ChargeSignals::default()
         };
-        assert_eq!(charge_flow(unplugged), wire::ChargeFlow::Discharging);
+        assert_eq!(charge_flow(unplugged), contract::ChargeFlow::Discharging);
         // Between two readings a pack can report no rate at all; with no
         // charger it is still the only thing powering the machine.
         let unplugged_at_rest = ChargeSignals {
@@ -857,7 +864,7 @@ mod tests {
         };
         assert_eq!(
             charge_flow(unplugged_at_rest),
-            wire::ChargeFlow::Discharging
+            contract::ChargeFlow::Discharging
         );
         // The limiter's own state cannot arise off a charger, but a pack with
         // nothing attached is running the machine whatever the flags say.
@@ -867,7 +874,7 @@ mod tests {
         };
         assert_eq!(
             charge_flow(unplugged_unflagged),
-            wire::ChargeFlow::Discharging
+            contract::ChargeFlow::Discharging
         );
     }
 
@@ -880,7 +887,7 @@ mod tests {
             ac_present: true,
             milliamps: 2320,
         };
-        assert_eq!(charge_flow(charging), wire::ChargeFlow::Charging);
+        assert_eq!(charge_flow(charging), contract::ChargeFlow::Charging);
     }
 
     #[test]

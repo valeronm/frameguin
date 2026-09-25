@@ -3,7 +3,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use frameguin_wire::DeviceResult;
+use frameguin_contract::DeviceResult;
 
 use crate::lifetime::{Evidence, Holders, Lifetime};
 use crate::restore::{Restore, Wanted};

@@ -5,10 +5,9 @@
 use std::rc::Rc;
 
 use async_lock::OnceCell;
+use frameguin_contract::{Board, DeviceResult};
 use frameguin_model::control::Controls;
-use frameguin_wire::{Board, DeviceResult};
-
-use crate::bus::Bus;
+use frameguin_wire::{Bus, device_error};
 
 #[derive(Clone)]
 pub(crate) struct Detected {
@@ -25,10 +24,10 @@ pub(crate) struct Daemon {
 impl Daemon {
     /// The one connection, dialled on first use: a session that only ever
     /// shows the tray opens none.
-    pub(crate) async fn bus(&self) -> zbus::Result<Rc<Bus>> {
+    pub(crate) async fn bus(&self) -> DeviceResult<Rc<Bus>> {
         // The tray and the window both ask at startup.
         self.bus
-            .get_or_try_init(async || Ok(Rc::new(Bus::connect().await?)))
+            .get_or_try_init(async || Ok(Rc::new(Bus::connect().await.map_err(device_error)?)))
             .await
             .cloned()
     }
@@ -46,7 +45,7 @@ impl Daemon {
         self.detected
             .get_or_try_init(async || {
                 let bus = self.bus().await?;
-                let board = Rc::new(bus.frameguin.get_board().await?);
+                let board = Rc::new(bus.frameguin.get_board().await.map_err(device_error)?);
                 let controls = Rc::new(Controls::detect(&bus, board.platform()).await?);
                 Ok(Detected { controls, board })
             })

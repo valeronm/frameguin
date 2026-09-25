@@ -5,7 +5,6 @@
 
 mod about;
 mod autostart;
-mod bus;
 mod daemon;
 mod failure;
 mod mapped;

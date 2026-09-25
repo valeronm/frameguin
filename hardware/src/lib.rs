@@ -2,7 +2,7 @@
 //! of them, and the devices over those roles.
 //!
 //! A device is a thing detection finds on the machine. What it offers is
-//! said by the traits it implements: a control trait from `frameguin_wire`
+//! said by the traits it implements: a control trait from `frameguin_contract`
 //! where it can be read and set, [`part::Part`] where it is something a
 //! person bought. This crate is the one implementation of the control
 //! traits that touches the machine. The daemon serves it over the bus; the

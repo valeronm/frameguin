@@ -24,7 +24,7 @@ One meaning per word, and each word names one place in the tree.
   a `Vec<Identity>`. A device that is a part and no control detects into a
   list, memory being one per slot.
 - **Control** — the facet "something that can be read, and usually set": one
-  trait per device in `wire` — `BatteryControl`, `TouchpadControl`,
+  trait per device in `contract` — `BatteryControl`, `TouchpadControl`,
   `TouchscreenControl`, `PowerLedControl`, `ChargingLedControl`, `PortsControl`,
   `ChassisControl`, `PrivacySwitchesControl`, `UsbControl` — with one async fn per
   operation and three implementations, the device itself, the bus, and a
@@ -33,23 +33,23 @@ One meaning per word, and each word names one place in the tree.
   its controller and whatever is plugged in. `DeviceError` is the one error every control and every
   detection raises.
 - **Board** — what the firmware reports about the machine, vendor and
-  product, beside the `Platform` those two settle: `wire::Board`, answered by
+  product, beside the `Platform` those two settle: `contract::Board`, answered by
   the root interface.
 - **Platform** — which Framework board this is, as one enum variant:
-  `wire::Platform`. The DMI product strings behind it are matched in
+  `contract::Platform`. The DMI product strings behind it are matched in
   `hardware/src/dmi.rs` and go no further, so every table keyed on a board —
   the port layout, the mainboard's catalogue entry, the touchscreen's pad —
   keys on the variant rather than on a string. `Platform::Unknown` covers a
   machine that is not this hardware and a board newer than the build alike,
   which is why the vendor, not the platform, answers whether this is
   Framework hardware.
-- **Series** — the machine a board is a generation of: `wire::Series`,
+- **Series** — the machine a board is a generation of: `contract::Series`,
   derived from a `Platform` and never carried over the bus.
 - **Interface** — the D-Bus surface for one device's control, on
   `Served<Device>`. `daemon/src/interface/<name>.rs`. The root interface,
   for what belongs to no device, is `Daemon`'s own.
-- **Bus** — the app's implementation of every control trait, each operation
-  a call on the daemon. `app/src/bus.rs`, `Bus`.
+- **Bus** — the implementation of every control trait over the daemon's
+  interfaces, each operation a call on the daemon. `wire/src/bus.rs`, `Bus`.
 - **Daemon**, on the app side — its end of the daemon: the connection, the
   controls detection registered and the board it runs on, dialled and asked
   once for the run.
@@ -64,7 +64,7 @@ real thing, and `GetDevices` is the inventory of devices as parts.
 
 ## One interface, three implementations
 
-`wire` declares one control trait per device — `TouchpadControl`, and the
+`contract` declares one control trait per device — `TouchpadControl`, and the
 rest as they move — with one async fn per operation, and one error,
 `DeviceError`, whose variants are the kinds a D-Bus error comes in plus the
 two only the bus raises: `Absent` and `Unreachable`. Everything that talks to a control talks through those traits, and
@@ -74,7 +74,7 @@ there are three implementations:
   libraries. Its `device::<name>` types implement the traits by touching the
   machine, argument checks included, so a caller linking the crate gets the
   same refusals the bus would give.
-- **Bus** — the app's `Bus`, implementing every trait by calling the daemon,
+- **Bus** — `wire`'s `Bus`, implementing every trait by calling the daemon,
   which runs the device.
 - **Stub** — a test's, answering on the spot.
 
@@ -122,10 +122,10 @@ the chassis, is a row on the Chassis page.
 | Layer | Crate | Links | Owns | Must not know | Tested against |
 |---|---|---|---|---|---|
 | Groups, tray | `app` | GTK, libadwaita, ksni, `model` | Widgets, toasts, the sync guard, timers, the tray thread's copy of each value | Which daemon operation a command becomes; any preset's value | Kept thin; the widgets not at all, a pure function beside them in place |
-| Client controls | `model` | `wire` | One object per control: its read, its commands, its presets and words — and, beside them, the words no one control owns, which are here because more than one view spells them and because this is the layer a test can reach | GTK, the bus, another control's trait | A stub of the control trait |
-| Control traits | `wire` | zbus, serde | One trait per device, one async fn per operation; `DeviceError` | How an operation is reached | — |
-| Bus | `wire`, `app`, `daemon` | zbus, polkit | One proxy per interface and the vocabularies (`wire`); `Bus` implementing the traits over them (`app`); `Served<Device>`, authorizing every write attempt before anything else (`daemon`) | Anything that touches hardware (`wire`, `app`); which EC command a role sends (`daemon`) | Its own `wire` proxies over a socket pair, the devices on the same stubs |
-| Devices | `hardware` | `wire` | `detect()`, the control impl with its argument checks and skips, the `Part` impl, mirrors under a declared lifetime, arbitrations | The bus, polkit | The stub per role and the store in memory, in `hardware::testing` |
+| Client controls | `model` | `contract` | One object per control: its read, its commands, its presets and words — and, beside them, the words no one control owns, which are here because more than one view spells them and because this is the layer a test can reach | GTK, the bus, another control's trait | A stub of the control trait |
+| Control traits | `contract` | serde, zvariant | One trait per device, one async fn per operation; the values they carry and the encoding those cross the bus in; `DeviceError` | How an operation is reached; the bus | Its own encodings, round-tripped |
+| Bus | `wire`, `daemon` | zbus, polkit | One proxy per interface, `Bus` implementing the traits over them, and how `DeviceError` crosses (`wire`); `Served<Device>`, authorizing every write attempt before anything else (`daemon`) | Anything that touches hardware (`wire`); which EC command a role sends (`daemon`) | Its own `wire` proxies over a socket pair, the devices on the same stubs |
+| Devices | `hardware` | `contract` | `detect()`, the control impl with its argument checks and skips, the `Part` impl, mirrors under a declared lifetime, arbitrations | The bus, polkit | The stub per role and the store in memory, in `hardware::testing` |
 | Roles | `hardware` | — | One trait per hardware need: `Charger`, `Pack`, `PowerLedEc`, `LedClass`, `SideEnables`, `HapticPad`, `TouchSwitch`, `PdPorts`, `ChassisEc`, `PrivacyEc`, `Store`, `UsbTree` | Who calls them | — |
 | Transports | `hardware` | `framework_lib`, hidapi, libc | `Ec` and its lock, the sysfs LED node, the GPIO pad, the panel and touchpad HID, the SMBIOS table, the state file, the sysfs USB tree, the net and SCSI classes | Devices, policy, the bus | The machine |
 
@@ -152,14 +152,15 @@ snapshot's movement under a refused write on the app's.
   `#[interface(name = "io.github.valeronm.Frameguin1.<Name>")]` impl on
   `Served<Device>`, forwarding through the control trait with the bus's
   order around it.
-- **`wire`** — `<Name>Control`, `<Name>Proxy` for that interface, and the
-  vocabulary its values travel in, beside the strings both binaries must
-  spell alike.
+- **`contract`** — `<Name>Control` and the vocabulary its values travel in,
+  beside the strings both binaries must spell alike.
+- **`wire`** — `<Name>Proxy` for that interface, and `Bus` answering
+  `<Name>Control` through it.
 - **`model/src/control/<name>.rs`**, or `<name>/` where the words outgrow
   one file — `<Name><H: <Name>Control>` holding an
   `Rc<H>`; `detect()` by its features where its interface carries them, and
   otherwise by its own first read; a `read()` answering what the
-  device reports — the `wire` type it travels in, or a `Snapshot` of its own
+  device reports — the `contract` type it travels in, or a `Snapshot` of its own
   where the settings read together are plain values (`Copy`, `Send`, so the
   tray can hold one where it shows the control); commands that call the
   hardware; the presets, rows and labels the front-ends showing it draw
@@ -194,8 +195,8 @@ that, which is why it cannot live in the app.
 
 ### The app's side
 
-The app implements every control trait once, over the bus, on one
-connection dialled once per run. A client control is one object shared by
+The app takes every control trait from `wire`'s `Bus`, on one connection
+dialled once per run. A client control is one object shared by
 every window and the tray, and the pack's reading is taken once and fed to
 every view showing it — a window and a report showing one pack must show one
 reading. A command returns what happened, and one place in the window turns
@@ -203,9 +204,9 @@ that into a toast, a push to the tray and a move of the group; the tray
 holds an `Option` per value in `TrayValues` and merges value-wise, a push
 carrying only what the write moved.
 
-`model` links neither GTK nor a bus connection, and Cargo enforces it — the
-tray draws from it on ksni's own thread, and it is the one no-GTK rule here
-the compiler checks. It is single-threaded by design: `Rc`, `Cell`,
+`model` links neither GTK nor the bus — only `contract`, which reaches no
+D-Bus — and Cargo enforces it: the tray draws from it on ksni's own thread,
+and it is the one no-GTK rule here the compiler checks. It is single-threaded by design: `Rc`, `Cell`,
 `async fn` in traits without `Send`, because the app has one thread and a
 stub answers on the spot.
 
@@ -230,7 +231,7 @@ number, serial, the identifier it announces itself by, prefixed with its space
 firmware it would report, and whatever else it announced as typed details
 — a capacity in bytes, a resolution in pixels, a speed in MT/s — because its caller iterates the
 machine's bill of materials without caring what any entry does. `Identity`
-lives in `wire`, being what that caller receives: the daemon collects one
+lives in `contract`, being what that caller receives: the daemon collects one
 per part at startup, `GetDevices` answers with the list, and the app's parts
 window draws it with the words `model::part` gives. Those words include
 every detail, label and value alike, and every firmware's name, so `hardware` sends numbers
@@ -263,8 +264,9 @@ detection saw, not the word.
 
 ## Adding a control
 
-One edit per row: a variant or method in `wire`, and for a new interface
-its proxy in `wire::Proxies`; the device module in `hardware`, or a method
+One edit per row: a variant or method in `contract`, and for a new
+interface its proxy in `wire::Proxies` and its trait in `wire::Bus`; the
+device module in `hardware`, or a method
 in one that exists, with a stub in `hardware::testing` for any role it
 adds; its interface in the daemon, and its field in `device::Devices` with
 the line in `device::detect()` that fills it, which is what puts it on the

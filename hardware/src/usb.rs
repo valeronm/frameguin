@@ -4,7 +4,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use frameguin_wire::{Attached, DeviceError, DeviceResult, NetworkLink, UsbSpeed};
+use frameguin_contract::{Attached, DeviceError, DeviceResult, NetworkLink, UsbSpeed};
 
 use crate::{ccg3, net, scsi};
 
@@ -236,7 +236,7 @@ fn hex(text: &str) -> Option<u16> {
 
 #[cfg(test)]
 mod tests {
-    use frameguin_wire::UsbSpeed;
+    use frameguin_contract::UsbSpeed;
 
     use super::{hex, release, root_port, speed};
 

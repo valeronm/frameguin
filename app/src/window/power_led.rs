@@ -4,12 +4,12 @@
 use std::rc::Rc;
 
 use adw::prelude::*;
+use frameguin_contract::PowerLedLevel;
 use frameguin_model::control::Custom;
 use frameguin_model::control::power_led::{self, MIN_POWER_LED_BRIGHTNESS, Snapshot, labels};
-use frameguin_wire::PowerLedLevel;
+use frameguin_wire::Bus;
 use gtk4 as gtk;
 
-use crate::bus::Bus;
 use crate::window::Ui;
 use crate::window::widgets::{
     SliderWrites, build_scale, connect_combo, connect_slider_writes, reveal_under, scale_percent,

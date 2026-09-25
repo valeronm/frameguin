@@ -1,0 +1,15 @@
+[package]
+name = "frameguin-contract"
+version.workspace = true
+edition = "2024"
+license = "MIT"
+
+[lints]
+workspace = true
+
+# Neither the bus nor the hardware belongs here: every crate links this one,
+# the root process's hardware crate and the app's model among them. zvariant
+# is the encoding the types carry, not a connection.
+[dependencies]
+serde = { workspace = true }
+zvariant = { workspace = true }

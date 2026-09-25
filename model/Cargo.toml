@@ -10,7 +10,6 @@ workspace = true
 # Neither GTK nor a bus connection belongs here: the tray draws from this
 # crate on ksni's own thread, a device is exercised in tests against a stub
 # of its hardware trait, and the daemon links it into the root process for
-# the words it logs a part in. What `wire` brings in transitively is types,
-# not a connection.
+# the words it logs a part in.
 [dependencies]
-frameguin-wire = { workspace = true }
+frameguin-contract = { workspace = true }

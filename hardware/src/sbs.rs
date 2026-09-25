@@ -2,7 +2,7 @@
 //! and what their words mean. No EC call is made here: [`crate::ec`] reads
 //! the word, this decodes it.
 
-use frameguin_wire as wire;
+use frameguin_contract as contract;
 
 /// The gauge's address on the pack's bus, the same on every Framework board
 /// — one gauge IC — and the 7-bit form of the 8-bit 0x16 the datasheet
@@ -49,31 +49,31 @@ pub(crate) const TEMPERATURE: u16 = 0x08;
 const FREEZING_DECIKELVIN: i32 = 2732;
 
 /// Which bit of the status word raises which alarm. Only the two that mean a
-/// fault — [`wire::BatteryAlarm`] carries why the word's other set bits do
+/// fault — [`contract::BatteryAlarm`] carries why the word's other set bits do
 /// not, and every one of them is raised by a pack working exactly as it
 /// should.
-const ALARM_BITS: [(u16, wire::BatteryAlarm); 2] = [
-    (1 << 15, wire::BatteryAlarm::OverCharged),
-    (1 << 12, wire::BatteryAlarm::OverTemperature),
+const ALARM_BITS: [(u16, contract::BatteryAlarm); 2] = [
+    (1 << 15, contract::BatteryAlarm::OverCharged),
+    (1 << 12, contract::BatteryAlarm::OverTemperature),
 ];
 
 /// The pack asking that charging stop, and that discharging stop. Absent from
 /// the table above because neither means anything alone — the gauge raises
 /// each at the ordinary end of its direction — and present here because
-/// together they cannot be ordinary at all. See [`wire::BatteryAlarm`].
+/// together they cannot be ordinary at all. See [`contract::BatteryAlarm`].
 const TERMINATE_CHARGE: u16 = 1 << 14;
 const TERMINATE_DISCHARGE: u16 = 1 << 11;
 
 /// The alarms a status word is raising, by name. A word raising none — the
 /// ordinary case — gives an empty list rather than a state of its own.
-pub(crate) fn alarms(status: u16) -> Vec<wire::BatteryAlarm> {
-    let mut raised: Vec<wire::BatteryAlarm> = ALARM_BITS
+pub(crate) fn alarms(status: u16) -> Vec<contract::BatteryAlarm> {
+    let mut raised: Vec<contract::BatteryAlarm> = ALARM_BITS
         .iter()
         .filter(|(bit, _)| status & bit != 0)
         .map(|(_, alarm)| *alarm)
         .collect();
     if status & TERMINATE_CHARGE != 0 && status & TERMINATE_DISCHARGE != 0 {
-        raised.push(wire::BatteryAlarm::SafetyFault);
+        raised.push(contract::BatteryAlarm::SafetyFault);
     }
     raised
 }
@@ -103,8 +103,8 @@ pub(crate) fn decicelsius(decikelvin: u16) -> i16 {
 #[cfg(test)]
 mod tests {
     use super::{
-        TERMINATE_CHARGE, TERMINATE_DISCHARGE, alarms, cell_millivolts, decicelsius,
-        manufactured_iso, wire,
+        TERMINATE_CHARGE, TERMINATE_DISCHARGE, alarms, cell_millivolts, contract, decicelsius,
+        manufactured_iso,
     };
 
     /// The reading `framework_tool` prints as 34.2 C for the same word.
@@ -155,8 +155,11 @@ mod tests {
 
     #[test]
     fn each_alarm_bit_is_named() {
-        assert_eq!(alarms(1 << 15), vec![wire::BatteryAlarm::OverCharged]);
-        assert_eq!(alarms(1 << 12), vec![wire::BatteryAlarm::OverTemperature]);
+        assert_eq!(alarms(1 << 15), vec![contract::BatteryAlarm::OverCharged]);
+        assert_eq!(
+            alarms(1 << 12),
+            vec![contract::BatteryAlarm::OverTemperature]
+        );
     }
 
     /// The bits a healthy pack sets in the course of its work: full, empty,
@@ -176,9 +179,12 @@ mod tests {
     #[test]
     fn asking_to_stop_both_ways_at_once_is_a_fault() {
         let both = TERMINATE_CHARGE | TERMINATE_DISCHARGE;
-        assert_eq!(alarms(both), vec![wire::BatteryAlarm::SafetyFault]);
+        assert_eq!(alarms(both), vec![contract::BatteryAlarm::SafetyFault]);
         // And still a fault beside the state bits a pack sets while it holds.
-        assert_eq!(alarms(both | 0x00c0), vec![wire::BatteryAlarm::SafetyFault]);
+        assert_eq!(
+            alarms(both | 0x00c0),
+            vec![contract::BatteryAlarm::SafetyFault]
+        );
     }
 
     /// Alarms are a set, not a state: a pack in trouble raises several at
@@ -189,8 +195,8 @@ mod tests {
         assert_eq!(
             alarms(status),
             vec![
-                wire::BatteryAlarm::OverCharged,
-                wire::BatteryAlarm::OverTemperature
+                contract::BatteryAlarm::OverCharged,
+                contract::BatteryAlarm::OverTemperature
             ]
         );
     }

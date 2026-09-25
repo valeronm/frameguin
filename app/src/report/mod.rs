@@ -19,7 +19,7 @@ use adw::prelude::*;
 use gtk4 as gtk;
 use gtk4::gio;
 
-use frameguin_wire::DeviceError;
+use frameguin_contract::DeviceError;
 
 use crate::daemon::Daemon;
 use crate::failure;

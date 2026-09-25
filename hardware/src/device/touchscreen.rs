@@ -1,7 +1,7 @@
 //! The touch panel: one switch, and the mirror that answers for it on the
 //! route that keeps no account of its own.
 
-use frameguin_wire::{Board, DeviceResult, TouchscreenControl};
+use frameguin_contract::{Board, DeviceResult, TouchscreenControl};
 
 use crate::lifetime::Lifetime;
 use crate::mirror::{Mirror, Mirrors};
@@ -96,7 +96,7 @@ impl TouchscreenControl for Touchscreen {
 mod tests {
     use std::sync::{Arc, Mutex};
 
-    use frameguin_wire::TouchscreenControl;
+    use frameguin_contract::TouchscreenControl;
 
     use super::{KEY_OFF, Restorable, Touchscreen};
     use crate::mirror::evidence_key;

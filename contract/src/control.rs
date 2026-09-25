@@ -1,7 +1,7 @@
 //! One trait per device, one async fn per operation: what a device asks of
 //! the hardware, and what three implementations answer — `frameguin_hardware`'s
-//! device, which touches the machine; the app's, which calls the daemon over
-//! the bus; and a test's stub. A device holds only its own trait, so a stub
+//! device, which touches the machine; `frameguin_wire`'s `Bus`, which calls
+//! the daemon over the bus; and a test's stub. A device holds only its own trait, so a stub
 //! implements one and a device cannot reach past its column.
 //!
 //! `async` for the bus, where every call is; the direct implementation never

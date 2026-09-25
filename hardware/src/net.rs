@@ -3,7 +3,7 @@
 use std::fs;
 use std::path::Path;
 
-use frameguin_wire::{LinkState, NetworkLink};
+use frameguin_contract::{LinkState, NetworkLink};
 
 pub(crate) fn link(interface: &Path) -> NetworkLink {
     let (state, megabits) = state(attribute(interface, "carrier").as_deref(), || {
@@ -41,7 +41,7 @@ fn state(carrier: Option<&str>, speed: impl FnOnce() -> Option<String>) -> (Link
 
 #[cfg(test)]
 mod tests {
-    use frameguin_wire::LinkState;
+    use frameguin_contract::LinkState;
 
     use super::state;
 

@@ -6,6 +6,10 @@ use std::sync::{Arc, mpsc};
 use std::time::Duration;
 
 use async_io::Async;
+use frameguin_contract::{
+    BatteryFeature, Board, ChargeCurrentLimit, ChargingLedFeature, ChargingLedSide, ChassisFeature,
+    ClickForce, DeckState, DeviceError, Platform, PortPartner, PortSet, PowerLedLevel, VENDOR,
+};
 use frameguin_hardware::device::Devices;
 use frameguin_hardware::device::battery::Battery;
 use frameguin_hardware::device::charging_led::ChargingLed;
@@ -24,11 +28,7 @@ use frameguin_hardware::testing::{
     OTHER_SYSTEMS, Route, Sides, Sliders, battery_identity, block, cap, display_identity, mirrors,
     touchpad_identity,
 };
-use frameguin_wire::{
-    BatteryFeature, Board, ChargeCurrentLimit, ChargingLedFeature, ChargingLedSide, ChassisFeature,
-    ClickForce, DeckState, DeviceError, FrameguinProxy, Platform, PortPartner, PortSet,
-    PowerLedLevel, Proxies, VENDOR, proxy,
-};
+use frameguin_wire::{FrameguinProxy, Proxies, device_error, proxy};
 use futures_lite::future::{block_on, or};
 use zbus::{Connection, Guid, connection};
 
@@ -212,15 +212,15 @@ fn serve_restoring(authorized: bool, devices: Devices, restore: Restore) -> Peer
 }
 
 fn denied<T>(reply: zbus::Result<T>) -> bool {
-    reply.is_err_and(|e| matches!(DeviceError::from(e), DeviceError::AccessDenied(_)))
+    reply.is_err_and(|e| matches!(device_error(e), DeviceError::AccessDenied(_)))
 }
 
 fn invalid<T>(reply: zbus::Result<T>) -> bool {
-    reply.is_err_and(|e| matches!(DeviceError::from(e), DeviceError::InvalidArgs(_)))
+    reply.is_err_and(|e| matches!(device_error(e), DeviceError::InvalidArgs(_)))
 }
 
 fn absent<T>(reply: zbus::Result<T>) -> bool {
-    reply.is_err_and(|e| matches!(DeviceError::from(e), DeviceError::Absent(_)))
+    reply.is_err_and(|e| matches!(device_error(e), DeviceError::Absent(_)))
 }
 
 #[test]

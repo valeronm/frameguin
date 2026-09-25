@@ -5,18 +5,21 @@ it and the non-obvious constraints.
 
 ## Layout and contracts
 
-- Five crates, two binaries: `hardware/` is direct access to the machine —
+- Six crates, two binaries: `hardware/` is direct access to the machine —
   the transports, the roles, and the devices implementing the control
-  traits `wire` declares — and the only crate linking `framework_lib` and
+  traits `contract` declares — and the only crate linking `framework_lib` and
   `hidapi`, whose one `HidApi` `detect()` builds for every HID probe, since
   building one walks the bus;
   `daemon/` runs as root, links it, and serves it over the bus;
   `app/` is the GTK4/libadwaita UI and links no hardware code, nor reads
   the machine any other way — the board's own name included, which the
-  daemon reports; `wire/` is
-  the D-Bus vocabulary, the control traits and the error kind every
-  implementation of them shares, and the strings both binaries must spell
-  alike; `model/` is the controls as the app holds
+  daemon reports; `contract/` is
+  the control traits, the values they carry with the encoding those cross
+  the bus in, the error kind every implementation of them shares, and the
+  strings both binaries must spell alike; `wire/` is the transport the two
+  binaries talk over — the bus name and path, a proxy per interface, and
+  `Bus`, every control trait answered by a call on the daemon;
+  `model/` is the controls as the app holds
   them, over those traits, and the words for a part, which the daemon links
   too for the listing it logs the parts in. `docs/architecture.md` opens with the vocabulary
   — transport, role, device, part, control, interface, bus, client control,
@@ -25,20 +28,22 @@ it and the non-obvious constraints.
   split is the security model — the root process carries no GUI, the GUI
   process has no hardware access — and the D-Bus interface
   `io.github.valeronm.Frameguin1` is their only bridge. Nothing that touches
-  hardware may enter `wire/`: the app links it, so a dependency added there
-  lands in the unprivileged process too. Nothing GUI may enter `model/` for
-  the mirror reason, the daemon linking it into the root process.
-- A string is admitted to `wire/` because a second spelling of it could
+  hardware may enter `contract/` or `wire/`: the app links both, so a
+  dependency added there lands in the unprivileged process too. Nothing GUI
+  may enter `model/` for the mirror reason, the daemon linking it into the
+  root process. Nothing of the bus may enter `contract/`: `hardware` and
+  `model` link it, and neither reaches D-Bus by any path.
+- A string is admitted to `contract/` because a second spelling of it could
   disagree — the vendor, matched by both binaries against the string the
   same firmware gives. A value only one binary reads, or one that crosses
   the bus uncompared, stays where it is read: the board names are
   `hardware`'s, matched there into the `Platform` both binaries carry
   instead.
-- A `wire/` type is shaped for the code that builds and reads it, and the
+- A `contract/` type is shaped for the code that builds and reads it, and the
   encoding adapts to it rather than the reverse: the control traits hand
   these types to `hardware` and `model` too, so a limit of D-Bus written
   into one reaches every layer. A value that can be absent is an `Option`,
-  which zbus's `option-as-array` carries as an array of zero or one
+  which zvariant's `option-as-array` carries as an array of zero or one
   element, D-Bus having no maybe type; a default standing in for "not read"
   is indistinguishable from a reading. Where the codec cannot carry a
   shape, a serde adapter on that field translates it, and a separate
@@ -51,13 +56,16 @@ it and the non-obvious constraints.
   Renaming a method, dropping one or respelling a feature is a free change
   needing no deprecation window. (`busctl` against
   it stays a fine way to inspect a running daemon; it is a debugging tool, not
-  a client the interface holds still for.) None of this loosens what `wire/`
-  is for: the two ends still restate the interface separately, so within one
-  version the vocabularies are what keep them from drifting apart.
-- `wire/` holds the proxy the app calls through, the bus name and object
-  path, and the vocabularies as enums serializing as `s`. The daemon's
-  `#[interface]` impls cannot move there — each is an impl on a daemon-side
-  type — so the method set is still two declarations, and they meet in
+  a client the interface holds still for.) None of this loosens what
+  `contract/` and `wire/` are for: the two ends still restate the interface
+  separately, so within one version the vocabularies are what keep them
+  from drifting apart.
+- `contract/` holds the vocabularies as enums serializing as `s`.
+  `DeviceError` crosses through two functions in `wire`, one for each
+  direction and called at each end, since `contract/` names nothing of
+  zbus to hold a conversion in. The daemon's
+  `#[interface]` impls cannot move into `wire/` beside the proxies — each
+  is an impl on a daemon-side type — so the method set is still two declarations, and they meet in
   `daemon/src/interface/tests.rs`, which serves every device on stub roles
   to the `wire` proxies over a socket pair: a method one end spells and the
   other does not fails there rather than in an installed pair. The devices
@@ -87,7 +95,7 @@ it and the non-obvious constraints.
   the chrome around them, the titles a widget invents and the sentences a
   toast makes, stays with the widget that is its only site. A title naming
   something else belongs to whoever knows the word: `model`'s where `model`
-  curated it, group heading and list row alike, and `wire`'s where the
+  curated it, group heading and list row alike, and `contract`'s where the
   hardware announced it. `model` answers for a part whether or not the
   catalogue names it, so a widget never picks a part's words by whether a
   lookup hit. Which row a reading shows is the widget's too: a value dialled
@@ -169,7 +177,6 @@ it and the non-obvious constraints.
   what its subscribers want, so a row that has not subscribed is one the fill
   reads nothing for, and the fill is broadcast like a tick, so opening one
   window cannot leave another showing what it saw before.
-  `bus.rs` is every control trait answered by a call on the daemon.
   `daemon.rs` is the app's
   end of the daemon — the bus connection, the detected controls and the
   board, the facts fixed for its run that every window wants — dialled and

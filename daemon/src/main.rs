@@ -12,11 +12,12 @@ mod service;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use frameguin_contract::Board;
 use frameguin_hardware::device::{self, Detected};
 use frameguin_hardware::part::Identity;
 use frameguin_hardware::restore::Restore;
 use frameguin_model::part;
-use frameguin_wire as wire;
+use frameguin_wire::{BUS_NAME, fdo_error};
 use zbus::message::Header;
 use zbus::object_server::ObjectServer;
 use zbus::{Connection, fdo, interface};
@@ -29,7 +30,7 @@ const IDLE_EXIT: Duration = Duration::from_mins(5);
 
 struct Daemon {
     service: Arc<Service>,
-    board: wire::Board,
+    board: Board,
     /// Every part detection found at startup, which is the one time it looks.
     parts: Vec<Identity>,
     restore: Restore,
@@ -46,7 +47,7 @@ impl Daemon {
 
     /// Answers on any hardware, the vendor saying whether it is this
     /// hardware at all.
-    fn get_board(&self) -> wire::Board {
+    fn get_board(&self) -> Board {
         self.service.touch();
         self.board.clone()
     }
@@ -89,7 +90,7 @@ impl Daemon {
         } else {
             Ok(())
         };
-        Ok(resent.and(restored)?)
+        resent.and(restored).map_err(fdo_error)
     }
 
     /// The daemon's version and the path it was started from. The path is the
@@ -133,10 +134,10 @@ fn main() -> zbus::Result<()> {
         interface::serve_all(conn.object_server(), daemon, devices).await?;
         // Claim the name only once the objects are served, so an activating
         // client can't call into a not-yet-registered interface.
-        conn.request_name(wire::BUS_NAME).await?;
+        conn.request_name(BUS_NAME).await?;
         // The line a start that hung between detection and the bus lacks,
         // which is what tells it apart from one that hung in detection.
-        eprintln!("serving {}", wire::BUS_NAME);
+        eprintln!("serving {BUS_NAME}");
         Ok::<_, zbus::Error>(conn)
     })?;
     loop {

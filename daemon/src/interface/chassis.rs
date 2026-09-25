@@ -1,7 +1,8 @@
 //! `io.github.valeronm.Frameguin1.Chassis`.
 
+use frameguin_contract::{ChassisControl, ChassisFeature, ChassisState, DeckState};
 use frameguin_hardware::device::chassis::Chassis;
-use frameguin_wire::{ChassisControl, ChassisFeature, ChassisState, DeckState};
+use frameguin_wire::fdo_error;
 use zbus::fdo;
 use zbus::interface;
 
@@ -11,14 +12,14 @@ use crate::served::Served;
 impl Served<Chassis> {
     /// No polkit check: reading the switch sets nothing.
     async fn get_state(&self) -> fdo::Result<ChassisState> {
-        Ok(self.device().state().await?)
+        self.device().state().await.map_err(fdo_error)
     }
 
     async fn get_features(&self) -> fdo::Result<Vec<ChassisFeature>> {
-        Ok(self.device().features().await?)
+        self.device().features().await.map_err(fdo_error)
     }
 
     async fn get_deck_state(&self) -> fdo::Result<DeckState> {
-        Ok(self.device().deck_state().await?)
+        self.device().deck_state().await.map_err(fdo_error)
     }
 }

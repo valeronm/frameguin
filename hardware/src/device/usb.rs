@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use frameguin_wire::{Attached, Board, DeviceResult, UsbControl};
+use frameguin_contract::{Attached, Board, DeviceResult, UsbControl};
 use framework_lib::ccgx::hid::{ALL_CARD_PIDS, FRAMEWORK_VID};
 
 use crate::usb::{Sysfs, UsbTree};
@@ -54,7 +54,7 @@ impl UsbControl for Usb {
 mod tests {
     use std::sync::Arc;
 
-    use frameguin_wire::UsbControl;
+    use frameguin_contract::UsbControl;
 
     use super::Usb;
     use crate::testing::{Hub, ready};

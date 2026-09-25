@@ -4,7 +4,7 @@
 //! `framework_lib`'s `get_platform` for the same mapping prints, caches
 //! globally and mutates the library's own config.
 
-use frameguin_wire::Platform;
+use frameguin_contract::Platform;
 
 /// Every spelling a board's `product_name` takes, matched whole. Exhaustive
 /// over [`Platform`], so a variant cannot ship without one, and empty for
@@ -31,7 +31,7 @@ const fn spellings(platform: Platform) -> &'static [&'static str] {
     }
 }
 
-/// The vendor is [`frameguin_wire::Board::new`]'s to weigh: a product name
+/// The vendor is [`frameguin_contract::Board::new`]'s to weigh: a product name
 /// alone identifies nothing, the 11th generation board reporting the bare
 /// `Laptop` that any manufacturer can ship.
 pub(crate) fn of(product: &str) -> Platform {
@@ -43,7 +43,7 @@ pub(crate) fn of(product: &str) -> Platform {
 
 #[cfg(test)]
 mod tests {
-    use frameguin_wire::Platform;
+    use frameguin_contract::Platform;
 
     use super::{of, spellings};
 

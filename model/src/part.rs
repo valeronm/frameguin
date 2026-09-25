@@ -5,7 +5,7 @@
 
 use std::fmt::Write;
 
-use frameguin_wire::{Detail, FirmwareKind, Identity, PartKind, Platform, Series, VENDOR};
+use frameguin_contract::{Detail, FirmwareKind, Identity, PartKind, Platform, Series, VENDOR};
 
 use crate::control::battery::reading::{capacity, volts};
 use crate::date;
@@ -646,7 +646,9 @@ fn write_rows(out: &mut String, indent: usize, rows: &[(impl AsRef<str>, String)
 
 #[cfg(test)]
 mod tests {
-    use frameguin_wire::{Detail, Firmware, FirmwareKind, Identity, PartKind, Platform, VENDOR};
+    use frameguin_contract::{
+        Detail, Firmware, FirmwareKind, Identity, PartKind, Platform, VENDOR,
+    };
 
     use super::{
         aspect, catalogue, detail_row, detail_rows, firmware_name, generation, inventory, listing,

@@ -3,7 +3,7 @@
 
 use std::rc::Rc;
 
-use frameguin_wire::{
+use frameguin_contract::{
     ChassisControl, ChassisFeature, ChassisState, DeckState, DeviceResult as Result,
 };
 
@@ -96,7 +96,7 @@ pub fn times_label(count: u8) -> String {
 
 #[cfg(test)]
 mod tests {
-    use frameguin_wire::{ChassisFeature, DeckState, DeviceError};
+    use frameguin_contract::{ChassisFeature, DeckState, DeviceError};
 
     use super::{Chassis, chassis_summary, deck_label, open_now_label, state_label, times_label};
     use crate::testing::{Machine, absent, ready};

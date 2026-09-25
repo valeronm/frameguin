@@ -6,6 +6,7 @@
 
 use std::rc::Rc;
 
+use frameguin_contract::{BatteryFeature, BatteryState, ChargeCurrentLimit, PortSet, PortState};
 use frameguin_model::control::Controls;
 use frameguin_model::control::battery::{
     charge_limit_at, charge_limit_labels, charge_limit_preset_row, charge_speed_at,
@@ -15,10 +16,9 @@ use frameguin_model::control::battery::{
 use frameguin_model::control::ports::supply_summary;
 use frameguin_model::control::touchscreen::{state_at, state_labels, state_row};
 use frameguin_model::port::Placement;
-use frameguin_wire::{BatteryFeature, BatteryState, ChargeCurrentLimit, PortSet, PortState};
+use frameguin_wire::Bus;
 
 use crate::APP_ID;
-use crate::bus::Bus;
 use crate::daemon::Daemon;
 
 /// `Copy` so a menu item can be built from the event it sends: the boxed

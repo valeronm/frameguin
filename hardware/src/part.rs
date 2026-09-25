@@ -2,7 +2,7 @@
 //! materials iterates, asked through one trait because its caller does not
 //! care what any entry does.
 
-pub use frameguin_wire::{Detail, Firmware, FirmwareKind, Identity, PartKind};
+pub use frameguin_contract::{Detail, Firmware, FirmwareKind, Identity, PartKind};
 
 use crate::udev::PciNames;
 use crate::usb::BusDevice;

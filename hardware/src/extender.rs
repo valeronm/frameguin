@@ -2,7 +2,7 @@
 //! the state it answers with — apart from [`crate::ec`] so the decoding is
 //! testable without an EC.
 
-use frameguin_wire::{ExtenderStage, ExtenderState};
+use frameguin_contract::{ExtenderStage, ExtenderState};
 
 /// `EC_CMD_BATTERY_EXTENDER`, one of Framework's own board commands.
 pub(crate) const COMMAND: u16 = 0x3E24;
@@ -40,7 +40,7 @@ pub(crate) fn state(raw: &[u8]) -> Option<ExtenderState> {
 
 #[cfg(test)]
 mod tests {
-    use frameguin_wire::{ExtenderStage, ExtenderState};
+    use frameguin_contract::{ExtenderStage, ExtenderState};
 
     use super::state;
 

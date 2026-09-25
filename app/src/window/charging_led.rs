@@ -3,11 +3,11 @@
 use std::rc::Rc;
 
 use adw::prelude::*;
+use frameguin_contract::ChargingLedFeature;
 use frameguin_model::control::charging_led::{self, side_label};
-use frameguin_wire::ChargingLedFeature;
+use frameguin_wire::Bus;
 use gtk4 as gtk;
 
-use crate::bus::Bus;
 use crate::reading::{Wants, show_while_mapped};
 use crate::window::Ui;
 use crate::window::widgets::{connect_switch, show_switch};

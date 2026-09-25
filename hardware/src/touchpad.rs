@@ -6,7 +6,7 @@
 //! Both settings are write-only: the pad answers `GET_FEATURE` on their
 //! reports with an empty report.
 
-use frameguin_wire::{self as wire, DeviceError, DeviceResult};
+use frameguin_contract::{self as contract, DeviceError, DeviceResult};
 use framework_lib::touchpad::{self, ClickForce};
 
 /// Known haptic touchpad models (`PixArt` PIDs). A curated device list, per
@@ -19,13 +19,13 @@ use framework_lib::touchpad::{self, ClickForce};
 const HAPTIC_PIDS: [u16; 1] = [0x1343];
 
 /// What the pad ships with, there being no readback to ask instead.
-pub(crate) const DEFAULT_CLICK_FORCE: wire::ClickForce = wire::ClickForce::Medium;
+pub(crate) const DEFAULT_CLICK_FORCE: contract::ClickForce = contract::ClickForce::Medium;
 
-/// The writes the haptic touchpad takes, in the wire's vocabulary so that a
+/// The writes the haptic touchpad takes, in the contract's vocabulary so that a
 /// device over it needs none of the transport's.
 pub trait HapticPad: Send + Sync {
     fn set_haptic_intensity(&self, percent: u8) -> DeviceResult<()>;
-    fn set_click_force(&self, force: wire::ClickForce) -> DeviceResult<()>;
+    fn set_click_force(&self, force: contract::ClickForce) -> DeviceResult<()>;
 }
 
 /// The pad on the HID bus.
@@ -36,7 +36,7 @@ impl HapticPad for Hid {
         touchpad::set_haptic_intensity(percent).map_err(device_error)
     }
 
-    fn set_click_force(&self, force: wire::ClickForce) -> DeviceResult<()> {
+    fn set_click_force(&self, force: contract::ClickForce) -> DeviceResult<()> {
         touchpad::set_click_force(click_force(force)).map_err(device_error)
     }
 }
@@ -82,18 +82,18 @@ fn version(low: u8, high: u8) -> String {
     format!("{:04X}", u16::from_le_bytes([low, high]))
 }
 
-pub(crate) fn click_force(force: wire::ClickForce) -> ClickForce {
+pub(crate) fn click_force(force: contract::ClickForce) -> ClickForce {
     match force {
-        wire::ClickForce::Low => ClickForce::Low,
-        wire::ClickForce::Medium => ClickForce::Medium,
-        wire::ClickForce::High => ClickForce::High,
+        contract::ClickForce::Low => ClickForce::Low,
+        contract::ClickForce::Medium => ClickForce::Medium,
+        contract::ClickForce::High => ClickForce::High,
     }
 }
 
-/// The device code the state file carries, back to the wire's name; None for
+/// The device code the state file carries, back to the contract's name; None for
 /// a code no force maps to.
-pub(crate) fn wire_click_force(code: u8) -> Option<wire::ClickForce> {
-    wire::ClickForce::ALL
+pub(crate) fn wire_click_force(code: u8) -> Option<contract::ClickForce> {
+    contract::ClickForce::ALL
         .into_iter()
         .find(|force| click_force(*force) as u8 == code)
 }
@@ -106,13 +106,13 @@ mod tests {
     }
 
     /// The app offers these steps but cannot link `framework_lib` to learn
-    /// them, so `wire` carries the list and this is what keeps the copy
+    /// them, so `contract` carries the list and this is what keeps the copy
     /// honest. A firmware generation that changes the steps should fail here
     /// rather than in a combo that silently offers the wrong ones.
     #[test]
     fn the_wire_haptic_steps_are_the_ones_the_touchpad_implements() {
         assert_eq!(
-            frameguin_wire::HAPTIC_INTENSITY_LEVELS,
+            frameguin_contract::HAPTIC_INTENSITY_LEVELS,
             framework_lib::touchpad::HAPTIC_INTENSITY_LEVELS
         );
     }

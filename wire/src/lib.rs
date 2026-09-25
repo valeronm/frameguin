@@ -1,24 +1,15 @@
-//! The vocabulary of `io.github.valeronm.Frameguin1`, declared once: where
-//! the daemon's `#[interface]` impl and the app's calls — two independent
-//! restatements of one interface that meet only at runtime — are made to
-//! agree at compile time instead. One flat namespace, whichever file an
-//! item sits in.
-//!
-//! Beside the interface sit the strings both binaries must spell alike —
-//! [`VENDOR`] — and the vocabularies they exchange, along with [`Series`],
-//! which is derived from one rather than carried.
+//! The transport of `io.github.valeronm.Frameguin1`: the name and path the
+//! daemon serves at, a proxy per interface, how an error crosses, and
+//! [`Bus`]. The daemon's `#[interface]` impls restate the same methods, and
+//! meet these proxies in the daemon's own tests.
 
-#![allow(
-    async_fn_in_trait,
-    reason = "every trait here is a control: the app's implementor and its callers share one thread, and the daemon's is checked as a concrete type"
-)]
-
-mod control;
+mod bus;
 mod error;
 mod proxies;
-mod vocabulary;
 
-pub use control::*;
+pub use bus::*;
 pub use error::*;
 pub use proxies::*;
-pub use vocabulary::*;
+
+pub const BUS_NAME: &str = "io.github.valeronm.Frameguin";
+pub const OBJECT_PATH: &str = "/io/github/valeronm/Frameguin";

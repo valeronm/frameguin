@@ -3,7 +3,7 @@
 
 use std::rc::Rc;
 
-use frameguin_wire::{
+use frameguin_contract::{
     Attached, DeviceResult as Result, LinkState, NetworkLink, UsbControl, UsbSpeed,
 };
 
@@ -73,7 +73,7 @@ pub fn capacity_label(bytes: u64) -> String {
 
 #[cfg(test)]
 mod tests {
-    use frameguin_wire::{Attached, LinkState, NetworkLink, UsbSpeed};
+    use frameguin_contract::{Attached, LinkState, NetworkLink, UsbSpeed};
 
     use super::{device_name, network_label, speed_label};
 

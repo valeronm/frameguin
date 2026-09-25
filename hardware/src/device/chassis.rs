@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use frameguin_wire::{ChassisControl, ChassisFeature, ChassisState, DeckState, DeviceResult};
+use frameguin_contract::{ChassisControl, ChassisFeature, ChassisState, DeckState, DeviceResult};
 
 use crate::ec::{ChassisEc, Ec};
 
@@ -47,7 +47,7 @@ impl ChassisControl for Chassis {
 mod tests {
     use std::sync::Arc;
 
-    use frameguin_wire::{ChassisControl, ChassisFeature, DeckState};
+    use frameguin_contract::{ChassisControl, ChassisFeature, DeckState};
 
     use super::Chassis;
     use crate::testing::{Cover, ready};

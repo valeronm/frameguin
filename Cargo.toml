@@ -1,18 +1,21 @@
 [workspace]
-members = ["daemon", "app", "wire", "model", "hardware"]
+members = ["daemon", "app", "wire", "contract", "model", "hardware"]
 resolver = "2"
 
 [workspace.package]
 version = "0.5.1"
 
 [workspace.dependencies]
+frameguin-contract = { path = "contract" }
 frameguin-hardware = { path = "hardware" }
 frameguin-model = { path = "model" }
 frameguin-wire = { path = "wire" }
 serde = { version = "1", features = ["derive"] }
-# `option-as-array` carries an `Option` over D-Bus, which has no maybe type,
-# as an array of zero or one element.
-zbus = { version = "5.19.0", features = ["option-as-array"] }
+zbus = "5.19.0"
+# The version zbus encodes with, so the contract's types implement the `Type`
+# it looks for. `option-as-array` carries an `Option` over D-Bus, which has no
+# maybe type, as an array of zero or one element.
+zvariant = { version = "5.15.0", features = ["option-as-array"] }
 
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }

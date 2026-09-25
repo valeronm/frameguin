@@ -13,6 +13,7 @@ use std::num::NonZeroU32;
 use std::rc::Rc;
 
 use adw::prelude::*;
+use frameguin_contract::{BatteryFeature, BatteryState, ChargeCurrentLimit, PortState};
 use frameguin_model::control::Custom;
 use frameguin_model::control::battery::{
     self, CHARGE_LIMIT_CUSTOM, CHARGE_SPEED_CUSTOM, CUSTOM_CHARGE_STEP_MA, MIN_CHARGE_LIMIT,
@@ -23,10 +24,9 @@ use frameguin_model::control::battery::{
 };
 use frameguin_model::control::ports::{self, supply_label, supply_port};
 use frameguin_model::port::Placement;
-use frameguin_wire::{BatteryFeature, BatteryState, ChargeCurrentLimit, PortState};
+use frameguin_wire::Bus;
 use gtk4 as gtk;
 
-use crate::bus::Bus;
 use crate::reading::{Wants, show_while_mapped};
 use crate::report::status::{self, Target};
 use crate::tray::TrayValues;

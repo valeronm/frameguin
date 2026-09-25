@@ -7,16 +7,16 @@
 use std::rc::Rc;
 
 use adw::prelude::*;
+use frameguin_contract::BatteryFeature;
 use frameguin_model::control::battery::Battery;
 use frameguin_model::control::battery::reading::{
     alarms_label, capacity, cell_spread, cell_voltages, charge_brief, charge_direction,
     charger_label, milliamps, percent_label, power_label, retention_label, temperature, volts,
 };
-use frameguin_wire::BatteryFeature;
+use frameguin_wire::Bus;
 use gtk4 as gtk;
 
 use super::{Sidebar, Target};
-use crate::bus::Bus;
 use crate::reading::{Feed, Reading, Wants, show_while_mapped};
 use crate::report::{described_value, value, value_row};
 

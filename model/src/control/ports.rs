@@ -2,7 +2,7 @@
 
 use std::rc::Rc;
 
-use frameguin_wire::{
+use frameguin_contract::{
     Cable, CableLatency, CableSpeed, DataRole, DeviceResult as Result, Epr, PdContract,
     PeakCurrent, PortPartner, PortSet, PortState, PortsControl, PowerRole, SupplyKind,
 };
@@ -330,7 +330,7 @@ pub fn cable_length_label(latency: CableLatency) -> &'static str {
 mod tests {
     use std::rc::Rc;
 
-    use frameguin_wire::{
+    use frameguin_contract::{
         Cable, CableLatency, CableSpeed, DataRole, DeviceError, DeviceResult as Result, PdContract,
         PeakCurrent, PortPartner, PortSet, PortState, PowerRole, SupplyKind,
     };
@@ -423,12 +423,15 @@ mod tests {
         let ports: Vec<_> = (0..4).map(port).collect();
         let summary = |platform| supply_summary(&ports, Placement::of(platform));
         assert_eq!(
-            summary(frameguin_wire::Platform::Laptop13ProUltra3),
+            summary(frameguin_contract::Platform::Laptop13ProUltra3),
             "100 W · Right front"
         );
-        assert_eq!(summary(frameguin_wire::Platform::Unknown), "100 W · Port 0");
         assert_eq!(
-            summary(frameguin_wire::Platform::Laptop13AmdAi300),
+            summary(frameguin_contract::Platform::Unknown),
+            "100 W · Port 0"
+        );
+        assert_eq!(
+            summary(frameguin_contract::Platform::Laptop13AmdAi300),
             "100 W · Right, port 0"
         );
     }

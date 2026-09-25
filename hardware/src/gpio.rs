@@ -23,7 +23,7 @@ use std::io;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 use std::path::PathBuf;
 
-use frameguin_wire::Platform;
+use frameguin_contract::Platform;
 
 /// The pad gating the touch controller, and the board that is true of.
 ///

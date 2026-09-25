@@ -1,11 +1,13 @@
 //! The app's end of each interface: a proxy per one, on the daemon's one
 //! name and path.
 
-use crate::vocabulary::{
-    Attached, BUS_NAME, BatteryCondition, BatteryFeature, BatteryInfo, Board, ChargeCurrentLimit,
+use frameguin_contract::{
+    Attached, BatteryCondition, BatteryFeature, BatteryInfo, Board, ChargeCurrentLimit,
     ChargingLedFeature, ChargingLedSide, ChassisFeature, ChassisState, ClickForce, DeckState,
-    ExtenderState, Identity, OBJECT_PATH, PortSet, PortState, PowerLedLevel, PrivacyState,
+    ExtenderState, Identity, PortSet, PortState, PowerLedLevel, PrivacyState,
 };
+
+use crate::{BUS_NAME, OBJECT_PATH};
 
 /// Any of the proxies below, on the daemon's one name and path.
 ///

@@ -5,8 +5,8 @@ use std::rc::Rc;
 
 use adw::prelude::*;
 use frameguin_model::control::touchscreen;
+use frameguin_wire::Bus;
 
-use crate::bus::Bus;
 use crate::tray::TrayValues;
 use crate::window::widgets::{connect_switch, show_switch};
 use crate::window::{Sink, Ui};

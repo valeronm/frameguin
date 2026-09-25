@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use frameguin_wire::{Board, DeviceResult, PortPartner, PortSet, PortState, PortsControl};
+use frameguin_contract::{Board, DeviceResult, PortPartner, PortSet, PortState, PortsControl};
 
 use crate::ec::{Ec, PdPorts};
 use crate::pd_controller::{self, PORTS_PER_CONTROLLER};
@@ -86,7 +86,7 @@ impl PortsControl for Ports {
 mod tests {
     use std::sync::Arc;
 
-    use frameguin_wire::{
+    use frameguin_contract::{
         Cable, CableLatency, CableSpeed, PdContract, Platform, PortRegisters, PortSet,
         PortsControl, SupplyKind,
     };

@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll, Waker};
 
-use frameguin_wire::{
+use frameguin_contract::{
     Attached, BatteryCondition, BatteryInfo, BatteryState, CcPolarity, ChargeCurrentLimit,
     ChargeFlow, ChassisState, ClickForce, DataRole, DeckState, Detail, DeviceError, DeviceResult,
     Epr, ExtenderStage, ExtenderState, Identity, LinkState, NetworkLink, PartKind, PortPartner,

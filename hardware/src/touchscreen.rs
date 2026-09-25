@@ -16,7 +16,7 @@
 //! whether a write can be skipped as already in place — is read off that one
 //! answer rather than decided again per call site.
 
-use frameguin_wire::{Board, DeviceResult};
+use frameguin_contract::{Board, DeviceResult};
 use framework_lib::touchscreen::{HX_PID, HX_VID};
 
 use crate::{gpio, panel};

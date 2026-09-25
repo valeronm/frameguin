@@ -4,7 +4,8 @@
 use std::rc::Rc;
 
 use adw::prelude::*;
-use frameguin_wire::DeviceError;
+use frameguin_contract::DeviceError;
+use frameguin_wire::device_error;
 use gtk4::gio;
 
 use super::Ui;
@@ -84,7 +85,11 @@ impl Group {
     /// Read once, with the first fill: outside debugging, this switch is the
     /// only writer.
     pub(super) async fn load(&self, ui: &Ui) {
-        match async { ui.daemon.bus().await?.frameguin.get_restore().await }.await {
+        let enabled = async {
+            let bus = ui.daemon.bus().await?;
+            bus.frameguin.get_restore().await.map_err(device_error)
+        };
+        match enabled.await {
             Ok(enabled) => show_switch(ui, &self.restore, enabled),
             Err(e) => ui.toast_error(&format!("Reading “{}”", self.restore.title()), e),
         }
@@ -98,9 +103,14 @@ impl Group {
             &ui.daemon,
             &self.restore,
             |ui, daemon, enabled| async move {
-                let written =
-                    async { daemon.bus().await?.frameguin.set_restore(enabled).await }.await;
-                if let Err(e) = written {
+                let written = async {
+                    let bus = daemon.bus().await?;
+                    bus.frameguin
+                        .set_restore(enabled)
+                        .await
+                        .map_err(device_error)
+                };
+                if let Err(e) = written.await {
                     let group = &ui.preferences;
                     group.toast_error(&setting(&group.restore), e);
                     show_switch(&ui, &group.restore, !enabled);

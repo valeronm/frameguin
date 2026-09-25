@@ -14,7 +14,7 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use adw::prelude::*;
-use frameguin_wire::BatteryFeature;
+use frameguin_contract::BatteryFeature;
 use gtk4 as gtk;
 use gtk4::gio;
 use gtk4::glib;

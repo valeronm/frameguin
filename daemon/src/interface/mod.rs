@@ -21,13 +21,14 @@ mod tests;
 
 use std::sync::Arc;
 
+use frameguin_contract::DeviceResult;
 use frameguin_hardware::device::Devices;
 use frameguin_hardware::device::battery::Battery;
 use frameguin_hardware::device::power_led::PowerLed;
 use frameguin_hardware::device::touchpad::Touchpad;
 use frameguin_hardware::device::touchscreen::Touchscreen;
 use frameguin_hardware::restore::Restorable;
-use frameguin_wire::{DeviceResult, OBJECT_PATH};
+use frameguin_wire::OBJECT_PATH;
 use zbus::object_server::{Interface, ObjectServer};
 
 use crate::Daemon;

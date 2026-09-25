@@ -2,7 +2,7 @@
 
 use std::rc::Rc;
 
-use frameguin_wire::{
+use frameguin_contract::{
     ChargingLedControl, ChargingLedFeature, ChargingLedSide, DeviceResult as Result,
 };
 
@@ -54,7 +54,7 @@ pub fn side_label(side: ChargingLedSide) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use frameguin_wire::{ChargingLedFeature, ChargingLedSide, DeviceError};
+    use frameguin_contract::{ChargingLedFeature, ChargingLedSide, DeviceError};
 
     use super::ChargingLed;
     use crate::testing::{Machine, absent, ready};

@@ -3,7 +3,7 @@
 //! render one reading two ways — and the units a preset label borrows, so a
 //! preset reads the way a reading of the same value does.
 
-use frameguin_wire::{BatteryAlarm, BatteryState, ChargeFlow};
+use frameguin_contract::{BatteryAlarm, BatteryState, ChargeFlow};
 
 /// What a row says where the pack answered with nothing. One spelling for
 /// every such row, so a value the EC left blank and a figure with no
@@ -232,7 +232,7 @@ pub fn charge_brief(state: BatteryState) -> String {
 
 #[cfg(test)]
 mod tests {
-    use frameguin_wire::{BatteryState, ChargeFlow};
+    use frameguin_contract::{BatteryState, ChargeFlow};
 
     use super::{
         battery_summary, capacity, charge_brief, charge_direction, charge_flow_label, power_label,

@@ -10,7 +10,7 @@
 
 use std::path::{Path, PathBuf};
 
-use frameguin_wire::{DeviceError, DeviceResult};
+use frameguin_contract::{DeviceError, DeviceResult};
 
 /// The kernel's account of one LED and the two writes that move it, each
 /// addressed by the node the account named.

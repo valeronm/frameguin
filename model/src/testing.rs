@@ -3,7 +3,7 @@ use std::num::NonZeroU32;
 use std::rc::Rc;
 use std::task::{Context, Poll, Waker};
 
-use frameguin_wire::{
+use frameguin_contract::{
     Attached, BatteryCondition, BatteryControl, BatteryFeature, BatteryInfo, BatteryState,
     CcPolarity, ChargeCurrentLimit, ChargeFlow, ChargingLedControl, ChargingLedFeature,
     ChargingLedSide, ChassisControl, ChassisFeature, ChassisState, ClickForce, DataRole, DeckState,

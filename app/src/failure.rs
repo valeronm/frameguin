@@ -11,7 +11,7 @@ use std::cell::Cell;
 use std::time::Duration;
 
 use adw::prelude::*;
-use frameguin_wire::DeviceError;
+use frameguin_contract::DeviceError;
 use gtk4::gio;
 
 use crate::mapped::Once;
@@ -23,8 +23,6 @@ fn headline(attempt: &str) -> String {
 }
 
 /// A failed call, as a toast for the window or dialog that asked for it.
-/// Takes a bus error or a device's `DeviceError` alike, the conversion being
-/// what drops the D-Bus error name in front of the sentence.
 pub(crate) fn toast(attempt: &str, error: impl Into<DeviceError>) -> adw::Toast {
     adw::Toast::new(&format!("{}: {}", headline(attempt), error.into()))
 }

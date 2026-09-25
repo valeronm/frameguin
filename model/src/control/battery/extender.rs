@@ -1,7 +1,7 @@
 //! Framework's battery extender: the window each stage holds a charged pack
 //! in, and what its reading is called.
 
-use frameguin_wire::{ExtenderStage, ExtenderState};
+use frameguin_contract::{ExtenderStage, ExtenderState};
 
 use super::reading::percent_label;
 
@@ -76,7 +76,7 @@ fn days_label(days: u32) -> String {
 
 #[cfg(test)]
 mod tests {
-    use frameguin_wire::{ExtenderStage, ExtenderState};
+    use frameguin_contract::{ExtenderStage, ExtenderState};
 
     use super::{first_stage_label, reset_label, stage_label, trigger_label};
 

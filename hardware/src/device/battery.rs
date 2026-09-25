@@ -5,7 +5,7 @@
 use std::num::NonZeroU32;
 use std::sync::Arc;
 
-use frameguin_wire::{
+use frameguin_contract::{
     BatteryCondition, BatteryControl, BatteryFeature, BatteryInfo, ChargeCurrentLimit, DeviceError,
     DeviceResult, ExtenderState, MIN_CHARGE_LIMIT,
 };
@@ -197,7 +197,7 @@ impl BatteryControl for Battery {
 mod tests {
     use std::sync::Arc;
 
-    use frameguin_wire::{BatteryControl, BatteryFeature, ChargeCurrentLimit, DeviceError};
+    use frameguin_contract::{BatteryControl, BatteryFeature, ChargeCurrentLimit, DeviceError};
 
     use super::{Battery, KEY_CURRENT_LIMIT, Restorable};
     use crate::ec::Pack;

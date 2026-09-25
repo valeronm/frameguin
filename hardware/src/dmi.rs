@@ -5,7 +5,7 @@
 
 use std::path::PathBuf;
 
-use frameguin_wire::Board;
+use frameguin_contract::Board;
 
 const ID: &str = "/sys/class/dmi/id";
 const ENTRIES: &str = "/sys/firmware/dmi/entries";

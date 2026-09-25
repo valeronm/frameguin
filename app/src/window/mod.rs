@@ -23,14 +23,14 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use adw::prelude::*;
+use frameguin_contract::{DeviceError, Platform};
 use frameguin_model::control::Controls;
 use frameguin_model::part;
-use frameguin_wire::{DeviceError, Platform};
+use frameguin_wire::Bus;
 use gtk4 as gtk;
 use gtk4::gio;
 
 use crate::APP_ID;
-use crate::bus::Bus;
 use crate::daemon::Daemon;
 use crate::failure::{self, Notifier};
 use crate::reading::Feed;

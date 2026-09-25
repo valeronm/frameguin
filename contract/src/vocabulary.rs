@@ -1,9 +1,8 @@
-//! The names, numbers and records both ends spell.
+//! The numbers and records both ends spell.
 //!
-//! A name or a signature the two ends disagree about comes back as an error
-//! reply, and a *string* they disagree about — a feature, a level, a click
-//! force — comes back as a value that is well-formed and meaningless. Naming
-//! those strings as types is what moves that second class of drift to
+//! A *string* the two ends disagree about — a feature, a level, a click
+//! force — reaches the receiver as a value that is well-formed and
+//! meaningless, and naming those strings as types moves that drift to
 //! compile time. A number both ends must simply agree on belongs here for
 //! the same reason, and fails more quietly still: the receiver accepts it
 //! and acts on it.
@@ -15,10 +14,7 @@
 use std::num::NonZeroU32;
 
 use serde::{Deserialize, Serialize};
-use zbus::zvariant::{Type, Value};
-
-pub const BUS_NAME: &str = "io.github.valeronm.Frameguin";
-pub const OBJECT_PATH: &str = "/io/github/valeronm/Frameguin";
+use zvariant::{Type, Value};
 
 /// The DMI `sys_vendor` of the hardware this is for.
 pub const VENDOR: &str = "Framework";
@@ -26,7 +22,7 @@ pub const VENDOR: &str = "Framework";
 /// What the EC clamps every requested charge current against. A limit is
 /// never zero, which would stop charging altogether.
 #[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug)]
-#[zvariant(crate = "zbus::zvariant", signature = "au")]
+#[zvariant(signature = "au")]
 #[serde(from = "Option<NonZeroU32>", into = "Option<NonZeroU32>")]
 pub enum ChargeCurrentLimit {
     NoLimit,
@@ -74,7 +70,7 @@ pub const HAPTIC_INTENSITY_LEVELS: [u8; 5] = [0, 25, 50, 75, 100];
 /// Which Framework board a machine is, as `hardware` settles it from the
 /// DMI strings.
 #[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug, Default)]
-#[zvariant(crate = "zbus::zvariant", signature = "s")]
+#[zvariant(signature = "s")]
 #[serde(rename_all = "kebab-case")]
 pub enum Platform {
     Laptop13Gen11,
@@ -147,7 +143,7 @@ impl Platform {
 /// separate question of the hardware: the pack's own report over the EC's
 /// passthrough, the two limits the charger takes, and the extender's state.
 #[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug)]
-#[zvariant(crate = "zbus::zvariant", signature = "s")]
+#[zvariant(signature = "s")]
 #[serde(rename_all = "kebab-case")]
 pub enum BatteryFeature {
     /// What the pack says about itself past the EC's summary of it — its
@@ -164,7 +160,7 @@ pub enum BatteryFeature {
 /// How far the EC's battery extender has lowered the window it holds a
 /// charged pack in.
 #[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug)]
-#[zvariant(crate = "zbus::zvariant", signature = "s")]
+#[zvariant(signature = "s")]
 #[serde(rename_all = "kebab-case")]
 pub enum ExtenderStage {
     /// Holding nothing of its own, whether counting down or switched off.
@@ -175,7 +171,6 @@ pub enum ExtenderStage {
 
 /// Framework's battery extender as the EC reports it.
 #[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug)]
-#[zvariant(crate = "zbus::zvariant")]
 pub struct ExtenderState {
     pub enabled: bool,
     pub stage: ExtenderStage,
@@ -204,7 +199,7 @@ pub struct ExtenderState {
 /// states rather than alarms — the EC's own console prints them as a separate
 /// group, and the charge percentage says all four better.
 #[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug)]
-#[zvariant(crate = "zbus::zvariant", signature = "s")]
+#[zvariant(signature = "s")]
 #[serde(rename_all = "kebab-case")]
 pub enum BatteryAlarm {
     /// Charged past what the pack considers safe.
@@ -230,7 +225,6 @@ pub enum BatteryAlarm {
 /// call because one reader wants them together and each transfer is a message
 /// to a device the EC is also driving.
 #[derive(Serialize, Deserialize, Type, Clone, PartialEq, Eq, Debug)]
-#[zvariant(crate = "zbus::zvariant")]
 pub struct BatteryCondition {
     /// Each cell's terminal voltage in mV, in the order the pack numbers them.
     /// What these are worth is the spread between them: the EC publishes only
@@ -251,7 +245,7 @@ pub struct BatteryCondition {
 /// battery flags answer: the EC's discharging flag is set whenever the pack
 /// is not being charged, a full battery on a connected charger included.
 #[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug)]
-#[zvariant(crate = "zbus::zvariant", signature = "s")]
+#[zvariant(signature = "s")]
 #[serde(rename_all = "kebab-case")]
 pub enum ChargeFlow {
     Charging,
@@ -268,7 +262,6 @@ pub enum ChargeFlow {
 /// every other vocabulary here is a name: the process that must not link the
 /// EC library has no business knowing its bit layout.
 #[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug)]
-#[zvariant(crate = "zbus::zvariant")]
 pub struct BatteryState {
     /// Charge as a share of the pack's last full charge, which is what the
     /// EC measures it against — so it reaches 100% on a pack whose capacity
@@ -299,7 +292,6 @@ pub struct BatteryState {
 /// rather than read from this block, cost a transfer apiece, and are asked for
 /// separately under [`BatteryFeature::Condition`].
 #[derive(Serialize, Deserialize, Type, Clone, PartialEq, Eq, Debug)]
-#[zvariant(crate = "zbus::zvariant")]
 pub struct BatteryInfo {
     pub state: BatteryState,
     /// What the pack holds now, in mAh.
@@ -328,7 +320,7 @@ pub struct BatteryInfo {
 
 /// Power button LED levels.
 #[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug)]
-#[zvariant(crate = "zbus::zvariant", signature = "s")]
+#[zvariant(signature = "s")]
 #[serde(rename_all = "kebab-case")]
 pub enum PowerLedLevel {
     Auto,
@@ -393,7 +385,7 @@ impl PowerLedLevel {
 /// says so — a port with nothing in it still reports roles, which mean
 /// nothing until something is attached.
 #[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug)]
-#[zvariant(crate = "zbus::zvariant", signature = "s")]
+#[zvariant(signature = "s")]
 #[serde(rename_all = "kebab-case")]
 pub enum PortPartner {
     Nothing,
@@ -409,7 +401,7 @@ pub enum PortPartner {
 /// Which end supplies the power. The machine reads `Sink` on a port it is
 /// charging from and `Source` on one feeding a peripheral.
 #[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug)]
-#[zvariant(crate = "zbus::zvariant", signature = "s")]
+#[zvariant(signature = "s")]
 #[serde(rename_all = "kebab-case")]
 pub enum PowerRole {
     Sink,
@@ -420,7 +412,7 @@ pub enum PowerRole {
 /// Which end drives the data link — upstream-facing is the machine being
 /// the peripheral.
 #[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug)]
-#[zvariant(crate = "zbus::zvariant", signature = "s")]
+#[zvariant(signature = "s")]
 #[serde(rename_all = "kebab-case")]
 pub enum DataRole {
     UpstreamFacing,
@@ -432,7 +424,7 @@ pub enum DataRole {
 /// Which configuration channel the cable settled on, which is the plug's
 /// orientation.
 #[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug)]
-#[zvariant(crate = "zbus::zvariant", signature = "s")]
+#[zvariant(signature = "s")]
 #[serde(rename_all = "kebab-case")]
 pub enum CcPolarity {
     Cc1,
@@ -446,7 +438,7 @@ pub enum CcPolarity {
 /// value rather than a supported flag and an active one, active implying
 /// supported and the pair having no other order.
 #[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug)]
-#[zvariant(crate = "zbus::zvariant", signature = "s")]
+#[zvariant(signature = "s")]
 #[serde(rename_all = "kebab-case")]
 pub enum Epr {
     Unsupported,
@@ -455,7 +447,6 @@ pub enum Epr {
 }
 
 #[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug)]
-#[zvariant(crate = "zbus::zvariant")]
 pub struct ChassisState {
     pub open: bool,
     /// Times the switch opened while the EC was running.
@@ -467,7 +458,7 @@ pub struct ChassisState {
 /// What a chassis offers past its switch, each a separate question of the
 /// hardware.
 #[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug)]
-#[zvariant(crate = "zbus::zvariant", signature = "s")]
+#[zvariant(signature = "s")]
 #[serde(rename_all = "kebab-case")]
 pub enum ChassisFeature {
     Deck,
@@ -475,7 +466,7 @@ pub enum ChassisFeature {
 
 /// The EC's power state for the input deck.
 #[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug)]
-#[zvariant(crate = "zbus::zvariant", signature = "s")]
+#[zvariant(signature = "s")]
 #[serde(rename_all = "kebab-case")]
 pub enum DeckState {
     /// The host is off.
@@ -492,7 +483,7 @@ pub enum DeckState {
 
 /// What a charging LED offers past its switch.
 #[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug)]
-#[zvariant(crate = "zbus::zvariant", signature = "s")]
+#[zvariant(signature = "s")]
 #[serde(rename_all = "kebab-case")]
 pub enum ChargingLedFeature {
     /// Which of the chassis's indicators is lit.
@@ -501,7 +492,7 @@ pub enum ChargingLedFeature {
 
 /// Which of the charge indicators on the chassis's two sides is lit.
 #[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug)]
-#[zvariant(crate = "zbus::zvariant", signature = "s")]
+#[zvariant(signature = "s")]
 #[serde(rename_all = "kebab-case")]
 pub enum ChargingLedSide {
     Neither,
@@ -512,7 +503,6 @@ pub enum ChargingLedSide {
 
 /// True where a switch leaves its device connected.
 #[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug)]
-#[zvariant(crate = "zbus::zvariant")]
 pub struct PrivacyState {
     pub camera: bool,
     pub microphone: bool,
@@ -522,7 +512,7 @@ pub struct PrivacyState {
 /// it. `Unknown` is the arm for a `speed` string this vocabulary does not
 /// name.
 #[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug)]
-#[zvariant(crate = "zbus::zvariant", signature = "s")]
+#[zvariant(signature = "s")]
 #[serde(rename_all = "kebab-case")]
 pub enum UsbSpeed {
     Low,
@@ -539,7 +529,6 @@ pub enum UsbSpeed {
 /// `controller` and `root_port` are what places it: the USB bus number is
 /// handed out in enumeration order and names no controller.
 #[derive(Serialize, Deserialize, Type, Clone, PartialEq, Eq, Debug)]
-#[zvariant(crate = "zbus::zvariant")]
 pub struct Attached {
     /// The host controller's PCI address, `0000:00:14.0`.
     pub controller: String,
@@ -562,7 +551,7 @@ pub struct Attached {
 /// Whether a network interface carries a link, as the kernel's net class
 /// reports it.
 #[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug)]
-#[zvariant(crate = "zbus::zvariant", signature = "s")]
+#[zvariant(signature = "s")]
 #[serde(rename_all = "kebab-case")]
 pub enum LinkState {
     /// The interface is administratively down.
@@ -572,7 +561,6 @@ pub enum LinkState {
 }
 
 #[derive(Serialize, Deserialize, Type, Clone, PartialEq, Eq, Debug)]
-#[zvariant(crate = "zbus::zvariant")]
 pub struct NetworkLink {
     /// The kernel's name for it, `enp0s13f0u2`.
     pub interface: String,
@@ -585,7 +573,7 @@ pub struct NetworkLink {
 
 /// The fastest USB signaling a cable's e-marker declares.
 #[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug)]
-#[zvariant(crate = "zbus::zvariant", signature = "s")]
+#[zvariant(signature = "s")]
 #[serde(rename_all = "kebab-case")]
 pub enum CableSpeed {
     Usb2,
@@ -598,7 +586,7 @@ pub enum CableSpeed {
 /// A cable's signal latency class, which the PD specification ties to its
 /// length.
 #[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug)]
-#[zvariant(crate = "zbus::zvariant", signature = "s")]
+#[zvariant(signature = "s")]
 #[serde(rename_all = "kebab-case")]
 pub enum CableLatency {
     Under10Ns,
@@ -613,7 +601,6 @@ pub enum CableLatency {
 
 /// What a port's cable reported of itself through its e-marker.
 #[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug)]
-#[zvariant(crate = "zbus::zvariant")]
 pub struct Cable {
     /// None for a code the PD specification reserves.
     pub speed: Option<CableSpeed>,
@@ -632,7 +619,7 @@ pub struct Cable {
 
 /// Which kind of supply a power delivery offer is, by its PDO's type bits.
 #[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug)]
-#[zvariant(crate = "zbus::zvariant", signature = "s")]
+#[zvariant(signature = "s")]
 #[serde(rename_all = "kebab-case")]
 pub enum SupplyKind {
     Fixed,
@@ -651,7 +638,7 @@ pub enum SupplyKind {
 /// How far past its rated current a supply lets a sink draw for a moment,
 /// by the PD specification's peak current code.
 #[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug)]
-#[zvariant(crate = "zbus::zvariant", signature = "s")]
+#[zvariant(signature = "s")]
 #[serde(rename_all = "kebab-case")]
 pub enum PeakCurrent {
     /// 150% for 1 ms, 125% for 2 ms, 110% for 10 ms.
@@ -665,7 +652,6 @@ pub enum PeakCurrent {
 /// The power delivery contract as the port's controller holds it: the
 /// source's offer it stands on and the sink's request against it.
 #[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug)]
-#[zvariant(crate = "zbus::zvariant")]
 pub struct PdContract {
     pub kind: SupplyKind,
     /// None where the supply declares no draw past its rating, and for a
@@ -685,7 +671,6 @@ pub struct PdContract {
 /// and the entry then stands at whatever it last saw.
 /// `docs/hardware/usb-c.md` has the reading.
 #[derive(Serialize, Deserialize, Type, Clone, PartialEq, Eq, Debug)]
-#[zvariant(crate = "zbus::zvariant")]
 #[allow(
     clippy::struct_excessive_bools,
     reason = "each is an independent thing the EC reports about a port; the one pair with an impossible combination is Epr"
@@ -723,7 +708,7 @@ pub struct PortState {
 /// USB-C ports by the EC's port number: the ones whose controller registers
 /// a read asks for.
 #[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug, Default)]
-#[zvariant(crate = "zbus::zvariant", signature = "y")]
+#[zvariant(signature = "y")]
 #[serde(transparent)]
 pub struct PortSet(u8);
 
@@ -755,7 +740,6 @@ impl PortSet {
 /// What a port's PD controller answers from its own registers, rather than
 /// the EC's cache of it.
 #[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug)]
-#[zvariant(crate = "zbus::zvariant")]
 pub struct PortRegisters {
     /// None where the controller read no e-marker: its bit is clear for a
     /// marked cable on some partners and for a card with no cable at all,
@@ -769,7 +753,7 @@ pub struct PortRegisters {
 
 /// What kind of part a device is, named for the thing a person would buy.
 #[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug)]
-#[zvariant(crate = "zbus::zvariant", signature = "s")]
+#[zvariant(signature = "s")]
 #[serde(rename_all = "kebab-case")]
 pub enum PartKind {
     Mainboard,
@@ -787,7 +771,7 @@ pub enum PartKind {
 ///
 /// A detail crosses the bus as the fact's name and its value.
 #[derive(Type, Clone, PartialEq, Eq, Debug)]
-#[zvariant(crate = "zbus::zvariant", signature = "(sv)")]
+#[zvariant(signature = "(sv)")]
 pub enum Detail {
     /// In bytes; a module is sold in binary units.
     MemoryCapacity(u64),
@@ -938,7 +922,7 @@ impl<'de> Deserialize<'de> for Detail {
 /// A kind crosses the bus as its name and the controller number, zero for a
 /// kind that has none.
 #[derive(Type, Clone, Copy, PartialEq, Eq, Debug)]
-#[zvariant(crate = "zbus::zvariant", signature = "(sy)")]
+#[zvariant(signature = "(sy)")]
 pub enum FirmwareKind {
     Bios,
     Ec,
@@ -987,7 +971,6 @@ impl<'de> Deserialize<'de> for FirmwareKind {
 }
 
 #[derive(Serialize, Deserialize, Type, Clone, PartialEq, Eq, Debug)]
-#[zvariant(crate = "zbus::zvariant")]
 pub struct Firmware {
     pub kind: FirmwareKind,
     /// As the vendor spells it.
@@ -1016,7 +999,6 @@ impl Firmware {
 /// `product_name`, each empty where the firmware left it out, beside the
 /// board those two settle.
 #[derive(Serialize, Deserialize, Type, Clone, PartialEq, Eq, Debug, Default)]
-#[zvariant(crate = "zbus::zvariant")]
 pub struct Board {
     vendor: String,
     /// What the firmware calls the machine, for a reader and for a bug
@@ -1070,7 +1052,6 @@ impl Board {
 /// vendor name a registry supplies, and never the name a person buys it
 /// under, which is `model`'s catalogue to say.
 #[derive(Serialize, Deserialize, Type, Clone, PartialEq, Eq, Debug)]
-#[zvariant(crate = "zbus::zvariant")]
 pub struct Identity {
     pub kind: PartKind,
     pub vendor: String,
@@ -1095,7 +1076,7 @@ pub struct Identity {
 
 /// How hard the haptic touchpad has to be pressed to register a click.
 #[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug)]
-#[zvariant(crate = "zbus::zvariant", signature = "s")]
+#[zvariant(signature = "s")]
 #[serde(rename_all = "kebab-case")]
 pub enum ClickForce {
     Low,
@@ -1112,8 +1093,8 @@ impl ClickForce {
 
 #[cfg(test)]
 mod tests {
-    use zbus::zvariant::serialized::Context;
-    use zbus::zvariant::{LE, to_bytes};
+    use zvariant::serialized::Context;
+    use zvariant::{LE, to_bytes};
 
     use std::num::NonZeroU32;
 

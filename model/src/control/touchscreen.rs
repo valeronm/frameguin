@@ -2,7 +2,7 @@
 
 use std::rc::Rc;
 
-use frameguin_wire::{DeviceResult as Result, TouchscreenControl};
+use frameguin_contract::{DeviceResult as Result, TouchscreenControl};
 
 use super::{names, present};
 
@@ -56,7 +56,7 @@ pub fn state_at(row: usize) -> Option<bool> {
 
 #[cfg(test)]
 mod tests {
-    use frameguin_wire::DeviceError;
+    use frameguin_contract::DeviceError;
 
     use super::{Touchscreen, state_at, state_labels, state_row};
     use crate::testing::{Machine, absent, ready};

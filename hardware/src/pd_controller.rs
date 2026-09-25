@@ -6,7 +6,7 @@
 //! The registers are Infineon's host-interface map, shared across the
 //! `CCGx` controllers on every Framework board.
 
-use frameguin_wire::{
+use frameguin_contract::{
     Cable, CableLatency, CableSpeed, PdContract, PeakCurrent, Platform, PortRegisters, SupplyKind,
 };
 
@@ -163,7 +163,9 @@ fn cable(status: [u8; 2], vdo: u32) -> Option<Cable> {
 
 #[cfg(test)]
 mod tests {
-    use frameguin_wire::{CableLatency, CableSpeed, PdContract, PeakCurrent, Platform, SupplyKind};
+    use frameguin_contract::{
+        CableLatency, CableSpeed, PdContract, PeakCurrent, Platform, SupplyKind,
+    };
 
     use super::{SPAN, block, cable, controllers, decode};
 

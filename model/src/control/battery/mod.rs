@@ -12,7 +12,7 @@ pub mod reading;
 use std::num::NonZeroU32;
 use std::rc::Rc;
 
-use frameguin_wire::{
+use frameguin_contract::{
     BatteryCondition, BatteryControl, BatteryFeature, BatteryInfo, ChargeCurrentLimit,
     DeviceResult as Result, ExtenderState,
 };
@@ -92,7 +92,7 @@ pub const CHARGE_LIMIT_CUSTOM: usize = CHARGE_PRESETS.len();
 
 /// The lowest ceiling the custom slider offers is the lowest the daemon
 /// accepts: a slider reaching below it would offer a write it refuses.
-pub use frameguin_wire::MIN_CHARGE_LIMIT;
+pub use frameguin_contract::MIN_CHARGE_LIMIT;
 
 /// The charge speeds the combo offers, each beside the divisor it applies to
 /// the battery's 1C design current; `None` is full speed, no limit at all.
@@ -221,7 +221,7 @@ pub fn with_custom_row(mut labels: Vec<String>) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use frameguin_wire::{BatteryFeature, ChargeCurrentLimit, DeviceError};
+    use frameguin_contract::{BatteryFeature, ChargeCurrentLimit, DeviceError};
 
     use super::{
         Battery, CHARGE_LIMIT_CUSTOM, CHARGE_SPEED_CUSTOM, CHARGE_SPEEDS, Custom, NO_CHARGE_LIMIT,

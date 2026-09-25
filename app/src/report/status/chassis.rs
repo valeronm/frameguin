@@ -7,14 +7,14 @@
 use std::rc::Rc;
 
 use adw::prelude::*;
+use frameguin_contract::ChassisFeature;
 use frameguin_model::control::chassis::{
     Chassis, chassis_summary, deck_label, open_now_label, times_label,
 };
-use frameguin_wire::ChassisFeature;
+use frameguin_wire::Bus;
 use gtk4 as gtk;
 
 use super::Sidebar;
-use crate::bus::Bus;
 use crate::reading::{Feed, Wants};
 use crate::report::{value, value_row};
 

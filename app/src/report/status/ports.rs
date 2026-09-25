@@ -17,6 +17,7 @@ use std::cell::{Cell, RefCell};
 use std::rc::{Rc, Weak};
 
 use adw::prelude::*;
+use frameguin_contract::{Attached, PortPartner, PortRegisters, PortSet, PortState, PowerRole};
 use frameguin_model::control::ports::{
     NOTHING_ATTACHED, POWERING_THE_MACHINE, cable_length_label, cable_rating_label,
     cable_speed_label, cable_type_label, carried, contract_label, data_role_label,
@@ -26,7 +27,6 @@ use frameguin_model::control::ports::{
 };
 use frameguin_model::control::usb::{capacity_label, device_name, network_label, speed_label};
 use frameguin_model::port::Placement;
-use frameguin_wire::{Attached, PortPartner, PortRegisters, PortSet, PortState, PowerRole};
 use gtk4 as gtk;
 use gtk4::glib;
 

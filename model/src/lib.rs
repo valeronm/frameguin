@@ -1,5 +1,5 @@
 //! The app's side of the machine: its controls, over the control traits
-//! `frameguin_wire` declares.
+//! `frameguin_contract` declares.
 //!
 //! A control here is the client of one: the read that fills a front-end's
 //! rows, the commands that move the hardware, and the presets and words a

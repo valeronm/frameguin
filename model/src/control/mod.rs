@@ -12,7 +12,7 @@ pub mod usb;
 
 use std::rc::Rc;
 
-use frameguin_wire::{
+use frameguin_contract::{
     BatteryControl, ChargingLedControl, ChassisControl, DeviceError, DeviceResult, Platform,
     PortsControl, PowerLedControl, PrivacySwitchesControl, TouchpadControl, TouchscreenControl,
     UsbControl,
@@ -146,13 +146,16 @@ impl<
 mod tests {
     use std::rc::Rc;
 
-    use frameguin_wire::DeviceError;
+    use frameguin_contract::DeviceError;
 
     use super::{Controls, Custom, row_for};
     use crate::testing::{Fault, Machine, absent, ready};
 
-    fn detect(machine: &Rc<Machine>) -> frameguin_wire::DeviceResult<Controls<Machine>> {
-        ready(Controls::detect(machine, frameguin_wire::Platform::Unknown))
+    fn detect(machine: &Rc<Machine>) -> frameguin_contract::DeviceResult<Controls<Machine>> {
+        ready(Controls::detect(
+            machine,
+            frameguin_contract::Platform::Unknown,
+        ))
     }
 
     const PRESET: usize = 1;

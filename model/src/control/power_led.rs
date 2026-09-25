@@ -3,11 +3,11 @@
 
 use std::rc::Rc;
 
-use frameguin_wire::{DeviceResult as Result, PowerLedControl, PowerLedLevel};
+use frameguin_contract::{DeviceResult as Result, PowerLedControl, PowerLedLevel};
 
 use super::{Custom, present};
 
-pub use frameguin_wire::MIN_POWER_LED_BRIGHTNESS;
+pub use frameguin_contract::MIN_POWER_LED_BRIGHTNESS;
 
 /// What the LED is set to: the level in force, and the percentage the EC
 /// lights it at — the one a preset resolved to, or the one dialled in.
@@ -130,7 +130,7 @@ pub fn labels(levels: &[PowerLedLevel]) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use frameguin_wire::{DeviceError, PowerLedLevel};
+    use frameguin_contract::{DeviceError, PowerLedLevel};
 
     use super::{Custom, PowerLed, Snapshot, rank};
     use crate::testing::{Machine, absent, ready};

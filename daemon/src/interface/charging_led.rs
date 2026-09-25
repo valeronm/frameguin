@@ -1,7 +1,8 @@
 //! `io.github.valeronm.Frameguin1.ChargingLed`.
 
+use frameguin_contract::{ChargingLedControl, ChargingLedFeature, ChargingLedSide};
 use frameguin_hardware::device::charging_led::ChargingLed;
-use frameguin_wire::{ChargingLedControl, ChargingLedFeature, ChargingLedSide};
+use frameguin_wire::fdo_error;
 use zbus::fdo;
 use zbus::interface;
 use zbus::message::Header;
@@ -11,7 +12,7 @@ use crate::served::Served;
 #[interface(name = "io.github.valeronm.Frameguin1.ChargingLed")]
 impl Served<ChargingLed> {
     async fn get_enabled(&self) -> fdo::Result<bool> {
-        Ok(self.device().enabled().await?)
+        self.device().enabled().await.map_err(fdo_error)
     }
 
     async fn set_enabled(
@@ -19,14 +20,18 @@ impl Served<ChargingLed> {
         enabled: bool,
         #[zbus(header)] header: Header<'_>,
     ) -> fdo::Result<()> {
-        Ok(self.authorized(&header).await?.set_enabled(enabled).await?)
+        self.authorized(&header)
+            .await?
+            .set_enabled(enabled)
+            .await
+            .map_err(fdo_error)
     }
 
     async fn get_features(&self) -> fdo::Result<Vec<ChargingLedFeature>> {
-        Ok(self.device().features().await?)
+        self.device().features().await.map_err(fdo_error)
     }
 
     async fn get_side(&self) -> fdo::Result<ChargingLedSide> {
-        Ok(self.device().side().await?)
+        self.device().side().await.map_err(fdo_error)
     }
 }

@@ -617,6 +617,7 @@ version = "0.5.1"
 dependencies = [
  "async-channel",
  "async-lock",
+ "frameguin-contract",
  "frameguin-model",
  "frameguin-wire",
  "gtk4",
@@ -627,10 +628,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "frameguin-contract"
+version = "0.5.1"
+dependencies = [
+ "serde",
+ "zvariant",
+]
+
+[[package]]
 name = "frameguin-daemon"
 version = "0.5.1"
 dependencies = [
  "async-io",
+ "frameguin-contract",
  "frameguin-hardware",
  "frameguin-model",
  "frameguin-wire",
@@ -644,7 +654,7 @@ name = "frameguin-hardware"
 version = "0.5.1"
 dependencies = [
  "async-io",
- "frameguin-wire",
+ "frameguin-contract",
  "framework_lib",
  "hidapi",
  "libc",
@@ -654,14 +664,14 @@ dependencies = [
 name = "frameguin-model"
 version = "0.5.1"
 dependencies = [
- "frameguin-wire",
+ "frameguin-contract",
 ]
 
 [[package]]
 name = "frameguin-wire"
 version = "0.5.1"
 dependencies = [
- "serde",
+ "frameguin-contract",
  "zbus",
 ]
 

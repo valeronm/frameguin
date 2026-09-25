@@ -1,7 +1,7 @@
 //! The mainboard, as the firmware's DMI fields describe it: a part the
 //! daemon reads and never sets, carrying the firmware it runs.
 
-use frameguin_wire::Board;
+use frameguin_contract::Board;
 
 use crate::build_info;
 use crate::dmi;

@@ -19,7 +19,7 @@
 //! to read its underside mirrors every one of them, so a position measured
 //! that way is entered here flipped.
 
-use frameguin_wire::{Attached, Platform};
+use frameguin_contract::{Attached, Platform};
 
 /// Declared in the order ports are listed, which the derived `Ord` follows.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -300,9 +300,9 @@ fn number(index: u8) -> String {
 mod tests {
     use super::Placement;
 
-    use frameguin_wire::Platform::Laptop13AmdAi300 as SIDED;
-    use frameguin_wire::Platform::Laptop13ProUltra3 as MEASURED;
-    use frameguin_wire::{Attached, Platform, UsbSpeed};
+    use frameguin_contract::Platform::Laptop13AmdAi300 as SIDED;
+    use frameguin_contract::Platform::Laptop13ProUltra3 as MEASURED;
+    use frameguin_contract::{Attached, Platform, UsbSpeed};
 
     fn products(placement: Placement, index: u8, devices: &[Attached]) -> Vec<&str> {
         placement

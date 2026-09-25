@@ -3,8 +3,8 @@
 
 use std::sync::Arc;
 
-use frameguin_wire::{
-    self as wire, DeviceError, DeviceResult, HAPTIC_INTENSITY_LEVELS, TouchpadControl,
+use frameguin_contract::{
+    self as contract, DeviceError, DeviceResult, HAPTIC_INTENSITY_LEVELS, TouchpadControl,
 };
 
 use crate::lifetime::Lifetime;
@@ -38,7 +38,7 @@ impl Stored for Intensity {
 
 /// Kept in the store as the pad's own code, which is what a reload has to
 /// be able to name again.
-impl Stored for wire::ClickForce {
+impl Stored for contract::ClickForce {
     fn from_stored(value: &str) -> Option<Self> {
         touchpad::wire_click_force(value.parse().ok()?)
     }
@@ -52,7 +52,7 @@ pub struct Touchpad {
     pad: Arc<dyn HapticPad>,
     identity: Identity,
     haptic_intensity: Mirror<Intensity>,
-    click_force: Mirror<wire::ClickForce>,
+    click_force: Mirror<contract::ClickForce>,
 }
 
 impl Touchpad {
@@ -134,14 +134,14 @@ impl TouchpadControl for Touchpad {
         })
     }
 
-    async fn click_force(&self) -> DeviceResult<wire::ClickForce> {
+    async fn click_force(&self) -> DeviceResult<contract::ClickForce> {
         Ok(self
             .click_force
             .current()
             .unwrap_or(touchpad::DEFAULT_CLICK_FORCE))
     }
 
-    async fn set_click_force(&self, force: wire::ClickForce) -> DeviceResult<()> {
+    async fn set_click_force(&self, force: contract::ClickForce) -> DeviceResult<()> {
         self.click_force
             .record(force, || self.pad.set_click_force(force))
     }
@@ -151,7 +151,7 @@ impl TouchpadControl for Touchpad {
 mod tests {
     use std::sync::Arc;
 
-    use frameguin_wire::{ClickForce, DeviceError, TouchpadControl};
+    use frameguin_contract::{ClickForce, DeviceError, TouchpadControl};
 
     use super::{KEY_CLICK_FORCE, KEY_HAPTIC_INTENSITY, Touchpad};
     use crate::part::Part;

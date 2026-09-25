@@ -8,6 +8,7 @@ license = "MIT"
 workspace = true
 
 [dependencies]
+frameguin-contract = { workspace = true }
 frameguin-hardware = { workspace = true }
 frameguin-model = { workspace = true }
 frameguin-wire = { workspace = true }

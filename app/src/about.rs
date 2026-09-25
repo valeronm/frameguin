@@ -7,11 +7,11 @@ use std::time::Duration;
 
 use adw::prelude::*;
 use frameguin_model::part;
+use frameguin_wire::Bus;
 use gtk4 as gtk;
 use gtk4::{gdk, gdk_pixbuf, gio, glib, graphene, gsk};
 
 use crate::APP_ID;
-use crate::bus::Bus;
 use crate::mapped;
 
 const DAEMON_UNIT: &str = "frameguin-daemon.service";

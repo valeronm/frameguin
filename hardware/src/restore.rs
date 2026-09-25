@@ -5,7 +5,7 @@
 use std::marker::PhantomData;
 use std::sync::Arc;
 
-use frameguin_wire::DeviceResult;
+use frameguin_contract::DeviceResult;
 
 use crate::state::{Store, Stored};
 

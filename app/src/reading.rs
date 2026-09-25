@@ -35,7 +35,7 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
-use frameguin_wire::{
+use frameguin_contract::{
     Attached, BatteryCondition, BatteryFeature, BatteryInfo, ChargingLedFeature, ChargingLedSide,
     ChassisState, DeckState, DeviceError, DeviceResult, ExtenderState, PortSet, PortState,
     PrivacyState,

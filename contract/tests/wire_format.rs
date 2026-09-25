@@ -3,13 +3,13 @@
 //! so a rename, a reorder or a changed `signature` is a protocol break that
 //! no compiler on either side would report.
 
-use frameguin_wire::{
+use frameguin_contract::{
     BatteryAlarm, BatteryCondition, BatteryFeature, BatteryInfo, BatteryState, Board,
     ChargeCurrentLimit, ChargeFlow, ChassisFeature, ClickForce, DeckState, ExtenderStage,
     ExtenderState, Identity, PartKind, Platform, PowerLedLevel, VENDOR,
 };
-use zbus::zvariant::serialized::Context;
-use zbus::zvariant::{LE, Type, to_bytes};
+use zvariant::serialized::Context;
+use zvariant::{LE, Type, to_bytes};
 
 fn wire_string<T: serde::Serialize + Type>(value: T) -> String {
     let encoded = to_bytes(Context::new_dbus(LE, 0), &value).unwrap();

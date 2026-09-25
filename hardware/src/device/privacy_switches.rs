@@ -5,7 +5,7 @@
 
 use std::sync::Arc;
 
-use frameguin_wire::{DeviceResult, PrivacyState, PrivacySwitchesControl};
+use frameguin_contract::{DeviceResult, PrivacyState, PrivacySwitchesControl};
 
 use crate::ec::{Ec, PrivacyEc};
 
@@ -35,7 +35,7 @@ impl PrivacySwitchesControl for PrivacySwitches {
 mod tests {
     use std::sync::Arc;
 
-    use frameguin_wire::PrivacySwitchesControl;
+    use frameguin_contract::PrivacySwitchesControl;
 
     use super::PrivacySwitches;
     use crate::testing::{Sliders, ready};

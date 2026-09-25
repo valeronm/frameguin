@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_io::Timer;
-use frameguin_wire::{
+use frameguin_contract::{
     ChargingLedControl, ChargingLedFeature, ChargingLedSide, DeviceError, DeviceResult,
 };
 
@@ -85,7 +85,9 @@ impl ChargingLedControl for ChargingLed {
 mod tests {
     use std::sync::Arc;
 
-    use frameguin_wire::{ChargingLedControl, ChargingLedFeature, ChargingLedSide, DeviceError};
+    use frameguin_contract::{
+        ChargingLedControl, ChargingLedFeature, ChargingLedSide, DeviceError,
+    };
 
     use super::ChargingLed;
     use crate::testing::{Leds, Log, Sides, ready, writes};

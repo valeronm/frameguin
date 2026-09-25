@@ -10,7 +10,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_io::Timer;
-use frameguin_wire::{
+use frameguin_contract::{
     DeviceError, DeviceResult, MIN_POWER_LED_BRIGHTNESS, PowerLedControl, PowerLedLevel,
 };
 
@@ -220,7 +220,7 @@ impl PowerLedControl for PowerLed {
 mod tests {
     use std::sync::Arc;
 
-    use frameguin_wire::{DeviceError, PowerLedControl, PowerLedLevel};
+    use frameguin_contract::{DeviceError, PowerLedControl, PowerLedLevel};
 
     use super::{Brightness, KEY_BRIGHTNESS, PowerLed, Restorable};
     use crate::mirror::Mirrors;

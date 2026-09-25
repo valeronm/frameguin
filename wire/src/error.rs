@@ -1,7 +1,7 @@
-//! The one error every implementation of the control traits raises, and how
-//! it crosses the bus.
+//! How [`DeviceError`] crosses the bus: the kind as the D-Bus error name,
+//! the sentence as its detail.
 
-use std::fmt;
+use frameguin_contract::DeviceError;
 
 /// What a failed call says, without the D-Bus error name in front of it.
 ///
@@ -19,92 +19,46 @@ fn cause(error: &zbus::Error) -> String {
     }
 }
 
-/// What a failed operation says, by kind — so a caller can tell an argument
-/// it got wrong from hardware that is not there from a prompt that was
-/// declined from a daemon that never answered — and the sentence for it.
-///
-/// The one error every implementation of the control traits raises. The
-/// direct implementation raises the kind itself; over the bus the kind
-/// travels as the D-Bus error name and the sentence as its detail, and
-/// [`DeviceError::from`] a `zbus::Error` puts the two back together.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum DeviceError {
-    InvalidArgs(String),
-    /// The hardware that is there cannot do this — no EC on the board, no
-    /// route to the panel. A device that is present raises it.
-    NotSupported(String),
-    AccessDenied(String),
-    /// No such device. Only the bus implementation raises it, from the bus's
-    /// unknown-interface reply: the daemon registers a device's interface
-    /// only where it detected the device, so that reply is the device's
-    /// absence and nothing else, and a device's `detect` reads it as such.
-    Absent(String),
-    /// The daemon did not answer at all, which only the bus implementation
-    /// can tell.
-    Unreachable(String),
-    Failed(String),
-}
-
-impl fmt::Display for DeviceError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::InvalidArgs(m)
-            | Self::NotSupported(m)
-            | Self::AccessDenied(m)
-            | Self::Absent(m)
-            | Self::Unreachable(m)
-            | Self::Failed(m) => f.write_str(m),
-        }
-    }
-}
-
 /// The kind is read off `fdo::Error`, whose derive already sorts a reply by
 /// its error name; a reply outside that vocabulary keeps its sentence alone.
-impl From<zbus::Error> for DeviceError {
-    fn from(error: zbus::Error) -> Self {
-        use zbus::fdo::Error as Fdo;
-        match Fdo::from(error) {
-            Fdo::InvalidArgs(m) => Self::InvalidArgs(m),
-            Fdo::NotSupported(m) => Self::NotSupported(m),
-            Fdo::AccessDenied(m) => Self::AccessDenied(m),
-            Fdo::UnknownInterface(m) => Self::Absent(m),
-            Fdo::Failed(m) => Self::Failed(m),
-            Fdo::NoReply(m)
-            | Fdo::ServiceUnknown(m)
-            | Fdo::NameHasNoOwner(m)
-            | Fdo::Timeout(m)
-            | Fdo::Disconnected(m) => Self::Unreachable(m),
-            Fdo::ZBus(e @ zbus::Error::InputOutput(_)) => Self::Unreachable(cause(&e)),
-            Fdo::ZBus(e) => Self::Failed(cause(&e)),
-            other => Self::Failed(other.to_string()),
-        }
+#[must_use]
+pub fn device_error(error: zbus::Error) -> DeviceError {
+    use zbus::fdo::Error as Fdo;
+    match Fdo::from(error) {
+        Fdo::InvalidArgs(m) => DeviceError::InvalidArgs(m),
+        Fdo::NotSupported(m) => DeviceError::NotSupported(m),
+        Fdo::AccessDenied(m) => DeviceError::AccessDenied(m),
+        Fdo::UnknownInterface(m) => DeviceError::Absent(m),
+        Fdo::Failed(m) => DeviceError::Failed(m),
+        Fdo::NoReply(m)
+        | Fdo::ServiceUnknown(m)
+        | Fdo::NameHasNoOwner(m)
+        | Fdo::Timeout(m)
+        | Fdo::Disconnected(m) => DeviceError::Unreachable(m),
+        Fdo::ZBus(e @ zbus::Error::InputOutput(_)) => DeviceError::Unreachable(cause(&e)),
+        Fdo::ZBus(e) => DeviceError::Failed(cause(&e)),
+        other => DeviceError::Failed(other.to_string()),
     }
 }
 
-impl From<std::io::Error> for DeviceError {
-    fn from(error: std::io::Error) -> Self {
-        Self::Failed(error.to_string())
+#[must_use]
+pub fn fdo_error(error: DeviceError) -> zbus::fdo::Error {
+    use zbus::fdo::Error as Fdo;
+    match error {
+        DeviceError::InvalidArgs(m) => Fdo::InvalidArgs(m),
+        DeviceError::NotSupported(m) => Fdo::NotSupported(m),
+        DeviceError::AccessDenied(m) => Fdo::AccessDenied(m),
+        DeviceError::Absent(m) => Fdo::UnknownInterface(m),
+        DeviceError::Unreachable(m) | DeviceError::Failed(m) => Fdo::Failed(m),
     }
 }
-
-impl From<DeviceError> for zbus::fdo::Error {
-    fn from(error: DeviceError) -> Self {
-        match error {
-            DeviceError::InvalidArgs(m) => Self::InvalidArgs(m),
-            DeviceError::NotSupported(m) => Self::NotSupported(m),
-            DeviceError::AccessDenied(m) => Self::AccessDenied(m),
-            DeviceError::Absent(m) => Self::UnknownInterface(m),
-            DeviceError::Unreachable(m) | DeviceError::Failed(m) => Self::Failed(m),
-        }
-    }
-}
-
-pub type DeviceResult<T> = Result<T, DeviceError>;
 
 #[cfg(test)]
 mod tests {
-    use super::{DeviceError, cause};
-    use crate::vocabulary::OBJECT_PATH;
+    use frameguin_contract::DeviceError;
+
+    use super::{cause, device_error, fdo_error};
+    use crate::OBJECT_PATH;
 
     fn named_error(name: &str, detail: Option<&str>) -> zbus::Error {
         let reply = zbus::Message::method_call(OBJECT_PATH, "SetChargeLimit")
@@ -122,20 +76,39 @@ mod tests {
         named_error("org.freedesktop.DBus.Error.AccessDenied", detail)
     }
 
+    /// Only an unreachable daemon, which the daemon itself never raises,
+    /// comes back as another kind.
+    #[test]
+    fn every_kind_the_daemon_sends_comes_back_as_itself() {
+        for error in [
+            DeviceError::InvalidArgs("argument".into()),
+            DeviceError::NotSupported("board".into()),
+            DeviceError::AccessDenied("prompt".into()),
+            DeviceError::Absent("device".into()),
+            DeviceError::Failed("hardware".into()),
+        ] {
+            let crossed = device_error(zbus::Error::from(fdo_error(error.clone())));
+            assert_eq!(crossed, error);
+        }
+        assert_eq!(
+            device_error(zbus::Error::from(fdo_error(DeviceError::Unreachable(
+                "daemon".into()
+            )))),
+            DeviceError::Failed("daemon".into())
+        );
+    }
+
     #[test]
     fn a_failure_the_daemon_sent_reads_as_its_sentence() {
         let error = named_error("org.freedesktop.DBus.Error.Failed", Some("EC error"));
-        assert_eq!(
-            DeviceError::from(error),
-            DeviceError::Failed("EC error".into())
-        );
+        assert_eq!(device_error(error), DeviceError::Failed("EC error".into()));
     }
 
     #[test]
     fn a_daemon_that_never_answered_is_unreachable() {
         let error = named_error("org.freedesktop.DBus.Error.NoReply", Some("no reply"));
         assert_eq!(
-            DeviceError::from(error),
+            device_error(error),
             DeviceError::Unreachable("no reply".into())
         );
     }
@@ -143,7 +116,7 @@ mod tests {
     #[test]
     fn a_refusal_the_daemon_sent_keeps_its_kind() {
         assert_eq!(
-            DeviceError::from(method_error(Some("not authorized"))),
+            device_error(method_error(Some("not authorized"))),
             DeviceError::AccessDenied("not authorized".into())
         );
     }

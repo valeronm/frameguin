@@ -2,7 +2,7 @@
 
 use std::rc::Rc;
 
-use frameguin_wire::{
+use frameguin_contract::{
     ClickForce, DeviceResult as Result, HAPTIC_INTENSITY_LEVELS, TouchpadControl,
 };
 
@@ -104,7 +104,7 @@ pub fn click_force_at(row: usize) -> Option<ClickForce> {
 
 #[cfg(test)]
 mod tests {
-    use frameguin_wire::{ClickForce, DeviceError, HAPTIC_INTENSITY_LEVELS};
+    use frameguin_contract::{ClickForce, DeviceError, HAPTIC_INTENSITY_LEVELS};
 
     use super::{Snapshot, Touchpad, haptic_at, haptic_row};
     use crate::testing::{Machine, absent, ready};
@@ -167,7 +167,7 @@ mod tests {
 
     /// The steps are the touchpad's list, not this module's, and the rows are
     /// those steps in order — so a scale that stopped climbing would be drawn
-    /// as one anyway. What this catches is `wire`'s copy being updated to a
+    /// as one anyway. What this catches is `contract`'s copy being updated to a
     /// reordered upstream list; that the copy matches upstream at all is the
     /// daemon's test, one boundary over.
     #[test]
