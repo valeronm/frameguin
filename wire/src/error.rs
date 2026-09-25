@@ -68,6 +68,7 @@ impl From<zbus::Error> for DeviceError {
             Fdo::NotSupported(m) => Self::NotSupported(m),
             Fdo::AccessDenied(m) => Self::AccessDenied(m),
             Fdo::UnknownInterface(m) => Self::Absent(m),
+            Fdo::Failed(m) => Self::Failed(m),
             Fdo::NoReply(m)
             | Fdo::ServiceUnknown(m)
             | Fdo::NameHasNoOwner(m)
@@ -119,6 +120,15 @@ mod tests {
 
     fn method_error(detail: Option<&str>) -> zbus::Error {
         named_error("org.freedesktop.DBus.Error.AccessDenied", detail)
+    }
+
+    #[test]
+    fn a_failure_the_daemon_sent_reads_as_its_sentence() {
+        let error = named_error("org.freedesktop.DBus.Error.Failed", Some("EC error"));
+        assert_eq!(
+            DeviceError::from(error),
+            DeviceError::Failed("EC error".into())
+        );
     }
 
     #[test]
