@@ -24,10 +24,11 @@ use frameguin_model::control::battery::{
 };
 use frameguin_model::control::ports::{self, supply_label, supply_port};
 use frameguin_model::port::Placement;
+use frameguin_model::reading::Request;
 use frameguin_wire::Bus;
 use gtk4 as gtk;
 
-use crate::reading::{Wants, show_while_mapped};
+use crate::reading::show_while_mapped;
 use crate::report::status::{self, Target};
 use crate::tray::TrayValues;
 use crate::window::widgets::{
@@ -246,12 +247,12 @@ impl Group {
     /// its menu is about to show.
     pub(crate) fn watch(&self, ui: &Rc<Ui>) {
         let row_ui = ui.clone();
-        let wants = Wants {
+        let request = Request {
             battery: true,
             ports: true,
-            ..Wants::default()
+            ..Request::default()
         };
-        show_while_mapped(&ui.feed, &self.state_row, wants, move |reading| {
+        show_while_mapped(&ui.feed, &self.state_row, request, move |reading| {
             let group = &row_ui.battery;
             if let Some(info) = &reading.info {
                 group.show_state(info.state);

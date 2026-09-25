@@ -27,11 +27,12 @@ use frameguin_model::control::ports::{
 };
 use frameguin_model::control::usb::{capacity_label, device_name, network_label, speed_label};
 use frameguin_model::port::Placement;
+use frameguin_model::reading::Request;
 use gtk4 as gtk;
 use gtk4::glib;
 
 use super::{Sidebar, Target};
-use crate::reading::{Feed, Wants, show_while_mapped};
+use crate::reading::{Feed, show_while_mapped};
 use crate::report::{described_value, value};
 
 /// The section's rows, one per port the last reading carried.
@@ -112,10 +113,10 @@ impl Group {
 /// The rows arrive with the first reading, which is what says how many ports
 /// there are.
 pub(super) fn add(sidebar: &Rc<Sidebar>, feed: &Rc<Feed>, usb: bool, placement: Placement) {
-    let wants = Wants {
+    let request = Request {
         ports: true,
         usb: usb && placement.wired(),
-        ..Wants::default()
+        ..Request::default()
     };
     let section = Rc::new(Section {
         list: sidebar.section("USB-C Ports"),
@@ -134,10 +135,10 @@ pub(super) fn add(sidebar: &Rc<Sidebar>, feed: &Rc<Feed>, usb: bool, placement: 
     let showing = sidebar.clone();
     // Weak: this closure is the feed's own subscription.
     let asking = Rc::downgrade(feed);
-    sidebar.follow(feed, wants, move |reading| {
+    sidebar.follow(feed, request, move |reading| {
         if let Some(ports) = &reading.ports {
             let devices = reading.usb.as_deref().unwrap_or_default();
-            section.show(&showing, &asking, wants, ports, devices);
+            section.show(&showing, &asking, request, ports, devices);
         }
     });
 }
@@ -149,7 +150,7 @@ impl Section {
         &self,
         sidebar: &Sidebar,
         feed: &Weak<Feed>,
-        wants: Wants,
+        request: Request,
         ports: &[PortState],
         devices: &[Attached],
     ) {
@@ -182,11 +183,11 @@ impl Section {
                     let row = sidebar.add(&self.list, &placement.label(state.index), &widget);
                     row.set_use_markup(false);
                     if let Some(feed) = &feed {
-                        let wants = Wants {
+                        let request = Request {
                             controller_ports: PortSet::of(state.index),
-                            ..wants
+                            ..request
                         };
-                        show_while_mapped(feed, &widget, wants, move |reading| {
+                        show_while_mapped(feed, &widget, request, move |reading| {
                             if let Some(ports) = &reading.ports {
                                 let devices = reading.usb.as_deref().unwrap_or_default();
                                 page.show(ports, devices);

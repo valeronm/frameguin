@@ -13,11 +13,12 @@ use frameguin_model::control::battery::reading::{
     alarms_label, capacity, cell_spread, cell_voltages, charge_brief, charge_direction,
     charger_label, milliamps, percent_label, power_label, retention_label, temperature, volts,
 };
+use frameguin_model::reading::{Reading, Request};
 use frameguin_wire::Bus;
 use gtk4 as gtk;
 
 use super::{Sidebar, Target};
-use crate::reading::{Feed, Reading, Wants, show_while_mapped};
+use crate::reading::{Feed, show_while_mapped};
 use crate::report::{described_value, value, value_row};
 
 /// Every field is a descendant of the page the feed's subscription hangs on,
@@ -116,9 +117,9 @@ pub(super) fn add(
     let answering: gtk::ListBoxRow = row.clone().upcast();
     sidebar.answer(move |target| (target == Target::Battery).then(|| answering.clone()));
 
-    let summary = Wants {
+    let summary = Request {
         battery: true,
-        ..Wants::default()
+        ..Request::default()
     };
     sidebar.follow(feed, summary, move |reading| {
         if let Some(info) = &reading.info {
@@ -130,12 +131,12 @@ pub(super) fn add(
     // Both rows read the pack over I2C, so one feature answers for the pair.
     report.temperature_row.set_visible(condition);
     report.spread_row.set_visible(condition);
-    let wants = Wants {
+    let request = Request {
         battery: true,
         condition,
-        ..Wants::default()
+        ..Request::default()
     };
-    show_while_mapped(feed, &page, wants, move |reading| report.show(reading));
+    show_while_mapped(feed, &page, request, move |reading| report.show(reading));
 }
 
 /// Every row of the page, added in the order they are read in. The first group

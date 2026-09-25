@@ -54,11 +54,14 @@ One meaning per word, and each word names one place in the tree.
   a call on the daemon. `wire/src/bus.rs`, `Bus`.
 - **Daemon**, on the app side — its end of the daemon: the connection and
   the controls detection registered, with the board they run on, dialled
-  and asked once for the run.
+  and asked for on first use.
   `app/src/daemon.rs`, `Daemon`.
 - **Client control** — the app's side of one control: its read, its
   commands, its presets and words. `model/src/control/`,
   registered in `Controls`.
+- **Reading** — one pass over the controls for what a `Request` asks,
+  every extra arriving or not: `model/src/reading.rs`. The app's feed
+  (`app/src/reading.rs`) decides when to take one and who is shown it.
 - **Group** — the window's widgets for one control. `app/src/window/`.
 
 Nothing on the app side is called a device; "device" is reserved for the

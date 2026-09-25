@@ -168,8 +168,11 @@ it and the non-obvious constraints.
   row and the Readings window render the same walk of the same block, and each
   polling for
   itself made the EC answer twice and let the two windows sit a tick apart, so
-  a view subscribes and the feed does the reading. What a view wants — the
-  pack's block, its condition, the USB-C ports — is a field in `Wants` rather
+  a view subscribes and the feed does the reading. The read itself is
+  `model::reading`'s, one pass over the controls with no GTK in it, so a
+  second front end reads the machine the same way; what stays here is who
+  is subscribed and when to read. What a view wants — the
+  pack's block, its condition, the USB-C ports — is a field in its `Request` rather
   than a parameter, so a view showing none of them costs none of them, and
   each arrives as None where nothing asked, where the ask failed, and where
   the board has no such device alike. A window subscribes before it fills and

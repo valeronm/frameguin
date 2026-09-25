@@ -7,10 +7,11 @@ use std::rc::Rc;
 
 use adw::prelude::*;
 use frameguin_model::control::privacy_switches::{switch_label, switches_summary};
+use frameguin_model::reading::Request;
 use gtk4 as gtk;
 
 use super::Sidebar;
-use crate::reading::{Feed, Wants};
+use crate::reading::Feed;
 use crate::report::value;
 
 pub(super) fn add(sidebar: &Rc<Sidebar>, list: &gtk::ListBox, feed: &Rc<Feed>) {
@@ -21,11 +22,11 @@ pub(super) fn add(sidebar: &Rc<Sidebar>, list: &gtk::ListBox, feed: &Rc<Feed>) {
     page.add(&group);
     let row = sidebar.add(list, "Privacy", &page);
 
-    let wants = Wants {
+    let request = Request {
         privacy_switches: true,
-        ..Wants::default()
+        ..Request::default()
     };
-    sidebar.follow(feed, wants, move |reading| {
+    sidebar.follow(feed, request, move |reading| {
         if let Some(switches) = reading.privacy_switches {
             row.set_subtitle(&switches_summary(switches));
             camera.set_label(switch_label(switches.camera));

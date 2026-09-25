@@ -15,13 +15,14 @@ use std::rc::Rc;
 
 use adw::prelude::*;
 use frameguin_contract::BatteryFeature;
+use frameguin_model::reading::{Reading, Request};
 use gtk4 as gtk;
 use gtk4::gio;
 use gtk4::glib;
 
 use super::{Shell, collapse_when_narrow, headed};
 use crate::daemon::Daemon;
-use crate::reading::{Feed, Reading, Wants, show_while_mapped};
+use crate::reading::{Feed, show_while_mapped};
 
 /// The only way the window is opened.
 pub(crate) const ACTION: &str = "status";
@@ -324,9 +325,9 @@ impl Sidebar {
 
     /// Feeds sidebar rows for as long as the window is on screen,
     /// whichever page is selected.
-    fn follow(&self, feed: &Rc<Feed>, wants: Wants, show: impl Fn(&Reading) + 'static) {
+    fn follow(&self, feed: &Rc<Feed>, request: Request, show: impl Fn(&Reading) + 'static) {
         if let Some(split) = self.split.upgrade() {
-            show_while_mapped(feed, &split, wants, show);
+            show_while_mapped(feed, &split, request, show);
         }
     }
 

@@ -10,10 +10,11 @@ use adw::prelude::*;
 use frameguin_model::control::battery::extender::{
     first_stage_label, reset_label, stage_label, trigger_label,
 };
+use frameguin_model::reading::Request;
 use gtk4 as gtk;
 
 use super::Sidebar;
-use crate::reading::{Feed, Wants};
+use crate::reading::Feed;
 use crate::report::{value, value_row};
 
 pub(super) fn add(sidebar: &Rc<Sidebar>, list: &gtk::ListBox, feed: &Rc<Feed>) {
@@ -25,11 +26,11 @@ pub(super) fn add(sidebar: &Rc<Sidebar>, list: &gtk::ListBox, feed: &Rc<Feed>) {
     page.add(&group);
     let row = sidebar.add(list, "Extender", &page);
 
-    let wants = Wants {
+    let request = Request {
         extender: true,
-        ..Wants::default()
+        ..Request::default()
     };
-    sidebar.follow(feed, wants, move |reading| {
+    sidebar.follow(feed, request, move |reading| {
         let Some(extender) = reading.extender else {
             return;
         };

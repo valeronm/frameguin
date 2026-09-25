@@ -1,4 +1,4 @@
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::num::NonZeroU32;
 use std::rc::Rc;
 use std::task::{Context, Poll, Waker};
@@ -54,15 +54,19 @@ pub(crate) fn block() -> BatteryInfo {
 #[derive(Default)]
 pub(crate) struct Fault {
     refusing: Cell<bool>,
-    failing: Option<DeviceError>,
+    failing: RefCell<Option<DeviceError>>,
 }
 
 impl Fault {
     pub(crate) fn failing(error: DeviceError) -> Self {
-        Self {
-            failing: Some(error),
-            ..Self::default()
-        }
+        let fault = Self::default();
+        fault.fail(error);
+        fault
+    }
+
+    /// Fails every read from here on, a device already detected included.
+    pub(crate) fn fail(&self, error: DeviceError) {
+        *self.failing.borrow_mut() = Some(error);
     }
 
     pub(crate) fn refuse(&self) {
@@ -78,7 +82,7 @@ impl Fault {
     }
 
     pub(crate) fn read<T>(&self, value: T) -> DeviceResult<T> {
-        self.failing.clone().map_or(Ok(value), Err)
+        self.failing.borrow().clone().map_or(Ok(value), Err)
     }
 }
 

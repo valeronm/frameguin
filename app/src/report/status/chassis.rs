@@ -11,11 +11,12 @@ use frameguin_contract::ChassisFeature;
 use frameguin_model::control::chassis::{
     Chassis, chassis_summary, deck_label, open_now_label, times_label,
 };
+use frameguin_model::reading::Request;
 use frameguin_wire::Bus;
 use gtk4 as gtk;
 
 use super::Sidebar;
-use crate::reading::{Feed, Wants};
+use crate::reading::Feed;
 use crate::report::{value, value_row};
 
 pub(super) fn add(
@@ -35,12 +36,12 @@ pub(super) fn add(
     page.add(&group);
     let row = sidebar.add(list, "Chassis", &page);
 
-    let wants = Wants {
+    let request = Request {
         chassis: true,
         deck: has_deck,
-        ..Wants::default()
+        ..Request::default()
     };
-    sidebar.follow(feed, wants, move |reading| {
+    sidebar.follow(feed, request, move |reading| {
         if let Some(state) = reading.chassis {
             row.set_subtitle(&chassis_summary(state.open, reading.deck));
             open.set_label(open_now_label(state.open));

@@ -16,6 +16,7 @@ pub mod control;
 pub mod date;
 pub mod part;
 pub mod port;
+pub mod reading;
 
 #[cfg(test)]
 pub(crate) mod testing;

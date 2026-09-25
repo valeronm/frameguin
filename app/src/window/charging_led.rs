@@ -5,10 +5,11 @@ use std::rc::Rc;
 use adw::prelude::*;
 use frameguin_contract::ChargingLedFeature;
 use frameguin_model::control::charging_led::{self, side_label};
+use frameguin_model::reading::Request;
 use frameguin_wire::Bus;
 use gtk4 as gtk;
 
-use crate::reading::{Wants, show_while_mapped};
+use crate::reading::show_while_mapped;
 use crate::window::Ui;
 use crate::window::widgets::{connect_switch, show_switch};
 
@@ -56,11 +57,11 @@ impl Group {
     /// whether or not anyone touches the app.
     pub(crate) fn watch(&self, ui: &Rc<Ui>) {
         let label = self.side.clone();
-        let wants = Wants {
+        let request = Request {
             charging_led_side: true,
-            ..Wants::default()
+            ..Request::default()
         };
-        show_while_mapped(&ui.feed, &self.side_row, wants, move |reading| {
+        show_while_mapped(&ui.feed, &self.side_row, request, move |reading| {
             if let Some(side) = reading.charging_led_side {
                 label.set_label(side_label(side));
             }

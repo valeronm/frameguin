@@ -180,7 +180,7 @@ impl Ui {
         match self.feed.fill(&self.stack).await {
             Ok((reading, failure)) => {
                 if let Some(failure) = failure {
-                    self.toast_error(failure.attempt, failure.error);
+                    self.toast_error(failure.extra.attempt(), failure.error);
                 }
                 values.battery = reading.info.map(|info| info.state);
                 values.ports = reading.ports;
