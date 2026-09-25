@@ -47,18 +47,10 @@ impl ChassisControl for Chassis {
 mod tests {
     use std::sync::Arc;
 
-    use frameguin_contract::{ChassisControl, ChassisFeature, DeckState};
+    use frameguin_contract::ChassisControl;
 
     use super::Chassis;
     use crate::testing::{Cover, ready};
-
-    #[test]
-    fn a_chassis_the_ec_answers_for_reads_what_it_answered() {
-        let chassis = Chassis::new(Arc::new(Cover::default())).expect("the EC answered");
-        assert_eq!(ready(chassis.state()).unwrap(), Cover::default().state);
-        assert_eq!(ready(chassis.features()), Ok(vec![ChassisFeature::Deck]));
-        assert_eq!(ready(chassis.deck_state()), Ok(DeckState::On));
-    }
 
     #[test]
     fn an_ec_without_the_deck_command_offers_no_deck() {

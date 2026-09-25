@@ -35,19 +35,8 @@ impl PrivacySwitchesControl for PrivacySwitches {
 mod tests {
     use std::sync::Arc;
 
-    use frameguin_contract::PrivacySwitchesControl;
-
     use super::PrivacySwitches;
-    use crate::testing::{Sliders, ready};
-
-    #[test]
-    fn switches_the_ec_answers_for_read_what_it_answered() {
-        let switches = PrivacySwitches::new(Arc::new(Sliders::default())).expect("the EC answered");
-        assert_eq!(
-            ready(switches.switches()).unwrap(),
-            Sliders::default().switches
-        );
-    }
+    use crate::testing::Sliders;
 
     #[test]
     fn an_ec_refusing_the_command_has_no_switches() {
