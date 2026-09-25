@@ -319,7 +319,7 @@ impl PowerLedEc for Ec {
             ));
         }
         let (percent, level) = self.ec().get_fp_led_level().map_err(device_error)?;
-        Ok((percent, wire_power_led_level(level.as_ref(), percent)))
+        Ok((percent, contract_power_led_level(level.as_ref(), percent)))
     }
 
     fn set_power_led_level(&self, level: contract::PowerLedLevel) -> DeviceResult<()> {
@@ -400,7 +400,7 @@ impl ChassisEc for Ec {
             mode: DeckStateMode::ReadOnly,
         };
         let raw = request.send_command(&self.ec()).map_err(device_error)?;
-        wire_deck_state(raw.deck_state).ok_or_else(|| {
+        contract_deck_state(raw.deck_state).ok_or_else(|| {
             DeviceError::Failed(format!("the EC answered deck state {}", raw.deck_state))
         })
     }
@@ -449,7 +449,7 @@ impl Pack for Ec {
         let info = self.power()?;
         let battery = info.battery.as_ref()?;
         Some(contract::BatteryInfo {
-            state: wire_battery_state(&info, battery),
+            state: contract_battery_state(&info, battery),
             remaining_capacity: battery.remaining_capacity,
             last_full_capacity: battery.last_full_charge_capacity,
             design_capacity: battery.design_capacity,
@@ -643,7 +643,7 @@ const POWER_LED_LOW: u8 = 15;
 /// named none. Firmware that names none stores only these three or a zero
 /// meaning the level was never set, so the deduction is exhaustive over what
 /// such a board holds and the zero is the one reading left custom.
-fn wire_power_led_level(
+fn contract_power_led_level(
     level: Option<&FpLedBrightnessLevel>,
     percent: u8,
 ) -> contract::PowerLedLevel {
@@ -665,7 +665,7 @@ fn wire_power_led_level(
 
 /// Not `framework_lib`'s `InputDeckState`, whose conversion panics on a state
 /// it does not know.
-fn wire_deck_state(raw: u8) -> Option<contract::DeckState> {
+fn contract_deck_state(raw: u8) -> Option<contract::DeckState> {
     Some(match raw {
         0 => contract::DeckState::Off,
         1 => contract::DeckState::Disconnected,
@@ -681,7 +681,7 @@ fn wire_deck_state(raw: u8) -> Option<contract::DeckState> {
 /// The moving part of the battery block in the contract's terms, taken from a
 /// block the caller already holds rather than read for itself — so a report
 /// and the reading inside it come from one walk.
-fn wire_battery_state(
+fn contract_battery_state(
     info: &power::PowerInfo,
     battery: &power::BatteryInformation,
 ) -> contract::BatteryState {
@@ -765,16 +765,19 @@ fn charge_flow(
 #[cfg(test)]
 mod tests {
     use super::{
-        ChargeSignals, charge_flow, charge_percent, contract, div_round_closest,
-        ec_power_led_level, wire_deck_state, wire_power_led_level,
+        ChargeSignals, charge_flow, charge_percent, contract, contract_deck_state,
+        contract_power_led_level, div_round_closest, ec_power_led_level,
     };
 
     #[test]
     fn every_deck_state_the_firmware_defines_is_named_and_no_other() {
-        assert_eq!(wire_deck_state(3), Some(contract::DeckState::On));
-        assert_eq!(wire_deck_state(5), Some(contract::DeckState::ForceOn));
-        assert_eq!(wire_deck_state(6), Some(contract::DeckState::NoDetection));
-        assert_eq!(wire_deck_state(7), None);
+        assert_eq!(contract_deck_state(3), Some(contract::DeckState::On));
+        assert_eq!(contract_deck_state(5), Some(contract::DeckState::ForceOn));
+        assert_eq!(
+            contract_deck_state(6),
+            Some(contract::DeckState::NoDetection)
+        );
+        assert_eq!(contract_deck_state(7), None);
     }
 
     /// A charger attached and the pack held at its ceiling: the EC claiming
@@ -795,7 +798,7 @@ mod tests {
     fn every_level_the_ec_has_a_setting_for_comes_back_as_itself() {
         for level in contract::PowerLedLevel::ALL {
             if let Some(ec_level) = ec_power_led_level(level) {
-                assert_eq!(wire_power_led_level(Some(&ec_level), 0), level);
+                assert_eq!(contract_power_led_level(Some(&ec_level), 0), level);
             }
         }
     }
@@ -806,7 +809,7 @@ mod tests {
     /// shipping.
     #[test]
     fn only_the_three_percentages_a_level_stands_for_are_named() {
-        let named = |percent| wire_power_led_level(None, percent);
+        let named = |percent| contract_power_led_level(None, percent);
         assert_eq!(named(55), contract::PowerLedLevel::High);
         assert_eq!(named(40), contract::PowerLedLevel::Medium);
         assert_eq!(named(15), contract::PowerLedLevel::Low);

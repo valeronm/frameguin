@@ -9,10 +9,10 @@ use frameguin_contract::{
     TouchpadControl, TouchscreenControl, UsbControl,
 };
 
-use crate::{FrameguinProxy, Proxies, device_error, proxy};
+use crate::{FrameguinProxy, Proxies, from_bus_error, proxy};
 
 async fn call<T>(reply: impl Future<Output = zbus::Result<T>>) -> DeviceResult<T> {
-    reply.await.map_err(device_error)
+    reply.await.map_err(from_bus_error)
 }
 
 pub struct Bus {

@@ -22,7 +22,7 @@ fn cause(error: &zbus::Error) -> String {
 /// The kind is read off `fdo::Error`, whose derive already sorts a reply by
 /// its error name; a reply outside that vocabulary keeps its sentence alone.
 #[must_use]
-pub fn device_error(error: zbus::Error) -> DeviceError {
+pub fn from_bus_error(error: zbus::Error) -> DeviceError {
     use zbus::fdo::Error as Fdo;
     match Fdo::from(error) {
         Fdo::InvalidArgs(m) => DeviceError::InvalidArgs(m),
@@ -57,7 +57,7 @@ pub fn fdo_error(error: DeviceError) -> zbus::fdo::Error {
 mod tests {
     use frameguin_contract::DeviceError;
 
-    use super::{cause, device_error, fdo_error};
+    use super::{cause, fdo_error, from_bus_error};
     use crate::OBJECT_PATH;
 
     fn named_error(name: &str, detail: Option<&str>) -> zbus::Error {
@@ -87,11 +87,11 @@ mod tests {
             DeviceError::Absent("device".into()),
             DeviceError::Failed("hardware".into()),
         ] {
-            let crossed = device_error(zbus::Error::from(fdo_error(error.clone())));
+            let crossed = from_bus_error(zbus::Error::from(fdo_error(error.clone())));
             assert_eq!(crossed, error);
         }
         assert_eq!(
-            device_error(zbus::Error::from(fdo_error(DeviceError::Unreachable(
+            from_bus_error(zbus::Error::from(fdo_error(DeviceError::Unreachable(
                 "daemon".into()
             )))),
             DeviceError::Failed("daemon".into())
@@ -101,14 +101,17 @@ mod tests {
     #[test]
     fn a_failure_the_daemon_sent_reads_as_its_sentence() {
         let error = named_error("org.freedesktop.DBus.Error.Failed", Some("EC error"));
-        assert_eq!(device_error(error), DeviceError::Failed("EC error".into()));
+        assert_eq!(
+            from_bus_error(error),
+            DeviceError::Failed("EC error".into())
+        );
     }
 
     #[test]
     fn a_daemon_that_never_answered_is_unreachable() {
         let error = named_error("org.freedesktop.DBus.Error.NoReply", Some("no reply"));
         assert_eq!(
-            device_error(error),
+            from_bus_error(error),
             DeviceError::Unreachable("no reply".into())
         );
     }
@@ -116,7 +119,7 @@ mod tests {
     #[test]
     fn a_refusal_the_daemon_sent_keeps_its_kind() {
         assert_eq!(
-            device_error(method_error(Some("not authorized"))),
+            from_bus_error(method_error(Some("not authorized"))),
             DeviceError::AccessDenied("not authorized".into())
         );
     }

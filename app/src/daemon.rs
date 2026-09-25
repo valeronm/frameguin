@@ -7,7 +7,7 @@ use std::rc::Rc;
 use async_lock::OnceCell;
 use frameguin_contract::{Board, DeviceResult};
 use frameguin_model::control::Controls;
-use frameguin_wire::{Bus, device_error};
+use frameguin_wire::{Bus, from_bus_error};
 
 #[derive(Clone)]
 pub(crate) struct Detected {
@@ -27,7 +27,7 @@ impl Daemon {
     pub(crate) async fn bus(&self) -> DeviceResult<Rc<Bus>> {
         // The tray and the window both ask at startup.
         self.bus
-            .get_or_try_init(async || Ok(Rc::new(Bus::connect().await.map_err(device_error)?)))
+            .get_or_try_init(async || Ok(Rc::new(Bus::connect().await.map_err(from_bus_error)?)))
             .await
             .cloned()
     }
@@ -45,7 +45,7 @@ impl Daemon {
         self.detected
             .get_or_try_init(async || {
                 let bus = self.bus().await?;
-                let board = Rc::new(bus.frameguin.get_board().await.map_err(device_error)?);
+                let board = Rc::new(bus.frameguin.get_board().await.map_err(from_bus_error)?);
                 let controls = Rc::new(Controls::detect(&bus, board.platform()).await?);
                 Ok(Detected { controls, board })
             })

@@ -5,7 +5,7 @@ use std::rc::Rc;
 
 use adw::prelude::*;
 use frameguin_contract::DeviceError;
-use frameguin_wire::device_error;
+use frameguin_wire::from_bus_error;
 use gtk4::gio;
 
 use super::Ui;
@@ -87,7 +87,7 @@ impl Group {
     pub(super) async fn load(&self, ui: &Ui) {
         let enabled = async {
             let bus = ui.daemon.bus().await?;
-            bus.frameguin.get_restore().await.map_err(device_error)
+            bus.frameguin.get_restore().await.map_err(from_bus_error)
         };
         match enabled.await {
             Ok(enabled) => show_switch(ui, &self.restore, enabled),
@@ -108,7 +108,7 @@ impl Group {
                     bus.frameguin
                         .set_restore(enabled)
                         .await
-                        .map_err(device_error)
+                        .map_err(from_bus_error)
                 };
                 if let Err(e) = written.await {
                     let group = &ui.preferences;

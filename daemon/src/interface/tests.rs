@@ -28,7 +28,7 @@ use frameguin_hardware::testing::{
     OTHER_SYSTEMS, Route, Sides, Sliders, battery_identity, block, cap, display_identity, mirrors,
     touchpad_identity,
 };
-use frameguin_wire::{FrameguinProxy, Proxies, device_error, proxy};
+use frameguin_wire::{FrameguinProxy, Proxies, from_bus_error, proxy};
 use futures_lite::future::{block_on, or};
 use zbus::{Connection, Guid, connection};
 
@@ -212,15 +212,15 @@ fn serve_restoring(authorized: bool, devices: Devices, restore: Restore) -> Peer
 }
 
 fn denied<T>(reply: zbus::Result<T>) -> bool {
-    reply.is_err_and(|e| matches!(device_error(e), DeviceError::AccessDenied(_)))
+    reply.is_err_and(|e| matches!(from_bus_error(e), DeviceError::AccessDenied(_)))
 }
 
 fn invalid<T>(reply: zbus::Result<T>) -> bool {
-    reply.is_err_and(|e| matches!(device_error(e), DeviceError::InvalidArgs(_)))
+    reply.is_err_and(|e| matches!(from_bus_error(e), DeviceError::InvalidArgs(_)))
 }
 
 fn absent<T>(reply: zbus::Result<T>) -> bool {
-    reply.is_err_and(|e| matches!(device_error(e), DeviceError::Absent(_)))
+    reply.is_err_and(|e| matches!(from_bus_error(e), DeviceError::Absent(_)))
 }
 
 #[test]

@@ -92,7 +92,7 @@ pub(crate) fn click_force(force: contract::ClickForce) -> ClickForce {
 
 /// The device code the state file carries, back to the contract's name; None for
 /// a code no force maps to.
-pub(crate) fn wire_click_force(code: u8) -> Option<contract::ClickForce> {
+pub(crate) fn contract_click_force(code: u8) -> Option<contract::ClickForce> {
     contract::ClickForce::ALL
         .into_iter()
         .find(|force| click_force(*force) as u8 == code)
@@ -122,7 +122,7 @@ mod tests {
     #[test]
     fn the_stored_default_is_the_force_the_getter_names() {
         assert_eq!(
-            super::wire_click_force(super::click_force(super::DEFAULT_CLICK_FORCE) as u8),
+            super::contract_click_force(super::click_force(super::DEFAULT_CLICK_FORCE) as u8),
             Some(super::DEFAULT_CLICK_FORCE)
         );
     }

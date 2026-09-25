@@ -40,7 +40,7 @@ impl Stored for Intensity {
 /// be able to name again.
 impl Stored for contract::ClickForce {
     fn from_stored(value: &str) -> Option<Self> {
-        touchpad::wire_click_force(value.parse().ok()?)
+        touchpad::contract_click_force(value.parse().ok()?)
     }
 
     fn stored(&self) -> String {

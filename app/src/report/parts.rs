@@ -11,7 +11,7 @@ use frameguin_model::part::{
     Catalogue, catalogue, detail_rows, firmware_name, generation, inventory, maker, name,
     part_number,
 };
-use frameguin_wire::device_error;
+use frameguin_wire::from_bus_error;
 use gtk4 as gtk;
 use gtk4::gio;
 use gtk4::glib;
@@ -42,7 +42,7 @@ fn build(shell: Shell, window: &adw::Window, daemon: &Rc<Daemon>) -> adw::Naviga
         // anything the part announces.
         let inventory: DeviceResult<(Vec<Identity>, Rc<Board>)> = async {
             let bus = daemon.bus().await?;
-            let parts = bus.frameguin.get_devices().await.map_err(device_error)?;
+            let parts = bus.frameguin.get_devices().await.map_err(from_bus_error)?;
             Ok((parts, daemon.detected().await?.board))
         }
         .await;
