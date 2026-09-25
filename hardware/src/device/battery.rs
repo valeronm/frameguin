@@ -176,7 +176,10 @@ impl BatteryControl for Battery {
 
     async fn set_charge_current_limit(&self, limit: ChargeCurrentLimit) -> DeviceResult<bool> {
         Self::check_charge_current_limit(limit)?;
-        let written = self.charge_current_limit().await? != limit;
+        // The mirror holds nothing for a cap written without evidence as
+        // much as for no cap.
+        let written =
+            limit == ChargeCurrentLimit::NoLimit || self.charge_current_limit().await? != limit;
         if written {
             self.current_limit.put(limit.milliamps(), || {
                 self.charger.set_charge_current_limit(limit)
@@ -426,10 +429,6 @@ mod tests {
         let store = Arc::new(Memory::default());
         let Bench { battery, ec } = over(&FULL, &store);
         assert_eq!(
-            ready(battery.set_charge_current_limit(ChargeCurrentLimit::NoLimit)),
-            Ok(false)
-        );
-        assert_eq!(
             ready(battery.set_charge_current_limit(cap(1_500))),
             Ok(true)
         );
@@ -446,12 +445,9 @@ mod tests {
         let first = restoring(&FULL, &store);
         ready(first.battery.set_charge_current_limit(cap(1_500))).unwrap();
         let Bench { battery, ec } = over(&RESTARTED, &store);
-        assert_eq!(
-            ready(battery.set_charge_current_limit(ChargeCurrentLimit::NoLimit)),
-            Ok(false)
-        );
+        ready(battery.set_charge_current_limit(ChargeCurrentLimit::NoLimit)).unwrap();
         ready(battery.restore()).unwrap();
-        assert!(ec.written.lock().unwrap().is_empty());
+        assert_eq!(*ec.written.lock().unwrap(), [ChargeCurrentLimit::NoLimit]);
     }
 
     /// An EC that restarted has dropped the cap, whatever the mirror says.
@@ -541,6 +537,27 @@ mod tests {
         assert_eq!(
             ready(battery.charge_current_limit()),
             Ok(ChargeCurrentLimit::NoLimit)
+        );
+    }
+
+    #[test]
+    fn a_lift_reaches_the_ec_after_a_cap_with_no_evidence() {
+        let store = Arc::new(Memory::default());
+        let Bench { battery, ec } = over(
+            &Machine {
+                ec_boot: None,
+                ..FULL
+            },
+            &store,
+        );
+        ready(battery.set_charge_current_limit(cap(1_500))).unwrap();
+        assert_eq!(
+            ready(battery.set_charge_current_limit(ChargeCurrentLimit::NoLimit)),
+            Ok(true)
+        );
+        assert_eq!(
+            *ec.written.lock().unwrap(),
+            [cap(1_500), ChargeCurrentLimit::NoLimit]
         );
     }
 

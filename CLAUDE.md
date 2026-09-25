@@ -335,7 +335,9 @@ it and the non-obvious constraints.
   can be stale. The skip belongs in the device's setter, after its argument
   check, rather than in a caller, asked of the closest thing to the truth
   each one has: the battery's `set_charge_limit` asks the EC, its
-  `set_charge_current_limit` its mirror, the charging LED's `set_enabled`
+  `set_charge_current_limit` its mirror, and only for a cap, since the
+  mirror holds nothing for a cap written without evidence as much as for
+  no cap at all — a lift is always written; the charging LED's `set_enabled`
   the kernel's hold, the touchscreen's `set_enabled` the pad — and on the
   route with no pad, nothing: it skips no write at all. A
   mirror is worth skipping on only where the event that invalidates it is the
