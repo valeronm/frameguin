@@ -486,7 +486,7 @@ impl Charger for Ec {
     /// which nothing here sets or reports.
     fn charge_limit(&self) -> DeviceResult<u8> {
         let (_min, max) = self.ec().get_charge_limit().map_err(device_error)?;
-        Ok(max)
+        Ok(charge_ceiling(max))
     }
 
     fn set_charge_limit(&self, percent: u8) -> DeviceResult<()> {
@@ -639,6 +639,12 @@ const POWER_LED_HIGH: u8 = 55;
 const POWER_LED_MEDIUM: u8 = 40;
 const POWER_LED_LOW: u8 = 15;
 
+/// The EC stores 0 for no ceiling and runs its sustainer for it exactly as
+/// for 100.
+fn charge_ceiling(max: u8) -> u8 {
+    if max == 0 { 100 } else { max }
+}
+
 /// The level the EC named, or the one its percentage stands for where it
 /// named none. Firmware that names none stores only these three or a zero
 /// meaning the level was never set, so the deduction is exhaustive over what
@@ -765,9 +771,15 @@ fn charge_flow(
 #[cfg(test)]
 mod tests {
     use super::{
-        ChargeSignals, charge_flow, charge_percent, contract, contract_deck_state,
+        ChargeSignals, charge_ceiling, charge_flow, charge_percent, contract, contract_deck_state,
         contract_power_led_level, div_round_closest, ec_power_led_level,
     };
+
+    #[test]
+    fn a_ceiling_the_ec_holds_as_zero_reads_as_full() {
+        assert_eq!(charge_ceiling(0), 100);
+        assert_eq!(charge_ceiling(60), 60);
+    }
 
     #[test]
     fn every_deck_state_the_firmware_defines_is_named_and_no_other() {

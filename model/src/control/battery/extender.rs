@@ -11,7 +11,7 @@ const SECONDS_PER_DAY: u32 = 24 * SECONDS_PER_HOUR;
 
 /// The stage and the window in force, a stage holding the lower of its own
 /// window and the charge limit's. `charge_limit` is None on a board with no
-/// charge limit, and 0 is the EC's own spelling of none.
+/// charge limit.
 #[must_use]
 pub fn stage_label(state: ExtenderState, charge_limit: Option<u8>) -> String {
     if !state.enabled {
@@ -24,7 +24,7 @@ pub fn stage_label(state: ExtenderState, charge_limit: Option<u8>) -> String {
         ExtenderStage::Second => ("Stage 2", 85, 87),
     };
     match charge_limit {
-        Some(limit) if limit != 0 && limit <= upper => format!(
+        Some(limit) if limit <= upper => format!(
             "{name} · no effect below the {} limit",
             percent_label(limit)
         ),
@@ -109,7 +109,6 @@ mod tests {
     fn a_stage_under_no_charge_limit_names_its_own_window() {
         assert_eq!(stage_label(FIRST, Some(100)), "Stage 1 · 90–95%");
         assert_eq!(stage_label(SECOND, None), "Stage 2 · 85–87%");
-        assert_eq!(stage_label(SECOND, Some(0)), "Stage 2 · 85–87%");
     }
 
     #[test]

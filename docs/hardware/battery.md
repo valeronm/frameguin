@@ -307,6 +307,9 @@ Registers read, all plain word reads:
 | Window | `battery_sustainer_set(max(20, limit - 5), limit)` |
 | Readback | the BBRAM value |
 
+- A ceiling of 0, which `DISABLE` stores and a factory reset for shipping
+  leaves, reads back as 0 and behaves as 100: both switch the sustainer
+  off, and the battery extender takes either as 100.
 - Sitting at the ceiling is what produces the direction the
   [flag byte](#the-flag-byte) cannot express.
 - `CHG_LIMIT_OVERRIDE`, bit 7 of the same command's modes, lifts the
