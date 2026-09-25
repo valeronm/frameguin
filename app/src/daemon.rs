@@ -1,11 +1,11 @@
 //! The app's end of the daemon: the connection to it, the controls it
-//! detected and the board it runs on, dialled and asked once for its run and
+//! detected and the board it runs on, each asked for on first use and
 //! shared by every window and the tray.
 
 use std::rc::Rc;
 
 use async_lock::OnceCell;
-use frameguin_contract::DeviceResult;
+use frameguin_contract::{BoardControl, DeviceResult, Platform};
 use frameguin_model::control::Controls;
 use frameguin_wire::{Bus, from_bus_error};
 
@@ -13,6 +13,7 @@ use frameguin_wire::{Bus, from_bus_error};
 pub(crate) struct Daemon {
     bus: OnceCell<Rc<Bus>>,
     controls: OnceCell<Rc<Controls<Bus>>>,
+    platform: OnceCell<Platform>,
 }
 
 impl Daemon {
@@ -36,5 +37,19 @@ impl Daemon {
             .get_or_try_init(async || Ok(Rc::new(Controls::detect(&self.bus().await?).await?)))
             .await
             .cloned()
+    }
+
+    /// The board's platform alone, for a view that needs no controls:
+    /// detection's own answer where it has run, and otherwise one asked for
+    /// without waiting on every device, at the cost of the board being asked
+    /// for again when detection does run.
+    pub(crate) async fn platform(&self) -> DeviceResult<Platform> {
+        if let Some(controls) = self.controls.get() {
+            return Ok(controls.board.platform());
+        }
+        self.platform
+            .get_or_try_init(async || Ok(self.bus().await?.board().await?.platform()))
+            .await
+            .copied()
     }
 }

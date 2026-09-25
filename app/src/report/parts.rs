@@ -43,7 +43,7 @@ fn build(shell: Shell, window: &adw::Window, daemon: &Rc<Daemon>) -> adw::Naviga
         let inventory: DeviceResult<(Vec<Identity>, Platform)> = async {
             let bus = daemon.bus().await?;
             let parts = bus.frameguin.get_devices().await.map_err(from_bus_error)?;
-            Ok((parts, daemon.controls().await?.board.platform()))
+            Ok((parts, daemon.platform().await?))
         }
         .await;
         match inventory {

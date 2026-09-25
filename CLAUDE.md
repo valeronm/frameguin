@@ -182,7 +182,10 @@ it and the non-obvious constraints.
   board, the facts fixed for its run that every window wants — dialled and
   asked once,
   so the windows and the tray share one of each, and two asking
-  at once wait on one answer. It is named for the real thing the way
+  at once wait on one answer. The board's platform is also asked for apart
+  from detection, since a view needing nothing else should not wait on
+  every device, so a run that asks for it first asks for the board twice.
+  It is named for the real thing the way
   `device` is, and holds no state of its own: what it caches is the daemon's
   answer. (`about.rs` dials for itself, deliberately: its report also runs from
   `--debug-info` where no app state exists, and a bug report wants a fresh

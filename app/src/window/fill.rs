@@ -366,8 +366,7 @@ impl Init {
         // Through `Daemon` rather than dialled and asked here: a fresh
         // handshake per window and a second cold detection per session are
         // what a window answering for itself costs, and that handle outlives
-        // any of them. The answer reaching it here is also what spares the
-        // report a detection of its own.
+        // any of them.
         let controls = match ui.daemon.controls().await {
             Ok(controls) => controls,
             Err(e) => {
