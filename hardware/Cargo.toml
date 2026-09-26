@@ -19,7 +19,7 @@ testing = []
 # Named for the power LED's one timer.
 async-io = "2"
 frameguin-contract = { workspace = true }
-framework_lib = { version = "0.6.5", default-features = false, features = ["hidapi"] }
+framework_lib = { version = "0.6.6", default-features = false, features = ["hidapi"] }
 hidapi = "2"
 # Already in the tree via framework_lib; named for the GPIO character
 # device's ioctls, which no safe wrapper here would be smaller than.
