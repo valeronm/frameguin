@@ -166,7 +166,8 @@ it and the non-obvious constraints.
   have only one socket behind it, as the Laptop 16's bay controller does;
   its side alone is taken from Framework's own controller table in
   `framework_lib`, which names a side per controller and nothing finer.
-  The layout is picked from the board the daemon reports.
+  The layout is picked from the board the daemon reports. What a position
+  is called is `modelview::port`'s, beside the other words.
   `reading.rs` is the
   machine's reading, taken once for however many views show it: the battery
   row and the Readings window render the same walk of the same block, and each

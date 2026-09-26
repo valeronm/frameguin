@@ -1,10 +1,13 @@
-//! A stub pack's figures, for this crate's tests and those of the crates
-//! above it.
+//! A stub pack's figures and a stub port, for this crate's tests and those
+//! of the crates above it.
 
 use std::num::NonZeroU32;
 
 use crate::control::battery::ChargeSpeeds;
-use frameguin_contract::{BatteryState, ChargeCurrentLimit, ChargeFlow};
+use frameguin_contract::{
+    BatteryState, CcPolarity, ChargeCurrentLimit, ChargeFlow, DataRole, Epr, PortPartner,
+    PortState, PowerRole,
+};
 
 /// A 4640 mAh pack, the Laptop 13's.
 pub const CAPACITY: u32 = 4640;
@@ -34,5 +37,33 @@ pub fn state(flow: ChargeFlow, milliamps: u32) -> BatteryState {
         flow,
         milliamps,
         millivolts: MILLIVOLTS,
+    }
+}
+
+#[must_use]
+pub fn port(index: u8) -> PortState {
+    let charging = index == 0;
+    PortState {
+        index,
+        partner: if charging {
+            PortPartner::Source
+        } else {
+            PortPartner::Nothing
+        },
+        contract: charging,
+        power_role: PowerRole::Sink,
+        data_role: if charging {
+            DataRole::DownstreamFacing
+        } else {
+            DataRole::UpstreamFacing
+        },
+        millivolts: if charging { 20_000 } else { 0 },
+        milliamps: if charging { 5000 } else { 0 },
+        charging,
+        video: false,
+        vconn: charging,
+        cc: CcPolarity::Cc1,
+        epr: Epr::Unsupported,
+        registers: None,
     }
 }

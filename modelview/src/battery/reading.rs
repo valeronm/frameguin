@@ -153,8 +153,8 @@ pub fn temperature(decicelsius: i16) -> String {
 }
 
 /// Whether the EC sees a supply at all, which is a different question from
-/// what one is negotiating — `control::ports` answers that, from the ports
-/// rather than from this flag.
+/// what one is negotiating — [`crate::ports::supply_label`] answers that,
+/// from the ports rather than from this flag.
 #[must_use]
 pub fn charger_label(connected: bool) -> &'static str {
     if connected {

@@ -1,4 +1,4 @@
-//! One module per control: its detection, its read, its commands, its words.
+//! One module per control: its detection, its read, its commands.
 
 pub mod battery;
 pub mod charging_led;
@@ -30,17 +30,6 @@ fn present<T>(probe: DeviceResult<T>) -> DeviceResult<Option<T>> {
         Err(DeviceError::Absent(_)) => Ok(None),
         Err(e) => Err(e),
     }
-}
-
-/// Nothing is powering the machine — a state two controls reach from
-/// different devices, the EC's own flag and the USB-C ports, and one neither
-/// of them owns.
-pub(crate) const NO_SUPPLY: &str = "Not connected";
-
-/// A two-state reading, worded alike by every control that shows one.
-#[must_use]
-pub(crate) fn yes_no(set: bool) -> &'static str {
-    if set { "Yes" } else { "No" }
 }
 
 /// The controls this board has, each behind the one implementation of the

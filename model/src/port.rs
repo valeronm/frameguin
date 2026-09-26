@@ -23,44 +23,21 @@ use frameguin_contract::{Attached, Platform};
 
 /// Declared in the order ports are listed, which the derived `Ord` follows.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-enum Side {
+pub enum Side {
     Left,
     Right,
 }
 
-impl Side {
-    fn label(self) -> &'static str {
-        match self {
-            Self::Left => "Left",
-            Self::Right => "Right",
-        }
-    }
-}
-
 /// Declared rear to front, the order ports along one side are listed in.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-enum Depth {
+pub enum Depth {
     Rear,
-    #[expect(
-        dead_code,
-        reason = "a Laptop 16 has three slots a side, and no Laptop 16 is measured yet"
-    )]
     Middle,
     Front,
 }
 
-impl Depth {
-    fn label(self) -> &'static str {
-        match self {
-            Self::Rear => "rear",
-            Self::Middle => "middle",
-            Self::Front => "front",
-        }
-    }
-}
-
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-enum Position {
+pub enum Position {
     /// The derived `Ord` compares side before depth. No depth is a side that
     /// was named rather than measured.
     Side { side: Side, depth: Option<Depth> },
@@ -73,19 +50,6 @@ impl Position {
         Self::Side {
             side,
             depth: Some(depth),
-        }
-    }
-
-    /// Spelled as a heading. A side alone carries the port's number, two
-    /// sockets on one side otherwise sharing a name.
-    fn label(self, index: u8) -> String {
-        match self {
-            Self::Side { side, depth: None } => format!("{} · {}", side.label(), number(index)),
-            Self::Side {
-                side,
-                depth: Some(depth),
-            } => format!("{} {}", side.label(), depth.label()),
-            Self::Back => "Back".to_owned(),
         }
     }
 }
@@ -206,7 +170,8 @@ impl Placement {
 
     /// None for a port past the layout, and for one the layout leaves
     /// unplaced.
-    fn position(self, index: u8) -> Option<Position> {
+    #[must_use]
+    pub fn position(self, index: u8) -> Option<Position> {
         self.layout?
             .positions
             .get(usize::from(index))
@@ -241,28 +206,6 @@ impl Placement {
         on(wiring.superspeed).chain(on(wiring.usb2)).collect()
     }
 
-    /// What to call a port: where it is, for a port that is placed, and its
-    /// number for one that is not. The position leads because it is what
-    /// someone looking for the cable can act on; the number is the EC's index
-    /// into its controllers and means nothing on the chassis.
-    #[must_use]
-    pub fn label(self, index: u8) -> String {
-        self.position(index)
-            .map_or_else(|| number(index), |position| position.label(index))
-    }
-
-    /// What to call a port inside a line already separating its parts with
-    /// ` · `, where a side alone takes its number after a comma instead.
-    #[must_use]
-    pub fn inline(self, index: u8) -> String {
-        match self.position(index) {
-            Some(Position::Side { side, depth: None }) => {
-                format!("{}, port {index}", side.label())
-            }
-            _ => self.label(index),
-        }
-    }
-
     /// The key ports are listed by: left side then right, each rear to front
     /// where measured and by number where only the side is known, then by
     /// number where no position is known, and the back last — the side slots
@@ -278,22 +221,6 @@ impl Placement {
         };
         (group, position, index)
     }
-
-    /// The port's number as a line of its own, for showing under a
-    /// [`Placement::label`] that named a position instead — the number is
-    /// still what a reader has to match against a tool that only counts.
-    /// None where the label already carries the number.
-    #[must_use]
-    pub fn secondary(self, index: u8) -> Option<String> {
-        match self.position(index)? {
-            Position::Side { depth: None, .. } => None,
-            _ => Some(number(index)),
-        }
-    }
-}
-
-fn number(index: u8) -> String {
-    format!("Port {index}")
 }
 
 #[cfg(test)]
@@ -322,30 +249,8 @@ mod tests {
     #[test]
     fn the_default_places_nothing() {
         let placement = Placement::default();
-        assert_eq!(placement.label(2), "Port 2");
+        assert!(placement.position(2).is_none());
         assert!(!placement.wired());
-    }
-
-    #[test]
-    fn a_measured_board_leads_with_where_the_socket_is() {
-        assert_eq!(Placement::of(MEASURED).label(2), "Left rear");
-        assert_eq!(
-            Placement::of(MEASURED).secondary(2).as_deref(),
-            Some("Port 2")
-        );
-    }
-
-    /// Both controllers' pairs run rear-to-front against the EC's numbering
-    /// on this board, which is the thing that cannot be guessed.
-    #[test]
-    fn the_measured_board_pairs_each_controller_to_one_side() {
-        let sides: Vec<String> = (0..4)
-            .map(|index| Placement::of(MEASURED).label(index))
-            .collect();
-        assert_eq!(
-            sides,
-            ["Right front", "Right rear", "Left rear", "Left front"]
-        );
     }
 
     #[test]
@@ -364,55 +269,13 @@ mod tests {
     }
 
     #[test]
-    fn an_unknown_board_is_named_by_its_number_alone() {
-        assert_eq!(Placement::of(Platform::Unknown).label(0), "Port 0");
-        assert_eq!(Placement::of(Platform::Unknown).secondary(0), None);
-    }
-
-    #[test]
-    fn a_board_known_by_its_sides_names_the_side_and_the_number_together() {
-        let names: Vec<String> = (0..4)
-            .map(|index| Placement::of(SIDED).label(index))
-            .collect();
-        assert_eq!(
-            names,
-            [
-                "Right · Port 0",
-                "Right · Port 1",
-                "Left · Port 2",
-                "Left · Port 3"
-            ]
-        );
-        assert_eq!(Placement::of(SIDED).secondary(2), None);
-    }
-
-    #[test]
-    fn inside_a_line_a_side_takes_its_number_after_a_comma() {
-        assert_eq!(Placement::of(SIDED).inline(2), "Left, port 2");
-        assert_eq!(Placement::of(MEASURED).inline(2), "Left rear");
-        assert_eq!(Placement::of(Platform::Unknown).inline(2), "Port 2");
-    }
-
-    #[test]
     fn a_board_known_by_its_sides_lists_the_left_side_then_the_right_by_number() {
         assert_eq!(listed(SIDED, 0..4), [2, 3, 0, 1]);
     }
 
     #[test]
     fn a_port_past_the_measured_ones_gets_no_position() {
-        assert_eq!(Placement::of(MEASURED).label(4), "Port 4");
-        assert_eq!(Placement::of(MEASURED).secondary(4), None);
-    }
-
-    #[test]
-    fn a_laptop_16_places_its_bay_port_at_the_back_and_its_others_by_side() {
-        for platform in [Platform::Laptop16Amd7040, Platform::Laptop16AmdAi300] {
-            let placement = Placement::of(platform);
-            assert_eq!(placement.label(4), "Back");
-            assert_eq!(placement.secondary(4).as_deref(), Some("Port 4"));
-            assert_eq!(placement.label(0), "Right · Port 0");
-            assert_eq!(placement.label(3), "Left · Port 3");
-        }
+        assert!(Placement::of(MEASURED).position(4).is_none());
     }
 
     #[test]

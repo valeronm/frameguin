@@ -8,26 +8,27 @@
 //! the last registers it read while the same kind of partner stays attached,
 //! for a reading that did not ask for them or failed to read them.
 //!
-//! What each value is *called* is `frameguin_model::control::ports`'s, and
-//! where a socket is on the machine is `frameguin_model::port`'s — which
-//! answers for the boards it has been measured on and no others, asking for
-//! nothing on one nobody measured.
+//! What each value is *called* is `frameguin_modelview::ports`'s. Where a
+//! socket is on the machine is `frameguin_model::port`'s, which answers only
+//! for the boards it has been measured on; what that place is called is
+//! `frameguin_modelview::port`'s.
 
 use std::cell::{Cell, RefCell};
 use std::rc::{Rc, Weak};
 
 use adw::prelude::*;
 use frameguin_contract::{Attached, PortPartner, PortRegisters, PortSet, PortState, PowerRole};
-use frameguin_model::control::ports::{
+use frameguin_model::port::Placement;
+use frameguin_model::reading::Request;
+use frameguin_modelview::port;
+use frameguin_modelview::ports::{
     NOTHING_ATTACHED, POWERING_THE_MACHINE, cable_length_label, cable_rating_label,
     cable_speed_label, cable_type_label, carried, contract_label, data_role_label,
     display_port_label, epr_label, measured_label, mismatch_label, partner_label, peak_label,
     port_summary, power_limited_label, power_role_label, powering_label, supply_kind_label,
     vconn_label,
 };
-use frameguin_model::control::usb::{capacity_label, device_name, network_label, speed_label};
-use frameguin_model::port::Placement;
-use frameguin_model::reading::Request;
+use frameguin_modelview::usb::{capacity_label, device_name, network_label, speed_label};
 use gtk4 as gtk;
 use gtk4::glib;
 
@@ -180,7 +181,8 @@ impl Section {
                         registers: Cell::default(),
                         drawn: RefCell::default(),
                     };
-                    let row = sidebar.add(&self.list, &placement.label(state.index), &widget);
+                    let row =
+                        sidebar.add(&self.list, &port::label(placement, state.index), &widget);
                     row.set_use_markup(false);
                     if let Some(feed) = &feed {
                         let request = Request {
@@ -299,7 +301,7 @@ impl PortPage {
 
 fn connection_group(placement: Placement, state: &PortState) -> Group {
     let mut group = Group::new(partner_label(state.partner).unwrap_or(NOTHING_ATTACHED));
-    if let Some(number) = placement.secondary(state.index) {
+    if let Some(number) = port::secondary(placement, state.index) {
         group.row("Port", number);
     }
     if state.partner == PortPartner::Nothing {

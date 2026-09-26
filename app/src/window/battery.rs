@@ -18,7 +18,7 @@ use frameguin_model::control::battery::{
     self, CUSTOM_CHARGE_STEP_MA, ChargeSpeeds, MIN_CHARGE_LIMIT, MIN_CUSTOM_CHARGE_MA,
     custom_charge_ma,
 };
-use frameguin_model::control::ports::{self, supply_label, supply_port};
+use frameguin_model::control::ports;
 use frameguin_model::port::Placement;
 use frameguin_model::reading::Request;
 use frameguin_modelview::battery::{
@@ -28,6 +28,7 @@ use frameguin_modelview::battery::{
     reading::{amps, charge_flow_label, percent_label},
     with_custom_row,
 };
+use frameguin_modelview::ports::{supply_label, supply_port};
 use frameguin_modelview::rows::Custom;
 use frameguin_wire::Bus;
 use gtk4 as gtk;

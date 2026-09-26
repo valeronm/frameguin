@@ -4,14 +4,14 @@ use std::task::{Context, Poll, Waker};
 
 use frameguin_contract::{
     Attached, BatteryCondition, BatteryControl, BatteryFeature, BatteryInfo, Board, BoardControl,
-    CcPolarity, ChargeCurrentLimit, ChargeFlow, ChargingLedControl, ChargingLedFeature,
-    ChargingLedSide, ChassisControl, ChassisFeature, ChassisState, ClickForce, DataRole, DeckState,
-    DeviceError, DeviceResult, Epr, ExtenderStage, ExtenderState, PortPartner, PortSet, PortState,
-    PortsControl, PowerLedControl, PowerLedLevel, PowerRole, PrivacyState, PrivacySwitchesControl,
-    TouchpadControl, TouchscreenControl, UsbControl, UsbSpeed,
+    ChargeCurrentLimit, ChargeFlow, ChargingLedControl, ChargingLedFeature, ChargingLedSide,
+    ChassisControl, ChassisFeature, ChassisState, ClickForce, DeckState, DeviceError, DeviceResult,
+    ExtenderStage, ExtenderState, PortSet, PortState, PortsControl, PowerLedControl, PowerLedLevel,
+    PrivacyState, PrivacySwitchesControl, TouchpadControl, TouchscreenControl, UsbControl,
+    UsbSpeed,
 };
 
-pub(crate) use crate::fixtures::{CAPACITY, NOMINAL_MILLIVOLTS, cap, state};
+pub(crate) use crate::fixtures::{CAPACITY, NOMINAL_MILLIVOLTS, cap, port, state};
 
 /// The pack's block, part way through a charge.
 pub(crate) fn block() -> BatteryInfo {
@@ -213,35 +213,6 @@ impl TouchpadControl for Machine {
         self.touchpad.write()?;
         self.click_force.set(force);
         Ok(())
-    }
-}
-
-/// One port as a stub answers for it: the first charging under a 100 W
-/// contract, every other empty.
-pub(crate) fn port(index: u8) -> PortState {
-    let charging = index == 0;
-    PortState {
-        index,
-        partner: if charging {
-            PortPartner::Source
-        } else {
-            PortPartner::Nothing
-        },
-        contract: charging,
-        power_role: PowerRole::Sink,
-        data_role: if charging {
-            DataRole::DownstreamFacing
-        } else {
-            DataRole::UpstreamFacing
-        },
-        millivolts: if charging { 20_000 } else { 0 },
-        milliamps: if charging { 5000 } else { 0 },
-        charging,
-        video: false,
-        vconn: charging,
-        cc: CcPolarity::Cc1,
-        epr: Epr::Unsupported,
-        registers: None,
     }
 }
 

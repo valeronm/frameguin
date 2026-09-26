@@ -9,13 +9,13 @@ use std::rc::Rc;
 use frameguin_contract::{BatteryFeature, BatteryState, ChargeCurrentLimit, PortSet, PortState};
 use frameguin_model::control::Controls;
 use frameguin_model::control::battery::ChargeSpeeds;
-use frameguin_model::control::ports::supply_summary;
 use frameguin_model::port::Placement;
 use frameguin_modelview::battery::{
     charge_limit_at, charge_limit_labels, charge_limit_preset_row, charge_speed_at,
     charge_speed_names, charge_speed_preset_row,
     reading::{amps, battery_summary, percent_label},
 };
+use frameguin_modelview::ports::supply_summary;
 use frameguin_modelview::touchscreen::{state_at, state_labels, state_row};
 use frameguin_wire::Bus;
 
