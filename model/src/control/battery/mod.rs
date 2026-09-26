@@ -2,7 +2,6 @@
 //! the extender holds the pack at is [`extender`]'s.
 
 pub mod extender;
-pub(crate) mod reading;
 
 use std::cell::Cell;
 use std::num::NonZeroU32;

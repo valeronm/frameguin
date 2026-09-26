@@ -6,7 +6,7 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use adw::prelude::*;
-use frameguin_model::part;
+use frameguin_modelview::part;
 use frameguin_wire::Bus;
 use gtk4 as gtk;
 use gtk4::{gdk, gdk_pixbuf, gio, glib, graphene, gsk};

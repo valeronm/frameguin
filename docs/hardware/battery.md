@@ -94,7 +94,7 @@ is what separates the packs the EC tree knows:
   exists only on battery API v2; `common/battery_v1.c`, which `hx20` and
   `hx30` build, declares no host command. The 55 Wh pack fits machines on
   both sides of that split, so the seven-character form is the one name
-  every machine agrees on, and `model::part` keys on it.
+  every machine agrees on, and `modelview::part` keys on it.
 
 ## The flag byte
 

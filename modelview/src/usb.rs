@@ -3,7 +3,7 @@
 
 use frameguin_contract::{Attached, LinkState, NetworkLink, UsbSpeed};
 
-use crate::words::trimmed;
+use crate::part::storage_capacity;
 
 /// What the device calls itself, and its ids where it announces no name.
 #[must_use]
@@ -50,32 +50,11 @@ pub fn capacity_label(bytes: u64) -> String {
     storage_capacity(bytes)
 }
 
-/// A drive is sold in decimal units.
-#[expect(
-    clippy::cast_precision_loss,
-    reason = "three significant figures ask far less than an f64 carries"
-)]
-fn storage_capacity(bytes: u64) -> String {
-    const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
-    let mut value = bytes as f64;
-    let mut unit = 0;
-    while value >= 1000.0 && unit < UNITS.len() - 1 {
-        value /= 1000.0;
-        unit += 1;
-    }
-    let decimals = match value {
-        v if v >= 100.0 => 0,
-        v if v >= 10.0 => 1,
-        _ => 2,
-    };
-    format!("{} {}", trimmed(format!("{value:.decimals$}")), UNITS[unit])
-}
-
 #[cfg(test)]
 mod tests {
     use frameguin_contract::{Attached, LinkState, NetworkLink, UsbSpeed};
 
-    use super::{capacity_label, device_name, network_label, speed_label};
+    use super::{device_name, network_label, speed_label};
 
     fn link(state: LinkState, megabits: u32) -> NetworkLink {
         NetworkLink {
@@ -138,11 +117,5 @@ mod tests {
         assert_eq!(speed_label(UsbSpeed::High), "480 Mbps");
         assert_eq!(speed_label(UsbSpeed::Super), "5 Gbps");
         assert_eq!(speed_label(UsbSpeed::SuperPlus2x2), "20 Gbps");
-    }
-
-    #[test]
-    fn a_drive_reads_in_the_decimal_units_it_is_sold_in() {
-        assert_eq!(capacity_label(512_110_190_592), "512 GB");
-        assert_eq!(capacity_label(1_024_209_543_168), "1.02 TB");
     }
 }

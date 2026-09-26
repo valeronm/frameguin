@@ -9,6 +9,7 @@ pub mod charging_led;
 pub mod chassis;
 pub mod date;
 pub mod extender;
+pub mod part;
 pub mod port;
 pub mod ports;
 pub mod power_led;

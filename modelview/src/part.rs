@@ -1,14 +1,15 @@
 //! The words for a part: what its kind is called, the order a bill of
-//! materials lists them in, what it announced about itself, the listing it is
-//! logged in, and — where the hardware's own words are not a name a person
-//! would recognise — the name Framework sells it under.
+//! materials lists them in, what it announced about itself, the listing a
+//! bug report carries, and — where the hardware's own words are not a name a
+//! person would recognise — the name Framework sells it under.
 
 use std::fmt::Write;
 
 use frameguin_contract::{Detail, FirmwareKind, Identity, PartKind, Platform, Series, VENDOR};
 
-use crate::control::battery::reading::{capacity, volts};
+use crate::battery::reading::{capacity, volts};
 use crate::date;
+use crate::words::trimmed;
 
 #[must_use]
 pub fn kind_label(kind: PartKind) -> &'static str {
@@ -404,14 +405,6 @@ fn scaled(bytes: u64, base: f64) -> String {
 /// A drive is sold in decimal units.
 pub(crate) fn storage_capacity(bytes: u64) -> String {
     scaled(bytes, 1000.0)
-}
-
-/// Only a decimal is trimmed: a whole number's trailing zeros are its value.
-pub(crate) fn trimmed(mut spelled: String) -> String {
-    if spelled.contains('.') {
-        spelled.truncate(spelled.trim_end_matches('0').trim_end_matches('.').len());
-    }
-    spelled
 }
 
 /// Carries a pixel density row no detail holds, derived where a panel stated

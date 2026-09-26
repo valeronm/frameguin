@@ -2,10 +2,8 @@
 //! `frameguin_contract` declares.
 //!
 //! A control here is the client of one: the read that fills a front-end's
-//! rows, the commands that move the hardware, and the presets and words a
-//! front-end draws it with. It holds one control trait and nothing else, so
-//! the window and the tray cannot disagree about what a value is called or
-//! what a command sends, and a control runs against a stub in tests.
+//! rows and the commands that move the hardware. It holds one control trait
+//! and nothing else, so a control runs against a stub in tests.
 
 #![allow(
     clippy::missing_errors_doc,
@@ -13,8 +11,6 @@
 )]
 
 pub mod control;
-mod date;
-pub mod part;
 pub mod port;
 pub mod reading;
 

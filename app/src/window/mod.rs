@@ -25,7 +25,7 @@ use std::rc::Rc;
 use adw::prelude::*;
 use frameguin_contract::{DeviceError, Platform};
 use frameguin_model::control::Controls;
-use frameguin_model::part;
+use frameguin_modelview::part;
 use frameguin_modelview::reading::attempt;
 use frameguin_wire::Bus;
 use gtk4 as gtk;

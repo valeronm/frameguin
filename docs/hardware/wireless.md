@@ -43,7 +43,7 @@ Every heading in the file appears here.
 - `iwlwifi` names a CNVi module from an RF id it reads over the interface
   and logs the name. Neither the id nor the name reaches sysfs.
 - Consequence: a catalogue keyed on PCI ids can name a discrete card and
-  not a CNVi module. `model::part` carries arms for the MediaTek ids and
+  not a CNVi module. `modelview::part` carries arms for the MediaTek ids and
   the AX210 and none for a CNVi function.
 - Bluetooth on a CNVi board is the same silicon on a neighboring function,
   with no USB companion on the bus to name the module either.
