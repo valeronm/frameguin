@@ -1050,7 +1050,7 @@ impl Board {
 
 /// What detection found of a part: the hardware's own words but for the
 /// vendor name a registry supplies, and never the name a person buys it
-/// under, which is `model`'s catalogue to say.
+/// under, which is `modelview`'s catalogue to say.
 #[derive(Serialize, Deserialize, Type, Clone, PartialEq, Eq, Debug)]
 pub struct Identity {
     pub kind: PartKind,

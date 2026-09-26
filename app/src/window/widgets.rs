@@ -106,7 +106,7 @@ fn combo_position(selected: u32) -> Option<usize> {
     (selected != gtk::INVALID_LIST_POSITION).then_some(selected as usize)
 }
 
-/// Moves a combo to the row `row_for` names. The model's answer weighs where
+/// Moves a combo to the row `row_for` names. `modelview`'s answer weighs where
 /// the combo sits against what moved it, so the read has to happen before the
 /// move — which is why both ends are here rather than at each call site.
 pub(super) fn select_row(

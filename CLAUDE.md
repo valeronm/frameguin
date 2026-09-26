@@ -22,12 +22,14 @@ it and the non-obvious constraints.
   binaries talk over — the bus name and path, a proxy per interface, and
   `Bus`, every control trait answered by a call on the daemon;
   `model/` is the controls as the app holds
-  them, over those traits, and the words for a part. `modelview/` is how the
+  them, over those traits, and the curated facts about the machine, and
+  holds no user-facing string. `modelview/` is how the
   app shows them — every word for a value, the presets a control offers with
-  the row each one sits on, and the names for the curated facts `model`
-  holds. `docs/architecture.md` opens with the vocabulary, and each word
-  means one thing; "device" is the real thing on the machine and nothing on
-  the app side. The
+  the row each one sits on, the names for the curated facts `model`
+  holds, and the catalogue of what a part is sold as.
+  `docs/architecture.md` opens with the vocabulary, and each word means one
+  thing; "device" is the real thing on the machine and nothing on the app
+  side. The
   split is the security model — the root process carries no GUI, the GUI
   process has no hardware access — and the D-Bus interface
   `io.github.valeronm.Frameguin1` is their only bridge. Nothing that touches
@@ -95,21 +97,21 @@ it and the non-obvious constraints.
   device.
 - Inside `app/`, a module boundary is drawn where it makes a class of mistake
   impossible, not where a file got long. A control's presets, the values
-  behind them and the words those values carry are its `model` control's —
+  behind them and the words those values carry are its `modelview` module's —
   the chrome around them, the titles a widget invents and the sentences a
   toast makes, stays with the widget that is its only site. A title naming
-  something else belongs to whoever knows the word: `model`'s where `model`
-  curated it, group heading and list row alike, and `contract`'s where the
-  hardware announced it. `model` answers for a part whether or not the
+  something else belongs to whoever knows the word: `modelview`'s where the
+  word is curated, group heading and list row alike, and `contract`'s where the
+  hardware announced it. `modelview` answers for a part whether or not the
   catalogue names it, so a widget never picks a part's words by whether a
-  lookup hit. Which row a reading shows is the widget's too: a value dialled
-  in that happens to equal a preset is
-  indistinguishable from it — the app derives one over the value, the EC's
-  firmware hands back a name it deduced the same way — so the answer weighs
-  where the combo sits and what moved it, and only the tray, whose menu has
-  no Custom row, takes the bare preset lookup. `model` links neither
-  GTK nor the bus, so the window and the tray cannot disagree about what a
-  preset sends or what it is called, and a control exists in the app only
+  lookup hit. Which row a reading shows needs what only the widget knows: a
+  value dialled in that happens to equal a preset is indistinguishable from
+  it — the app derives one over the value, the EC's firmware hands back a
+  name it deduced the same way — so `modelview`'s `row_for` weighs where the
+  combo sits and what moved it, and only the tray, whose menu has no Custom
+  row, takes the bare preset lookup. `model` and `modelview` link
+  neither GTK nor the bus, so the window and the tray cannot disagree about
+  what a preset sends or what it is called, and a control exists in the app only
   where its device answered — the probe rule, held up by the compiler at
   this end. `tray.rs` links no GTK
   either, which matters because its menu runs on ksni's own thread; its
@@ -534,7 +536,7 @@ the product it was read from.
   (it kills and restarts a running app). Install and uninstall change system
   files and need sudo, so the user runs them.
 - `clippy::pedantic` is on workspace-wide and CI gates on `-D warnings`, so
-  both crates build warning-free. CI lints only the binaries, not test code.
+  every crate builds warning-free. CI lints only the binaries, not test code.
 - CI also gates on `cargo fmt --all --check`, with the style edition pinned
   in `rustfmt.toml` rather than inferred from each crate's own edition — so
   an edition bump cannot reformat the tree as a side effect. Run `cargo fmt`

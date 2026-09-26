@@ -1,8 +1,8 @@
 //! How the app shows the machine: the words for every value, the presets a
-//! control offers with the row each one sits on, and the names for the
-//! curated facts `frameguin_model` holds. A front end takes its words and
-//! rows from here, so two of them cannot disagree about what a value is
-//! called or what a row sends.
+//! control offers with the row each one sits on, the names for the curated
+//! facts `frameguin_model` holds, and the catalogue of what a part is sold
+//! as. A front end takes its words and rows from here, so two of them cannot
+//! disagree about what a value is called or what a row sends.
 
 pub mod battery;
 pub mod charging_led;
@@ -19,4 +19,4 @@ pub mod rows;
 pub mod touchpad;
 pub mod touchscreen;
 pub mod usb;
-pub mod words;
+pub(crate) mod words;

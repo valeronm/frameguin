@@ -56,9 +56,12 @@ One meaning per word, and each word names one place in the tree.
   the controls detection registered, with the board they run on, dialled
   and asked for on first use.
   `app/src/daemon.rs`, `Daemon`.
-- **Client control** — the app's side of one control: its read, its
-  commands, its presets and words. `model/src/control/`,
-  registered in `Controls`.
+- **Client control** — the app's side of one control: its read and its
+  commands. `model/src/control/`, registered in `Controls`.
+- **Words and presets** — how the app shows a control: every word for a
+  value, the presets a control offers with the row each one sits on, the
+  names for `model`'s curated facts, and the catalogue of what a part is
+  sold as. `modelview/src/`.
 - **Reading** — one pass over the controls for what a `Request` asks,
   every extra arriving or not: `model/src/reading.rs`. The app's feed
   (`app/src/reading.rs`) decides when to take one and who is shown it.
@@ -125,9 +128,9 @@ the chassis, is a row on the Chassis page.
 
 | Layer | Crate | Links | Owns | Must not know | Tested against |
 |---|---|---|---|---|---|
-| Groups, tray | `app` | GTK, libadwaita, ksni, `model` | Widgets, toasts, the sync guard, timers, the tray thread's copy of each value | Which daemon operation a command becomes; any preset's value | Kept thin; the widgets not at all, a pure function beside them in place |
-| Client controls | `model` | `contract` | One object per control: its read, and what a read leaves that its presets derive from; its commands, its presets and words — and, beside them, the words no one control owns, which are here because more than one view spells them and because this is the layer a test can reach | GTK, the bus, another control's trait | A stub of the control trait |
-| Words and presets | `modelview` | `model`, `contract` | Every word for a value, the preset tables with their rows, the names for `model`'s curated facts | GTK, the bus | Plain unit tests, a stub control where a row needs one |
+| Groups, tray | `app` | GTK, libadwaita, ksni, `model`, `modelview` | Widgets, toasts, the sync guard, timers, the tray thread's copy of each value | Which daemon operation a command becomes; any preset's value | Kept thin; the widgets not at all, a pure function beside them in place |
+| Client controls | `model` | `contract` | One object per control: its read, and what a read leaves that its presets derive from; its commands | GTK, the bus, another control's trait | A stub of the control trait |
+| Words and presets | `modelview` | `model`, `contract` | Every word for a value, the preset tables with their rows, the names for `model`'s curated facts, the catalogue of what a part is sold as | GTK, the bus | Plain unit tests over fixture values |
 | Control traits | `contract` | serde, zvariant | One trait per device, one async fn per operation; the values they carry and the encoding those cross the bus in; `DeviceError` | How an operation is reached; the bus | Its own encodings, round-tripped |
 | Bus | `wire`, `daemon` | zbus, polkit | One proxy per interface, `Bus` implementing the traits over them, and how `DeviceError` crosses (`wire`); `Served<Device>`, authorizing every write attempt before anything else (`daemon`) | Anything that touches hardware (`wire`); which EC command a role sends (`daemon`) | Its own `wire` proxies over a socket pair, the devices on the same stubs |
 | Devices | `hardware` | `contract` | `detect()`, the control impl with its argument checks and skips, the `Part` impl, mirrors under a declared lifetime, arbitrations | The bus, polkit | The stub per role and the store in memory, in `hardware::testing` |
@@ -161,15 +164,16 @@ snapshot's movement under a refused write on the app's.
   beside the strings both binaries must spell alike.
 - **`wire`** — `<Name>Proxy` for that interface, and `Bus` answering
   `<Name>Control` through it.
-- **`model/src/control/<name>.rs`**, or `<name>/` where the words outgrow
-  one file — `<Name><H: <Name>Control>` holding an
+- **`model/src/control/<name>.rs`**, or `<name>/` where it outgrows one
+  file — `<Name><H: <Name>Control>` holding an
   `Rc<H>`; `detect()` by its features where its interface carries them, and
   otherwise by its own first read; a `read()` answering what the
   device reports — the `contract` type it travels in, or a `Snapshot` of its own
   where the settings read together are plain values (`Copy`, `Send`, so the
   tray can hold one where it shows the control); commands that call the
-  hardware; the presets, rows and labels the front-ends showing it draw
-  from; its defaults.
+  hardware; its defaults.
+- **`modelview/src/<name>.rs`** — the presets, rows and labels the
+  front-ends showing it draw from.
 - **`app/src/window/<name>.rs`** — the `PreferencesGroup`, `gate(control)`
   showing it where the device is, the functions moving its widgets to a
   read under the sync guard, and handlers dispatching to the control's
@@ -209,9 +213,10 @@ that into a toast, a push to the tray and a move of the group; the tray
 holds an `Option` per value in `TrayValues` and merges value-wise, a push
 carrying only what the write moved.
 
-`model` links neither GTK nor the bus — only `contract`, which reaches no
-D-Bus — and Cargo enforces it: the tray draws from it on ksni's own thread,
-and it is the one no-GTK rule here the compiler checks. It is single-threaded by design: `Rc`, `Cell`,
+`model` and `modelview` link neither GTK nor the bus — `model` links only
+`contract`, which reaches no D-Bus, and `modelview` those two — and Cargo
+enforces it: the tray draws from both on ksni's own thread, and theirs are the no-GTK rules
+here the compiler checks. `model` is single-threaded by design: `Rc`, `Cell`,
 `async fn` in traits without `Send`, because the app has one thread and a
 stub answers on the spot.
 

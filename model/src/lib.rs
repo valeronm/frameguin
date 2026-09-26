@@ -1,5 +1,6 @@
 //! The app's side of the machine: its controls, over the control traits
-//! `frameguin_contract` declares.
+//! `frameguin_contract` declares, and the curated facts about the machine —
+//! it holds no user-facing string.
 //!
 //! A control here is the client of one: the read that fills a front-end's
 //! rows and the commands that move the hardware. It holds one control trait
