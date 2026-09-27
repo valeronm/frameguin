@@ -67,9 +67,17 @@ pub fn watts(millivolts: u32, milliamps: u32, kind: Kind) -> String {
     spell(watts, 1, "W", kind)
 }
 
+#[must_use]
+pub fn watt_hours(milliamp_hours: u32, millivolts: u32) -> String {
+    let watt_hours = f64::from(milliamp_hours) * f64::from(millivolts) / 1_000_000.0;
+    spell(watt_hours, 1, "Wh", Kind::Static)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{Kind, amps, cell_volts, milliamps, millivolts, tenth_volts, volts, watts};
+    use super::{
+        Kind, amps, cell_volts, milliamps, millivolts, tenth_volts, volts, watt_hours, watts,
+    };
 
     #[test]
     fn a_static_voltage_drops_its_trailing_zeros() {
@@ -112,6 +120,13 @@ mod tests {
     fn a_static_power_drops_its_trailing_zero() {
         assert_eq!(watts(20_000, 5_000, Kind::Static), "100 W");
         assert_eq!(watts(5_000, 1_500, Kind::Static), "7.5 W");
+    }
+
+    #[test]
+    fn an_energy_drops_its_trailing_zero() {
+        assert_eq!(watt_hours(4_640, 15_640), "72.6 Wh");
+        assert_eq!(watt_hours(4_000, 15_000), "60 Wh");
+        assert_eq!(watt_hours(0, 15_640), "0 Wh");
     }
 
     #[test]

@@ -4,7 +4,7 @@
 
 use frameguin_contract::{BatteryAlarm, BatteryState, ChargeFlow};
 
-use crate::units::{self, Kind, cell_volts, millivolts, volts, watts};
+use crate::units::{self, Kind, cell_volts, millivolts, volts, watt_hours, watts};
 
 /// What a row says where the pack answered with nothing. One spelling for
 /// every such row, so a value the EC left blank and a figure with no
@@ -69,21 +69,10 @@ pub fn charge_flow_label(state: BatteryState) -> String {
 /// A capacity as the energy it holds, taken against the pack's nominal
 /// voltage, which is the convention a pack is rated by — and the unit
 /// Framework quote their batteries in, so it is the figure a reader can check
-/// against the spec. Milliamp-hours alone are only half of it: they say
-/// nothing about the voltage the cells deliver them at.
-fn watt_hours(milliamp_hours: u32, design_millivolts: u32) -> String {
-    let watt_hours = f64::from(milliamp_hours) * f64::from(design_millivolts) / 1_000_000.0;
-    format!("{watt_hours:.1} Wh")
-}
-
-/// A capacity in both units, energy first because that is what the pack is
-/// sold as, with the charge the EC actually reported after it.
+/// against the spec.
 #[must_use]
 pub fn capacity(milliamp_hours: u32, design_millivolts: u32) -> String {
-    format!(
-        "{} ({milliamp_hours} mAh)",
-        watt_hours(milliamp_hours, design_millivolts)
-    )
+    watt_hours(milliamp_hours, design_millivolts)
 }
 
 #[must_use]
@@ -211,7 +200,7 @@ mod tests {
 
     use super::{
         battery_summary, capacity, charge_brief, charge_direction, charge_flow_label, power_label,
-        retention_label, watt_hours,
+        retention_label,
     };
     use frameguin_model::fixtures::{CAPACITY, NOMINAL_MILLIVOLTS, state};
 
@@ -232,14 +221,9 @@ mod tests {
     }
 
     #[test]
-    fn a_capacity_leads_with_the_energy_it_holds() {
-        assert_eq!(capacity(CAPACITY, NOMINAL_MILLIVOLTS), "72.6 Wh (4640 mAh)");
-    }
-
-    #[test]
-    fn energy_is_the_charge_against_the_nominal_voltage() {
-        assert_eq!(watt_hours(2843, NOMINAL_MILLIVOLTS), "44.5 Wh");
-        assert_eq!(watt_hours(0, NOMINAL_MILLIVOLTS), "0.0 Wh");
+    fn a_capacity_is_the_energy_it_holds_at_the_nominal_voltage() {
+        assert_eq!(capacity(CAPACITY, NOMINAL_MILLIVOLTS), "72.6 Wh");
+        assert_eq!(capacity(2843, NOMINAL_MILLIVOLTS), "44.5 Wh");
     }
 
     #[test]

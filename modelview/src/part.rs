@@ -1035,7 +1035,7 @@ mod tests {
         };
         assert_eq!(
             detail_row(&design),
-            ("Design capacity", "73.9 Wh (4800 mAh)".to_owned())
+            ("Design capacity", "73.9 Wh".to_owned())
         );
         assert_eq!(
             detail_row(&Detail::NominalVoltage(15_400)),
