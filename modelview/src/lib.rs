@@ -19,5 +19,6 @@ pub mod rows;
 pub mod thermal;
 pub mod touchpad;
 pub mod touchscreen;
+pub mod units;
 pub mod usb;
 pub(crate) mod words;

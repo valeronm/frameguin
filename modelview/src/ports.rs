@@ -8,7 +8,8 @@ use frameguin_model::control::ports::powering;
 use frameguin_model::port::Placement;
 
 use crate::port;
-use crate::words::{NO_SUPPLY, trimmed, yes_no};
+use crate::units::{Kind, amps, tenth_volts, volts, watts};
+use crate::words::{NO_SUPPLY, yes_no};
 
 /// An empty port, worded as the absence it is rather than as a kind of
 /// partner.
@@ -40,20 +41,16 @@ pub fn carried(port: &PortState) -> Option<String> {
         return None;
     }
     Some(format!(
-        "{}, {:.2} A ({})",
-        volts(port.millivolts),
-        f64::from(port.milliamps) / 1000.0,
-        watts(port),
+        "{}, {} ({})",
+        volts(port.millivolts.into(), Kind::Static),
+        amps(port.milliamps.into()),
+        power(port),
     ))
 }
 
 #[must_use]
 pub fn measured_label(millivolts: u16) -> String {
-    volts(millivolts)
-}
-
-fn volts(millivolts: u16) -> String {
-    format!("{:.1} V", f64::from(millivolts) / 1000.0)
+    tenth_volts(millivolts.into())
 }
 
 /// The port the machine draws its power through, named as that rather than as
@@ -85,12 +82,11 @@ pub fn port_summary(port: &PortState, device: Option<&str>) -> String {
         PortPartner::Source => "↑ ",
         _ => "",
     };
-    format!("{lead} · {flow}{}", watts(port))
+    format!("{lead} · {flow}{}", power(port))
 }
 
-fn watts(port: &PortState) -> String {
-    let watts = f64::from(port.millivolts) * f64::from(port.milliamps) / 1_000_000.0;
-    format!("{} W", trimmed(format!("{watts:.1}")))
+fn power(port: &PortState) -> String {
+    watts(port.millivolts.into(), port.milliamps.into(), Kind::Static)
 }
 
 /// What the machine is being powered with, for a row that has one line for
@@ -104,7 +100,7 @@ fn watts(port: &PortState) -> String {
 /// for the absence they do share.
 #[must_use]
 pub fn supply_label(ports: &[PortState]) -> String {
-    powering(ports).map_or_else(|| NO_SUPPLY.to_owned(), watts)
+    powering(ports).map_or_else(|| NO_SUPPLY.to_owned(), power)
 }
 
 /// Where the power is coming in, to sit under [`supply_label`]. None where
@@ -274,9 +270,13 @@ pub fn cable_speed_label(speed: CableSpeed) -> &'static str {
 /// does not let a charger enter extended power range, its EPR bit does.
 #[must_use]
 pub fn cable_rating_label(cable: &Cable) -> Option<String> {
-    let amps = cable.milliamps? / 1000;
-    let contract_volts = if cable.epr { 48 } else { 20 };
-    Some(format!("{amps} A ({} W)", contract_volts * amps))
+    let milliamps = u32::from(cable.milliamps?);
+    let contract_millivolts = if cable.epr { 48_000 } else { 20_000 };
+    Some(format!(
+        "{} ({})",
+        amps(milliamps),
+        watts(contract_millivolts, milliamps, Kind::Static)
+    ))
 }
 
 /// The length the PD specification ties to each latency class.
@@ -317,7 +317,7 @@ mod tests {
 
     #[test]
     fn what_a_link_carries_reads_as_volts_amps_and_watts() {
-        assert_eq!(carried(&port(0)).as_deref(), Some("20.0 V, 5.00 A (100 W)"));
+        assert_eq!(carried(&port(0)).as_deref(), Some("20 V, 5 A (100 W)"));
     }
 
     #[test]
@@ -327,7 +327,7 @@ mod tests {
             milliamps: 1_500,
             ..port(0)
         };
-        assert_eq!(carried(&usb).as_deref(), Some("5.0 V, 1.50 A (7.5 W)"));
+        assert_eq!(carried(&usb).as_deref(), Some("5 V, 1.5 A (7.5 W)"));
         assert_eq!(supply_label(&[usb]), "7.5 W");
     }
 

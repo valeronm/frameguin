@@ -25,11 +25,12 @@ use frameguin_modelview::battery::{
     CHARGE_LIMIT_CUSTOM, CHARGE_SPEED_CUSTOM, NO_CHARGE_LIMIT, charge_limit_at,
     charge_limit_labels, charge_limit_row, charge_speed_at, charge_speed_labels,
     charge_speed_names, charge_speed_row, fastest_custom,
-    reading::{amps, charge_flow_label, percent_label},
+    reading::{charge_flow_label, percent_label},
     with_custom_row,
 };
 use frameguin_modelview::ports::{supply_label, supply_port};
 use frameguin_modelview::rows::Custom;
+use frameguin_modelview::units::amps;
 use frameguin_wire::Bus;
 use gtk4 as gtk;
 
@@ -467,7 +468,7 @@ mod tests {
     use super::scale_milliamps;
 
     /// A `GtkScale` is continuous while dragged, so without snapping a drag
-    /// lands on values like 984 mA that the row then displays as "1.0 A".
+    /// lands on values like 984 mA that the row then displays as "0.98 A".
     #[test]
     fn the_slider_snaps_to_whole_steps() {
         assert_eq!(scale_milliamps(984.0).get(), 1000);

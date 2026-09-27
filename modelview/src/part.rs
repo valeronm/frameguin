@@ -7,8 +7,9 @@ use std::fmt::Write;
 
 use frameguin_contract::{Detail, FirmwareKind, Identity, PartKind, Platform, Series, VENDOR};
 
-use crate::battery::reading::{capacity, volts};
+use crate::battery::reading::capacity;
 use crate::date;
+use crate::units::{Kind, volts};
 use crate::words::trimmed;
 
 #[must_use]
@@ -432,7 +433,7 @@ fn detail_row(detail: &Detail) -> (&'static str, String) {
             milliamp_hours,
             millivolts,
         } => ("Design capacity", capacity(*milliamp_hours, *millivolts)),
-        Detail::NominalVoltage(millivolts) => ("Nominal voltage", volts(*millivolts)),
+        Detail::NominalVoltage(millivolts) => ("Nominal voltage", volts(*millivolts, Kind::Static)),
         Detail::ManufactureDate(date) => ("Manufactured", date::spelled(date)),
         Detail::Resolution { across, down } => (
             "Resolution",
@@ -1038,7 +1039,7 @@ mod tests {
         );
         assert_eq!(
             detail_row(&Detail::NominalVoltage(15_400)),
-            ("Nominal voltage", "15.40 V".to_owned())
+            ("Nominal voltage", "15.4 V".to_owned())
         );
         assert_eq!(
             detail_row(&Detail::ManufactureDate("2025-03-14".to_owned())),

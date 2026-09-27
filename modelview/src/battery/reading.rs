@@ -1,31 +1,22 @@
 //! What the pack's reading is called: each figure the report, the window's
 //! status row and the tray's line show, spelled once so no two views can
-//! render one reading two ways — and the units a preset label borrows, so a
-//! preset reads the way a reading of the same value does.
+//! render one reading two ways.
 
 use frameguin_contract::{BatteryAlarm, BatteryState, ChargeFlow};
+
+use crate::units::{self, Kind, cell_volts, millivolts, volts, watts};
 
 /// What a row says where the pack answered with nothing. One spelling for
 /// every such row, so a value the EC left blank and a figure with no
 /// denominator read the same way rather than as two different faults.
 const UNKNOWN: &str = "Unknown";
 
-/// Milliamps as the amps a person reads off a charger.
-#[must_use]
-pub fn amps(milliamps: u32) -> String {
-    format!("{:.1} A", f64::from(milliamps) / 1000.0)
-}
-
 /// The rate as power, which is the figure a charger and a machine's draw are
 /// both rated in. `None` when the pack reports no voltage, for the reason a
 /// zero rate is dropped: the number would read as a fault rather than as a
-/// reading. Always to a tenth: a rate moves between readings, and a tenth
-/// dropped whenever it is zero would jump the figure between whole and not.
-fn watts(state: BatteryState) -> Option<String> {
-    (state.millivolts != 0).then(|| {
-        let watts = f64::from(state.milliamps) * f64::from(state.millivolts) / 1_000_000.0;
-        format!("{watts:.1} W")
-    })
+/// reading.
+fn power(state: BatteryState) -> Option<String> {
+    (state.millivolts != 0).then(|| watts(state.millivolts, state.milliamps, Kind::Dynamic))
 }
 
 /// Which way charge is moving, and nothing else — for a reader who has the
@@ -58,25 +49,20 @@ pub fn charge_direction(state: BatteryState) -> &'static str {
 /// either side of a direction change rather than a fault.
 #[must_use]
 pub fn power_label(state: BatteryState) -> String {
-    watts(state).unwrap_or_else(|| UNKNOWN.to_string())
+    power(state).unwrap_or_else(|| UNKNOWN.to_string())
 }
 
-/// Which way charge is moving, with the rate where there is one to name — for
-/// the window's row and the tray's line, which have nowhere else to put it.
+/// Which way charge is moving, with its power where there is one to name.
 ///
-/// A rate of zero is dropped rather than rendered: "0.0 A" is what a pack
+/// A rate of zero is dropped rather than rendered: "0.0 W" is what a pack
 /// reports in the moment either side of a direction changing, and it reads as
 /// a fault.
 #[must_use]
 pub fn charge_flow_label(state: BatteryState) -> String {
     let direction = charge_direction(state);
-    if state.milliamps == 0 {
-        return direction.to_string();
-    }
-    let rate = amps(state.milliamps);
-    match watts(state) {
-        Some(watts) => format!("{direction} at {rate} ({watts})"),
-        None => format!("{direction} at {rate}"),
+    match power(state) {
+        Some(power) if state.milliamps != 0 => format!("{direction} at {power}"),
+        _ => direction.to_string(),
     }
 }
 
@@ -100,19 +86,19 @@ pub fn capacity(milliamp_hours: u32, design_millivolts: u32) -> String {
     )
 }
 
-/// Millivolts as the volts a pack is rated in.
 #[must_use]
-pub fn volts(millivolts: u32) -> String {
-    format!("{:.2} V", f64::from(millivolts) / 1000.0)
+pub fn voltage_label(millivolts: u32) -> String {
+    volts(millivolts, Kind::Dynamic)
 }
 
-/// A rate at the precision the EC reports it, where [`amps`] rounds to the
-/// tenth a charger is labelled with. The report is where the exact figure
-/// belongs: "1.2 A" cannot show a current settling, which is most of what
-/// there is to watch as a charge ends.
 #[must_use]
-pub fn milliamps(milliamps: u32) -> String {
-    format!("{milliamps} mA")
+pub fn current_label(milliamps: u32) -> String {
+    units::milliamps(milliamps)
+}
+
+#[must_use]
+pub fn cell_voltages(cell_millivolts: &[u32]) -> String {
+    cell_volts(cell_millivolts)
 }
 
 /// A charge as a percentage.
@@ -173,19 +159,7 @@ pub fn charger_label(connected: bool) -> &'static str {
 pub fn cell_spread(cell_millivolts: &[u32]) -> Option<String> {
     let high = cell_millivolts.iter().max()?;
     let low = cell_millivolts.iter().min()?;
-    Some(format!("{} mV", high - low))
-}
-
-/// Every cell's voltage on one line, to sit under the spread. To three
-/// decimals where [`volts`] gives two: the whole point is the millivolts
-/// between them, which two decimals would round away.
-#[must_use]
-pub fn cell_voltages(cell_millivolts: &[u32]) -> String {
-    let cells: Vec<String> = cell_millivolts
-        .iter()
-        .map(|millivolts| format!("{:.3}", f64::from(*millivolts) / 1000.0))
-        .collect();
-    format!("{} V", cells.join(" · "))
+    Some(millivolts(high - low))
 }
 
 fn alarm_label(alarm: BatteryAlarm) -> &'static str {
@@ -237,9 +211,9 @@ mod tests {
 
     use super::{
         battery_summary, capacity, charge_brief, charge_direction, charge_flow_label, power_label,
-        retention_label, volts, watt_hours,
+        retention_label, watt_hours,
     };
-    use frameguin_model::fixtures::{CAPACITY, MILLIVOLTS, NOMINAL_MILLIVOLTS, state};
+    use frameguin_model::fixtures::{CAPACITY, NOMINAL_MILLIVOLTS, state};
 
     #[test]
     fn retention_is_the_last_full_charge_against_the_design_capacity() {
@@ -258,11 +232,6 @@ mod tests {
     }
 
     #[test]
-    fn millivolts_read_as_the_volts_a_pack_is_rated_in() {
-        assert_eq!(volts(MILLIVOLTS), "15.40 V");
-    }
-
-    #[test]
     fn a_capacity_leads_with_the_energy_it_holds() {
         assert_eq!(capacity(CAPACITY, NOMINAL_MILLIVOLTS), "72.6 Wh (4640 mAh)");
     }
@@ -274,24 +243,24 @@ mod tests {
     }
 
     #[test]
-    fn a_moving_charge_is_named_with_its_rate_and_its_power() {
+    fn a_moving_charge_is_named_with_its_power() {
         assert_eq!(
             charge_flow_label(state(ChargeFlow::Charging, 2320)),
-            "Charging at 2.3 A (35.7 W)"
+            "Charging at 35.7 W"
         );
         assert_eq!(
             charge_flow_label(state(ChargeFlow::Discharging, 1400)),
-            "Discharging at 1.4 A (21.6 W)"
+            "Discharging at 21.6 W"
         );
     }
 
     #[test]
-    fn a_rate_without_a_voltage_is_named_without_its_power() {
+    fn a_rate_without_a_voltage_is_named_by_its_direction_alone() {
         let unread = BatteryState {
             millivolts: 0,
             ..state(ChargeFlow::Discharging, 1400)
         };
-        assert_eq!(charge_flow_label(unread), "Discharging at 1.4 A");
+        assert_eq!(charge_flow_label(unread), "Discharging");
     }
 
     #[test]
@@ -311,10 +280,10 @@ mod tests {
     }
 
     #[test]
-    fn a_charge_winding_down_at_the_limit_is_named_with_its_rate() {
+    fn a_charge_winding_down_at_the_limit_is_named_with_its_power() {
         assert_eq!(
             charge_flow_label(state(ChargeFlow::Idle, 2320)),
-            "Finishing charge at 2.3 A (35.7 W)"
+            "Finishing charge at 35.7 W"
         );
     }
 
@@ -357,7 +326,7 @@ mod tests {
     fn the_trays_line_carries_the_charge_as_well() {
         assert_eq!(
             battery_summary(state(ChargeFlow::Charging, 2320)),
-            "62% · Charging at 2.3 A (35.7 W)"
+            "62% · Charging at 35.7 W"
         );
     }
 

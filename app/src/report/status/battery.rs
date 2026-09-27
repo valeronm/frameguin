@@ -12,7 +12,8 @@ use frameguin_model::control::battery::Battery;
 use frameguin_model::reading::{Reading, Request};
 use frameguin_modelview::battery::reading::{
     alarms_label, capacity, cell_spread, cell_voltages, charge_brief, charge_direction,
-    charger_label, milliamps, percent_label, power_label, retention_label, temperature, volts,
+    charger_label, current_label, percent_label, power_label, retention_label, temperature,
+    voltage_label,
 };
 use frameguin_wire::Bus;
 use gtk4 as gtk;
@@ -79,8 +80,9 @@ impl Report {
         self.charge_row.set_subtitle(charge_direction(info.state));
         self.charger
             .set_label(charger_label(info.charger_connected));
-        self.current.set_label(&milliamps(info.state.milliamps));
-        self.voltage.set_label(&volts(info.state.millivolts));
+        self.current.set_label(&current_label(info.state.milliamps));
+        self.voltage
+            .set_label(&voltage_label(info.state.millivolts));
         self.power.set_label(&power_label(info.state));
         self.critical_row.set_visible(info.critical);
 

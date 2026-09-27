@@ -13,6 +13,7 @@ use frameguin_contract::ChargeCurrentLimit;
 use frameguin_model::control::battery::{CUSTOM_CHARGE_STEP_MA, ChargeSpeeds, custom_charge_ma};
 
 use crate::rows::{Custom, names, row_for};
+use crate::units::amps;
 
 const CHARGE_PRESETS: [u8; 3] = [100, 80, 60];
 
@@ -89,10 +90,7 @@ pub fn charge_speed_labels(speeds: ChargeSpeeds) -> Vec<String> {
         .iter()
         .map(|(name, divisor)| match divisor {
             Some(divisor) => {
-                format!(
-                    "{name} ({})",
-                    reading::amps(speeds.design_capacity() / divisor)
-                )
+                format!("{name} ({})", amps(speeds.design_capacity() / divisor))
             }
             None => (*name).to_string(),
         })
@@ -246,7 +244,7 @@ mod tests {
         let labels = with_custom_row(charge_speed_labels(SPEEDS));
         assert_eq!(labels.len(), CHARGE_SPEEDS.len() + 1);
         assert_eq!(labels[0], "Full speed");
-        assert_eq!(labels[1], "Half (2.3 A)");
+        assert_eq!(labels[1], "Half (2.32 A)");
         assert_eq!(labels[CHARGE_SPEEDS.len()], "Custom");
     }
 }
