@@ -196,6 +196,10 @@ pub const fn cap(milliamps: u32) -> ChargeCurrentLimit {
 
 /// A charger holding one ceiling, taking every cap unless told to refuse
 /// them, and logging what it took.
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "each flag is one behavior the stub is told to have; every combination is a test case"
+)]
 pub struct EcCharger {
     pub limit: Mutex<u8>,
     pub caps: bool,
