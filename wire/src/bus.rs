@@ -7,7 +7,8 @@ use frameguin_contract::{
     ChargeCurrentLimit, ChargingLedControl, ChargingLedFeature, ChargingLedSide, ChassisControl,
     ChassisFeature, ChassisState, ClickForce, DeckState, DeviceResult, ExtenderState, PortSet,
     PortState, PortsControl, PowerLedControl, PowerLedLevel, PrivacyState, PrivacySwitchesControl,
-    TouchpadControl, TouchscreenControl, UsbControl,
+    ThermalControl, ThermalFeature, ThermalLayout, ThermalState, Thresholds, TouchpadControl,
+    TouchscreenControl, UsbControl,
 };
 
 use crate::{FrameguinProxy, Proxies, from_bus_error, proxy};
@@ -148,6 +149,24 @@ impl ChassisControl for Bus {
 impl PrivacySwitchesControl for Bus {
     async fn switches(&self) -> DeviceResult<PrivacyState> {
         call(self.devices.privacy_switches.get_switches()).await
+    }
+}
+
+impl ThermalControl for Bus {
+    async fn features(&self) -> DeviceResult<Vec<ThermalFeature>> {
+        call(self.devices.thermal.get_features()).await
+    }
+
+    async fn layout(&self) -> DeviceResult<ThermalLayout> {
+        call(self.devices.thermal.get_layout()).await
+    }
+
+    async fn state(&self) -> DeviceResult<ThermalState> {
+        call(self.devices.thermal.get_state()).await
+    }
+
+    async fn thresholds(&self) -> DeviceResult<Vec<Thresholds>> {
+        call(self.devices.thermal.get_thresholds()).await
     }
 }
 

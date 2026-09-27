@@ -6,6 +6,7 @@ pub mod chassis;
 pub mod ports;
 pub mod power_led;
 pub mod privacy_switches;
+pub mod thermal;
 pub mod touchpad;
 pub mod touchscreen;
 pub mod usb;
@@ -14,8 +15,8 @@ use std::rc::Rc;
 
 use frameguin_contract::{
     BatteryControl, Board, BoardControl, ChargingLedControl, ChassisControl, DeviceError,
-    DeviceResult, PortsControl, PowerLedControl, PrivacySwitchesControl, TouchpadControl,
-    TouchscreenControl, UsbControl,
+    DeviceResult, PortsControl, PowerLedControl, PrivacySwitchesControl, ThermalControl,
+    TouchpadControl, TouchscreenControl, UsbControl,
 };
 
 use crate::port::Placement;
@@ -45,6 +46,7 @@ pub struct Controls<C> {
     pub ports: Option<Rc<ports::Ports<C>>>,
     pub chassis: Option<Rc<chassis::Chassis<C>>>,
     pub privacy_switches: Option<Rc<privacy_switches::PrivacySwitches<C>>>,
+    pub thermal: Option<Rc<thermal::Thermal<C>>>,
     pub usb: Option<Rc<usb::Usb<C>>>,
 }
 
@@ -58,6 +60,7 @@ impl<
         + PortsControl
         + ChassisControl
         + PrivacySwitchesControl
+        + ThermalControl
         + UsbControl,
 > Controls<C>
 {
@@ -84,6 +87,7 @@ impl<
             privacy_switches: privacy_switches::PrivacySwitches::detect(control)
                 .await?
                 .map(Rc::new),
+            thermal: thermal::Thermal::detect(control).await?.map(Rc::new),
             usb: usb::Usb::detect(control).await?.map(Rc::new),
             board,
         })
@@ -125,6 +129,7 @@ mod tests {
         assert!(controls.charging_led.is_some());
         assert!(controls.chassis.is_some());
         assert!(controls.privacy_switches.is_some());
+        assert!(controls.thermal.is_some());
         assert!(controls.usb.is_some());
         assert!(!controls.is_empty());
     }
@@ -148,6 +153,7 @@ mod tests {
         assert!(controls.power_led.is_some());
         assert!(controls.chassis.is_some());
         assert!(controls.privacy_switches.is_some());
+        assert!(controls.thermal.is_some());
         assert!(controls.usb.is_some());
     }
 

@@ -508,6 +508,115 @@ pub struct PrivacyState {
     pub microphone: bool,
 }
 
+#[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug)]
+#[zvariant(signature = "s")]
+#[serde(rename_all = "kebab-case")]
+pub enum ThermalFeature {
+    /// Each sensor's fan range and trip points.
+    Thresholds,
+}
+
+/// A temperature sensor the EC reported present.
+#[derive(Serialize, Deserialize, Type, Clone, PartialEq, Eq, Debug)]
+pub struct Sensor {
+    /// The EC's own number for it, which its thresholds are asked by.
+    pub index: u8,
+    /// The EC's name for it, None where the EC would not give one.
+    pub name: Option<String>,
+}
+
+/// Every sensor and fan the EC reported present, in the EC's order.
+#[derive(Serialize, Deserialize, Type, Clone, PartialEq, Eq, Debug)]
+pub struct ThermalLayout {
+    pub sensors: Vec<Sensor>,
+    /// The EC's slot number of each fan.
+    pub fans: Vec<u8>,
+}
+
+/// What the EC holds for one sensor.
+///
+/// A temperature crosses the bus as its status and the kelvin, zero for a
+/// status that has none.
+#[derive(Type, Clone, Copy, PartialEq, Eq, Debug)]
+#[zvariant(signature = "(sq)")]
+pub enum Temperature {
+    /// Whole kelvin, the resolution the EC publishes.
+    Kelvin(u16),
+    Failed,
+    Unpowered,
+    Uncalibrated,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+enum SensorStatus {
+    Reading,
+    Failed,
+    Unpowered,
+    Uncalibrated,
+}
+
+impl Serialize for Temperature {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match *self {
+            Self::Kelvin(kelvin) => (SensorStatus::Reading, kelvin),
+            Self::Failed => (SensorStatus::Failed, 0u16),
+            Self::Unpowered => (SensorStatus::Unpowered, 0),
+            Self::Uncalibrated => (SensorStatus::Uncalibrated, 0),
+        }
+        .serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for Temperature {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let (status, kelvin) = <(SensorStatus, u16)>::deserialize(deserializer)?;
+        Ok(match status {
+            SensorStatus::Reading => Self::Kelvin(kelvin),
+            SensorStatus::Failed => Self::Failed,
+            SensorStatus::Unpowered => Self::Unpowered,
+            SensorStatus::Uncalibrated => Self::Uncalibrated,
+        })
+    }
+}
+
+#[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug)]
+pub struct SensorReading {
+    pub index: u8,
+    pub temperature: Temperature,
+}
+
+#[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Fan {
+    pub index: u8,
+    /// 0 for a stopped fan, which is also how the EC reports a stalled one.
+    pub rpm: u16,
+}
+
+/// Every sensor and fan from the same pass over the EC's memmap.
+#[derive(Serialize, Deserialize, Type, Clone, PartialEq, Eq, Debug)]
+pub struct ThermalState {
+    pub sensors: Vec<SensorReading>,
+    pub fans: Vec<Fan>,
+}
+
+/// One sensor's thresholds in kelvin, each None where the EC holds 0, which
+/// disables it.
+#[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Thresholds {
+    pub index: u8,
+    /// Where the EC asks the host to throttle.
+    pub warn: Option<u16>,
+    /// Where the EC throttles the processor itself.
+    pub high: Option<u16>,
+    /// Where the EC shuts the machine down.
+    pub halt: Option<u16>,
+    /// Below this the sensor asks for no cooling.
+    pub fan_off: Option<u16>,
+    /// From this the sensor asks for the fan at full speed.
+    pub fan_max: Option<u16>,
+}
+
 /// The rate a USB link negotiated, as the kernel's `speed` attribute names
 /// it. `Unknown` is the arm for a `speed` string this vocabulary does not
 /// name.

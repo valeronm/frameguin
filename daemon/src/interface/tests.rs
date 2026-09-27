@@ -8,7 +8,8 @@ use std::time::Duration;
 use async_io::Async;
 use frameguin_contract::{
     BatteryFeature, Board, ChargeCurrentLimit, ChargingLedFeature, ChargingLedSide, ChassisFeature,
-    ClickForce, DeckState, DeviceError, Platform, PortPartner, PortSet, PowerLedLevel, VENDOR,
+    ClickForce, DeckState, DeviceError, Platform, PortPartner, PortSet, PowerLedLevel, Temperature,
+    ThermalFeature, VENDOR,
 };
 use frameguin_hardware::device::Devices;
 use frameguin_hardware::device::battery::Battery;
@@ -17,6 +18,7 @@ use frameguin_hardware::device::chassis::Chassis;
 use frameguin_hardware::device::ports::Ports;
 use frameguin_hardware::device::power_led::PowerLed;
 use frameguin_hardware::device::privacy_switches::PrivacySwitches;
+use frameguin_hardware::device::thermal::Thermal;
 use frameguin_hardware::device::touchpad::Touchpad;
 use frameguin_hardware::device::touchscreen::Touchscreen;
 use frameguin_hardware::device::usb::Usb;
@@ -25,8 +27,8 @@ use frameguin_hardware::part::Identity;
 use frameguin_hardware::restore::Restore;
 use frameguin_hardware::testing::{
     Connectors, Cover, EC_BOOT, EXTENDER, EcCharger, Gauge, Haptic, Hub, LedEc, Leds, Memory,
-    OTHER_SYSTEMS, Route, Sides, Sliders, battery_identity, block, cap, display_identity, mirrors,
-    touchpad_identity,
+    OTHER_SYSTEMS, Route, Sides, Sliders, Vents, battery_identity, block, cap, display_identity,
+    mirrors, touchpad_identity,
 };
 use frameguin_wire::{FrameguinProxy, Proxies, from_bus_error, proxy};
 use futures_lite::future::{block_on, or};
@@ -92,6 +94,7 @@ impl Machine {
             ports: Ports::new(Arc::new(Connectors::default()), &[]),
             chassis: Chassis::new(Arc::new(Cover::default())),
             privacy_switches: PrivacySwitches::new(Arc::new(Sliders::default())),
+            thermal: Thermal::new(Arc::new(Vents::default())),
             usb: Usb::new(Arc::new(Hub::default())),
         }
     }
@@ -281,6 +284,15 @@ fn every_getter_answers_through_its_proxy() {
             p.privacy_switches.get_switches().await.unwrap(),
             Sliders::default().switches
         );
+        let layout = p.thermal.get_layout().await.unwrap();
+        assert_eq!(layout.fans, [0]);
+        assert_eq!(
+            p.thermal.get_features().await.unwrap(),
+            [ThermalFeature::Thresholds]
+        );
+        let state = p.thermal.get_state().await.unwrap();
+        assert_eq!(state.sensors[0].temperature, Temperature::Kelvin(340));
+        assert_eq!(p.thermal.get_thresholds().await.unwrap().len(), 2);
         assert_eq!(p.usb.get_attached().await.unwrap(), Hub::default().devices);
     });
 }
@@ -553,6 +565,7 @@ fn a_device_detection_did_not_find_is_not_on_the_bus() {
         assert!(p.ports.get_ports(PortSet::default()).await.is_ok());
         assert!(p.chassis.get_state().await.is_ok());
         assert!(p.privacy_switches.get_switches().await.is_ok());
+        assert!(p.thermal.get_state().await.is_ok());
         assert!(p.usb.get_attached().await.is_ok());
     });
 }

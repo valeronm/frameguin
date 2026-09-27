@@ -26,7 +26,7 @@ One meaning per word, and each word names one place in the tree.
 - **Control** — the facet "something that can be read, and usually set": one
   trait per device in `contract` — `BatteryControl`, `TouchpadControl`,
   `TouchscreenControl`, `PowerLedControl`, `ChargingLedControl`, `PortsControl`,
-  `ChassisControl`, `PrivacySwitchesControl`, `UsbControl` — with one async fn per
+  `ChassisControl`, `PrivacySwitchesControl`, `ThermalControl`, `UsbControl` — with one async fn per
   operation and three implementations, the device itself, the bus, and a
   stub. A trait with only getters is a control all the same:
   `PortsControl` sets nothing, what a USB-C port does being settled between
@@ -104,8 +104,8 @@ that came straight to it gets the same answers.
 
 A device — the battery, the power button LED, the haptic touchpad, the
 touch panel, the USB-C ports, the USB devices on the root ports, the
-chassis, the privacy switches — is one column that crosses every layer
-the same way. A layer is one row that every
+chassis, the privacy switches, the temperature sensors and fans — is one
+column that crosses every layer the same way. A layer is one row that every
 device crosses. What a device must not know lives in another column; what a
 layer must not link lives in another row.
 
@@ -115,13 +115,13 @@ a control trait with only getters is still a column, and stops where it runs
 out of things to be. The one row they put in a window sits in the Charging
 State group, that being the question it answers: what is coming in, beside what the
 pack is doing about it — which is why that group is named for the subject
-rather than for the battery whose control it otherwise holds. The chassis
-and the privacy switches put nothing in the main window at all; their
-columns end at the Readings window. The USB devices end at the Readings window
-too, and are placed in a port's page by `model::port` rather than by the
-daemon, which knows the board's name but not where its sockets are. The
-battery extender is a feature of the battery's column rather than a column
-of its own, and still takes a Readings
+rather than for the battery whose control it otherwise holds. The chassis,
+the privacy switches, and the temperature sensors and fans put nothing in
+the main window at all; their columns end at the Readings window. The USB
+devices end at the Readings window too, and are placed in a port's page by
+`model::port` rather than by the daemon, which knows the board's name but
+not where its sockets are. The battery extender is a feature of the
+battery's column rather than a column of its own, and still takes a Readings
 page beside the pack's: a page is drawn for what a reader looks for, not
 for the column behind it. By the same measure the input deck, a feature of
 the chassis, is a row on the Chassis page.
@@ -134,7 +134,7 @@ the chassis, is a row on the Chassis page.
 | Control traits | `contract` | serde, zvariant | One trait per device, one async fn per operation; the values they carry and the encoding those cross the bus in; `DeviceError` | How an operation is reached; the bus | Its own encodings, round-tripped |
 | Bus | `wire`, `daemon` | zbus, polkit | One proxy per interface, `Bus` implementing the traits over them, and how `DeviceError` crosses (`wire`); `Served<Device>`, authorizing every write attempt before anything else (`daemon`) | Anything that touches hardware (`wire`); which EC command a role sends (`daemon`) | Its own `wire` proxies over a socket pair, the devices on the same stubs |
 | Devices | `hardware` | `contract` | `detect()`, the control impl with its argument checks and skips, the `Part` impl, mirrors under a declared lifetime, arbitrations | The bus, polkit | The stub per role and the store in memory, in `hardware::testing` |
-| Roles | `hardware` | — | One trait per hardware need: `Charger`, `Pack`, `PowerLedEc`, `LedClass`, `SideEnables`, `HapticPad`, `TouchSwitch`, `PdPorts`, `ChassisEc`, `PrivacyEc`, `Store`, `UsbTree` | Who calls them | — |
+| Roles | `hardware` | — | One trait per hardware need: `Charger`, `Pack`, `PowerLedEc`, `LedClass`, `SideEnables`, `HapticPad`, `TouchSwitch`, `PdPorts`, `ChassisEc`, `PrivacyEc`, `ThermalEc`, `Store`, `UsbTree` | Who calls them | — |
 | Transports | `hardware` | `framework_lib`, hidapi, libc | `Ec` and its lock, the sysfs LED node, the GPIO pad, the panel and touchpad HID, the SMBIOS table, the state file, the sysfs USB tree, the net and SCSI classes | Devices, policy, the bus | The machine |
 
 The two trait rows are the seams. A stub replaces the real thing at either,

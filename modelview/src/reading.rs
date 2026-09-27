@@ -15,6 +15,8 @@ pub fn attempt(extra: Extra) -> &'static str {
         Extra::ChargeLimit => "Reading the charge limit",
         Extra::Usb => "Reading the USB devices",
         Extra::ChargingLedSide => "Reading the charging LED's side",
+        Extra::Thermal => "Reading the temperatures",
+        Extra::Thresholds => "Reading the thermal thresholds",
     }
 }
 
@@ -22,7 +24,7 @@ pub fn attempt(extra: Extra) -> &'static str {
 mod tests {
     use frameguin_model::reading::Extra::{
         Battery, ChargeLimit, ChargingLedSide, Chassis, Condition, Deck, Extender, Ports,
-        PrivacySwitches, Usb,
+        PrivacySwitches, Thermal, Thresholds, Usb,
     };
 
     use super::attempt;
@@ -40,6 +42,8 @@ mod tests {
             ChargeLimit,
             Usb,
             ChargingLedSide,
+            Thermal,
+            Thresholds,
         ] {
             assert!(attempt(extra).starts_with("Reading the "));
         }

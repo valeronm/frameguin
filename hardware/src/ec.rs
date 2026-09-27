@@ -31,6 +31,7 @@ use crate::part::{self, Identity};
 use crate::pd;
 use crate::pd_controller;
 use crate::sbs;
+use crate::thermal;
 
 /// What the power LED's device needs of the EC: the level it holds, the two
 /// writes that move it, and whether the firmware has the levels that came
@@ -91,6 +92,17 @@ pub trait ChassisEc: Send + Sync {
 
 pub trait PrivacyEc: Send + Sync {
     fn privacy_switches(&self) -> DeviceResult<contract::PrivacyState>;
+}
+
+/// What the thermal device needs of the EC: the memmap's thermal bytes, a
+/// sensor's name, and its thresholds.
+pub trait ThermalEc: Send + Sync {
+    /// The memmap's sensor bytes in the EC's sensor order — the second range
+    /// appended where the memmap's thermal version carries it — and its fan
+    /// words.
+    fn thermal_memmap(&self) -> DeviceResult<(Vec<u8>, Vec<u16>)>;
+    fn sensor_name(&self, index: u8) -> DeviceResult<String>;
+    fn thresholds(&self, index: u8) -> DeviceResult<thermal::RawThresholds>;
 }
 
 /// The enables of the two indicators behind the charging LED's one id, left
@@ -410,6 +422,48 @@ impl PrivacyEc for Ec {
     fn privacy_switches(&self) -> DeviceResult<contract::PrivacyState> {
         let (microphone, camera) = self.ec().get_privacy_info().map_err(device_error)?;
         Ok(contract::PrivacyState { camera, microphone })
+    }
+}
+
+impl ThermalEc for Ec {
+    fn thermal_memmap(&self) -> DeviceResult<(Vec<u8>, Vec<u16>)> {
+        let ec = self.ec();
+        let read = |offset, length| {
+            ec.read_memory(offset, length)
+                .ok_or_else(|| DeviceError::Failed("the EC's memmap did not answer".into()))
+        };
+        let mut sensors = read(thermal::TEMP_SENSOR, thermal::TEMP_SENSOR_ENTRIES)?;
+        let version = read(thermal::THERMAL_VERSION, 1)?;
+        if version
+            .first()
+            .is_some_and(|version| *version >= thermal::SECOND_RANGE_VERSION)
+        {
+            sensors.extend(read(
+                thermal::TEMP_SENSOR_B,
+                thermal::TEMP_SENSOR_B_ENTRIES,
+            )?);
+        }
+        let fans = read(thermal::FAN, thermal::FAN_ENTRIES * 2)?
+            .chunks_exact(2)
+            .map(|word| u16::from_le_bytes([word[0], word[1]]))
+            .collect();
+        Ok((sensors, fans))
+    }
+
+    fn sensor_name(&self, index: u8) -> DeviceResult<String> {
+        self.ec().get_temp_sensor_name(index).map_err(device_error)
+    }
+
+    fn thresholds(&self, index: u8) -> DeviceResult<thermal::RawThresholds> {
+        let config = self
+            .ec()
+            .get_thermal_threshold(u32::from(index))
+            .map_err(device_error)?;
+        Ok(thermal::RawThresholds {
+            host: config.temp_host,
+            fan_off: config.temp_fan_off,
+            fan_max: config.temp_fan_max,
+        })
     }
 }
 

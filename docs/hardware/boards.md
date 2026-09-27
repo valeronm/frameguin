@@ -61,3 +61,6 @@ as the controls above.
 | [Chassis open](chassis.md#the-chassis-open-switch) | Tested | Expected | Expected | Expected | Expected | Expected | Expected | Expected | -- |
 | [Input deck](chassis.md#the-input-deck) | Tested | -- | -- | -- | -- | Expected | Expected | -- | -- |
 | [Privacy switches](chassis.md#the-privacy-switches) | Tested | Expected | Expected | Expected | Expected | Expected | Expected | Expected | -- |
+| [Temperatures](thermal.md#the-memmap-sensors) | Tested | Expected | Expected | Expected | Expected | Expected | Expected | Expected | Expected |
+| [Fans](thermal.md#the-fans) | Tested | Expected | Expected | Expected | Expected | Expected | Expected | Expected | Expected |
+| [Thermal thresholds](thermal.md#thresholds) | Tested | Expected | Expected | Expected | Expected | Expected | Expected | Expected | Expected |

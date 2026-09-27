@@ -12,8 +12,10 @@
 )]
 
 pub mod control;
+pub mod fan;
 pub mod port;
 pub mod reading;
+pub mod sensor;
 
 #[cfg(any(test, feature = "testing"))]
 pub mod fixtures;

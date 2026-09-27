@@ -12,6 +12,7 @@ pub(crate) mod chassis;
 pub(crate) mod ports;
 pub(crate) mod power_led;
 pub(crate) mod privacy_switches;
+pub(crate) mod thermal;
 pub(crate) mod touchpad;
 pub(crate) mod touchscreen;
 pub(crate) mod usb;
@@ -55,6 +56,7 @@ pub(crate) async fn serve_all(
         ports,
         chassis,
         privacy_switches,
+        thermal,
         usb,
     } = devices;
     server.at(OBJECT_PATH, root).await?;
@@ -66,6 +68,7 @@ pub(crate) async fn serve_all(
     serve_one(server, &service, ports).await?;
     serve_one(server, &service, chassis).await?;
     serve_one(server, &service, privacy_switches).await?;
+    serve_one(server, &service, thermal).await?;
     serve_one(server, &service, usb).await
 }
 

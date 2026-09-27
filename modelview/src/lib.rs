@@ -16,6 +16,7 @@ pub mod power_led;
 pub mod privacy_switches;
 pub mod reading;
 pub mod rows;
+pub mod thermal;
 pub mod touchpad;
 pub mod touchscreen;
 pub mod usb;

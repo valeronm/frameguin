@@ -20,18 +20,19 @@
 //! class, `scsi` the kernel's SCSI class, `block` the kernel's block layer.
 //! `touchscreen` settles which of two routes a machine has, and is the role
 //! over either. `sbs` is the pack's own registers and what their words mean,
-//! `pd` what the EC's cached PD controller version means, `pd_controller` what
-//! a PD controller reads of a port's cable, contract and bus and where each
-//! board's controllers sit, `ccg3` what an HDMI or `DisplayPort` card's
-//! firmware report means, `platform` which board the DMI strings name,
-//! `extender` what the battery extender command carries, `edid` what a panel's
-//! own block says it is, `state` the store for what cannot be read back and
-//! what was asked for, `lifetime` what holds a mirrored value and how to tell
-//! it still does, [`mirror`] the mirror a device reads and writes such a value
-//! through, [`restore`] what a control was asked to be and the switch that has
-//! it written back after firmware has moved it, [`part`] what a device is as a
-//! part of the machine, `udev` what udev resolved about one, and [`device`] the
-//! devices themselves.
+//! `thermal` what the EC's memmap thermal bytes and its threshold command
+//! mean, `pd` what the EC's cached PD controller version means,
+//! `pd_controller` what a PD controller reads of a port's cable, contract
+//! and bus and where each board's controllers sit, `ccg3` what an HDMI or
+//! `DisplayPort` card's firmware report means, `platform` which board the
+//! DMI strings name, `extender` what the battery extender command carries,
+//! `edid` what a panel's own block says it is, `state` the store for what
+//! cannot be read back and what was asked for, `lifetime` what holds a
+//! mirrored value and how to tell it still does, [`mirror`] the mirror a
+//! device reads and writes such a value through, [`restore`] what a control
+//! was asked to be and the switch that has it written back after firmware
+//! has moved it, [`part`] what a device is as a part of the machine, `udev`
+//! what udev resolved about one, and [`device`] the devices themselves.
 
 #![allow(
     clippy::missing_errors_doc,
@@ -65,6 +66,7 @@ pub mod restore;
 pub(crate) mod sbs;
 pub(crate) mod scsi;
 pub(crate) mod state;
+pub(crate) mod thermal;
 pub(crate) mod touchpad;
 pub(crate) mod touchscreen;
 pub(crate) mod udev;

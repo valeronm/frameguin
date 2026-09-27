@@ -15,7 +15,7 @@ use frameguin_contract::{
     Attached, BatteryCondition, BatteryControl, BatteryFeature, BatteryInfo, ChargingLedControl,
     ChargingLedFeature, ChargingLedSide, ChassisControl, ChassisFeature, ChassisState, DeckState,
     DeviceError, DeviceResult, ExtenderState, PortSet, PortState, PortsControl, PrivacyState,
-    PrivacySwitchesControl, UsbControl,
+    PrivacySwitchesControl, ThermalControl, ThermalFeature, ThermalState, Thresholds, UsbControl,
 };
 
 use crate::control::Controls;
@@ -58,6 +58,10 @@ pub struct Request {
     pub usb: bool,
     /// Two host commands.
     pub charging_led_side: bool,
+    /// Reads of the EC's memmap, no host command.
+    pub thermal: bool,
+    /// A host command per sensor.
+    pub thresholds: bool,
 }
 
 impl Request {
@@ -75,6 +79,8 @@ impl Request {
             extender: self.extender || other.extender,
             usb: self.usb || other.usb,
             charging_led_side: self.charging_led_side || other.charging_led_side,
+            thermal: self.thermal || other.thermal,
+            thresholds: self.thresholds || other.thresholds,
         }
     }
 }
@@ -94,6 +100,8 @@ pub struct Reading {
     pub charge_limit: Option<u8>,
     pub usb: Option<Vec<Attached>>,
     pub charging_led_side: Option<ChargingLedSide>,
+    pub thermal: Option<ThermalState>,
+    pub thresholds: Option<Vec<Thresholds>>,
 }
 
 /// One extra a [`Request`] can ask for.
@@ -109,6 +117,8 @@ pub enum Extra {
     ChargeLimit,
     Usb,
     ChargingLedSide,
+    Thermal,
+    Thresholds,
 }
 
 impl Extra {
@@ -124,6 +134,8 @@ impl Extra {
             Self::Extender | Self::ChargeLimit => request.extender,
             Self::Usb => request.usb,
             Self::ChargingLedSide => request.charging_led_side,
+            Self::Thermal => request.thermal,
+            Self::Thresholds => request.thresholds,
         }
     }
 }
@@ -168,22 +180,14 @@ impl Extras {
     }
 }
 
-/// Reads what `request` asks for, and hands back the extras that failed. A
-/// device the board does not have, or an extra its device does not offer, is
-/// not a failure: its field arrives as None, as one nothing asked for does.
-pub async fn read<C>(controls: &Controls<C>, request: Request) -> (Reading, Vec<Failure>)
-where
-    C: BatteryControl
-        + ChargingLedControl
-        + ChassisControl
-        + PortsControl
-        + PrivacySwitchesControl
-        + UsbControl,
-{
-    let mut extras = Extras {
-        request,
-        failures: Vec::new(),
-    };
+async fn battery_column<C: BatteryControl>(
+    extras: &mut Extras,
+    controls: &Controls<C>,
+) -> (
+    Option<BatteryInfo>,
+    Option<ChargeSpeeds>,
+    Option<BatteryCondition>,
+) {
     let battery = controls.battery.as_ref();
     let info = extras.read(Extra::Battery, battery.map(|b| b.read())).await;
     let charge_speeds = info.as_ref().and(battery).and_then(|b| b.charge_speeds());
@@ -195,35 +199,14 @@ where
                 .map(|b| b.condition()),
         )
         .await;
-    // Asked of the ports control rather than the pack's: a board can have
-    // one and not the other.
-    let ports = extras
-        .read(
-            Extra::Ports,
-            controls
-                .ports
-                .as_ref()
-                .map(|p| p.read(request.controller_ports)),
-        )
-        .await;
-    let chassis_control = controls.chassis.as_ref();
-    let chassis = extras
-        .read(Extra::Chassis, chassis_control.map(|c| c.read()))
-        .await;
-    let deck = extras
-        .read(
-            Extra::Deck,
-            chassis_control
-                .filter(|c| c.has(ChassisFeature::Deck))
-                .map(|c| c.deck_state()),
-        )
-        .await;
-    let privacy_switches = extras
-        .read(
-            Extra::PrivacySwitches,
-            controls.privacy_switches.as_ref().map(|s| s.read()),
-        )
-        .await;
+    (info, charge_speeds, condition)
+}
+
+async fn extender_column<C: BatteryControl>(
+    extras: &mut Extras,
+    controls: &Controls<C>,
+) -> (Option<ExtenderState>, Option<u8>) {
+    let battery = controls.battery.as_ref();
     let extender = extras
         .read(
             Extra::Extender,
@@ -240,6 +223,84 @@ where
                 .map(|b| b.charge_limit()),
         )
         .await;
+    (extender, charge_limit)
+}
+
+async fn chassis_column<C: ChassisControl>(
+    extras: &mut Extras,
+    controls: &Controls<C>,
+) -> (Option<ChassisState>, Option<DeckState>) {
+    let chassis_control = controls.chassis.as_ref();
+    let chassis = extras
+        .read(Extra::Chassis, chassis_control.map(|c| c.read()))
+        .await;
+    let deck = extras
+        .read(
+            Extra::Deck,
+            chassis_control
+                .filter(|c| c.has(ChassisFeature::Deck))
+                .map(|c| c.deck_state()),
+        )
+        .await;
+    (chassis, deck)
+}
+
+async fn thermal_column<C: ThermalControl>(
+    extras: &mut Extras,
+    controls: &Controls<C>,
+) -> (Option<ThermalState>, Option<Vec<Thresholds>>) {
+    let thermal_control = controls.thermal.as_ref();
+    let thermal = extras
+        .read(Extra::Thermal, thermal_control.map(|t| t.read()))
+        .await;
+    let thresholds = extras
+        .read(
+            Extra::Thresholds,
+            thermal_control
+                .filter(|t| t.has(ThermalFeature::Thresholds))
+                .map(|t| t.thresholds()),
+        )
+        .await;
+    (thermal, thresholds)
+}
+
+/// Reads what `request` asks for, and hands back the extras that failed. A
+/// device the board does not have, or an extra its device does not offer, is
+/// not a failure: its field arrives as None, as one nothing asked for does.
+pub async fn read<C>(controls: &Controls<C>, request: Request) -> (Reading, Vec<Failure>)
+where
+    C: BatteryControl
+        + ChargingLedControl
+        + ChassisControl
+        + PortsControl
+        + PrivacySwitchesControl
+        + ThermalControl
+        + UsbControl,
+{
+    let mut extras = Extras {
+        request,
+        failures: Vec::new(),
+    };
+    let (info, charge_speeds, condition) = battery_column(&mut extras, controls).await;
+    // Asked of the ports control rather than the pack's: a board can have
+    // one and not the other.
+    let ports = extras
+        .read(
+            Extra::Ports,
+            controls
+                .ports
+                .as_ref()
+                .map(|p| p.read(request.controller_ports)),
+        )
+        .await;
+    let (chassis, deck) = chassis_column(&mut extras, controls).await;
+    let privacy_switches = extras
+        .read(
+            Extra::PrivacySwitches,
+            controls.privacy_switches.as_ref().map(|s| s.read()),
+        )
+        .await;
+    let (extender, charge_limit) = extender_column(&mut extras, controls).await;
     let usb = extras
         .read(Extra::Usb, controls.usb.as_ref().map(|u| u.read()))
         .await;
@@ -253,6 +314,7 @@ where
                 .map(|l| l.side()),
         )
         .await;
+    let (thermal, thresholds) = thermal_column(&mut extras, controls).await;
     let reading = Reading {
         info,
         charge_speeds,
@@ -265,6 +327,8 @@ where
         charge_limit,
         usb,
         charging_led_side,
+        thermal,
+        thresholds,
     };
     (reading, extras.failures)
 }
@@ -368,5 +432,46 @@ mod tests {
         };
         assert!(Extra::Ports.requested(request));
         assert!(!Extra::Battery.requested(request));
+    }
+
+    #[test]
+    fn the_temperatures_are_read_without_the_thresholds_unless_asked() {
+        let (_, controls) = detected();
+        let request = Request {
+            thermal: true,
+            ..Request::default()
+        };
+        let (reading, failures) = ready(read(&controls, request));
+        assert_eq!(reading.thermal.unwrap().fans[0].rpm, 2400);
+        assert!(reading.thresholds.is_none());
+        assert!(failures.is_empty());
+    }
+
+    #[test]
+    fn the_thresholds_arrive_when_asked() {
+        let (_, controls) = detected();
+        let request = Request {
+            thresholds: true,
+            ..Request::default()
+        };
+        let (reading, _) = ready(read(&controls, request));
+        assert_eq!(reading.thresholds.unwrap()[0].high, Some(361));
+        assert!(reading.thermal.is_none());
+    }
+
+    #[test]
+    fn a_device_without_the_thresholds_feature_is_not_asked_for_them() {
+        let machine = Machine::new();
+        machine.thresholds.set(false);
+        let controls = ready(Controls::detect(&machine)).unwrap();
+        let request = Request {
+            thermal: true,
+            thresholds: true,
+            ..Request::default()
+        };
+        let (reading, failures) = ready(read(&controls, request));
+        assert!(reading.thermal.is_some());
+        assert!(reading.thresholds.is_none());
+        assert!(failures.is_empty());
     }
 }

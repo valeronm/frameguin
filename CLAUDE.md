@@ -261,6 +261,8 @@ it and the non-obvious constraints.
   part's identity comes from — `sbs.rs` the pack's own registers and what
   their words mean, apart from `ec.rs` so the decoding is testable without
   an EC and `ec.rs` stays every EC call and nothing else —
+  `thermal.rs` what the memmap's thermal bytes and the threshold command
+  mean, apart from `ec.rs` for the same reason —
   `pd_controller.rs` what a PD controller reads of a port's cable, contract
   and bus and where each board's controllers sit, apart from `ec.rs` for the
   same reason — `edid.rs` what a

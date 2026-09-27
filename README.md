@@ -36,7 +36,8 @@ The other windows only read:
 
 - **Readings** — what the machine is doing now: the battery's charge, flow
   and health, what each USB-C port has attached and the power it negotiated,
-  the battery extender, the chassis, and the privacy switches.
+  the battery extender, the chassis, the privacy switches, and the
+  temperatures and fans.
 - **Hardware** — every part the daemon found, with its identity and
   firmware.
 

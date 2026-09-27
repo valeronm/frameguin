@@ -9,6 +9,7 @@ mod battery_extender;
 mod chassis;
 mod ports;
 mod privacy_switches;
+mod thermal;
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -73,7 +74,7 @@ pub(super) fn action(daemon: Rc<Daemon>, feed: Rc<Feed>) -> gio::ActionEntry<adw
     gio::ActionEntry::builder(ACTION)
         .parameter_type(Some(glib::VariantTy::STRING))
         .activate(move |app: &adw::Application, _, parameter| {
-            let window = super::open(app, ACTION, TITLE, (760, 680), &fill);
+            let window = super::open(app, ACTION, TITLE, (760, 700), &fill);
             let _ = window.activate_action(&format!("{ACTION}.{SELECT}"), parameter);
         })
         .build()
@@ -121,12 +122,19 @@ async fn fill(sidebar: &Rc<Sidebar>, daemon: &Daemon, feed: &Rc<Feed>, shell: &S
     else {
         return;
     };
+    if let Some(control) = &controls.thermal {
+        let list = sidebar.section("Thermals");
+        thermal::add(sidebar, &list, feed, control, controls.board.platform());
+    }
     if let Some(control) = &controls.battery {
         let list = sidebar.section("Battery");
         battery::add(sidebar, &list, feed, control);
         if control.has(BatteryFeature::Extender) {
             battery_extender::add(sidebar, &list, feed);
         }
+    }
+    if let Some(control) = &controls.ports {
+        ports::add(sidebar, feed, controls.usb.is_some(), control.placement());
     }
     if controls.chassis.is_some() || controls.privacy_switches.is_some() {
         let list = sidebar.section("Switches");
@@ -136,9 +144,6 @@ async fn fill(sidebar: &Rc<Sidebar>, daemon: &Daemon, feed: &Rc<Feed>, shell: &S
         if controls.privacy_switches.is_some() {
             privacy_switches::add(sidebar, &list, feed);
         }
-    }
-    if let Some(control) = &controls.ports {
-        ports::add(sidebar, feed, controls.usb.is_some(), control.placement());
     }
     if sidebar.lists.borrow().is_empty() {
         sidebar.pages.add_child(

@@ -4,7 +4,8 @@
 use frameguin_contract::{
     Attached, BatteryCondition, BatteryFeature, BatteryInfo, Board, ChargeCurrentLimit,
     ChargingLedFeature, ChargingLedSide, ChassisFeature, ChassisState, ClickForce, DeckState,
-    ExtenderState, Identity, PortSet, PortState, PowerLedLevel, PrivacyState,
+    ExtenderState, Identity, PortSet, PortState, PowerLedLevel, PrivacyState, ThermalFeature,
+    ThermalLayout, ThermalState, Thresholds,
 };
 
 use crate::{BUS_NAME, OBJECT_PATH};
@@ -144,6 +145,19 @@ pub trait PrivacySwitches {
     async fn get_switches(&self) -> zbus::Result<PrivacyState>;
 }
 
+/// Absent from the bus where the EC's memmap does not answer or reports no
+/// sensor and no fan.
+#[zbus::proxy(
+    interface = "io.github.valeronm.Frameguin1.Thermal",
+    gen_blocking = false
+)]
+pub trait Thermal {
+    async fn get_features(&self) -> zbus::Result<Vec<ThermalFeature>>;
+    async fn get_layout(&self) -> zbus::Result<ThermalLayout>;
+    async fn get_state(&self) -> zbus::Result<ThermalState>;
+    async fn get_thresholds(&self) -> zbus::Result<Vec<Thresholds>>;
+}
+
 /// Absent from the bus on a machine that is not a Framework one, or whose USB
 /// bus cannot be listed.
 #[zbus::proxy(interface = "io.github.valeronm.Frameguin1.Usb", gen_blocking = false)]
@@ -164,6 +178,7 @@ pub struct Proxies {
     pub ports: PortsProxy<'static>,
     pub chassis: ChassisProxy<'static>,
     pub privacy_switches: PrivacySwitchesProxy<'static>,
+    pub thermal: ThermalProxy<'static>,
     pub usb: UsbProxy<'static>,
 }
 
@@ -181,6 +196,7 @@ impl Proxies {
             ports: proxy(conn).await?,
             chassis: proxy(conn).await?,
             privacy_switches: proxy(conn).await?,
+            thermal: proxy(conn).await?,
             usb: proxy(conn).await?,
         })
     }

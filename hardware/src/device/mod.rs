@@ -19,6 +19,7 @@ pub mod ports;
 pub mod power_led;
 pub mod privacy_switches;
 pub(crate) mod storage;
+pub mod thermal;
 pub mod touchpad;
 pub mod touchscreen;
 pub mod usb;
@@ -40,6 +41,7 @@ use crate::device::ports::Ports;
 use crate::device::power_led::PowerLed;
 use crate::device::privacy_switches::PrivacySwitches;
 use crate::device::storage::Drive;
+use crate::device::thermal::Thermal;
 use crate::device::touchpad::Touchpad;
 use crate::device::touchscreen::Touchscreen;
 use crate::device::usb::Usb;
@@ -63,6 +65,7 @@ pub struct Devices {
     pub ports: Option<Ports>,
     pub chassis: Option<Chassis>,
     pub privacy_switches: Option<PrivacySwitches>,
+    pub thermal: Option<Thermal>,
     pub usb: Option<Usb>,
 }
 
@@ -127,6 +130,7 @@ pub fn detect() -> Detected {
             ports: ec.as_ref().and_then(|ec| Ports::detect(ec, &board)),
             chassis: ec.as_ref().and_then(Chassis::detect),
             privacy_switches: ec.as_ref().and_then(PrivacySwitches::detect),
+            thermal: ec.as_ref().and_then(Thermal::detect),
             usb: Usb::detect(&board),
         },
         parts,

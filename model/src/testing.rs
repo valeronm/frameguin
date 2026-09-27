@@ -6,9 +6,10 @@ use frameguin_contract::{
     Attached, BatteryCondition, BatteryControl, BatteryFeature, BatteryInfo, Board, BoardControl,
     ChargeCurrentLimit, ChargeFlow, ChargingLedControl, ChargingLedFeature, ChargingLedSide,
     ChassisControl, ChassisFeature, ChassisState, ClickForce, DeckState, DeviceError, DeviceResult,
-    ExtenderStage, ExtenderState, PortSet, PortState, PortsControl, PowerLedControl, PowerLedLevel,
-    PrivacyState, PrivacySwitchesControl, TouchpadControl, TouchscreenControl, UsbControl,
-    UsbSpeed,
+    ExtenderStage, ExtenderState, Fan, PortSet, PortState, PortsControl, PowerLedControl,
+    PowerLedLevel, PrivacyState, PrivacySwitchesControl, Sensor, SensorReading, Temperature,
+    ThermalControl, ThermalFeature, ThermalLayout, ThermalState, Thresholds, TouchpadControl,
+    TouchscreenControl, UsbControl, UsbSpeed,
 };
 
 pub(crate) use crate::fixtures::{CAPACITY, NOMINAL_MILLIVOLTS, cap, port, state};
@@ -83,7 +84,9 @@ pub(crate) struct Machine {
     pub(crate) ports: Fault,
     pub(crate) chassis: Fault,
     pub(crate) privacy_switches: Fault,
+    pub(crate) thermal: Fault,
     pub(crate) usb: Fault,
+    pub(crate) thresholds: Cell<bool>,
     pub(crate) limit: Cell<u8>,
     pub(crate) cap: Cell<ChargeCurrentLimit>,
     pub(crate) haptic_intensity: Cell<u8>,
@@ -106,7 +109,9 @@ impl Default for Machine {
             ports: Fault::default(),
             chassis: Fault::default(),
             privacy_switches: Fault::default(),
+            thermal: Fault::default(),
             usb: Fault::default(),
+            thresholds: Cell::new(true),
             limit: Cell::new(100),
             cap: Cell::new(ChargeCurrentLimit::NoLimit),
             haptic_intensity: Cell::new(50),
@@ -134,6 +139,7 @@ impl Machine {
             ports: Fault::failing(error.clone()),
             chassis: Fault::failing(error.clone()),
             privacy_switches: Fault::failing(error.clone()),
+            thermal: Fault::failing(error.clone()),
             usb: Fault::failing(error),
             ..Self::default()
         })
@@ -318,6 +324,50 @@ impl ChargingLedControl for Machine {
 
     async fn side(&self) -> DeviceResult<ChargingLedSide> {
         self.charging_led.read(ChargingLedSide::Left)
+    }
+}
+
+impl ThermalControl for Machine {
+    async fn features(&self) -> DeviceResult<Vec<ThermalFeature>> {
+        self.thermal.read(if self.thresholds.get() {
+            vec![ThermalFeature::Thresholds]
+        } else {
+            Vec::new()
+        })
+    }
+
+    async fn layout(&self) -> DeviceResult<ThermalLayout> {
+        self.thermal.read(ThermalLayout {
+            sensors: vec![Sensor {
+                index: 0,
+                name: Some("cpu".into()),
+            }],
+            fans: vec![0],
+        })
+    }
+
+    async fn state(&self) -> DeviceResult<ThermalState> {
+        self.thermal.read(ThermalState {
+            sensors: vec![SensorReading {
+                index: 0,
+                temperature: Temperature::Kelvin(330),
+            }],
+            fans: vec![Fan {
+                index: 0,
+                rpm: 2400,
+            }],
+        })
+    }
+
+    async fn thresholds(&self) -> DeviceResult<Vec<Thresholds>> {
+        self.thermal.read(vec![Thresholds {
+            index: 0,
+            warn: None,
+            high: Some(361),
+            halt: Some(371),
+            fan_off: Some(313),
+            fan_max: Some(351),
+        }])
     }
 }
 

@@ -6,7 +6,8 @@
 use frameguin_contract::{
     BatteryAlarm, BatteryCondition, BatteryFeature, BatteryInfo, BatteryState, Board,
     ChargeCurrentLimit, ChargeFlow, ChassisFeature, ClickForce, DeckState, ExtenderStage,
-    ExtenderState, Identity, PartKind, Platform, PowerLedLevel, VENDOR,
+    ExtenderState, Fan, Identity, PartKind, Platform, PowerLedLevel, Sensor, SensorReading,
+    Temperature, ThermalFeature, ThermalLayout, ThermalState, Thresholds, VENDOR,
 };
 use zvariant::serialized::Context;
 use zvariant::{LE, Type, to_bytes};
@@ -26,6 +27,7 @@ fn every_enum_crosses_the_bus_as_a_plain_string() {
     assert_eq!(ExtenderStage::SIGNATURE, "s");
     assert_eq!(ChassisFeature::SIGNATURE, "s");
     assert_eq!(DeckState::SIGNATURE, "s");
+    assert_eq!(ThermalFeature::SIGNATURE, "s");
 }
 
 /// The shapes the interface actually carries, as they appear in
@@ -180,5 +182,38 @@ fn every_level_but_custom_is_settable() {
             level.is_settable(),
             "{level:?}"
         );
+    }
+}
+
+#[test]
+fn the_thermal_shapes_are_the_ones_the_methods_declare() {
+    assert_eq!(Sensor::SIGNATURE, "(yas)");
+    assert_eq!(ThermalLayout::SIGNATURE, "(a(yas)ay)");
+    assert_eq!(Temperature::SIGNATURE, "(sq)");
+    assert_eq!(SensorReading::SIGNATURE, "(y(sq))");
+    assert_eq!(Fan::SIGNATURE, "(yq)");
+    assert_eq!(ThermalState::SIGNATURE, "(a(y(sq))a(yq))");
+    assert_eq!(Thresholds::SIGNATURE, "(yaqaqaqaqaq)");
+}
+
+#[test]
+fn thermal_feature_names_are_kebab_case() {
+    assert_eq!(wire_string(ThermalFeature::Thresholds), "thresholds");
+}
+
+fn round_trip(temperature: Temperature) -> Temperature {
+    let encoded = to_bytes(Context::new_dbus(LE, 0), &temperature).unwrap();
+    encoded.deserialize::<Temperature>().unwrap().0
+}
+
+#[test]
+fn every_temperature_survives_the_bus() {
+    for temperature in [
+        Temperature::Kelvin(340),
+        Temperature::Failed,
+        Temperature::Unpowered,
+        Temperature::Uncalibrated,
+    ] {
+        assert_eq!(round_trip(temperature), temperature);
     }
 }

@@ -16,12 +16,13 @@ use frameguin_contract::{
     PortRegisters, PortState, PowerLedLevel, PowerRole, PrivacyState, UsbSpeed,
 };
 
-use crate::ec::{Charger, ChassisEc, Pack, PdPorts, PowerLedEc, PrivacyEc, SideEnables};
+use crate::ec::{Charger, ChassisEc, Pack, PdPorts, PowerLedEc, PrivacyEc, SideEnables, ThermalEc};
 use crate::led::LedClass;
 use crate::lifetime::{EcBoot, Holders};
 use crate::mirror::Mirrors;
 use crate::part;
 use crate::state::{self, Store};
+use crate::thermal::RawThresholds;
 use crate::touchpad::HapticPad;
 use crate::touchscreen::TouchSwitch;
 use crate::usb::{BusDevice, RootDevice, UsbTree};
@@ -758,4 +759,47 @@ impl Hub {
 
 fn hub_path(attached: &Attached) -> PathBuf {
     PathBuf::from(format!("{}-{}", attached.controller, attached.root_port))
+}
+
+/// An EC answering every thermal read, one of its sensors unpowered.
+pub struct Vents {
+    pub sensors: Vec<u8>,
+    pub fans: Vec<u16>,
+    /// Firmware whose memmap does not answer.
+    pub refusing: bool,
+    /// None for firmware without the threshold read.
+    pub thresholds: Option<RawThresholds>,
+}
+
+impl Default for Vents {
+    fn default() -> Self {
+        Self {
+            sensors: vec![140, 0xff, 0xfd, 0xff],
+            fans: vec![2400, 0xffff, 0xffff, 0xffff],
+            refusing: false,
+            thresholds: Some(RawThresholds {
+                host: [0, 361, 371],
+                fan_off: 313,
+                fan_max: 348,
+            }),
+        }
+    }
+}
+
+impl ThermalEc for Vents {
+    fn thermal_memmap(&self) -> DeviceResult<(Vec<u8>, Vec<u16>)> {
+        if self.refusing {
+            return Err(DeviceError::Failed("no memmap".into()));
+        }
+        Ok((self.sensors.clone(), self.fans.clone()))
+    }
+
+    fn sensor_name(&self, index: u8) -> DeviceResult<String> {
+        Ok(format!("sensor{index}"))
+    }
+
+    fn thresholds(&self, _index: u8) -> DeviceResult<RawThresholds> {
+        self.thresholds
+            .ok_or_else(|| DeviceError::Failed("invalid command".into()))
+    }
 }

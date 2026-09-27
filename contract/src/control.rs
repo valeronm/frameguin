@@ -14,7 +14,8 @@ use crate::error::DeviceResult;
 use crate::vocabulary::{
     Attached, BatteryCondition, BatteryFeature, BatteryInfo, Board, ChargeCurrentLimit,
     ChargingLedFeature, ChargingLedSide, ChassisFeature, ChassisState, ClickForce, DeckState,
-    ExtenderState, PortSet, PortState, PowerLedLevel, PrivacyState,
+    ExtenderState, PortSet, PortState, PowerLedLevel, PrivacyState, ThermalFeature, ThermalLayout,
+    ThermalState, Thresholds,
 };
 
 /// The machine every device is on; fixed for the implementor's run.
@@ -91,6 +92,19 @@ pub trait ChassisControl {
 
 pub trait PrivacySwitchesControl {
     async fn switches(&self) -> DeviceResult<PrivacyState>;
+}
+
+/// Read-only: the fan follows the EC's own curve.
+pub trait ThermalControl {
+    /// What this device offers past its sensors and fans; fixed for the
+    /// device's run.
+    async fn features(&self) -> DeviceResult<Vec<ThermalFeature>>;
+    /// Every sensor and fan present at detection; fixed for the device's run.
+    async fn layout(&self) -> DeviceResult<ThermalLayout>;
+    async fn state(&self) -> DeviceResult<ThermalState>;
+    /// Offered only under [`ThermalFeature::Thresholds`]: a host command per
+    /// sensor, re-read on each call since `framework_tool` can rewrite them.
+    async fn thresholds(&self) -> DeviceResult<Vec<Thresholds>>;
 }
 
 /// What is plugged straight into the machine's USB root ports. Read-only,
