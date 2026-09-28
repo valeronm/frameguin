@@ -23,14 +23,13 @@ use frameguin_model::port::Placement;
 use frameguin_model::reading::Request;
 use frameguin_modelview::battery::{
     CHARGE_LIMIT_CUSTOM, CHARGE_SPEED_CUSTOM, NO_CHARGE_LIMIT, charge_limit_at,
-    charge_limit_labels, charge_limit_row, charge_speed_at, charge_speed_labels,
-    charge_speed_names, charge_speed_row, fastest_custom,
+    charge_limit_labels, charge_limit_row, charge_speed_at, charge_speed_label,
+    charge_speed_labels, charge_speed_names, charge_speed_row, fastest_custom,
     reading::{charge_flow_label, percent_label},
     with_custom_row,
 };
 use frameguin_modelview::ports::{supply_label, supply_port};
 use frameguin_modelview::rows::Custom;
-use frameguin_modelview::units::amps;
 use frameguin_wire::Bus;
 use gtk4 as gtk;
 
@@ -152,7 +151,7 @@ impl Group {
             clippy::cast_sign_loss,
             reason = "slider is bounded by its adjustment, which holds milliamps"
         )]
-        let speed_scale = build_scale(&speed_adjustment, |value| amps(value as u32));
+        let speed_scale = build_scale(&speed_adjustment, |value| charge_speed_label(value as u32));
         speed_custom_row.add_suffix(&speed_scale);
         reveal_under(&speed_combo, &speed_custom_row, CHARGE_SPEED_CUSTOM);
         limits.add(&speed_custom_row);
@@ -453,7 +452,10 @@ pub(crate) async fn apply_charge_speed(
     if written {
         match limit {
             ChargeCurrentLimit::Limit(milliamps) => {
-                sink.toast(&format!("Charge speed capped at {}", amps(milliamps.get())));
+                sink.toast(&format!(
+                    "Charge speed capped at {}",
+                    charge_speed_label(milliamps.get())
+                ));
             }
             ChargeCurrentLimit::NoLimit => sink.toast("Charge speed uncapped"),
         }
@@ -467,8 +469,6 @@ mod tests {
 
     use super::scale_milliamps;
 
-    /// A `GtkScale` is continuous while dragged, so without snapping a drag
-    /// lands on values like 984 mA that the row then displays as "0.98 A".
     #[test]
     fn the_slider_snaps_to_whole_steps() {
         assert_eq!(scale_milliamps(984.0).get(), 1000);

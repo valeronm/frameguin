@@ -108,10 +108,9 @@ pub fn custom_charge_ma(milliamps: u32) -> NonZeroU32 {
         .max(MIN_CUSTOM_CHARGE_MA)
 }
 
-/// What the custom slider rounds to. A `GtkScale` is continuous while
-/// dragged — its step increment reaches only keys and the wheel — so without
-/// this a drag lands on a value like 984 mA that the row then displays as
-/// "0.98 A", reporting a current nobody chose.
+/// A `GtkScale` is continuous while dragged — its step increment reaches only
+/// keys and the wheel — so an unsnapped drag lands on a value like 984 mA,
+/// which the row shows as "1.0 A" and writes as 984.
 pub const CUSTOM_CHARGE_STEP_MA: u32 = 100;
 
 /// A pack's 1C design current, its design capacity read as a current.

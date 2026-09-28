@@ -12,12 +12,11 @@ use frameguin_model::control::battery::ChargeSpeeds;
 use frameguin_model::port::Placement;
 use frameguin_modelview::battery::{
     charge_limit_at, charge_limit_labels, charge_limit_preset_row, charge_speed_at,
-    charge_speed_names, charge_speed_preset_row,
+    charge_speed_label, charge_speed_names, charge_speed_preset_row,
     reading::{battery_summary, percent_label},
 };
 use frameguin_modelview::ports::supply_summary;
 use frameguin_modelview::touchscreen::{state_at, state_labels, state_row};
-use frameguin_modelview::units::amps;
 use frameguin_wire::Bus;
 
 use crate::APP_ID;
@@ -303,7 +302,7 @@ impl TrayIcon {
         let unlisted = self
             .charge_current_limit
             .and_then(ChargeCurrentLimit::milliamps)
-            .map(|milliamps| amps(milliamps.get()));
+            .map(|milliamps| charge_speed_label(milliamps.get()));
         Some(radio_submenu(
             "Charge speed",
             selected,

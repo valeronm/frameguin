@@ -43,7 +43,7 @@ pub fn carried(port: &PortState) -> Option<String> {
     Some(format!(
         "{}, {} ({})",
         volts(port.millivolts.into(), Kind::Static),
-        amps(port.milliamps.into()),
+        amps(port.milliamps.into(), Kind::Static),
         power(port),
     ))
 }
@@ -274,7 +274,7 @@ pub fn cable_rating_label(cable: &Cable) -> Option<String> {
     let contract_millivolts = if cable.epr { 48_000 } else { 20_000 };
     Some(format!(
         "{} ({})",
-        amps(milliamps),
+        amps(milliamps, Kind::Static),
         watts(contract_millivolts, milliamps, Kind::Static)
     ))
 }

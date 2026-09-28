@@ -8,8 +8,8 @@ use crate::words::trimmed;
 pub enum Kind {
     /// Settled once, on a plug or a write, so a whole value reads whole.
     Static,
-    /// Read afresh on every tick, at a fixed precision so the figure does not
-    /// change width between readings.
+    /// Moving while it is shown, read on every tick or dragged, at a fixed
+    /// precision so the figure does not change width as it moves.
     Dynamic,
 }
 
@@ -49,10 +49,13 @@ pub fn millivolts(millivolts: u32) -> String {
     format!("{millivolts} mV")
 }
 
-/// A current that is set or settled rather than read.
 #[must_use]
-pub fn amps(milliamps: u32) -> String {
-    spell(f64::from(milliamps) / 1000.0, 2, "A", Kind::Static)
+pub fn amps(milliamps: u32, kind: Kind) -> String {
+    let decimals = match kind {
+        Kind::Static => 2,
+        Kind::Dynamic => 1,
+    };
+    spell(f64::from(milliamps) / 1000.0, decimals, "A", kind)
 }
 
 /// A current read afresh, at the precision the EC reports it.
@@ -106,9 +109,15 @@ mod tests {
 
     #[test]
     fn a_static_current_drops_its_trailing_zeros() {
-        assert_eq!(amps(5_000), "5 A");
-        assert_eq!(amps(4_500), "4.5 A");
-        assert_eq!(amps(2_250), "2.25 A");
+        assert_eq!(amps(5_000, Kind::Static), "5 A");
+        assert_eq!(amps(4_500, Kind::Static), "4.5 A");
+        assert_eq!(amps(2_250, Kind::Static), "2.25 A");
+    }
+
+    #[test]
+    fn a_dynamic_current_keeps_its_tenth() {
+        assert_eq!(amps(1_000, Kind::Dynamic), "1.0 A");
+        assert_eq!(amps(2_320, Kind::Dynamic), "2.3 A");
     }
 
     #[test]
