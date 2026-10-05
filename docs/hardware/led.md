@@ -127,8 +127,6 @@ Every heading in the file appears here.
   Ultra-low and auto need no v1, but arrived with the same firmware
   generation, so `Ec::custom_power_led_levels` asks for v1 as a stand-in.
   It is a proxy for what to offer, not a rule for what to refuse.
-- Their get answers the raw BBRAM byte, 0 where no level was ever set,
-  while `led_configure` lights the LED at high.
 - `marigold` on `fwk-marigold-*`, and `azalea` and `lotus`'s 3.x line on
   `fwk-lotus-azalea-*`, also declare the command for v0 alone, taking
   high, medium and low.
@@ -167,8 +165,11 @@ Every heading in the file appears here.
   carries the previous level, and `led_set_brightness` lights a color at
   whatever duty stands, so a write that lights the LED inside that window
   shows the old brightness. `power_led.rs` waits `LEVEL_SETTLE`, 150 ms.
-- The BBRAM slot reads a 0 back as full brightness, 0 being its
-  uninitialized value.
+- The firmware lights the LED at high for a 0 in the BBRAM slot, its
+  uninitialized value, `led_configure` on `hx20` and `hx30` included; a get
+  answers the 0 itself, as custom under v1. Consequence:
+  `contract_power_led_level` in `ec.rs` reads a 0 as high where the EC
+  named custom or no level.
 
 ## Power LED off
 

@@ -41,13 +41,14 @@ pub trait TouchscreenControl {
     async fn set_enabled(&self, enabled: bool) -> DeviceResult<()>;
 }
 
-/// The power button LED: a level, and behind every level a percentage.
+/// The power button LED: a level, and the percentage the EC holds for it.
 pub trait PowerLedControl {
     /// The percentage and the level it belongs to. The level can be `Custom`,
     /// which the EC reports after any raw percentage write, or `Off`, which
     /// the EC cannot report at all — it is the host holding the LED, and
     /// the percentage beside it is what the EC will light it at when the
-    /// host lets go.
+    /// host lets go. The percentage is 0 beside `High` where no level was
+    /// ever written.
     async fn brightness(&self) -> DeviceResult<(u8, PowerLedLevel)>;
     /// Every level this board has, `Custom` included where a percentage
     /// can be written; fixed for the device's run.

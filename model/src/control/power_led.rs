@@ -10,7 +10,8 @@ use super::present;
 pub use frameguin_contract::MIN_POWER_LED_BRIGHTNESS;
 
 /// What the LED is set to: the level in force, and the percentage the EC
-/// lights it at — the one a preset resolved to, or the one dialled in.
+/// holds for it — the one a preset resolved to, the one dialed in, or 0
+/// where no level was ever written.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Snapshot {
     pub percent: u8,

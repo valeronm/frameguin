@@ -688,6 +688,8 @@ fn ec_power_led_level(level: contract::PowerLedLevel) -> Option<FpLedBrightnessL
 const POWER_LED_HIGH: u8 = 55;
 const POWER_LED_MEDIUM: u8 = 40;
 const POWER_LED_LOW: u8 = 15;
+/// The EC lights the LED at high while its level was never written.
+const POWER_LED_UNSET: u8 = 0;
 
 /// The EC stores 0 for no ceiling and runs its sustainer for it exactly as
 /// for 100.
@@ -696,9 +698,8 @@ fn charge_ceiling(max: u8) -> u8 {
 }
 
 /// The level the EC named, or the one its percentage stands for where it
-/// named none. Firmware that names none stores only these three or a zero
-/// meaning the level was never set, so the deduction is exhaustive over what
-/// such a board holds and the zero is the one reading left custom.
+/// named none, and `High` over `POWER_LED_UNSET` where it named `Custom` or
+/// none.
 fn contract_power_led_level(
     level: Option<&FpLedBrightnessLevel>,
     percent: u8,
@@ -709,6 +710,9 @@ fn contract_power_led_level(
         Some(FpLedBrightnessLevel::Low) => contract::PowerLedLevel::Low,
         Some(FpLedBrightnessLevel::UltraLow) => contract::PowerLedLevel::UltraLow,
         Some(FpLedBrightnessLevel::Auto) => contract::PowerLedLevel::Auto,
+        Some(FpLedBrightnessLevel::Custom) | None if percent == POWER_LED_UNSET => {
+            contract::PowerLedLevel::High
+        }
         Some(FpLedBrightnessLevel::Custom) => contract::PowerLedLevel::Custom,
         None => match percent {
             POWER_LED_HIGH => contract::PowerLedLevel::High,
@@ -821,8 +825,8 @@ fn charge_flow(
 #[cfg(test)]
 mod tests {
     use super::{
-        ChargeSignals, charge_ceiling, charge_flow, charge_percent, contract, contract_deck_state,
-        contract_power_led_level, div_round_closest, ec_power_led_level,
+        ChargeSignals, FpLedBrightnessLevel, charge_ceiling, charge_flow, charge_percent, contract,
+        contract_deck_state, contract_power_led_level, div_round_closest, ec_power_led_level,
     };
 
     #[test]
@@ -865,17 +869,30 @@ mod tests {
         }
     }
 
-    /// Written out rather than taken from the constants the deduction reads,
-    /// which would move both sides of the assertion together. Zero is the
-    /// only other reading such a board has: never set, or cleared for
-    /// shipping.
     #[test]
     fn only_the_three_percentages_a_level_stands_for_are_named() {
         let named = |percent| contract_power_led_level(None, percent);
         assert_eq!(named(55), contract::PowerLedLevel::High);
         assert_eq!(named(40), contract::PowerLedLevel::Medium);
         assert_eq!(named(15), contract::PowerLedLevel::Low);
-        assert_eq!(named(0), contract::PowerLedLevel::Custom);
+        assert_eq!(named(30), contract::PowerLedLevel::Custom);
+    }
+
+    #[test]
+    fn a_level_never_written_reads_as_high() {
+        let custom = FpLedBrightnessLevel::Custom;
+        assert_eq!(
+            contract_power_led_level(None, 0),
+            contract::PowerLedLevel::High
+        );
+        assert_eq!(
+            contract_power_led_level(Some(&custom), 0),
+            contract::PowerLedLevel::High
+        );
+        assert_eq!(
+            contract_power_led_level(Some(&custom), 30),
+            contract::PowerLedLevel::Custom
+        );
     }
 
     /// The state a full laptop sits in all day, and the one the EC's own
