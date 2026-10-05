@@ -52,6 +52,8 @@ Every heading in the file appears here.
 - Controller I²C addresses, from `framework_lib`'s `PdPort` table:
   controller 0 at `0x42` (CCG8 boards) or `0x08` (CCG5 and CCG6 boards),
   controller 1 at `0x40`.
+- `dahlia` builds for the CCG8 and keeps controller 0 at `0x08`:
+  `dahlia/src/usbc.c` overwrites the address at init.
 
 How many controllers a machine has, two ways to ask:
 
@@ -102,7 +104,7 @@ UCSI connector to controller.connector, per map file:
 
 | Map | Boards | UCSI 1 | UCSI 2 | UCSI 3 | UCSI 4 | UCSI 5 |
 |---|---|---|---|---|---|---|
-| `ucsi_port_12.c` | `sunflower` | 0.1 | 0.2 | 1.2 | 1.1 | |
+| `ucsi_port_12.c` | `sunflower`, `dahlia` | 0.1 | 0.2 | 1.2 | 1.1 | |
 | `ucsi_port_13.c` | `azalea`, `marigold` | 0.1 | 0.2 | 1.1 | 1.2 | |
 | `sakura/src/ucsi_port.c` | `sakura` | 0.2 | 0.1 | 1.2 | 1.1 | |
 | `ucsi_port_16.c` | `lotus`, `tulip` | 0.1 | 0.2 | 1.1 | 1.2 | GPU.1 |
@@ -162,14 +164,14 @@ turned over shows the mirror image of every one.
   from `azalea` and `lotus`'s 3.x line, and from `hx20` and `hx30`; the
   `lilac` branch's `azalea` build has it.
 - `EC_CMD_READ_PD_VERSION` is v0 alone on `marigold`, `azalea`, `lilac`,
-  `sunflower` and `hx30`, and absent on `hx20`.
+  `sunflower` through 3.0.7 and `hx30`, and absent on `hx20`.
 - The port index check is `>` rather than `>=` on `marigold`, `lilac`,
-  `sunflower` and `dogwood`, so one index past the last answers with
-  whatever follows `pd_port_states`.
+  `sunflower` through 3.0.7 and `dogwood`, so one index past the last
+  answers with whatever follows `pd_port_states`.
 
 `EC_CMD_USB_PD_POWER_INFO` fields on a build with
 `CONFIG_PLATFORM_EC_USB_PD_VBUS_MEASURE_NOT_PRESENT` (`sakura`, `marigold`,
-`azalea`, `sunflower`, `lotus`):
+`azalea`, `sunflower`, `dahlia`, `lotus`):
 
 | Field | From source | Why |
 |---|---|---|
@@ -413,8 +415,8 @@ From the kernel:
 - Nothing in sysfs records the slot-to-connector pairing: the connectors'
   ACPI nodes carry no position, and the kernel's Type-C port has no
   DisplayPort device or connector link.
-- The EC takes no part in it. `sakura`, `marigold` and `sunflower` build with
-  `CONFIG_USB_PD_ALTMODE_INTEL=n`, so the controllers enter the mode
+- The EC takes no part in it. `sakura`, `marigold`, `sunflower` and `dahlia`
+  build with `CONFIG_USB_PD_ALTMODE_INTEL=n`, so the controllers enter the mode
   themselves and the TC output is settled past the EC.
 - What the EC adds is a 30 s timeout: a partner whose VDM carries a
   Framework vendor and product id from `cypd_altmode_ids` (the HDMI and

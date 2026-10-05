@@ -32,7 +32,7 @@ Every heading in the file appears here.
 | Panel | Controller | HID ids | Route | Boards |
 |---|---|---|---|---|
 | Laptop 13 Pro touchscreen | Himax | `3558:14fd` | a processor pad, `GPP_B_18`, driven low to cut touch | `sakura`; `TOUCHSCREEN_PLATFORM` in `gpio.rs` |
-| Laptop 12 touchscreen | Ilitek | `222a:5539` | the panel's own vendor command | `sunflower` |
+| Laptop 12 touchscreen | Ilitek | `222a:5539` | the panel's own vendor command | `sunflower`, `dahlia` |
 
 - Which pad carries the enable is a fact about the mainboard; whether a
   command is implemented is a fact about the panel. Panels and mainboards

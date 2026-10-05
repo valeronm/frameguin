@@ -46,11 +46,9 @@ pub(crate) fn block(port: u8) -> u16 {
 /// Each controller's (EC I2C port, 7-bit address), in the EC's controller
 /// order, and empty for a board this table does not cover.
 ///
-/// Copied from `framework_lib`'s `PdPort::i2c_port` and `i2c_address` as of
-/// framework-system commit `6439eb0`, newer than the pinned 0.6.5 release by
-/// the Laptop 12 (Intel Core Series 3) entry; its `PdController` keeps them
-/// private for reads. The Laptop 13 Pro's pair was confirmed by reading each
-/// controller's version register.
+/// Copied from `framework_lib`'s `PdPort::i2c_port` and `i2c_address`, which
+/// its `PdController` keeps private for reads. The Laptop 13 Pro's pair was
+/// confirmed by reading each controller's version register.
 pub(crate) fn controllers(platform: Platform) -> &'static [(u8, u16)] {
     match platform {
         Platform::Laptop13Gen11 => &[(6, 0x08), (6, 0x40)],

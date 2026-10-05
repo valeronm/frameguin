@@ -31,8 +31,8 @@ Every heading in the file appears here.
 | Host command | a request and response over the same device | one round trip | everything that sets something, and the reads the memory map has no room for |
 | I²C passthrough | `EC_CMD_I2C_PASSTHRU`, a host command carrying an I²C transaction the EC performs on the host's behalf | a round trip plus a bus transaction | a device the EC is itself driving, the battery gauge among them |
 
-- The pack hangs off EC I²C port 3 on every Framework board,
-  `BATTERY_I2C_PORT` in `ec.rs`.
+- Which EC I²C port the pack hangs off is per board, in
+  [`battery.md`](battery.md#the-pack-over-ic).
 - Whether the firmware implements a command at a version is asked with
   `EC_CMD_GET_CMD_VERSIONS`, `Ec::offers`, which is the probe for a
   write-only control.
@@ -103,22 +103,23 @@ default branch, `framework-readme`:
 
 | Machine | Codename | Branch | Family option in `project.conf` |
 |---|---|---|---|
-| Laptop 12, 13th Gen Intel Core | `sunflower` | `fwk-sunflower-*` | `LAPTOP_12` |
+| Laptop 12, 13th Gen Intel Core | `sunflower` | `fwk-sunflower-*` through 3.0.7, `fwk-sunflower-dahlia-*` from 3.0.8 | `LAPTOP_12` |
+| Laptop 12, Intel Core Series 3 | `dahlia` | `fwk-sunflower-dahlia-*` | `LAPTOP_12`; includes the shared `laptop12` devicetree |
 | Laptop 13, 11th Gen Intel Core | `hx20` | `fwk-hx20-hx30-*` | pre-Zephyr, under `board/` |
 | Laptop 13, 12th and 13th Gen Intel Core | `hx30` | `fwk-hx20-hx30-*` | pre-Zephyr, under `board/` |
 | Laptop 13, AMD Ryzen 7000 Series | `azalea` | `fwk-lotus-azalea-*` | `LAPTOP_13` |
 | Laptop 13, Intel Core Ultra Series 1 | `marigold` | `fwk-marigold-*` | `LAPTOP_13` |
 | Laptop 13, AMD Ryzen AI 300 | `lilac` | `fwk-lilac-*` | |
 | Laptop 13 Pro, Intel Core Ultra Series 3 | `sakura` | `fwk-sakura-*` | `LAPTOP_13`; includes `marigold`'s devicetree |
-| Laptop 16, AMD Ryzen 7000 Series | `lotus` | `fwk-tulip-*` | `LAPTOP_16` |
+| Laptop 16, AMD Ryzen 7000 Series | `lotus` | `fwk-lotus-azalea-*` on its 3.x line, `fwk-tulip-*` from 4.0.0 | `LAPTOP_16` |
 | Laptop 16, AMD Ryzen AI 300 | `tulip` | `fwk-tulip-*` | `LAPTOP_16` |
 | Desktop, AMD Ryzen AI Max 300 | `dogwood` | `fwk-dogwood-*` | `FRAMEWORK_MINI_PC`, in `desktop_program.conf` |
 
 - The tree branches per board and per snapshot, the branch name ending in a
-  number that changes with each; no branch holds every board. A `sakura`
-  checkout carries the `azalea`, `marigold`, `sunflower`, `lotus` and
-  `tulip` directories beside its own and not `lilac`, `dogwood`, `hx20` or
-  `hx30`.
+  number or a date that changes with each; no branch holds every board. A
+  `sakura` checkout carries the `azalea`, `marigold`, `sunflower`, `lotus`
+  and `tulip` directories beside its own and not `lilac`, `dogwood`, `hx20`
+  or `hx30`.
 
 ### Observed
 

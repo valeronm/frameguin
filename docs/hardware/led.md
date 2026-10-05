@@ -132,10 +132,16 @@ Every heading in the file appears here.
 - `marigold` on `fwk-marigold-*`, and `azalea` and `lotus`'s 3.x line on
   `fwk-lotus-azalea-*`, also declare the command for v0 alone, taking
   high, medium and low.
-- `sunflower` takes v1 and ultra-low but has no `FP_LED_BRIGHTNESS_AUTO`,
-  refusing it with `EC_RES_INVALID_PARAM`, and builds without
+- `sunflower` and `dahlia` take v1 and ultra-low and build without
   `CONFIG_PLATFORM_EC_DEDICATED_ALS`. The v1 stand-in would offer auto
-  there, so `takes_power_led_auto` in `ec.rs` names the board.
+  there, so `follows_power_led_auto` in `ec.rs` names both boards.
+- `sunflower` through 3.0.7 has no `FP_LED_BRIGHTNESS_AUTO`, refusing it
+  with `EC_RES_INVALID_PARAM`. `fwk-sunflower-dahlia-*` takes auto with no
+  ALS to step the percentage, so the LED stays where it stood.
+- `fwk-sunflower-dahlia-*` loads the level percentages at EC init by the
+  power button board's id, in `laptop12/src/led.c`: 100, 80, 55 and 40
+  where the button carries a fingerprint reader, and the table above
+  otherwise.
 - `dogwood` declares the command for v0, but its `bbram.dtsi` names no
   `fp_led_level` region: a set succeeds and changes nothing, and a get
   leaves the response's level unwritten. `keeps_power_led_level` in
@@ -149,8 +155,8 @@ Every heading in the file appears here.
   percentage through the five values above by lux thresholds, on boards
   built with an ALS. It is a writer of the percentage, not a level among
   the others.
-- A v1 get deduces the level from the percentage, 55, 40, 15 and 8 mapping
-  to a name and anything else to custom, then overwrites the answer with
+- A v1 get deduces the level from the percentage, a level's own mapping
+  to its name and anything else to custom, then overwrites the answer with
   auto where the bit is set. Consequence: a custom percentage equal to a
   named level's reads back as that level, and auto's medium-low step would
   read as custom were auto not overriding it. A v0 get hands back the
@@ -205,8 +211,8 @@ Every heading in the file appears here.
   handback: a nonzero brightness written just before the auto trigger lights
   both sides until the policy's next tick, 200 ms at most, where a zero one
   leaves them dark.
-- `sunflower`'s devicetree declares both `left_side` and `right_side`; how
-  many side LEDs the Laptop 12 fits is not in the source.
+- `sunflower` and `dahlia`'s devicetrees declare both `left_side` and
+  `right_side`; how many side LEDs the Laptop 12 fits is not in the source.
 - `EC_CMD_GPIO_GET` reads a pin by name on a locked EC; only
   `EC_CMD_GPIO_SET` is refused there with `EC_RES_ACCESS_DENIED`. So which
   side is lit is readable, `Ec::side_enables`, and reads "both" for a LED
@@ -240,6 +246,8 @@ blink pattern with no other channel to reach anyone by, in `laptop_led.c`:
 - A custom percentage has nowhere in setup to be chosen from, so it cannot
   survive a reboot at all; a discrete level chosen in setup is what holds.
 - Nothing re-sends a color or a darkness after a reboot.
+- `fwk-sunflower-dahlia-*` zeroes the level's BBRAM slot at every EC init,
+  losing the level to an EC restart.
 
 ### Observed
 
@@ -262,9 +270,10 @@ blink pattern with no other channel to reach anyone by, in `laptop_led.c`:
   the side enables, `src/led_pwm.c` for `led_set_brightness`,
   `led_get_brightness_range` and `change_pwm_led_maximum_duty`,
   `src/laptop_led.c` for the fault patterns, `include/led.h` for the level
-  percentages, `marigold/led_pins.dtsi` and `gpio.dtsi` for the colors and
-  the enables; `common/pwm.c` and `common/gpio_commands.c` for the two
-  commands' scope; `dogwood/led_pins.dtsi` on the `fwk-dogwood-*` branch,
+  percentages, `laptop12/src/led.c` for the Laptop 12's own,
+  `marigold/led_pins.dtsi` and `gpio.dtsi` for the colors and the enables;
+  `common/pwm.c` and `common/gpio_commands.c` for the two commands' scope;
+  `dogwood/led_pins.dtsi` on the `fwk-dogwood-*` branch,
   and `board/hx20/led.c` and `board/hx30/led.c` on `hx20-hx30`.
 - The Linux kernel's `drivers/leds/leds-cros_ec.c`, the driver that
   registers the `chromeos-auto` trigger and sets the default intensities,

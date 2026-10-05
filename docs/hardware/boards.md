@@ -19,10 +19,11 @@ firmware of the board its column names, in
 [`ec.md`'s table](ec.md#which-board-the-ec-tree-calls-this-machine), on
 the branches `fwk-marigold-22606`, `fwk-lotus-azalea-19573`,
 `fwk-lilac-27116` (building `lilac` as an `azalea` variant),
-`fwk-sunflower-26784`, `fwk-tulip-29169` (`lotus` on its 4.x line, and
-`tulip`), `fwk-hx20-hx30-4410` and `fwk-dogwood-27111`. A cell holds for
-firmware built from that branch, and the section a row links to carries
-why.
+`fwk-sunflower-26784` and `fwk-sunflower-dahlia-2026-09-30` (`sunflower`'s
+two lines, the second `dahlia`'s too), `fwk-tulip-29169` (`lotus` on its
+4.x line, and `tulip`), `fwk-hx20-hx30-4410` and `fwk-dogwood-27111`. A
+cell holds for firmware built from that branch, and the section a row
+links to carries why.
 
 | Cell | Means |
 |---|---|
@@ -30,37 +31,35 @@ why.
 | Expected | the firmware implements what the probe and the setter send |
 | -- | the app shows no row |
 
-| Control | sakura | marigold | azalea | lilac | sunflower | lotus | tulip | hx20, hx30 | dogwood |
-|---|---|---|---|---|---|---|---|---|---|
-| [Charge limit](battery.md#charge-limit) | Tested | Expected | Expected | Expected | Expected | Expected | Expected | Expected | -- |
-| [Charge speed](battery.md#charge-current-limit) | Tested | Expected | Expected | Expected | Expected | Expected | Expected | Expected | -- |
-| [Power LED high, medium, low](led.md#power-led-levels) | Tested | Expected | Expected | Expected | Expected | Expected | Expected | Expected | -- |
-| [Power LED percentage, ultra-low](led.md#power-led-levels) | Tested | -- | -- | Expected | Expected | Expected | Expected | -- | -- |
-| [Power LED auto](led.md#power-led-levels) | Tested | -- | -- | Expected | -- | Expected | Expected | -- | -- |
-| [Power LED off](led.md#power-led-off) | Tested | Expected | Expected | Expected | Expected | Expected | Expected | Expected | -- |
-| [Charging LED off](led.md#which-leds) | Tested | Expected | Expected | Expected | Expected | Expected | Expected | -- | -- |
-| [Charging LED side](led.md#charging-led-sides) | Tested | Expected | Expected | Expected | Expected | Expected | Expected | -- | -- |
-| [Touchscreen off](touchscreen.md) | Tested | -- | -- | -- | Expected | -- | -- | -- | -- |
+| Control | sakura | marigold | azalea | lilac | sunflower | dahlia | lotus | tulip | hx20, hx30 | dogwood |
+|---|---|---|---|---|---|---|---|---|---|---|
+| [Charge limit](battery.md#charge-limit) | Tested | Expected | Expected | Expected | Expected | Expected | Expected | Expected | Expected | -- |
+| [Charge speed](battery.md#charge-current-limit) | Tested | Expected | Expected | Expected | Expected | Expected | Expected | Expected | Expected | -- |
+| [Power LED high, medium, low](led.md#power-led-levels) | Tested | Expected | Expected | Expected | Expected | Expected | Expected | Expected | Expected | -- |
+| [Power LED percentage, ultra-low](led.md#power-led-levels) | Tested | -- | -- | Expected | Expected | Expected | Expected | Expected | -- | -- |
+| [Power LED auto](led.md#power-led-levels) | Tested | -- | -- | Expected | -- | -- | Expected | Expected | -- | -- |
+| [Power LED off](led.md#power-led-off) | Tested | Expected | Expected | Expected | Expected | Expected | Expected | Expected | Expected | -- |
+| [Charging LED off](led.md#which-leds) | Tested | Expected | Expected | Expected | Expected | Expected | Expected | Expected | -- | -- |
+| [Charging LED side](led.md#charging-led-sides) | Tested | Expected | Expected | Expected | Expected | Expected | Expected | Expected | -- | -- |
+| [Touchscreen off](touchscreen.md) | Tested | -- | -- | -- | Expected | Expected | -- | -- | -- | -- |
 
 - The haptic touchpad is found by its own USB ids on any board, so its
   controls follow the pad rather than the mainboard.
-- The Laptop 12 with Intel Core Series 3 has no firmware branch to read,
-  and is left out.
 
 ## Readings
 
 The Readings window's sections, on the same branches and in the same cells
 as the controls above.
 
-| Reading | sakura | marigold | azalea | lilac | sunflower | lotus | tulip | hx20, hx30 | dogwood |
-|---|---|---|---|---|---|---|---|---|---|
-| [Battery charge and flow](battery.md#the-ecs-battery-block) | Tested | Expected | Expected | Expected | Expected | Expected | Expected | Expected | -- |
-| [Battery condition](battery.md#the-pack-over-ic) | Tested | Expected | Expected | Expected | Expected | Expected | Expected | Expected | -- |
-| [Battery extender](battery.md#battery-extender) | Tested | Expected | Expected | Expected | Expected | Expected | Expected | Expected | -- |
-| [USB-C ports](usb-c.md#host-commands) | Tested | Expected | -- | Expected | Expected | Expected | Expected | -- | Expected |
-| [Chassis open](chassis.md#the-chassis-open-switch) | Tested | Expected | Expected | Expected | Expected | Expected | Expected | Expected | -- |
-| [Input deck](chassis.md#the-input-deck) | Tested | -- | -- | -- | -- | Expected | Expected | -- | -- |
-| [Privacy switches](chassis.md#the-privacy-switches) | Tested | Expected | Expected | Expected | Expected | Expected | Expected | Expected | -- |
-| [Temperatures](thermal.md#the-memmap-sensors) | Tested | Expected | Expected | Expected | Expected | Expected | Expected | Expected | Expected |
-| [Fans](thermal.md#the-fans) | Tested | Expected | Expected | Expected | Expected | Expected | Expected | Expected | Expected |
-| [Thermal thresholds](thermal.md#thresholds) | Tested | Expected | Expected | Expected | Expected | Expected | Expected | Expected | Expected |
+| Reading | sakura | marigold | azalea | lilac | sunflower | dahlia | lotus | tulip | hx20, hx30 | dogwood |
+|---|---|---|---|---|---|---|---|---|---|---|
+| [Battery charge and flow](battery.md#the-ecs-battery-block) | Tested | Expected | Expected | Expected | Expected | Expected | Expected | Expected | Expected | -- |
+| [Battery condition](battery.md#the-pack-over-ic) | Tested | Expected | Expected | Expected | Expected | Expected | Expected | Expected | Expected | -- |
+| [Battery extender](battery.md#battery-extender) | Tested | Expected | Expected | Expected | Expected | Expected | Expected | Expected | Expected | -- |
+| [USB-C ports](usb-c.md#host-commands) | Tested | Expected | -- | Expected | Expected | Expected | Expected | Expected | -- | Expected |
+| [Chassis open](chassis.md#the-chassis-open-switch) | Tested | Expected | Expected | Expected | Expected | Expected | Expected | Expected | Expected | -- |
+| [Input deck](chassis.md#the-input-deck) | Tested | -- | -- | -- | -- | -- | Expected | Expected | -- | -- |
+| [Privacy switches](chassis.md#the-privacy-switches) | Tested | Expected | Expected | Expected | Expected | Expected | Expected | Expected | Expected | -- |
+| [Temperatures](thermal.md#the-memmap-sensors) | Tested | Expected | Expected | Expected | Expected | Expected | Expected | Expected | Expected | Expected |
+| [Fans](thermal.md#the-fans) | Tested | Expected | Expected | Expected | Expected | Expected | Expected | Expected | Expected | Expected |
+| [Thermal thresholds](thermal.md#thresholds) | Tested | Expected | Expected | Expected | Expected | Expected | Expected | Expected | Expected | Expected |

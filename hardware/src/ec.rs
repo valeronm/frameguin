@@ -358,7 +358,7 @@ impl PowerLedEc for Ec {
     }
 
     fn power_led_auto(&self) -> bool {
-        self.custom_power_led_levels() && takes_power_led_auto(self.platform)
+        follows_power_led_auto(self.platform) && self.custom_power_led_levels()
     }
 }
 
@@ -600,16 +600,12 @@ const fn keeps_power_led_level(platform: Platform) -> bool {
     }
 }
 
-/// Whether a board's EC that takes command v1 of `FpLedLevelControl` also
-/// takes the auto level.
-const fn takes_power_led_auto(platform: Platform) -> bool {
+/// True as well for a board whose EC has no auto level.
+const fn follows_power_led_auto(platform: Platform) -> bool {
     match platform {
-        // `sunflower` takes v1 and has no `FP_LED_BRIGHTNESS_AUTO`.
-        Platform::Laptop12Gen13 => false,
-        // No firmware for `Laptop12Core3` has been read; v1 stands in as
-        // elsewhere.
-        Platform::Laptop12Core3
-        | Platform::Laptop13Gen11
+        // `sunflower` and `dahlia` build without ambient light sensor support.
+        Platform::Laptop12Gen13 | Platform::Laptop12Core3 => false,
+        Platform::Laptop13Gen11
         | Platform::Laptop13Gen12
         | Platform::Laptop13Gen13
         | Platform::Laptop13Ultra1

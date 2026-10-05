@@ -81,7 +81,7 @@ is what separates the packs the EC tree knows:
 | `FRANGWAT01` | `FRANGWA` | `atl,framework61w` | `azalea`, `marigold` | `FWK_BATT_NVT_61W` |
 | `FRANEDA` | `FRANEDA` | `atc,framework75w` | `marigold`, and `sakura` through it | `FWK_BATT_ATC_75W` |
 | `FRANDBAT01` | `FRANDBA` | `atl,framework85w` | `lotus` | `FWK_BATT_NVT_85W` |
-| `FRANDZG` | `FRANDZG` | `atc,framework50w` | `sunflower` | none; reads `FWK_BATT_UNKNOWN` |
+| `FRANDZG` | `FRANDZG` | `atc,framework50w` | `sunflower`, `dahlia` | none; reads `FWK_BATT_UNKNOWN` |
 
 - The firmware itself compares at seven characters:
   `board_get_battery_type` uses `strncmp` with `EC_MEMMAP_TEXT_MAX - 1`.
@@ -130,7 +130,7 @@ is what separates the packs the EC tree knows:
   (`I2C_PORT_BATTERY` is `MCHP_I2C_PORT1` in their `board.h`); their port
   3 is the thermal sensor bus. `battery_i2c_port` in `ec.rs` names those
   boards.
-- `sunflower`'s `atc,framework50w` pack is three cells in series, its
+- The Laptop 12's `atc,framework50w` pack is three cells in series, its
   `voltage_max` 13440 mV against the four-cell packs' 17600 and up.
   Consequence: `sbs::cell_millivolts` drops a cell register reading 0.
 - The gauge is a TI bq40z50. Its Smart Battery registers are generic; its
@@ -373,7 +373,7 @@ Framework's own addition beside the charge limit, in `battery_extender.c`.
 | Board | Part | Driver |
 |---|---|---|
 | `sakura` | RAA489108 | the ISL9238C driver, whose register map it shares; `CONFIG_PLATFORM_EC_CHARGER_ISL9241=n` |
-| `azalea`, `marigold`, `sunflower`, `lotus` | ISL9241 | ISL9241 |
+| `azalea`, `marigold`, `sunflower`, `dahlia`, `lotus` | ISL9241 | ISL9241 |
 | `tulip` | BQ25770 and RAA489300 | both |
 
 - No measured input current exists on the Laptop 13 Pro: the ISL923x
@@ -445,7 +445,7 @@ Framework's own addition beside the charge limit, in `battery_extender.c`.
   over average current, when the manual defines it from `AverageCurrent()`
   alone.
 - Whether `FRANDZG`'s absence from `board_get_battery_type` matters on
-  `sunflower`, which is the one board declaring it.
+  `sunflower` and `dahlia`, the boards declaring it.
 
 ## Sources
 
