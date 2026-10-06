@@ -30,6 +30,7 @@ Every heading in the file appears here.
 - [Charge current limit](#charge-current-limit)
 - [Battery extender](#battery-extender)
 - [The charger](#the-charger)
+- [System draw](#system-draw)
 - [Persistence](#persistence)
 - [Open](#open)
 - [Sources](#sources)
@@ -63,6 +64,10 @@ differently:
   on the first successful read.
 - An 8-byte string field holds seven characters and a terminator,
   `EC_MEMMAP_TEXT_MAX`.
+- The present rate is the magnitude of the gauge's `Current` (`0x0a`),
+  copied by `update_dynamic_battery_info` in `common/battery_v1.c`.
+- `AverageCurrent` (`0x0b`) is read beside it and reaches no field of the
+  block.
 
 ### Observed
 
@@ -410,6 +415,30 @@ Framework's own addition beside the charge limit, in `battery_extender.c`.
 | Charge current over seconds, pack near full | moves between 1C, 0.5C and nothing as the pack changes its request |
 | The pack's request idle at the charge limit, charging at 62 % and discharging | 18040 mV and 4640 mA in all three: the `voltage_max` of `atc,framework75w.yaml`, and 1C |
 
+## System draw
+
+- The Laptop 13 Pro has no sensor for its total power draw. On battery the
+  draw can be computed as the pack's voltage times its current. On AC
+  nothing reads it ([the charger](#the-charger)).
+- `psys`, a RAPL zone under `/sys/class/powercap` on Intel processors,
+  covers the whole platform. Its `energy_uj` is a counter in microjoules,
+  readable by root only.
+
+### Observed
+
+Under one steady load:
+
+| Setup | Reading |
+|---|---|
+| The kernel's `current_now` times `voltage_now` after unplugging | 27.8 W at 10 s rising to about 37.4 W from 50 s on |
+| `current_now` over the 5 s after plugging back in | 1.42 A rising to 1.64 A |
+| `psys` beside the pack's settled draw | 59 to 60.6 W against 37.4 W |
+
+- Consequence: a draw computed from the pack's current reads low for the
+  first 40 to 50 s after a load or source change.
+- Consequence: `psys` reads about 22 W over the measured draw, so it is no
+  stand-in for system power.
+
 ## Persistence
 
 | Control | Suspend | Reboot | EC restart | Source |
@@ -446,6 +475,10 @@ Framework's own addition beside the charge limit, in `battery_extender.c`.
   alone.
 - Whether `FRANDZG`'s absence from `board_get_battery_type` matters on
   `sunflower` and `dahlia`, the boards declaring it.
+- Where the lag in `current_now` comes from: the gauge's `Current`, or the
+  path from the block to the kernel's ACPI battery. The block's present rate
+  was not read beside it.
+- Whether `psys`'s excess is an offset or a gain.
 
 ## Sources
 
@@ -454,8 +487,8 @@ Framework's own addition beside the charge limit, in `battery_extender.c`.
   `EC_CMD_BATTERY_GET_STATIC`, `EC_CMD_CHARGE_CURRENT_LIMIT`,
   `EC_CMD_CHARGE_STATE` and the thermal encoding; `common/charge_state.c`
   for `need_static`, the sustainer and `user_current_limit`;
-  `common/battery_v1.c` and `battery_v2.c` for the API split and
-  `EC_CMD_BATTERY_GET_DYNAMIC`; `driver/battery/smart.c` for
+  `common/battery_v1.c` and `battery_v2.c` for the API split, the present
+  rate and `EC_CMD_BATTERY_GET_DYNAMIC`; `driver/battery/smart.c` for
   `battery_get_params`;
   `common/i2c_passthru.c` for the passthrough's own refusals;
   `zephyr/program/framework/src/battery_extender.c` for the extender and
@@ -471,7 +504,9 @@ Framework's own addition beside the charge limit, in `battery_extender.c`.
   `set_charge_current_limit`, `smart_battery.rs` for the health analysis
   and the gauge's percentage, and issues #180 and #342.
 - [torvalds/linux](https://github.com/torvalds/linux) —
-  `drivers/acpi/battery.c` for the kernel's `capacity`.
+  `drivers/acpi/battery.c` for the kernel's `capacity`, `current_now` and
+  `voltage_now`; `drivers/powercap/intel_rapl_common.c` for `psys` and
+  `drivers/powercap/powercap_sys.c` for `energy_uj`.
 - TI bq40z50 technical reference manual — the register map and every
   status bit's set conditions. SLUUA43A covers the R2 revision and SLUUBU5A
   the R3, which differ in their `ManufacturerAccess` status bits. The
