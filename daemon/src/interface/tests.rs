@@ -288,11 +288,12 @@ fn every_getter_answers_through_its_proxy() {
         assert_eq!(layout.fans, [0]);
         assert_eq!(
             p.thermal.get_features().await.unwrap(),
-            [ThermalFeature::Thresholds]
+            [ThermalFeature::Thresholds, ThermalFeature::FanDuty]
         );
         let state = p.thermal.get_state().await.unwrap();
         assert_eq!(state.sensors[0].temperature, Temperature::Kelvin(340));
         assert_eq!(p.thermal.get_thresholds().await.unwrap().len(), 2);
+        assert_eq!(p.thermal.get_fan_duties().await.unwrap()[0].percent, 45);
         assert_eq!(p.usb.get_attached().await.unwrap(), Hub::default().devices);
     });
 }

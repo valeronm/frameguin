@@ -14,8 +14,9 @@
 use frameguin_contract::{
     Attached, BatteryCondition, BatteryControl, BatteryFeature, BatteryInfo, ChargingLedControl,
     ChargingLedFeature, ChargingLedSide, ChassisControl, ChassisFeature, ChassisState, DeckState,
-    DeviceError, DeviceResult, ExtenderState, PortSet, PortState, PortsControl, PrivacyState,
-    PrivacySwitchesControl, ThermalControl, ThermalFeature, ThermalState, Thresholds, UsbControl,
+    DeviceError, DeviceResult, ExtenderState, FanDuty, PortSet, PortState, PortsControl,
+    PrivacyState, PrivacySwitchesControl, ThermalControl, ThermalFeature, ThermalState, Thresholds,
+    UsbControl,
 };
 
 use crate::control::Controls;
@@ -62,6 +63,8 @@ pub struct Request {
     pub thermal: bool,
     /// A host command per sensor.
     pub thresholds: bool,
+    /// A host command per fan.
+    pub fan_duty: bool,
 }
 
 impl Request {
@@ -81,6 +84,7 @@ impl Request {
             charging_led_side: self.charging_led_side || other.charging_led_side,
             thermal: self.thermal || other.thermal,
             thresholds: self.thresholds || other.thresholds,
+            fan_duty: self.fan_duty || other.fan_duty,
         }
     }
 }
@@ -102,6 +106,7 @@ pub struct Reading {
     pub charging_led_side: Option<ChargingLedSide>,
     pub thermal: Option<ThermalState>,
     pub thresholds: Option<Vec<Thresholds>>,
+    pub fan_duties: Option<Vec<FanDuty>>,
 }
 
 /// One extra a [`Request`] can ask for.
@@ -119,6 +124,7 @@ pub enum Extra {
     ChargingLedSide,
     Thermal,
     Thresholds,
+    FanDuty,
 }
 
 impl Extra {
@@ -136,6 +142,7 @@ impl Extra {
             Self::ChargingLedSide => request.charging_led_side,
             Self::Thermal => request.thermal,
             Self::Thresholds => request.thresholds,
+            Self::FanDuty => request.fan_duty,
         }
     }
 }
@@ -248,7 +255,11 @@ async fn chassis_column<C: ChassisControl>(
 async fn thermal_column<C: ThermalControl>(
     extras: &mut Extras,
     controls: &Controls<C>,
-) -> (Option<ThermalState>, Option<Vec<Thresholds>>) {
+) -> (
+    Option<ThermalState>,
+    Option<Vec<Thresholds>>,
+    Option<Vec<FanDuty>>,
+) {
     let thermal_control = controls.thermal.as_ref();
     let thermal = extras
         .read(Extra::Thermal, thermal_control.map(|t| t.read()))
@@ -261,7 +272,15 @@ async fn thermal_column<C: ThermalControl>(
                 .map(|t| t.thresholds()),
         )
         .await;
-    (thermal, thresholds)
+    let fan_duties = extras
+        .read(
+            Extra::FanDuty,
+            thermal_control
+                .filter(|t| t.has(ThermalFeature::FanDuty))
+                .map(|t| t.fan_duties()),
+        )
+        .await;
+    (thermal, thresholds, fan_duties)
 }
 
 /// Reads what `request` asks for, and hands back the extras that failed. A
@@ -314,7 +333,7 @@ where
                 .map(|l| l.side()),
         )
         .await;
-    let (thermal, thresholds) = thermal_column(&mut extras, controls).await;
+    let (thermal, thresholds, fan_duties) = thermal_column(&mut extras, controls).await;
     let reading = Reading {
         info,
         charge_speeds,
@@ -329,6 +348,7 @@ where
         charging_led_side,
         thermal,
         thresholds,
+        fan_duties,
     };
     (reading, extras.failures)
 }
@@ -457,6 +477,34 @@ mod tests {
         let (reading, _) = ready(read(&controls, request));
         assert_eq!(reading.thresholds.unwrap()[0].high, Some(361));
         assert!(reading.thermal.is_none());
+    }
+
+    #[test]
+    fn the_fan_duties_arrive_when_asked() {
+        let (_, controls) = detected();
+        let request = Request {
+            fan_duty: true,
+            ..Request::default()
+        };
+        let (reading, _) = ready(read(&controls, request));
+        assert_eq!(reading.fan_duties.unwrap()[0].percent, 45);
+        assert!(reading.thermal.is_none());
+    }
+
+    #[test]
+    fn a_device_without_the_fan_duty_feature_is_not_asked_for_it() {
+        let machine = Machine::new();
+        machine.fan_duty.set(false);
+        let controls = ready(Controls::detect(&machine)).unwrap();
+        let request = Request {
+            thermal: true,
+            fan_duty: true,
+            ..Request::default()
+        };
+        let (reading, failures) = ready(read(&controls, request));
+        assert!(reading.thermal.is_some());
+        assert!(reading.fan_duties.is_none());
+        assert!(failures.is_empty());
     }
 
     #[test]

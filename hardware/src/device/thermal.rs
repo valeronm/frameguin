@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use frameguin_contract::{
-    DeviceError, DeviceResult, Fan, Sensor, SensorReading, ThermalControl, ThermalFeature,
+    DeviceError, DeviceResult, Fan, FanDuty, Sensor, SensorReading, ThermalControl, ThermalFeature,
     ThermalLayout, ThermalState, Thresholds,
 };
 
@@ -22,7 +22,8 @@ impl Thermal {
     }
 
     /// None where the memmap does not answer or reports no sensor and no
-    /// fan. The thresholds are probed by their getter's own read.
+    /// fan. The thresholds and the fan duty are each probed by their getter's
+    /// own read.
     pub fn new(ec: Arc<dyn ThermalEc>) -> Option<Self> {
         let (bytes, words) = ec.thermal_memmap().ok()?;
         let sensors: Vec<Sensor> = (0u8..)
@@ -41,15 +42,17 @@ impl Thermal {
         if sensors.is_empty() && fans.is_empty() {
             return None;
         }
-        let thresholds = !sensors.is_empty()
+        let mut features = Vec::new();
+        if !sensors.is_empty()
             && sensors
                 .iter()
-                .all(|sensor| ec.thresholds(sensor.index).is_ok());
-        let features = if thresholds {
-            vec![ThermalFeature::Thresholds]
-        } else {
-            Vec::new()
-        };
+                .all(|sensor| ec.thresholds(sensor.index).is_ok())
+        {
+            features.push(ThermalFeature::Thresholds);
+        }
+        if !fans.is_empty() && fans.iter().all(|index| ec.fan_duty(*index).is_ok()) {
+            features.push(ThermalFeature::FanDuty);
+        }
         Some(Self {
             ec,
             layout: ThermalLayout { sensors, fans },
@@ -113,6 +116,22 @@ impl ThermalControl for Thermal {
             })
             .collect()
     }
+
+    async fn fan_duties(&self) -> DeviceResult<Vec<FanDuty>> {
+        if !self.features.contains(&ThermalFeature::FanDuty) {
+            return Err(DeviceError::NotSupported(
+                "the EC does not report fan duty".into(),
+            ));
+        }
+        self.layout
+            .fans
+            .iter()
+            .map(|&index| {
+                let percent = self.ec.fan_duty(index)?;
+                Ok(FanDuty { index, percent })
+            })
+            .collect()
+    }
 }
 
 #[cfg(test)]
@@ -120,7 +139,8 @@ mod tests {
     use std::sync::Arc;
 
     use frameguin_contract::{
-        Fan, Sensor, SensorReading, Temperature, ThermalControl, ThermalFeature, ThermalLayout,
+        Fan, FanDuty, Sensor, SensorReading, Temperature, ThermalControl, ThermalFeature,
+        ThermalLayout,
     };
 
     use super::Thermal;
@@ -147,7 +167,7 @@ mod tests {
         );
         assert_eq!(
             ready(thermal.features()),
-            Ok(vec![ThermalFeature::Thresholds])
+            Ok(vec![ThermalFeature::Thresholds, ThermalFeature::FanDuty])
         );
     }
 
@@ -195,8 +215,34 @@ mod tests {
             ..Vents::default()
         };
         let thermal = Thermal::new(Arc::new(vents)).unwrap();
-        assert_eq!(ready(thermal.features()), Ok(Vec::new()));
+        assert_eq!(ready(thermal.features()), Ok(vec![ThermalFeature::FanDuty]));
         assert!(ready(thermal.thresholds()).is_err());
+    }
+
+    #[test]
+    fn a_duty_is_read_for_every_fan() {
+        let thermal = Thermal::new(Arc::new(Vents::default())).unwrap();
+        assert_eq!(
+            ready(thermal.fan_duties()),
+            Ok(vec![FanDuty {
+                index: 0,
+                percent: 45
+            }])
+        );
+    }
+
+    #[test]
+    fn firmware_without_the_fan_duty_read_offers_none() {
+        let vents = Vents {
+            fan_duty: None,
+            ..Vents::default()
+        };
+        let thermal = Thermal::new(Arc::new(vents)).unwrap();
+        assert_eq!(
+            ready(thermal.features()),
+            Ok(vec![ThermalFeature::Thresholds])
+        );
+        assert!(ready(thermal.fan_duties()).is_err());
     }
 
     #[test]

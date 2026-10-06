@@ -62,4 +62,5 @@ as the controls above.
 | [Privacy switches](chassis.md#the-privacy-switches) | Tested | Expected | Expected | Expected | Expected | Expected | Expected | Expected | Expected | -- |
 | [Temperatures](thermal.md#the-memmap-sensors) | Tested | Expected | Expected | Expected | Expected | Expected | Expected | Expected | Expected | Expected |
 | [Fans](thermal.md#the-fans) | Tested | Expected | Expected | Expected | Expected | Expected | Expected | Expected | Expected | Expected |
+| [Fan duty](thermal.md#fan-duty) | Tested | -- | -- | -- | Expected | Expected | -- | -- | -- | -- |
 | [Thermal thresholds](thermal.md#thresholds) | Tested | Expected | Expected | Expected | Expected | Expected | Expected | Expected | Expected | Expected |

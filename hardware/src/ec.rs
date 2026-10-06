@@ -95,7 +95,7 @@ pub trait PrivacyEc: Send + Sync {
 }
 
 /// What the thermal device needs of the EC: the memmap's thermal bytes, a
-/// sensor's name, and its thresholds.
+/// sensor's name, its thresholds, and a fan's duty.
 pub trait ThermalEc: Send + Sync {
     /// The memmap's sensor bytes in the EC's sensor order — the second range
     /// appended where the memmap's thermal version carries it — and its fan
@@ -103,6 +103,8 @@ pub trait ThermalEc: Send + Sync {
     fn thermal_memmap(&self) -> DeviceResult<(Vec<u8>, Vec<u16>)>;
     fn sensor_name(&self, index: u8) -> DeviceResult<String>;
     fn thresholds(&self, index: u8) -> DeviceResult<thermal::RawThresholds>;
+    /// A percentage.
+    fn fan_duty(&self, index: u8) -> DeviceResult<u8>;
 }
 
 /// The enables of the two indicators behind the charging LED's one id, left
@@ -464,6 +466,15 @@ impl ThermalEc for Ec {
             fan_off: config.temp_fan_off,
             fan_max: config.temp_fan_max,
         })
+    }
+
+    fn fan_duty(&self, index: u8) -> DeviceResult<u8> {
+        let raw = self
+            .ec()
+            .send_command(thermal::FAN_DUTY_COMMAND, 0, &[index])
+            .map_err(device_error)?;
+        thermal::fan_duty(&raw)
+            .ok_or_else(|| DeviceError::Failed("the EC answered no fan duty".into()))
     }
 }
 

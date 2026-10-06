@@ -773,6 +773,8 @@ pub struct Vents {
     pub refusing: bool,
     /// None for firmware without the threshold read.
     pub thresholds: Option<RawThresholds>,
+    /// None for firmware without the fan duty read.
+    pub fan_duty: Option<u8>,
 }
 
 impl Default for Vents {
@@ -786,6 +788,7 @@ impl Default for Vents {
                 fan_off: 313,
                 fan_max: 348,
             }),
+            fan_duty: Some(45),
         }
     }
 }
@@ -804,6 +807,11 @@ impl ThermalEc for Vents {
 
     fn thresholds(&self, _index: u8) -> DeviceResult<RawThresholds> {
         self.thresholds
+            .ok_or_else(|| DeviceError::Failed("invalid command".into()))
+    }
+
+    fn fan_duty(&self, _index: u8) -> DeviceResult<u8> {
+        self.fan_duty
             .ok_or_else(|| DeviceError::Failed("invalid command".into()))
     }
 }

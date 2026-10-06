@@ -1,6 +1,8 @@
 //! `io.github.valeronm.Frameguin1.Thermal`.
 
-use frameguin_contract::{ThermalControl, ThermalFeature, ThermalLayout, ThermalState, Thresholds};
+use frameguin_contract::{
+    FanDuty, ThermalControl, ThermalFeature, ThermalLayout, ThermalState, Thresholds,
+};
 use frameguin_hardware::device::thermal::Thermal;
 use frameguin_wire::fdo_error;
 use zbus::fdo;
@@ -25,5 +27,9 @@ impl Served<Thermal> {
 
     async fn get_thresholds(&self) -> fdo::Result<Vec<Thresholds>> {
         self.device().thresholds().await.map_err(fdo_error)
+    }
+
+    async fn get_fan_duties(&self) -> fdo::Result<Vec<FanDuty>> {
+        self.device().fan_duties().await.map_err(fdo_error)
     }
 }

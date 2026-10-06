@@ -17,13 +17,14 @@ pub fn attempt(extra: Extra) -> &'static str {
         Extra::ChargingLedSide => "Reading the charging LED's side",
         Extra::Thermal => "Reading the temperatures",
         Extra::Thresholds => "Reading the thermal thresholds",
+        Extra::FanDuty => "Reading the fan duty",
     }
 }
 
 #[cfg(test)]
 mod tests {
     use frameguin_model::reading::Extra::{
-        Battery, ChargeLimit, ChargingLedSide, Chassis, Condition, Deck, Extender, Ports,
+        Battery, ChargeLimit, ChargingLedSide, Chassis, Condition, Deck, Extender, FanDuty, Ports,
         PrivacySwitches, Thermal, Thresholds, Usb,
     };
 
@@ -44,6 +45,7 @@ mod tests {
             ChargingLedSide,
             Thermal,
             Thresholds,
+            FanDuty,
         ] {
             assert!(attempt(extra).starts_with("Reading the "));
         }

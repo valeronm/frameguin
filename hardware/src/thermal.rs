@@ -1,5 +1,5 @@
-//! What the EC's memmap thermal bytes and its threshold command mean, apart
-//! from `ec.rs` so the decoding is testable without an EC.
+//! What the EC's memmap thermal bytes and its threshold and fan duty commands
+//! mean, apart from `ec.rs` so the decoding is testable without an EC.
 
 use frameguin_contract::{Temperature, Thresholds};
 
@@ -43,6 +43,16 @@ pub(crate) fn temperature(byte: u8) -> Option<Temperature> {
     }
 }
 
+/// `EC_CMD_PWM_GET_FAN_DUTY`, which takes a fan's index in one byte.
+pub(crate) const FAN_DUTY_COMMAND: u16 = 0x0027;
+
+/// The percentage out of `ec_response_pwm_get_fan_duty`, a little-endian
+/// `u32`. None for an answer too short to hold it or past 100.
+pub(crate) fn fan_duty(raw: &[u8]) -> Option<u8> {
+    let percent = u32::from_le_bytes(raw.get(..4)?.try_into().ok()?);
+    u8::try_from(percent).ok().filter(|percent| *percent <= 100)
+}
+
 /// None for a fan slot the EC reports empty.
 pub(crate) fn fan_rpm(word: u16) -> Option<u16> {
     match word {
@@ -73,7 +83,7 @@ pub(crate) fn thresholds(index: u8, raw: RawThresholds) -> Thresholds {
 mod tests {
     use frameguin_contract::{Temperature, Thresholds};
 
-    use super::{RawThresholds, fan_rpm, temperature, thresholds};
+    use super::{RawThresholds, fan_duty, fan_rpm, temperature, thresholds};
 
     #[test]
     fn a_stored_byte_is_kelvin_past_the_offset() {
@@ -96,6 +106,20 @@ mod tests {
         assert_eq!(fan_rpm(0), Some(0));
         assert_eq!(fan_rpm(0xfffe), Some(0));
         assert_eq!(fan_rpm(0xffff), None);
+    }
+
+    #[test]
+    fn a_fan_duty_is_the_percentage_in_the_answers_first_word() {
+        assert_eq!(fan_duty(&[0x13, 0, 0, 0]), Some(19));
+        assert_eq!(fan_duty(&[0, 0, 0, 0]), Some(0));
+        assert_eq!(fan_duty(&[100, 0, 0, 0]), Some(100));
+    }
+
+    #[test]
+    fn an_answer_past_100_or_too_short_is_no_duty() {
+        assert_eq!(fan_duty(&[101, 0, 0, 0]), None);
+        assert_eq!(fan_duty(&[19, 1, 0, 0]), None);
+        assert_eq!(fan_duty(&[19, 0]), None);
     }
 
     #[test]

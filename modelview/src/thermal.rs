@@ -1,9 +1,13 @@
 //! The EC's temperature sensors and fans: the words for their reads, and
 //! where a sensor's thresholds sit along its track.
 
-use frameguin_contract::{Platform, Sensor, Temperature, ThermalLayout, ThermalState, Thresholds};
+use frameguin_contract::{
+    Fan, FanDuty, Platform, Sensor, Temperature, ThermalLayout, ThermalState, Thresholds,
+};
 use frameguin_model::fan::FanPlacement;
 use frameguin_model::sensor::{SensorKind, ZERO_CELSIUS_KELVIN};
+
+use crate::battery::reading::percent_label;
 
 /// For a sensor or fan present at detection that the EC now reports absent.
 pub const NOT_PRESENT: &str = "Not present";
@@ -51,8 +55,20 @@ pub fn sensor_name(sensor: &Sensor) -> String {
         .map_or_else(|| name.clone(), |kind| sensor_kind_word(kind).to_owned())
 }
 
+/// A fan's speed, with how hard the EC is driving it where `duties` holds
+/// the fan's own.
 #[must_use]
-pub fn rpm_label(rpm: u16) -> String {
+pub fn fan_label(fan: &Fan, duties: &[FanDuty]) -> String {
+    let speed = rpm_label(fan.rpm);
+    match duties.iter().find(|duty| duty.index == fan.index) {
+        Some(duty) if fan.rpm > 0 || duty.percent > 0 => {
+            format!("{speed} · {}", percent_label(duty.percent))
+        }
+        _ => speed,
+    }
+}
+
+fn rpm_label(rpm: u16) -> String {
     if rpm == 0 {
         "Stopped".to_owned()
     } else {
@@ -253,11 +269,12 @@ pub fn thermal_summary(layout: &ThermalLayout, state: &ThermalState) -> String {
 #[cfg(test)]
 mod tests {
     use frameguin_contract::{
-        Fan, Platform, Sensor, SensorReading, Temperature, ThermalLayout, ThermalState, Thresholds,
+        Fan, FanDuty, Platform, Sensor, SensorReading, Temperature, ThermalLayout, ThermalState,
+        Thresholds,
     };
 
     use super::{
-        Scale, Track, celsius, fan_name, rpm_label, sensor_name, temperature_label,
+        Scale, Track, celsius, fan_label, fan_name, sensor_name, temperature_label,
         thermal_summary, thresholds_label,
     };
 
@@ -537,10 +554,30 @@ mod tests {
         assert_eq!(sensor_name(&unnamed), "Sensor 3");
     }
 
+    fn fan(rpm: u16) -> Fan {
+        Fan { index: 0, rpm }
+    }
+
+    fn duty(index: u8, percent: u8) -> FanDuty {
+        FanDuty { index, percent }
+    }
+
     #[test]
     fn a_fan_at_rest_reads_as_stopped() {
-        assert_eq!(rpm_label(2400), "2400 RPM");
-        assert_eq!(rpm_label(0), "Stopped");
+        assert_eq!(fan_label(&fan(2400), &[]), "2400 RPM");
+        assert_eq!(fan_label(&fan(0), &[]), "Stopped");
+        assert_eq!(fan_label(&fan(0), &[duty(0, 0)]), "Stopped");
+    }
+
+    #[test]
+    fn a_fans_duty_follows_its_speed() {
+        assert_eq!(fan_label(&fan(3200), &[duty(0, 45)]), "3200 RPM · 45%");
+        assert_eq!(fan_label(&fan(0), &[duty(0, 19)]), "Stopped · 19%");
+    }
+
+    #[test]
+    fn another_fans_duty_is_not_this_ones() {
+        assert_eq!(fan_label(&fan(3200), &[duty(1, 45)]), "3200 RPM");
     }
 
     #[test]

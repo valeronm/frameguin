@@ -514,6 +514,8 @@ pub struct PrivacyState {
 pub enum ThermalFeature {
     /// Each sensor's fan range and trip points.
     Thresholds,
+    /// How hard the EC is driving each fan.
+    FanDuty,
 }
 
 /// A temperature sensor the EC reported present.
@@ -591,6 +593,14 @@ pub struct Fan {
     pub index: u8,
     /// 0 for a stopped fan, which is also how the EC reports a stalled one.
     pub rpm: u16,
+}
+
+/// Apart from [`Fan`]: a fan's speed comes with the memmap pass, its duty by
+/// a host command.
+#[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug)]
+pub struct FanDuty {
+    pub index: u8,
+    pub percent: u8,
 }
 
 /// Every sensor and fan from the same pass over the EC's memmap.

@@ -6,7 +6,7 @@ use frameguin_contract::{
     Attached, BatteryCondition, BatteryControl, BatteryFeature, BatteryInfo, Board, BoardControl,
     ChargeCurrentLimit, ChargeFlow, ChargingLedControl, ChargingLedFeature, ChargingLedSide,
     ChassisControl, ChassisFeature, ChassisState, ClickForce, DeckState, DeviceError, DeviceResult,
-    ExtenderStage, ExtenderState, Fan, PortSet, PortState, PortsControl, PowerLedControl,
+    ExtenderStage, ExtenderState, Fan, FanDuty, PortSet, PortState, PortsControl, PowerLedControl,
     PowerLedLevel, PrivacyState, PrivacySwitchesControl, Sensor, SensorReading, Temperature,
     ThermalControl, ThermalFeature, ThermalLayout, ThermalState, Thresholds, TouchpadControl,
     TouchscreenControl, UsbControl, UsbSpeed,
@@ -87,6 +87,7 @@ pub(crate) struct Machine {
     pub(crate) thermal: Fault,
     pub(crate) usb: Fault,
     pub(crate) thresholds: Cell<bool>,
+    pub(crate) fan_duty: Cell<bool>,
     pub(crate) limit: Cell<u8>,
     pub(crate) cap: Cell<ChargeCurrentLimit>,
     pub(crate) haptic_intensity: Cell<u8>,
@@ -112,6 +113,7 @@ impl Default for Machine {
             thermal: Fault::default(),
             usb: Fault::default(),
             thresholds: Cell::new(true),
+            fan_duty: Cell::new(true),
             limit: Cell::new(100),
             cap: Cell::new(ChargeCurrentLimit::NoLimit),
             haptic_intensity: Cell::new(50),
@@ -329,11 +331,14 @@ impl ChargingLedControl for Machine {
 
 impl ThermalControl for Machine {
     async fn features(&self) -> DeviceResult<Vec<ThermalFeature>> {
-        self.thermal.read(if self.thresholds.get() {
-            vec![ThermalFeature::Thresholds]
-        } else {
-            Vec::new()
-        })
+        let mut features = Vec::new();
+        if self.thresholds.get() {
+            features.push(ThermalFeature::Thresholds);
+        }
+        if self.fan_duty.get() {
+            features.push(ThermalFeature::FanDuty);
+        }
+        self.thermal.read(features)
     }
 
     async fn layout(&self) -> DeviceResult<ThermalLayout> {
@@ -367,6 +372,13 @@ impl ThermalControl for Machine {
             halt: Some(371),
             fan_off: Some(313),
             fan_max: Some(351),
+        }])
+    }
+
+    async fn fan_duties(&self) -> DeviceResult<Vec<FanDuty>> {
+        self.thermal.read(vec![FanDuty {
+            index: 0,
+            percent: 45,
         }])
     }
 }

@@ -6,8 +6,8 @@
 use frameguin_contract::{
     BatteryAlarm, BatteryCondition, BatteryFeature, BatteryInfo, BatteryState, Board,
     ChargeCurrentLimit, ChargeFlow, ChassisFeature, ClickForce, DeckState, ExtenderStage,
-    ExtenderState, Fan, Identity, PartKind, Platform, PowerLedLevel, Sensor, SensorReading,
-    Temperature, ThermalFeature, ThermalLayout, ThermalState, Thresholds, VENDOR,
+    ExtenderState, Fan, FanDuty, Identity, PartKind, Platform, PowerLedLevel, Sensor,
+    SensorReading, Temperature, ThermalFeature, ThermalLayout, ThermalState, Thresholds, VENDOR,
 };
 use zvariant::serialized::Context;
 use zvariant::{LE, Type, to_bytes};
@@ -192,6 +192,7 @@ fn the_thermal_shapes_are_the_ones_the_methods_declare() {
     assert_eq!(Temperature::SIGNATURE, "(sq)");
     assert_eq!(SensorReading::SIGNATURE, "(y(sq))");
     assert_eq!(Fan::SIGNATURE, "(yq)");
+    assert_eq!(FanDuty::SIGNATURE, "(yy)");
     assert_eq!(ThermalState::SIGNATURE, "(a(y(sq))a(yq))");
     assert_eq!(Thresholds::SIGNATURE, "(yaqaqaqaqaq)");
 }
@@ -199,6 +200,7 @@ fn the_thermal_shapes_are_the_ones_the_methods_declare() {
 #[test]
 fn thermal_feature_names_are_kebab_case() {
     assert_eq!(wire_string(ThermalFeature::Thresholds), "thresholds");
+    assert_eq!(wire_string(ThermalFeature::FanDuty), "fan-duty");
 }
 
 fn round_trip(temperature: Temperature) -> Temperature {

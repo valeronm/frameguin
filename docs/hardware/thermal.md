@@ -15,10 +15,13 @@ Every heading in the file appears here.
 
 - [The memmap sensors](#the-memmap-sensors)
 - [The fans](#the-fans)
+- [Fan duty](#fan-duty)
+- [Fan control](#fan-control)
 - [Sensor names](#sensor-names)
 - [The processor die's ceiling](#the-processor-dies-ceiling)
 - [Thresholds](#thresholds)
 - [Observed](#observed)
+- [Open](#open)
 - [Sources](#sources)
 
 ## The memmap sensors
@@ -52,6 +55,66 @@ and is read the same way.
 
 The EC exposes no fan names or positions. The Laptop 16's two fans are
 placed as `framework_tool` names them, left and right.
+
+## Fan duty
+
+`EC_CMD_PWM_GET_FAN_DUTY` (`0x0027`) takes a fan's index in one byte and
+answers the duty it is driven at as a `u32` percentage from 0 to 100, from
+`hc_pwm_get_fan_duty` in `common/fan.c`. `framework_lib` 0.6.6 has no
+request for it, so the daemon sends it by number.
+
+Only the branches `fwk-sakura-20260429` and
+`fwk-sunflower-dahlia-2026-09-30` declare the command, so `sunflower` has
+it on the second of its two lines and not on `fwk-sunflower-26784`, and no
+other board has it.
+
+## Fan control
+
+How `sakura` gets from a temperature to a duty, built with
+`CONFIG_PLATFORM_EC_CUSTOM_FAN_CONTROL=n` and
+`CONFIG_PLATFORM_EC_FAN_RPM_CUSTOM=n`:
+
+- Each sensor holding both `temp_fan_off` and `temp_fan_max` asks for a
+  percentage, `100 * (t - off) / (max - off)` in whole numbers, 0 below
+  `temp_fan_off` and 100 above `temp_fan_max`: `thermal_fan_percent` in
+  `common/thermal.c`.
+- The highest percentage across the sensors goes to every fan, through
+  `fan_set_percent_needed`.
+- `fan_percent_to_rpm` in `common/fan.c` turns it into a target speed: 0
+  for 0%, otherwise `((p - 1) * rpm_max + (100 - p) * rpm_min) / 99`, so
+  1% is `rpm_min` and 100% is `rpm_max`.
+- `fan_adjust_duty` in `zephyr/shim/src/fan.c` moves the PWM duty toward
+  that speed in steps of 20, 10, 5, 3 or 1 by how far the measured speed
+  is from it.
+- `EC_CMD_PWM_GET_FAN_TARGET_RPM` (`0x0020`) answers the target as a
+  `u32`, for fan 0 only: `hc_pwm_get_fan_target_rpm` takes no index.
+
+- Consequence: the duty is what the loop settled on, with a floor wherever
+  the fan turns at `rpm_min`, and is no measure of how far into its ramp a
+  sensor is.
+
+The speed limits each board's devicetree gives its fans:
+
+| Board | `rpm_min` | `rpm_start` | `rpm_max` | From |
+|---|---|---|---|---|
+| `sakura` | 1800 | 1800 | 6100 | `sakura/project.overlay` |
+| `marigold` | 2100 | 2100 | 6100 | `marigold/fan.dtsi` |
+| `azalea` | 2100 | 2100 | 6800 | `azalea/fan.dtsi` |
+| `lilac` | 2100 | 2100 | 6200 | `azalea/fan.dtsi` on `fwk-lilac-27116` |
+| `sunflower` | 2000 | 2100 | 5600 | `laptop12/fan.dtsi`; `sunflower/fan.dtsi` on its older line |
+| `dahlia` | 2000 | 2100 | 5400 | `laptop12/fan.dtsi`, `rpm_max` set in `dahlia/project.overlay` |
+| `lotus` | 1000 | 1000 | 4000 and 3700 | `lotus/fan.dtsi`, two fans |
+| `tulip` | 1000 | 1000 | 3400 and 3100 | `lotus/fan.dtsi`, `rpm_max` set in `tulip/project.overlay` |
+| `dogwood` | 600 | 600 | 2300 | three fans alike |
+
+- `marigold`, `lotus` and `tulip` build with
+  `CONFIG_PLATFORM_EC_CUSTOM_FAN_CONTROL=y` and
+  `CONFIG_PLATFORM_EC_FAN_RPM_CUSTOM=y`, taking the percentage and its
+  mapping to a speed from `marigold/src/thermal.c` or `lotus/src/thermal.c`.
+  `sunflower` and `dahlia` set both off, as `sakura` does.
+- `lotus` fills `board_fan_max` and `board_fan_min` from the expansion bay
+  module in `lotus/src/thermal.c`, and its fans take those limits where
+  they are set.
 
 ## Sensor names
 
@@ -105,12 +168,35 @@ sits above the 100 °C
 ramp nor its trip points engage on PECI's own reading — the thermistors
 drive the fan instead.
 
+The fan's duty, by `EC_CMD_PWM_GET_FAN_DUTY`:
+
+| Setup | Reading |
+|---|---|
+| Fan stopped | 0 |
+| Fan running | 19 |
+| Fan at 2357 RPM | 23 |
+
+## Open
+
+- Whether a target read with the fan running matches `fan_percent_to_rpm`:
+  `EC_CMD_PWM_GET_FAN_TARGET_RPM` was read only with the fan stopped, as 0.
+- What fills `board_fan_max` and `board_fan_min` on `marigold`, which
+  declares and reads them.
+- Whether `sunflower/src/thermal.c` and `dahlia/src/thermal.c` are built:
+  both boards set the custom options off, and no build rule naming either
+  file was found.
+- The fan limits of `hx20` and `hx30`.
+
 ## Sources
 
 - [FrameworkComputer/EmbeddedController](https://github.com/FrameworkComputer/EmbeddedController)
   — `include/ec_commands.h` for the memmap offsets, the reserved sensor
-  bytes, the fan words and the threshold structures, and `common/thermal.c`
-  for what warn, high and halt each do;
+  bytes, the fan words, the threshold structures and the fan duty request
+  and response, and `common/thermal.c`
+  for what warn, high and halt each do; `common/fan.c` for the fan duty
+  and target reads and `fan_percent_to_rpm`, `zephyr/shim/src/fan.c` for
+  `fan_adjust_duty`, and each board's `project.conf`, `fan.dtsi` or overlay
+  under `zephyr/program/framework/` for its fan limits and build options;
   `zephyr/program/framework/src/cpu_power/intel_cpu_power_interface.c` for
   `peci_get_cpu_temp`, and each board's `project.conf` with
   `zephyr/program/framework/Kconfig` for the junction maximum.

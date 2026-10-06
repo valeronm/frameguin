@@ -12,7 +12,7 @@ use frameguin_contract::{Platform, Sensor, ThermalState, Thresholds};
 use frameguin_model::control::thermal::Thermal;
 use frameguin_model::reading::Request;
 use frameguin_modelview::thermal::{
-    NOT_PRESENT, Scale, fan_name, rpm_label, sensor_name, temperature_label, thermal_summary,
+    NOT_PRESENT, Scale, fan_label, fan_name, sensor_name, temperature_label, thermal_summary,
 };
 use frameguin_wire::Bus;
 use gtk4 as gtk;
@@ -141,6 +141,7 @@ pub(super) fn add(
     let request = Request {
         thermal: true,
         thresholds: true,
+        fan_duty: true,
         ..Request::default()
     };
     show_while_mapped(feed, &page, request, move |reading| {
@@ -152,12 +153,13 @@ pub(super) fn add(
             for row in &sensors {
                 row.show(state, thresholds);
             }
+            let duties = reading.fan_duties.as_deref().unwrap_or_default();
             for (index, value) in &fans {
                 let label = state
                     .fans
                     .iter()
                     .find(|f| f.index == *index)
-                    .map_or(NOT_PRESENT.to_owned(), |f| rpm_label(f.rpm));
+                    .map_or(NOT_PRESENT.to_owned(), |f| fan_label(f, duties));
                 value.set_label(&label);
             }
         }
