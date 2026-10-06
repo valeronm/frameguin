@@ -3,7 +3,7 @@ members = ["daemon", "app", "wire", "contract", "model", "modelview", "hardware"
 resolver = "2"
 
 [workspace.package]
-version = "0.5.1"
+version = "0.5.2"
 
 [workspace.dependencies]
 frameguin-contract = { path = "contract" }

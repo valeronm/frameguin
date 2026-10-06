@@ -623,7 +623,7 @@ checksum = "d45db016d36b838f563236e9193d0ee6ce38f3f68b6c94e914b4929c96bbb890"
 
 [[package]]
 name = "frameguin"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "async-channel",
  "async-lock",
@@ -640,7 +640,7 @@ dependencies = [
 
 [[package]]
 name = "frameguin-contract"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "serde",
  "zvariant",
@@ -648,7 +648,7 @@ dependencies = [
 
 [[package]]
 name = "frameguin-daemon"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "async-io",
  "frameguin-contract",
@@ -661,7 +661,7 @@ dependencies = [
 
 [[package]]
 name = "frameguin-hardware"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "async-io",
  "frameguin-contract",
@@ -672,14 +672,14 @@ dependencies = [
 
 [[package]]
 name = "frameguin-model"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "frameguin-contract",
 ]
 
 [[package]]
 name = "frameguin-modelview"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "frameguin-contract",
  "frameguin-model",
@@ -687,7 +687,7 @@ dependencies = [
 
 [[package]]
 name = "frameguin-wire"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "frameguin-contract",
  "zbus",
