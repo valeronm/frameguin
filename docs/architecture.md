@@ -60,8 +60,9 @@ One meaning per word, and each word names one place in the tree.
   commands. `model/src/control/`, registered in `Controls`.
 - **Words and presets** — how the app shows a control: every word for a
   value, the presets a control offers with the row each one sits on, the
-  names for `model`'s curated facts, and the catalogue of what a part is
-  sold as. `modelview/src/`.
+  names for `model`'s curated facts, where a reading's marks sit along the
+  line it is drawn on, and the catalogue of what a part is sold as.
+  `modelview/src/`.
 - **Reading** — one pass over the controls for what a `Request` asks,
   every extra arriving or not: `model/src/reading.rs`. The app's feed
   (`app/src/reading.rs`) decides when to take one and who is shown it.
@@ -130,7 +131,7 @@ the chassis, is a row on the Chassis page.
 |---|---|---|---|---|---|
 | Groups, tray | `app` | GTK, libadwaita, ksni, `model`, `modelview` | Widgets, toasts, the sync guard, timers, the tray thread's copy of each value | Which daemon operation a command becomes; any preset's value | Kept thin; the widgets not at all, a pure function beside them in place |
 | Client controls | `model` | `contract` | One object per control: its read, and what a read leaves that its presets derive from; its commands | GTK, the bus, another control's trait | A stub of the control trait |
-| Words and presets | `modelview` | `model`, `contract` | Every word for a value, the preset tables with their rows, the names for `model`'s curated facts, the catalogue of what a part is sold as | GTK, the bus | Plain unit tests over fixture values |
+| Words and presets | `modelview` | `model`, `contract` | Every word for a value, the preset tables with their rows, the names for `model`'s curated facts, where a reading's marks sit along its line, the catalogue of what a part is sold as | GTK, the bus | Plain unit tests over fixture values |
 | Control traits | `contract` | serde, zvariant | One trait per device, one async fn per operation; the values they carry and the encoding those cross the bus in; `DeviceError` | How an operation is reached; the bus | Its own encodings, round-tripped |
 | Bus | `wire`, `daemon` | zbus, polkit | One proxy per interface, `Bus` implementing the traits over them, and how `DeviceError` crosses (`wire`); `Served<Device>`, authorizing every write attempt before anything else (`daemon`) | Anything that touches hardware (`wire`); which EC command a role sends (`daemon`) | Its own `wire` proxies over a socket pair, the devices on the same stubs |
 | Devices | `hardware` | `contract` | `detect()`, the control impl with its argument checks and skips, the `Part` impl, mirrors under a declared lifetime, arbitrations | The bus, polkit | The stub per role and the store in memory, in `hardware::testing` |

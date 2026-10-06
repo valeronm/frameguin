@@ -127,13 +127,20 @@ fn collapse_when_narrow(window: &adw::Window, split: &adw::NavigationSplitView) 
     window.add_breakpoint(narrow);
 }
 
-/// A row naming one value, and the label that carries it. Selectable,
-/// because a serial or a part number is what a reader came to copy; and
-/// wrapping only where the row cannot fit the line — a wrapping label asks
-/// for a few characters' width and gets it, the title beside it being what
-/// expands, unless told to ask for its whole line.
+/// A row naming one value, and the label that carries it.
 fn value_row(group: &adw::PreferencesGroup, title: &str) -> (adw::ActionRow, gtk::Label) {
     let row = adw::ActionRow::builder().title(title).build();
+    let value = value_label();
+    row.add_suffix(&value);
+    group.add(&row);
+    (row, value)
+}
+
+/// Selectable, because a serial or a part number is what a reader came to
+/// copy; and wrapping only where the row cannot fit the line — a wrapping
+/// label asks for a few characters' width and gets it, the title beside it
+/// being what expands, unless told to ask for its whole line.
+fn value_label() -> gtk::Label {
     let value = gtk::Label::builder()
         .selectable(true)
         .wrap(true)
@@ -141,9 +148,7 @@ fn value_row(group: &adw::PreferencesGroup, title: &str) -> (adw::ActionRow, gtk
         .xalign(1.0)
         .build();
     value.add_css_class("dim-label");
-    row.add_suffix(&value);
-    group.add(&row);
-    (row, value)
+    value
 }
 
 /// A row whose value is all anyone needs back — most of them. The row itself

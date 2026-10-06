@@ -26,7 +26,8 @@ it and the non-obvious constraints.
   holds no user-facing string. `modelview/` is how the
   app shows them — every word for a value, the presets a control offers with
   the row each one sits on, the names for the curated facts `model`
-  holds, and the catalogue of what a part is sold as.
+  holds, where a reading's marks sit along the line it is drawn on, and the
+  catalogue of what a part is sold as.
   `docs/architecture.md` opens with the vocabulary, and each word means one
   thing; "device" is the real thing on the machine and nothing on the app
   side. The

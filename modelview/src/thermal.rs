@@ -1,22 +1,19 @@
-//! The EC's temperature sensors and fans: the words for their reads.
+//! The EC's temperature sensors and fans: the words for their reads, and
+//! where a sensor's thresholds sit along its track.
 
 use frameguin_contract::{Platform, Sensor, Temperature, ThermalLayout, ThermalState, Thresholds};
 use frameguin_model::fan::FanPlacement;
-use frameguin_model::sensor::SensorKind;
+use frameguin_model::sensor::{SensorKind, ZERO_CELSIUS_KELVIN};
 
 /// For a sensor or fan present at detection that the EC now reports absent.
 pub const NOT_PRESENT: &str = "Not present";
-
-/// The EC's own conversion constant, so a threshold set as 88 °C reads back
-/// as 88.
-const ZERO_CELSIUS_KELVIN: i32 = 273;
 
 fn celsius(kelvin: u16) -> String {
     format!("{} °C", degrees(kelvin))
 }
 
 fn degrees(kelvin: u16) -> i32 {
-    i32::from(kelvin) - ZERO_CELSIUS_KELVIN
+    i32::from(kelvin) - i32::from(ZERO_CELSIUS_KELVIN)
 }
 
 #[must_use]
@@ -31,8 +28,8 @@ pub fn temperature_label(temperature: Temperature) -> String {
 
 fn sensor_kind_word(kind: SensorKind) -> &'static str {
     match kind {
-        SensorKind::Processor => "Processor",
-        SensorKind::NearProcessor => "Near the processor",
+        SensorKind::Processor => "Processor die",
+        SensorKind::NearProcessor => "Processor",
         SensorKind::Mainboard => "Mainboard",
         SensorKind::Memory => "Memory",
         SensorKind::Battery => "Battery",
@@ -75,8 +72,7 @@ pub fn fan_name(platform: Platform, index: u8, fans: usize) -> String {
 }
 
 /// Empty where the EC holds none.
-#[must_use]
-pub fn thresholds_label(thresholds: &Thresholds) -> String {
+fn thresholds_label(thresholds: &Thresholds) -> String {
     let fan = match (thresholds.fan_off, thresholds.fan_max) {
         (Some(off), Some(max)) => Some(format!("Fan {}–{}", degrees(off), celsius(max))),
         (Some(off), None) => Some(format!("Fan from {}", celsius(off))),
@@ -91,6 +87,147 @@ pub fn thresholds_label(thresholds: &Thresholds) -> String {
     .into_iter()
     .filter_map(|(words, kelvin)| Some(format!("{words} {}", celsius(kelvin?))));
     fan.into_iter().chain(trips).collect::<Vec<_>>().join(" · ")
+}
+
+pub const FAN_RANGE: &str = "Fan range";
+pub const THROTTLE: &str = "Throttle";
+pub const SHUTDOWN: &str = "Shutdown";
+
+/// One sensor's thresholds laid along a line, every position in thousandths
+/// of its length.
+#[derive(PartialEq, Eq, Debug)]
+pub struct Track {
+    pub ramp: Option<(u16, u16)>,
+    /// Where the EC asks for throttling or throttles.
+    pub cautions: Vec<u16>,
+    pub shutdown: Option<u16>,
+    pub dot: Option<u16>,
+    /// Most severe first and the scale's own ends last, the order a label
+    /// with no room gives way in.
+    pub ticks: Vec<(u16, String)>,
+    /// The thresholds drawn, in words.
+    pub description: String,
+}
+
+const TRACK_START_KELVIN: u16 = ZERO_CELSIUS_KELVIN + 20;
+const TRACK_END_KELVIN: u16 = ZERO_CELSIUS_KELVIN + 100;
+
+fn ceiling(platform: Platform, sensor: &Sensor) -> Option<u16> {
+    let kind = frameguin_model::sensor::kind(sensor.name.as_deref()?)?;
+    frameguin_model::sensor::ceiling(platform, kind)
+}
+
+fn own<'a>(sensor: &Sensor, thresholds: &'a [Thresholds]) -> Option<&'a Thresholds> {
+    thresholds.iter().find(|own| own.index == sensor.index)
+}
+
+fn reachable(thresholds: &Thresholds, ceiling: Option<u16>) -> Thresholds {
+    let Some(ceiling) = ceiling else {
+        return *thresholds;
+    };
+    let within = |kelvin: Option<u16>| kelvin.filter(|kelvin| *kelvin <= ceiling);
+    let fan_off = within(thresholds.fan_off);
+    Thresholds {
+        index: thresholds.index,
+        warn: within(thresholds.warn),
+        high: within(thresholds.high),
+        halt: within(thresholds.halt),
+        fan_off,
+        // A ramp that starts within reach still runs, however far past the
+        // ceiling its other end is set.
+        fan_max: match thresholds.fan_off {
+            Some(_) => thresholds.fan_max.filter(|_| fan_off.is_some()),
+            None => within(thresholds.fan_max),
+        },
+    }
+}
+
+/// The scale every track of one board's sensors is laid on, from 20 °C to
+/// 100 °C or to the highest any of them can reach.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Scale {
+    platform: Platform,
+    end: u16,
+}
+
+impl Scale {
+    #[must_use]
+    pub fn of(platform: Platform, sensors: &[Sensor], thresholds: &[Thresholds]) -> Self {
+        let end = sensors
+            .iter()
+            .filter_map(|sensor| {
+                let own = own(sensor, thresholds)?;
+                ceiling(platform, sensor).or_else(|| {
+                    let ramp_end = own.fan_off.and(own.fan_max);
+                    [own.warn, own.high, own.halt, ramp_end]
+                        .into_iter()
+                        .flatten()
+                        .max()
+                })
+            })
+            .fold(TRACK_END_KELVIN, u16::max);
+        Self { platform, end }
+    }
+
+    fn at(self, kelvin: u16) -> u16 {
+        let span = u32::from(self.end - TRACK_START_KELVIN);
+        let past = u32::from(kelvin.clamp(TRACK_START_KELVIN, self.end) - TRACK_START_KELVIN);
+        u16::try_from((past * 1000 + span / 2) / span).unwrap_or(1000)
+    }
+
+    /// None for a sensor with nothing to mark.
+    #[must_use]
+    pub fn track(
+        self,
+        sensor: &Sensor,
+        thresholds: &[Thresholds],
+        temperature: Temperature,
+    ) -> Option<Track> {
+        let ceiling = ceiling(self.platform, sensor);
+        let reached = reachable(own(sensor, thresholds)?, ceiling);
+        // The EC ramps the fan only for a sensor holding both ends. A ramp
+        // set to end past the ceiling stops at it, the sensor reading no
+        // higher.
+        let ramp = reached
+            .fan_off
+            .zip(reached.fan_max)
+            .map(|(off, max)| (off, ceiling.map_or(max, |ceiling| max.min(ceiling))));
+        let cautions = [reached.warn, reached.high];
+        let marks: Vec<u16> = reached
+            .halt
+            .or(ceiling)
+            .into_iter()
+            .chain(cautions.into_iter().rev().flatten())
+            .chain(ramp.into_iter().flat_map(|(off, max)| [max, off]))
+            .collect();
+        if marks.is_empty() {
+            return None;
+        }
+
+        let mut ticks: Vec<(u16, String)> = Vec::new();
+        for kelvin in marks.into_iter().chain([self.end, TRACK_START_KELVIN]) {
+            let position = self.at(kelvin);
+            if ticks.iter().all(|(taken, _)| *taken != position) {
+                ticks.push((position, degrees(kelvin).to_string()));
+            }
+        }
+
+        Some(Track {
+            ramp: ramp.map(|(off, max)| (self.at(off), self.at(max))),
+            cautions: cautions
+                .into_iter()
+                .flatten()
+                .map(|kelvin| self.at(kelvin))
+                .collect(),
+            shutdown: reached.halt.map(|kelvin| self.at(kelvin)),
+            dot: match temperature {
+                Temperature::Kelvin(kelvin) => Some(self.at(kelvin)),
+                _ => None,
+            },
+            ticks,
+            description: thresholds_label(&reached),
+        })
+    }
 }
 
 /// Empty where no sensor gave a temperature.
@@ -120,9 +257,36 @@ mod tests {
     };
 
     use super::{
-        celsius, fan_name, rpm_label, sensor_name, temperature_label, thermal_summary,
-        thresholds_label,
+        Scale, Track, celsius, fan_name, rpm_label, sensor_name, temperature_label,
+        thermal_summary, thresholds_label,
     };
+
+    const AT_67: Temperature = Temperature::Kelvin(340);
+    const DIE_READS_TO_100: Platform = Platform::Laptop13ProUltra3;
+    const DIE_READS_TO_110: Platform = Platform::Laptop13Ultra1;
+
+    fn sensor(index: u8, name: &str) -> Sensor {
+        Sensor {
+            index,
+            name: Some(name.into()),
+        }
+    }
+
+    fn thermistor() -> Sensor {
+        sensor(0, "cpu_f75303@4d")
+    }
+
+    fn mainboard() -> Sensor {
+        sensor(1, "local_f75397@4c")
+    }
+
+    fn battery() -> Sensor {
+        sensor(2, "battery_temp@b")
+    }
+
+    fn die() -> Sensor {
+        sensor(4, "peci-temp")
+    }
 
     fn thresholds() -> Thresholds {
         Thresholds {
@@ -133,6 +297,202 @@ mod tests {
             fan_off: Some(313),
             fan_max: Some(348),
         }
+    }
+
+    fn no_thresholds() -> Thresholds {
+        Thresholds {
+            index: 0,
+            warn: None,
+            high: None,
+            halt: None,
+            fan_off: None,
+            fan_max: None,
+        }
+    }
+
+    fn battery_thresholds() -> Thresholds {
+        Thresholds {
+            index: 2,
+            warn: None,
+            high: Some(323),
+            halt: Some(333),
+            fan_off: Some(313),
+            fan_max: Some(323),
+        }
+    }
+
+    fn die_thresholds() -> Thresholds {
+        Thresholds {
+            index: 4,
+            warn: None,
+            high: Some(393),
+            halt: Some(400),
+            fan_off: Some(376),
+            fan_max: Some(378),
+        }
+    }
+
+    fn mainboard_thresholds_to_127() -> Thresholds {
+        Thresholds {
+            index: 1,
+            ..die_thresholds()
+        }
+    }
+
+    fn ticks(track: &Track) -> Vec<&str> {
+        track
+            .ticks
+            .iter()
+            .map(|(_, label)| label.as_str())
+            .collect()
+    }
+
+    fn lone_track(sensor: &Sensor, thresholds: Thresholds, at: Temperature) -> Option<Track> {
+        let all = [thresholds];
+        Scale::of(DIE_READS_TO_100, std::slice::from_ref(sensor), &all).track(sensor, &all, at)
+    }
+
+    #[test]
+    fn a_track_places_each_threshold_on_its_scale() {
+        let track = lone_track(&thermistor(), thresholds(), AT_67).unwrap();
+        assert_eq!(track.ramp, Some((250, 688)));
+        assert_eq!(track.cautions, [850]);
+        assert_eq!(track.shutdown, Some(975));
+        assert_eq!(track.dot, Some(588));
+        assert_eq!(ticks(&track), ["98", "88", "75", "40", "100", "20"]);
+        assert_eq!(
+            track.description,
+            "Fan 40–75 °C · Throttles at 88 °C · Shuts down at 98 °C"
+        );
+    }
+
+    #[test]
+    fn a_sensor_with_no_thresholds_has_no_track() {
+        assert_eq!(lone_track(&thermistor(), no_thresholds(), AT_67), None);
+        let scale = Scale::of(DIE_READS_TO_100, &[thermistor()], &[]);
+        assert_eq!(scale.track(&thermistor(), &[], AT_67), None);
+    }
+
+    #[test]
+    fn the_scale_ends_at_100_degrees_where_nothing_reaches_higher() {
+        let all = [thresholds(), battery_thresholds()];
+        let scale = Scale::of(DIE_READS_TO_100, &[thermistor(), battery()], &all);
+        assert_eq!(scale.end, 373);
+    }
+
+    #[test]
+    fn a_threshold_above_100_degrees_stretches_the_scale() {
+        let all = [thresholds(), mainboard_thresholds_to_127()];
+        let scale = Scale::of(DIE_READS_TO_100, &[thermistor(), mainboard()], &all);
+        assert_eq!(scale.end, 400);
+    }
+
+    #[test]
+    fn a_threshold_out_of_its_sensors_reach_does_not_stretch_the_scale() {
+        let scale = Scale::of(DIE_READS_TO_100, &[die()], &[die_thresholds()]);
+        assert_eq!(scale.end, 373);
+    }
+
+    #[test]
+    fn a_ceiling_above_100_degrees_stretches_the_scale() {
+        let scale = Scale::of(DIE_READS_TO_110, &[die()], &[die_thresholds()]);
+        assert_eq!(scale.end, 383);
+    }
+
+    #[test]
+    fn a_warn_threshold_is_marked_before_the_throttle_point() {
+        let warned = Thresholds {
+            warn: Some(358),
+            ..thresholds()
+        };
+        let track = lone_track(&thermistor(), warned, AT_67).unwrap();
+        assert_eq!(track.cautions, [813, 850]);
+    }
+
+    #[test]
+    fn a_sensor_that_gave_no_temperature_has_no_dot() {
+        let track = lone_track(&thermistor(), thresholds(), Temperature::Failed).unwrap();
+        assert_eq!(track.dot, None);
+    }
+
+    #[test]
+    fn a_temperature_off_the_scale_sits_at_its_end() {
+        let at = |kelvin| lone_track(&thermistor(), thresholds(), Temperature::Kelvin(kelvin));
+        assert_eq!(at(280).unwrap().dot, Some(0));
+        assert_eq!(at(380).unwrap().dot, Some(1000));
+    }
+
+    #[test]
+    fn a_lone_fan_threshold_draws_no_ramp() {
+        let lone = Thresholds {
+            fan_max: None,
+            ..thresholds()
+        };
+        let track = lone_track(&thermistor(), lone, AT_67).unwrap();
+        assert_eq!(track.ramp, None);
+        assert_eq!(ticks(&track), ["98", "88", "100", "20"]);
+    }
+
+    #[test]
+    fn thresholds_at_one_place_share_a_tick() {
+        let track = lone_track(&battery(), battery_thresholds(), AT_67).unwrap();
+        assert_eq!(ticks(&track), ["60", "50", "40", "100", "20"]);
+    }
+
+    #[test]
+    fn thresholds_above_a_sensors_ceiling_are_neither_drawn_nor_described() {
+        let track = lone_track(&die(), die_thresholds(), AT_67).unwrap();
+        assert_eq!(track.ramp, None);
+        assert_eq!(track.cautions, []);
+        assert_eq!(track.shutdown, None);
+        assert_eq!(track.dot, Some(588));
+        assert_eq!(track.description, "");
+    }
+
+    #[test]
+    fn a_ramp_set_to_end_past_the_ceiling_ends_at_it() {
+        let straddling = Thresholds {
+            high: Some(361),
+            halt: Some(371),
+            fan_off: Some(368),
+            ..die_thresholds()
+        };
+        let all = [straddling, mainboard_thresholds_to_127()];
+        let track = Scale::of(DIE_READS_TO_100, &[die(), mainboard()], &all)
+            .track(&die(), &all, AT_67)
+            .unwrap();
+        assert_eq!(track.ramp, Some((701, 748)));
+        assert_eq!(
+            track.description,
+            "Fan 95–105 °C · Throttles at 88 °C · Shuts down at 98 °C"
+        );
+    }
+
+    #[test]
+    fn a_sensor_with_no_shutdown_point_in_reach_is_ticked_at_its_ceiling() {
+        let all = [die_thresholds(), mainboard_thresholds_to_127()];
+        let track = Scale::of(DIE_READS_TO_100, &[die(), mainboard()], &all)
+            .track(&die(), &all, AT_67)
+            .unwrap();
+        assert_eq!(ticks(&track), ["100", "127", "20"]);
+    }
+
+    #[test]
+    fn a_sensor_with_a_shutdown_point_in_reach_gets_no_ceiling_tick() {
+        let all = [Thresholds {
+            index: 4,
+            ..thresholds()
+        }];
+        let track = Scale::of(DIE_READS_TO_110, &[die()], &all)
+            .track(&die(), &all, AT_67)
+            .unwrap();
+        assert_eq!(ticks(&track), ["98", "88", "75", "40", "110", "20"]);
+    }
+
+    #[test]
+    fn ticks_come_most_severe_first_and_the_scales_ends_last() {
+        let track = lone_track(&mainboard(), mainboard_thresholds_to_127(), AT_67).unwrap();
+        assert_eq!(ticks(&track), ["127", "120", "105", "103", "20"]);
     }
 
     #[test]
@@ -159,6 +519,10 @@ mod tests {
             index: 1,
             name: Some("cpu_f75303@4d".into()),
         };
+        let die = Sensor {
+            index: 4,
+            name: Some("peci-temp".into()),
+        };
         let unmatched = Sensor {
             index: 2,
             name: Some("mystery_x@1".into()),
@@ -167,7 +531,8 @@ mod tests {
             index: 3,
             name: None,
         };
-        assert_eq!(sensor_name(&placed), "Near the processor");
+        assert_eq!(sensor_name(&placed), "Processor");
+        assert_eq!(sensor_name(&die), "Processor die");
         assert_eq!(sensor_name(&unmatched), "mystery_x@1");
         assert_eq!(sensor_name(&unnamed), "Sensor 3");
     }
@@ -201,15 +566,7 @@ mod tests {
             thresholds_label(&warned),
             "Fan from 40 °C · Warns at 85 °C · Throttles at 88 °C · Shuts down at 98 °C"
         );
-        let none = Thresholds {
-            warn: None,
-            high: None,
-            halt: None,
-            fan_off: None,
-            fan_max: None,
-            index: 0,
-        };
-        assert_eq!(thresholds_label(&none), "");
+        assert_eq!(thresholds_label(&no_thresholds()), "");
     }
 
     #[test]
@@ -248,7 +605,7 @@ mod tests {
             ],
             fans: vec![Fan { index: 0, rpm: 0 }],
         };
-        assert_eq!(thermal_summary(&layout, &state), "Processor · 67 °C");
+        assert_eq!(thermal_summary(&layout, &state), "Processor die · 67 °C");
         let unread = ThermalState {
             sensors: vec![SensorReading {
                 index: 2,

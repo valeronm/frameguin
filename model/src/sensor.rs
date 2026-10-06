@@ -1,7 +1,9 @@
 //! What a temperature sensor sits on: the EC names one by its devicetree
 //! node — a prefix for where it sits, then the chip, then `@` and its bus
 //! address — and the prefix is Framework's own naming across every board's
-//! devicetree.
+//! devicetree. How high a sensor can read is here too.
+
+use frameguin_contract::Platform;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum SensorKind {
@@ -42,6 +44,28 @@ const PREFIXES: &[(&str, SensorKind)] = &[
     ("power_", SensorKind::PowerStage),
 ];
 
+/// The EC's own conversion constant, so a threshold set as 88 °C reads back
+/// as 88.
+pub const ZERO_CELSIUS_KELVIN: u16 = 273;
+
+/// The highest a board's processor die sensor can read, in kelvin, where it
+/// is read over PECI: the EC works that temperature out from its margin
+/// below a junction maximum its firmware is built with,
+/// `CONFIG_PLATFORM_EC_PECI_TJMAX` or the `CONFIG_PECI_TJMAX` older branches
+/// define.
+#[must_use]
+pub const fn ceiling(platform: Platform, kind: SensorKind) -> Option<u16> {
+    let junction_maximum = match (platform, kind) {
+        (Platform::Laptop13ProUltra3, SensorKind::Processor) => 100,
+        (
+            Platform::Laptop13Ultra1 | Platform::Laptop12Gen13 | Platform::Laptop12Core3,
+            SensorKind::Processor,
+        ) => 110,
+        _ => return None,
+    };
+    Some(junction_maximum + ZERO_CELSIUS_KELVIN)
+}
+
 /// None for a name no rule knows.
 #[must_use]
 pub fn kind(name: &str) -> Option<SensorKind> {
@@ -55,7 +79,46 @@ pub fn kind(name: &str) -> Option<SensorKind> {
 
 #[cfg(test)]
 mod tests {
-    use super::{SensorKind, kind};
+    use frameguin_contract::Platform;
+
+    use super::{SensorKind, ceiling, kind};
+
+    #[test]
+    fn the_processor_die_reads_no_higher_than_its_firmwares_junction_maximum() {
+        assert_eq!(
+            ceiling(Platform::Laptop13ProUltra3, SensorKind::Processor),
+            Some(373)
+        );
+        assert_eq!(
+            ceiling(Platform::Laptop13Ultra1, SensorKind::Processor),
+            Some(383)
+        );
+        assert_eq!(
+            ceiling(Platform::Laptop12Gen13, SensorKind::Processor),
+            Some(383)
+        );
+        assert_eq!(
+            ceiling(Platform::Laptop12Core3, SensorKind::Processor),
+            Some(383)
+        );
+    }
+
+    #[test]
+    fn a_thermistor_has_no_ceiling() {
+        assert_eq!(
+            ceiling(Platform::Laptop13ProUltra3, SensorKind::NearProcessor),
+            None
+        );
+    }
+
+    #[test]
+    fn a_board_whose_firmware_sets_none_has_no_ceiling() {
+        assert_eq!(
+            ceiling(Platform::Laptop13AmdAi300, SensorKind::Processor),
+            None
+        );
+        assert_eq!(ceiling(Platform::Unknown, SensorKind::Processor), None);
+    }
 
     #[test]
     fn the_laptop_13_pros_runtime_names_place_their_sensors() {

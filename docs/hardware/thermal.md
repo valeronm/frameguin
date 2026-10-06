@@ -16,6 +16,7 @@ Every heading in the file appears here.
 - [The memmap sensors](#the-memmap-sensors)
 - [The fans](#the-fans)
 - [Sensor names](#sensor-names)
+- [The processor die's ceiling](#the-processor-dies-ceiling)
 - [Thresholds](#thresholds)
 - [Observed](#observed)
 - [Sources](#sources)
@@ -59,6 +60,20 @@ placed as `framework_tool` names them, left and right.
 prefix for where it sits, the chip, then `@` and its bus address — and the
 same prefixes recur across every board's devicetree.
 
+## The processor die's ceiling
+
+The processor die's sensor reads over PECI, which answers a margin below
+the junction maximum; `peci_get_cpu_temp` subtracts that margin from a
+maximum the firmware is built with, so the sensor reads no higher than it:
+
+| Board | Junction maximum | Set by |
+|---|---|---|
+| `sakura` | 100 °C | `CONFIG_PLATFORM_EC_PECI_TJMAX` in its `project.conf` |
+| `dahlia` | 110 °C | the same option's default in `zephyr/program/framework/Kconfig` |
+| `marigold`, `sunflower` | 110 °C | `CONFIG_PECI_TJMAX`, defined beside `peci_get_cpu_temp` |
+
+No maximum is established here for a board the table leaves out.
+
 ## Thresholds
 
 `EC_CMD_THERMAL_GET_THRESHOLD` (`0x0051`) version 1 answers, per sensor, the
@@ -84,16 +99,21 @@ The Laptop 13 Pro's five sensors, as high, halt, fan off and fan max in °C:
 | `ddr_f75303@4d` | 87 | 97 | 40 | 50 |
 | `peci-temp` | 120 | 127 | 103 | 105 |
 
-None of the five carries a warn threshold. `peci-temp`'s fan range sits
-above its own high threshold, so its fan ramp never engages on PECI's own
-reading — the thermistors drive the fan instead.
+None of the five carries a warn threshold. Every threshold of `peci-temp`
+sits above the 100 °C
+[that sensor can read](#the-processor-dies-ceiling), so neither its fan
+ramp nor its trip points engage on PECI's own reading — the thermistors
+drive the fan instead.
 
 ## Sources
 
 - [FrameworkComputer/EmbeddedController](https://github.com/FrameworkComputer/EmbeddedController)
   — `include/ec_commands.h` for the memmap offsets, the reserved sensor
   bytes, the fan words and the threshold structures, and `common/thermal.c`
-  for what warn, high and halt each do.
+  for what warn, high and halt each do;
+  `zephyr/program/framework/src/cpu_power/intel_cpu_power_interface.c` for
+  `peci_get_cpu_temp`, and each board's `project.conf` with
+  `zephyr/program/framework/Kconfig` for the junction maximum.
 - [FrameworkComputer/framework-system](https://github.com/FrameworkComputer/framework-system)
   0.6.6 — `framework_lib/src/chromium_ec/commands.rs` for the version 1
   threshold struct.
