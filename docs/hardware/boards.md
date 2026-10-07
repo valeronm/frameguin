@@ -64,3 +64,6 @@ as the controls above.
 | [Fans](thermal.md#the-fans) | Tested | Expected | Expected | Expected | Expected | Expected | Expected | Expected | Expected | Expected |
 | [Fan duty](thermal.md#fan-duty) | Tested | -- | -- | -- | Expected | Expected | -- | -- | -- | -- |
 | [Thermal thresholds](thermal.md#thresholds) | Tested | Expected | Expected | Expected | Expected | Expected | Expected | Expected | Expected | Expected |
+
+- `sunflower` has the fan duty read on `fwk-sunflower-dahlia-2026-09-30`
+  alone.
