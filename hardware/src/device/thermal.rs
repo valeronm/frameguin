@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use frameguin_contract::{
-    DeviceError, DeviceResult, Fan, FanDuty, Sensor, SensorReading, ThermalControl, ThermalFeature,
+    DeviceResult, Fan, FanDuty, Sensor, SensorReading, ThermalControl, ThermalFeature,
     ThermalLayout, ThermalState, Thresholds,
 };
 
@@ -101,11 +101,6 @@ impl ThermalControl for Thermal {
     }
 
     async fn thresholds(&self) -> DeviceResult<Vec<Thresholds>> {
-        if !self.features.contains(&ThermalFeature::Thresholds) {
-            return Err(DeviceError::NotSupported(
-                "the EC does not report thermal thresholds".into(),
-            ));
-        }
         self.layout
             .sensors
             .iter()
@@ -118,17 +113,13 @@ impl ThermalControl for Thermal {
     }
 
     async fn fan_duties(&self) -> DeviceResult<Vec<FanDuty>> {
-        if !self.features.contains(&ThermalFeature::FanDuty) {
-            return Err(DeviceError::NotSupported(
-                "the EC does not report fan duty".into(),
-            ));
-        }
         self.layout
             .fans
             .iter()
             .map(|&index| {
-                let percent = self.ec.fan_duty(index)?;
-                Ok(FanDuty { index, percent })
+                self.ec
+                    .fan_duty(index)
+                    .map(|percent| FanDuty { index, percent })
             })
             .collect()
     }
@@ -136,7 +127,7 @@ impl ThermalControl for Thermal {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex};
 
     use frameguin_contract::{
         Fan, FanDuty, Sensor, SensorReading, Temperature, ThermalControl, ThermalFeature,
@@ -243,6 +234,18 @@ mod tests {
             Ok(vec![ThermalFeature::Thresholds])
         );
         assert!(ready(thermal.fan_duties()).is_err());
+    }
+
+    #[test]
+    fn a_read_refused_at_detection_is_answered_once_the_ec_does() {
+        let vents = Vents {
+            failing_first: Mutex::new(2),
+            ..Vents::default()
+        };
+        let thermal = Thermal::new(Arc::new(vents)).unwrap();
+        assert_eq!(ready(thermal.features()), Ok(Vec::new()));
+        assert_eq!(ready(thermal.thresholds()).unwrap()[0].high, Some(361));
+        assert_eq!(ready(thermal.fan_duties()).unwrap()[0].percent, 45);
     }
 
     #[test]

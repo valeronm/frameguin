@@ -8,9 +8,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_io::Timer;
-use frameguin_contract::{
-    ChargingLedControl, ChargingLedFeature, ChargingLedSide, DeviceError, DeviceResult,
-};
+use frameguin_contract::{ChargingLedControl, ChargingLedFeature, ChargingLedSide, DeviceResult};
 
 use crate::ec::{Ec, SideEnables};
 use crate::led::{self, LedClass};
@@ -20,7 +18,8 @@ const POLICY_TICK: Duration = Duration::from_millis(250);
 
 pub struct ChargingLed {
     leds: Box<dyn LedClass>,
-    sides: Option<Arc<dyn SideEnables>>,
+    sides: Arc<dyn SideEnables>,
+    features: Vec<ChargingLedFeature>,
 }
 
 impl ChargingLed {
@@ -32,8 +31,15 @@ impl ChargingLed {
     /// The sides are probed by their getter's own read.
     pub fn new(leds: Box<dyn LedClass>, ec: Arc<dyn SideEnables>) -> Option<Self> {
         leds.controllable()?;
-        let sides = ec.side_enables().is_ok().then_some(ec);
-        Some(Self { leds, sides })
+        let mut features = Vec::new();
+        if ec.side_enables().is_ok() {
+            features.push(ChargingLedFeature::Side);
+        }
+        Some(Self {
+            leds,
+            sides: ec,
+            features,
+        })
     }
 }
 
@@ -57,22 +63,15 @@ impl ChargingLedControl for ChargingLed {
     }
 
     async fn features(&self) -> DeviceResult<Vec<ChargingLedFeature>> {
-        Ok(if self.sides.is_some() {
-            vec![ChargingLedFeature::Side]
-        } else {
-            Vec::new()
-        })
+        Ok(self.features.clone())
     }
 
     /// The EC raises both enables whenever its policy is not driving the LED.
     async fn side(&self) -> DeviceResult<ChargingLedSide> {
-        let sides = self.sides.as_ref().ok_or_else(|| {
-            DeviceError::NotSupported("the EC does not name the charging LED's sides".into())
-        })?;
         if self.leds.held_dark().is_some() {
             return Ok(ChargingLedSide::Neither);
         }
-        Ok(match sides.side_enables()? {
+        Ok(match self.sides.side_enables()? {
             (false, false) => ChargingLedSide::Neither,
             (true, false) => ChargingLedSide::Left,
             (false, true) => ChargingLedSide::Right,
@@ -83,11 +82,9 @@ impl ChargingLedControl for ChargingLed {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex};
 
-    use frameguin_contract::{
-        ChargingLedControl, ChargingLedFeature, ChargingLedSide, DeviceError,
-    };
+    use frameguin_contract::{ChargingLedControl, ChargingLedFeature, ChargingLedSide};
 
     use super::ChargingLed;
     use crate::testing::{Leds, Log, Sides, ready, writes};
@@ -157,6 +154,7 @@ mod tests {
     fn a_led_held_dark_is_lit_on_neither_side_whatever_the_enables_say() {
         let Bench { led, .. } = over(Sides {
             enables: Some((true, true)),
+            ..Sides::default()
         });
         assert_eq!(ready(led.side()), Ok(ChargingLedSide::Both));
         ready(led.set_enabled(false)).unwrap();
@@ -165,12 +163,22 @@ mod tests {
 
     #[test]
     fn an_ec_refusing_the_pins_offers_no_side() {
-        let Bench { led, .. } = over(Sides { enables: None });
+        let Bench { led, .. } = over(Sides {
+            enables: None,
+            ..Sides::default()
+        });
         assert_eq!(ready(led.features()), Ok(Vec::new()));
-        assert!(matches!(
-            ready(led.side()),
-            Err(DeviceError::NotSupported(_))
-        ));
+        assert!(ready(led.side()).is_err());
         assert_eq!(ready(led.enabled()), Ok(true));
+    }
+
+    #[test]
+    fn a_side_refused_at_detection_is_answered_once_the_ec_does() {
+        let Bench { led, .. } = over(Sides {
+            failing_first: Mutex::new(1),
+            ..Sides::default()
+        });
+        assert_eq!(ready(led.features()), Ok(Vec::new()));
+        assert_eq!(ready(led.side()), Ok(ChargingLedSide::Left));
     }
 }

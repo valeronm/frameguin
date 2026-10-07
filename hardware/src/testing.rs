@@ -371,19 +371,26 @@ impl LedClass for Leds {
 /// where they are None.
 pub struct Sides {
     pub enables: Option<(bool, bool)>,
+    /// How many reads fail before the EC answers them.
+    pub failing_first: Mutex<u8>,
 }
 
 impl Default for Sides {
     fn default() -> Self {
         Self {
             enables: Some((true, false)),
+            failing_first: Mutex::new(0),
         }
     }
 }
 
 impl SideEnables for Sides {
     fn side_enables(&self) -> DeviceResult<(bool, bool)> {
+        let mut left = self.failing_first.lock().unwrap();
+        let fails = *left > 0;
+        *left = left.saturating_sub(1);
         self.enables
+            .filter(|_| !fails)
             .ok_or_else(|| DeviceError::Failed("no such GPIO".into()))
     }
 }
@@ -775,6 +782,18 @@ pub struct Vents {
     pub thresholds: Option<RawThresholds>,
     /// None for firmware without the fan duty read.
     pub fan_duty: Option<u8>,
+    /// How many threshold and fan duty reads fail before the EC answers
+    /// them.
+    pub failing_first: Mutex<u8>,
+}
+
+impl Vents {
+    fn fails_this_read(&self) -> bool {
+        let mut left = self.failing_first.lock().unwrap();
+        let fails = *left > 0;
+        *left = left.saturating_sub(1);
+        fails
+    }
 }
 
 impl Default for Vents {
@@ -789,6 +808,7 @@ impl Default for Vents {
                 fan_max: 348,
             }),
             fan_duty: Some(45),
+            failing_first: Mutex::new(0),
         }
     }
 }
@@ -807,11 +827,13 @@ impl ThermalEc for Vents {
 
     fn thresholds(&self, _index: u8) -> DeviceResult<RawThresholds> {
         self.thresholds
+            .filter(|_| !self.fails_this_read())
             .ok_or_else(|| DeviceError::Failed("invalid command".into()))
     }
 
     fn fan_duty(&self, _index: u8) -> DeviceResult<u8> {
         self.fan_duty
+            .filter(|_| !self.fails_this_read())
             .ok_or_else(|| DeviceError::Failed("invalid command".into()))
     }
 }
