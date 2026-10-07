@@ -194,8 +194,8 @@ name is claimed, since registration needs its answer.
 Presence therefore gates acceptance, where the probe rule used to gate only
 the offer. A device whose detection fails transiently is off the bus until
 the daemon's next start. The rule's stronger case is kept: a *feature* — the
-power LED's custom levels, the pack's condition — is offer-only, and a
-setter never refuses a write on the strength of one.
+power LED's custom levels, the pack's condition — is offer-only, and no
+method refuses a call on the strength of one.
 
 The logic that protects hardware stays on the root side, in the device:
 validating arguments, ordering a level write before the LED is handed back,

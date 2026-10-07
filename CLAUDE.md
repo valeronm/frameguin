@@ -416,11 +416,12 @@ A probe decides what to *offer*, never what to *accept*. Some are proxies:
 the power LED's custom levels ask for command v1, exactly right for the
 percentage write but only a stand-in for the ultra-low and auto levels, which
 the v0 handler takes on any firmware that has them. Narrowing an offer on a
-proxy costs at worst a row nobody could have used; refusing a write on one
-denies a call the EC would have honoured — and what a device offers is
+proxy costs at worst a row nobody could have used; refusing a call on one
+denies what the EC would have honoured — and what a device offers is
 settled once per daemon lifetime, so one transient read would deny it for the
-whole run. So setters validate against the thing itself: `PowerLed::set_level`
-looks up the LED node rather than consulting the levels it offered.
+whole run. So no method consults what was offered. A setter validates against
+the thing itself, as `PowerLed::set_level` looks up the LED node, and a
+getter just asks the EC.
 
 ## What the hardware forces on the code
 
