@@ -127,7 +127,8 @@ impl Group {
         limits.add(&limit_combo);
         let limit_custom_row = adw::ActionRow::builder().title("Maximum charge").build();
         let floor = f64::from(MIN_CHARGE_LIMIT);
-        let limit_adjustment = gtk::Adjustment::new(floor, floor, 100.0, 5.0, 5.0, 0.0);
+        let ceiling = f64::from(NO_CHARGE_LIMIT);
+        let limit_adjustment = gtk::Adjustment::new(floor, floor, ceiling, 5.0, 5.0, 0.0);
         let limit_scale = build_scale(&limit_adjustment, |value| format!("{value:.0}%"));
         limit_custom_row.add_suffix(&limit_scale);
         reveal_under(&limit_combo, &limit_custom_row, CHARGE_LIMIT_CUSTOM);
