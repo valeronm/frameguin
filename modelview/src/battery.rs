@@ -15,7 +15,7 @@ use frameguin_model::control::battery::{CUSTOM_CHARGE_STEP_MA, ChargeSpeeds, cus
 use crate::rows::{Custom, names, row_for};
 use crate::units::{Kind, amps};
 
-const CHARGE_PRESETS: [u8; 3] = [100, 80, 60];
+const CHARGE_PRESETS: [u8; 4] = [100, 80, 70, 60];
 
 /// The ceiling that is no ceiling. A presentation fact rather than a wire
 /// one: the daemon takes 100 and writes it to the EC like any other
