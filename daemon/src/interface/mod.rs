@@ -32,7 +32,7 @@ use frameguin_hardware::restore::Restorable;
 use frameguin_wire::OBJECT_PATH;
 use zbus::object_server::{Interface, ObjectServer};
 
-use crate::Daemon;
+use crate::root::Daemon;
 use crate::served::Served;
 use crate::service::Service;
 

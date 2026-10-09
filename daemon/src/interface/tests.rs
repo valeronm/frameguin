@@ -28,13 +28,13 @@ use frameguin_hardware::restore::Restore;
 use frameguin_hardware::testing::{
     Connectors, Cover, EC_BOOT, EXTENDER, EcCharger, Gauge, Haptic, Hub, LedEc, Leds, Memory,
     OTHER_SYSTEMS, Route, Sides, Sliders, Vents, battery_identity, block, cap, display_identity,
-    mirrors, touchpad_identity,
+    mirrors, product, touchpad_identity,
 };
 use frameguin_wire::{FrameguinProxy, Proxies, from_bus_error, proxy};
 use futures_lite::future::{block_on, or};
 use zbus::{Connection, Guid, connection};
 
-use crate::Daemon;
+use crate::root::Daemon;
 use crate::service::Service;
 
 /// The stubs a machine's devices are built over, kept so a test can read
@@ -91,7 +91,7 @@ impl Machine {
                 mirrors,
             )),
             charging_led: ChargingLed::new(Box::new(Leds::default()), Arc::new(Sides::default())),
-            ports: Ports::new(Arc::new(Connectors::default()), &[]),
+            ports: Ports::new(Arc::new(Connectors::default()), Platform::Unknown),
             chassis: Chassis::new(Arc::new(Cover::default())),
             privacy_switches: PrivacySwitches::new(Arc::new(Sliders::default())),
             thermal: Thermal::new(Arc::new(Vents::default())),
@@ -108,7 +108,7 @@ fn devices() -> Devices {
 fn board() -> Board {
     Board::new(
         VENDOR.to_owned(),
-        "Laptop 13 (AMD Ryzen AI 300 Series)".to_owned(),
+        product(Platform::Laptop13AmdAi300).to_owned(),
         Platform::Laptop13AmdAi300,
     )
 }

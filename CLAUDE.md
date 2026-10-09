@@ -282,18 +282,21 @@ it and the non-obvious constraints.
   device reads and writes such a value through, declared under its own key
   and the `Lifetime` of whatever holds it, `restore.rs` the `Wanted` beside
   a mirror for what firmware moves back and the switch that has it written
-  again, `testing.rs` the stub per role
-  and the store in memory, which the daemon's tests build the same devices
-  from under the `testing` feature. A module's own doc says what it is
+  again, `testing.rs` the stub per role,
+  set for a board from this crate's own tables where one is named, and the
+  store in memory, which the daemon's tests and its fake build the same
+  devices from under the `testing` feature. A module's own doc says what it is
   for; the reasoning is here. `device::detect()` is the whole way in — it
   opens every transport — so a module is public only where a path outside
-  the crate names it, the daemon's harness counting as one; an item inside
+  the crate names it, the daemon's harness and its fake counting as one
+  each; an item inside
   a closed module keeps `pub` only where a public signature elsewhere
   carries it, which is the role traits and what `testing` spells in its
   own. `ec.rs` is every EC call, its lock discipline stated in its own
   module doc. `daemon/src/main.rs` keeps the
-  `Daemon` object with the root interface, polkit, the idle exit and the
-  serving of every device `detect()` found; `daemon/src/interface/`
+  idle exit, and `daemon/src/root.rs` the `Daemon` object with the root
+  interface and the serving of every device `detect()` found, where the
+  fake daemon can serve a machine of its own; `daemon/src/interface/`
   holds those interfaces, and every setter in them authorizes before it
   does anything else — before its argument is checked or the value in
   place is read — because authorization is for the attempt, not for the
@@ -551,6 +554,15 @@ the product it was read from.
 - Smoke test: run `target/debug/frameguin`. The app is single-instance, so a
   second launch only activates the resident one — kill it first to exercise
   a fresh build.
+- `dev/fake.sh <board>` runs the app against a fake daemon answering as
+  another board: `hardware`'s own devices over its stub roles, on a private
+  bus standing in for the system bus, where the fake answers for polkit as
+  well. It shows how the app looks on a board and not what that board's
+  hardware does — a profile takes from `hardware`'s own tables what those
+  settle per board and restates the rest of `docs/hardware/boards.md` as
+  stub settings, which nothing checks against that page. The stubs reach the
+  fake through the daemon crate's `fake` feature, off by default, and CI
+  fails where a `testing` feature is on in the build the tarball makes.
 - Daemon logs: `sudo journalctl -u frameguin-daemon.service`. Direct calls:
   `busctl call io.github.valeronm.Frameguin /io/github/valeronm/Frameguin
   io.github.valeronm.Frameguin1 GetDevices`; `busctl introspect` on the

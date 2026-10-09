@@ -3,7 +3,9 @@
 
 use std::sync::Arc;
 
-use frameguin_contract::{Board, DeviceResult, PortPartner, PortSet, PortState, PortsControl};
+use frameguin_contract::{
+    Board, DeviceResult, Platform, PortPartner, PortSet, PortState, PortsControl,
+};
 
 use crate::ec::{Ec, PdPorts};
 use crate::pd_controller::{self, PORTS_PER_CONTROLLER};
@@ -24,7 +26,7 @@ impl Ports {
     /// firmware has no such command included, since a port that cannot be
     /// asked about is one this device has nothing to say about.
     pub(crate) fn detect(ec: &Arc<Ec>, board: &Board) -> Option<Self> {
-        Self::new(ec.clone(), pd_controller::controllers(board.platform()))
+        Self::new(ec.clone(), board.platform())
     }
 
     /// The walk is bounded by the controllers rather than by where the EC
@@ -33,7 +35,8 @@ impl Ports {
     /// `0xFF`s, having read past its own array. So the count is what the
     /// controllers can account for, and the refusal is only a second bound
     /// under it.
-    pub fn new(ec: Arc<dyn PdPorts>, controllers: &'static [(u8, u16)]) -> Option<Self> {
+    pub fn new(ec: Arc<dyn PdPorts>, platform: Platform) -> Option<Self> {
+        let controllers = pd_controller::controllers(platform);
         let ceiling = ec.pd_controllers().saturating_mul(PORTS_PER_CONTROLLER);
         // The first port refused is the count of those before it.
         let count = (0..ceiling)
@@ -95,13 +98,15 @@ mod tests {
     use crate::pd_controller;
     use crate::testing::{Connectors, ready};
 
+    const LAPTOP_13_PRO: Platform = Platform::Laptop13ProUltra3;
+
     fn laptop_13_pro() -> &'static [(u8, u16)] {
-        pd_controller::controllers(Platform::Laptop13ProUltra3)
+        pd_controller::controllers(LAPTOP_13_PRO)
     }
 
     #[test]
     fn the_ports_the_ec_answers_for_are_the_ports_there_are() {
-        let ports = Ports::new(Arc::new(Connectors::default()), laptop_13_pro())
+        let ports = Ports::new(Arc::new(Connectors::default()), LAPTOP_13_PRO)
             .expect("four ports answered");
         let read = ready(ports.ports(PortSet::ALL)).unwrap();
         assert_eq!(read.len(), 4);
@@ -114,7 +119,7 @@ mod tests {
             count: 0,
             ..Connectors::default()
         };
-        assert!(Ports::new(Arc::new(ec), laptop_13_pro()).is_none());
+        assert!(Ports::new(Arc::new(ec), LAPTOP_13_PRO).is_none());
     }
 
     #[test]
@@ -123,7 +128,7 @@ mod tests {
             controllers: 0,
             ..Connectors::default()
         };
-        assert!(Ports::new(Arc::new(ec), laptop_13_pro()).is_none());
+        assert!(Ports::new(Arc::new(ec), LAPTOP_13_PRO).is_none());
     }
 
     /// The bug this bound exists for: an EC that answers for every port
@@ -135,8 +140,7 @@ mod tests {
             refusing_none: true,
             ..Connectors::default()
         };
-        let ports =
-            Ports::new(Arc::new(ec), laptop_13_pro()).expect("the ceiling still allows four");
+        let ports = Ports::new(Arc::new(ec), LAPTOP_13_PRO).expect("the ceiling still allows four");
         assert_eq!(ready(ports.ports(PortSet::ALL)).unwrap().len(), 4);
     }
 
@@ -149,11 +153,8 @@ mod tests {
             count: 5,
             ..Connectors::default()
         };
-        let ports = Ports::new(
-            Arc::new(ec),
-            pd_controller::controllers(Platform::Laptop16AmdAi300),
-        )
-        .expect("five ports answered");
+        let ports =
+            Ports::new(Arc::new(ec), Platform::Laptop16AmdAi300).expect("five ports answered");
         assert_eq!(ready(ports.ports(PortSet::ALL)).unwrap().len(), 5);
     }
 
@@ -186,7 +187,7 @@ mod tests {
             registers: charging(),
             ..Connectors::default()
         });
-        let ports = Ports::new(ec, laptop_13_pro()).expect("four ports answered");
+        let ports = Ports::new(ec, LAPTOP_13_PRO).expect("four ports answered");
         let read = ready(ports.ports(PortSet::ALL)).unwrap();
         assert_eq!(read[0].registers, Some(charging()));
     }
@@ -197,7 +198,7 @@ mod tests {
             registers: charging(),
             ..Connectors::default()
         });
-        let ports = Ports::new(ec.clone(), laptop_13_pro()).expect("four ports answered");
+        let ports = Ports::new(ec.clone(), LAPTOP_13_PRO).expect("four ports answered");
         ec.registers_read.lock().unwrap().clear();
         let read = ready(ports.ports(PortSet::ALL)).unwrap();
         assert_eq!(read[1].registers, None);
@@ -214,7 +215,7 @@ mod tests {
             refusing_registers: laptop_13_pro().to_vec(),
             ..Connectors::default()
         });
-        let ports = Ports::new(ec.clone(), laptop_13_pro()).expect("the ports still answered");
+        let ports = Ports::new(ec.clone(), LAPTOP_13_PRO).expect("the ports still answered");
         ec.registers_read.lock().unwrap().clear();
         let read = ready(ports.ports(PortSet::ALL)).unwrap();
         assert_eq!(read.len(), 4);
@@ -230,7 +231,7 @@ mod tests {
             refusing_registers: vec![laptop_13_pro()[1]],
             ..Connectors::default()
         });
-        let ports = Ports::new(ec.clone(), laptop_13_pro()).expect("four ports answered");
+        let ports = Ports::new(ec.clone(), LAPTOP_13_PRO).expect("four ports answered");
         ec.registers_read.lock().unwrap().clear();
         let read = ready(ports.ports(PortSet::ALL)).unwrap();
         assert_eq!(read[0].registers, Some(charging()));
@@ -247,7 +248,7 @@ mod tests {
             registers: charging(),
             ..Connectors::default()
         });
-        let ports = Ports::new(ec.clone(), &[]).expect("the ports still answered");
+        let ports = Ports::new(ec.clone(), Platform::Unknown).expect("the ports still answered");
         let read = ready(ports.ports(PortSet::ALL)).unwrap();
         assert_eq!(read[0].registers, None);
         assert!(ec.registers_read.lock().unwrap().is_empty());
@@ -260,7 +261,7 @@ mod tests {
             sink: Some(2),
             ..Connectors::default()
         });
-        let ports = Ports::new(ec.clone(), laptop_13_pro()).expect("four ports answered");
+        let ports = Ports::new(ec.clone(), LAPTOP_13_PRO).expect("four ports answered");
         ec.registers_read.lock().unwrap().clear();
         let read = ready(ports.ports(PortSet::ALL)).unwrap();
         assert_eq!(read[2].registers, Some(charging()));
@@ -278,7 +279,7 @@ mod tests {
             registers: charging(),
             ..Connectors::default()
         });
-        let ports = Ports::new(ec.clone(), laptop_13_pro()).expect("four ports answered");
+        let ports = Ports::new(ec.clone(), LAPTOP_13_PRO).expect("four ports answered");
         ec.registers_read.lock().unwrap().clear();
         let read = ready(ports.ports(PortSet::default())).unwrap();
         assert_eq!(read[0].registers, None);
@@ -292,7 +293,7 @@ mod tests {
             sink: Some(2),
             ..Connectors::default()
         });
-        let ports = Ports::new(ec.clone(), laptop_13_pro()).expect("four ports answered");
+        let ports = Ports::new(ec.clone(), LAPTOP_13_PRO).expect("four ports answered");
         ec.registers_read.lock().unwrap().clear();
         let read = ready(ports.ports(PortSet::of(2))).unwrap();
         assert_eq!(read[0].registers, None);

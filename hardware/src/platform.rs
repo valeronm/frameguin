@@ -9,7 +9,7 @@ use frameguin_contract::Platform;
 /// Every spelling a board's `product_name` takes, matched whole. Exhaustive
 /// over [`Platform`], so a variant cannot ship without one, and empty for
 /// [`Platform::Unknown`], which no firmware reports.
-const fn spellings(platform: Platform) -> &'static [&'static str] {
+pub(crate) const fn spellings(platform: Platform) -> &'static [&'static str] {
     match platform {
         Platform::Laptop13Gen11 => &["Laptop"],
         Platform::Laptop13Gen12 => &["Laptop (12th Gen Intel Core)"],

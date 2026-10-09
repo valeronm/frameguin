@@ -612,7 +612,7 @@ const fn keeps_power_led_level(platform: Platform) -> bool {
 }
 
 /// True as well for a board whose EC has no auto level.
-const fn follows_power_led_auto(platform: Platform) -> bool {
+pub(crate) const fn follows_power_led_auto(platform: Platform) -> bool {
     match platform {
         // `sunflower` and `dahlia` build without ambient light sensor support.
         Platform::Laptop12Gen13 | Platform::Laptop12Core3 => false,
@@ -648,8 +648,7 @@ const fn battery_i2c_port(platform: Platform) -> u8 {
     }
 }
 
-/// Whether a board's EC lifts the charge current cap when the host sleeps.
-const fn lifts_current_limit_on_sleep(platform: Platform) -> bool {
+pub(crate) const fn lifts_current_limit_on_sleep(platform: Platform) -> bool {
     match platform {
         // The old EC's `reset_current_limit` runs at every chipset suspend
         // and shutdown.

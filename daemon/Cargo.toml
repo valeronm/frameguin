@@ -7,6 +7,16 @@ license = "MIT"
 [lints]
 workspace = true
 
+[features]
+# Off by default, so the binaries the tarball builds carry none of
+# hardware's stub roles.
+fake = ["frameguin-hardware/testing"]
+
+[[bin]]
+name = "frameguin-fake-daemon"
+path = "src/fake.rs"
+required-features = ["fake"]
+
 [dependencies]
 frameguin-contract = { workspace = true }
 frameguin-hardware = { workspace = true }

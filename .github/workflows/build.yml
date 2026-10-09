@@ -48,16 +48,19 @@ jobs:
           # First because it compiles nothing: a formatting slip fails here in
           # seconds rather than after clippy has built the workspace.
           cargo fmt --all --check
-          # A crate's `testing` stubs link into the binaries where anything
-          # but a dev-dependency asks for the feature.
+          # A `testing` feature on in this resolve puts that crate's stubs in
+          # the binaries the tarball builds.
           shipped=$(cargo tree --workspace --locked -e no-dev,features)
           if grep 'frameguin-.* feature "testing"' <<<"$shipped"; then
             echo 'a testing feature is on in the shipped build' >&2
             exit 1
           fi
-          shellcheck install.sh packaging/*.sh
+          shellcheck install.sh packaging/*.sh dev/*.sh
           desktop-file-validate data/*.desktop
           cargo clippy --workspace --release -- -D warnings
+          # The fake daemon sits behind a feature the workspace build leaves
+          # off, so nothing above compiles it.
+          cargo clippy --workspace --features frameguin-daemon/fake --bin frameguin-fake-daemon --release -- -D warnings
           # Release so the dependency artifacts carry over to the tarball
           # built below, which is the only sharing on offer: clippy's build
           # above is fingerprinted under its own wrapper and reuses nothing.

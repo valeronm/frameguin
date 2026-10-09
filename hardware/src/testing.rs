@@ -1,7 +1,8 @@
 //! Stubs for the roles and the store, so a device's logic runs against them
-//! in this crate's tests and in another crate's. A stub's `Default` is the
+//! in this crate's tests and from another crate. A stub's `Default` is the
 //! machine that takes every write and answers every read; each knob names
-//! one way of not doing so.
+//! one way of not doing so, and a stub's `on` sets the knobs a board
+//! settles, from this crate's own tables.
 
 use std::collections::BTreeMap;
 use std::num::NonZeroU32;
@@ -12,17 +13,20 @@ use std::task::{Context, Poll, Waker};
 use frameguin_contract::{
     Attached, BatteryCondition, BatteryInfo, BatteryState, CcPolarity, ChargeCurrentLimit,
     ChargeFlow, ChassisState, ClickForce, DataRole, DeckState, Detail, DeviceError, DeviceResult,
-    Epr, ExtenderStage, ExtenderState, Identity, LinkState, NetworkLink, PartKind, PortPartner,
-    PortRegisters, PortState, PowerLedLevel, PowerRole, PrivacyState, UsbSpeed,
+    Epr, ExtenderStage, ExtenderState, Identity, LinkState, NetworkLink, PartKind, Platform,
+    PortPartner, PortRegisters, PortState, PowerLedLevel, PowerRole, PrivacyState, UsbSpeed,
 };
 
-use crate::ec::{Charger, ChassisEc, Pack, PdPorts, PowerLedEc, PrivacyEc, SideEnables, ThermalEc};
+use crate::ec::{
+    self, Charger, ChassisEc, Pack, PdPorts, PowerLedEc, PrivacyEc, SideEnables, ThermalEc,
+};
 use crate::led::LedClass;
 use crate::lifetime::{EcBoot, Holders};
 use crate::mirror::Mirrors;
 use crate::part;
+use crate::platform;
 use crate::state::{self, Store};
-use crate::thermal::RawThresholds;
+use crate::thermal::{FAN_ENTRIES, FAN_NOT_PRESENT, RawThresholds};
 use crate::touchpad::HapticPad;
 use crate::touchscreen::TouchSwitch;
 use crate::usb::{BusDevice, RootDevice, UsbTree};
@@ -41,6 +45,14 @@ pub const EC_RESTARTED: EcBoot = EcBoot::from_clocks(60, 1_003_600);
 /// The host's boot id, and the id of the boot before it.
 pub const HOST_BOOT: &str = "00000000-0000-4000-8000-000000000001";
 pub const HOST_EARLIER: &str = "00000000-0000-4000-8000-000000000002";
+
+/// What a board's firmware calls it, empty for [`Platform::Unknown`].
+pub fn product(platform: Platform) -> &'static str {
+    platform::spellings(platform)
+        .first()
+        .copied()
+        .unwrap_or_default()
+}
 
 /// The haptic touchpad as detection would identify it, the descriptor
 /// naming no maker and the vendor list naming one.
@@ -222,6 +234,16 @@ impl Default for EcCharger {
     }
 }
 
+impl EcCharger {
+    /// Sets only what the board settles of its EC's charger.
+    pub fn on(platform: Platform) -> Self {
+        Self {
+            lifted_on_sleep: ec::lifts_current_limit_on_sleep(platform),
+            ..Self::default()
+        }
+    }
+}
+
 impl Charger for EcCharger {
     fn charge_limit(&self) -> DeviceResult<u8> {
         Ok(*self.limit.lock().unwrap())
@@ -282,6 +304,17 @@ impl Default for LedEc {
             auto: true,
             refusing: false,
             log: Log::default(),
+        }
+    }
+}
+
+impl LedEc {
+    /// The custom levels are the firmware's, which no board settles.
+    pub fn on(platform: Platform, custom: bool) -> Self {
+        Self {
+            custom,
+            auto: custom && ec::follows_power_led_auto(platform),
+            ..Self::default()
         }
     }
 }
@@ -772,6 +805,13 @@ fn hub_path(attached: &Attached) -> PathBuf {
     PathBuf::from(format!("{}-{}", attached.controller, attached.root_port))
 }
 
+/// The memmap's fan words: `spinning` first, no fan in the rest.
+pub fn fans(spinning: &[u16]) -> Vec<u16> {
+    let mut words = spinning.to_vec();
+    words.resize(usize::from(FAN_ENTRIES), FAN_NOT_PRESENT);
+    words
+}
+
 /// An EC answering every thermal read, one of its sensors unpowered.
 pub struct Vents {
     pub sensors: Vec<u8>,
@@ -800,7 +840,7 @@ impl Default for Vents {
     fn default() -> Self {
         Self {
             sensors: vec![140, 0xff, 0xfd, 0xff],
-            fans: vec![2400, 0xffff, 0xffff, 0xffff],
+            fans: fans(&[2400]),
             refusing: false,
             thresholds: Some(RawThresholds {
                 host: [0, 361, 371],

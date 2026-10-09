@@ -19,7 +19,7 @@ const NOT_POWERED: u8 = 0xfd;
 const NOT_CALIBRATED: u8 = 0xfc;
 /// The memmap stores kelvin less this, to fit a byte.
 const OFFSET: u16 = 200;
-const FAN_NOT_PRESENT: u16 = 0xffff;
+pub(crate) const FAN_NOT_PRESENT: u16 = 0xffff;
 /// Older firmware's word for a stall, which current firmware reports as 0.
 const FAN_STALLED_DEPRECATED: u16 = 0xfffe;
 

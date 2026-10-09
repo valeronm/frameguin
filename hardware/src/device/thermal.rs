@@ -135,7 +135,7 @@ mod tests {
     };
 
     use super::Thermal;
-    use crate::testing::{Vents, ready};
+    use crate::testing::{Vents, fans, ready};
 
     #[test]
     fn detection_keeps_the_present_sensors_and_fans_with_their_names() {
@@ -261,7 +261,7 @@ mod tests {
     fn a_memmap_reporting_nothing_present_is_no_device() {
         let vents = Vents {
             sensors: vec![0xff; 16],
-            fans: vec![0xffff; 4],
+            fans: fans(&[]),
             ..Vents::default()
         };
         assert!(Thermal::new(Arc::new(vents)).is_none());
