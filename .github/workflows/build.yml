@@ -48,6 +48,13 @@ jobs:
           # First because it compiles nothing: a formatting slip fails here in
           # seconds rather than after clippy has built the workspace.
           cargo fmt --all --check
+          # A crate's `testing` stubs link into the binaries where anything
+          # but a dev-dependency asks for the feature.
+          shipped=$(cargo tree --workspace --locked -e no-dev,features)
+          if grep 'frameguin-.* feature "testing"' <<<"$shipped"; then
+            echo 'a testing feature is on in the shipped build' >&2
+            exit 1
+          fi
           shellcheck install.sh packaging/*.sh
           desktop-file-validate data/*.desktop
           cargo clippy --workspace --release -- -D warnings
