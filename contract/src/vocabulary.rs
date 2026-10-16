@@ -783,23 +783,79 @@ pub struct PdContract {
     pub capability_mismatch: bool,
 }
 
-/// One USB-C port, as the EC's copy of its controller's state has it.
-///
-/// Every field but `enabled` and `registers` is the EC's cache rather than
-/// the port itself: a controller stops updating it for a port it has
-/// disabled, and the entry then stands at whatever it last saw.
-/// `docs/hardware/usb-c.md` has the reading.
 #[derive(Serialize, Deserialize, Type, Clone, PartialEq, Eq, Debug)]
-#[allow(
-    clippy::struct_excessive_bools,
-    reason = "each is an independent thing the EC reports about a port; the one pair with an impossible combination is Epr"
-)]
 pub struct PortState {
     /// The EC's own port number: which controller, and which of its two
     /// connectors. It says nothing about where the socket is on the
     /// chassis, that mapping being per board — `model::port` is what puts a
     /// position to it, and only for a board it was measured on.
     pub index: u8,
+    pub mask: PortMask,
+}
+
+/// Whether the port's controller has it enabled, and what the port reads
+/// where it may be.
+///
+/// The reading is the EC's cache rather than the port itself: a controller
+/// stops updating it for a port it has disabled, and the entry then stands
+/// at whatever it last saw. `docs/hardware/usb-c.md` has the reading.
+///
+/// A mask crosses the bus as its name and an array of zero or one reading.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum PortMask {
+    Off,
+    On(PortReading),
+    /// The mask could not be read, so nothing vouches that the reading is
+    /// live.
+    Unchecked(PortReading),
+}
+
+#[derive(Serialize, Deserialize, Type)]
+#[serde(rename_all = "kebab-case")]
+#[zvariant(signature = "s")]
+enum Enable {
+    Off,
+    On,
+    Unchecked,
+}
+
+type Mask<R> = (Enable, Option<R>);
+
+impl Type for PortMask {
+    const SIGNATURE: &'static zvariant::Signature = <Mask<PortReading>>::SIGNATURE;
+}
+
+impl Serialize for PortMask {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self {
+            Self::Off => (Enable::Off, None),
+            Self::On(reading) => (Enable::On, Some(reading)),
+            Self::Unchecked(reading) => (Enable::Unchecked, Some(reading)),
+        }
+        .serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for PortMask {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let (enable, reading) = <Mask<PortReading>>::deserialize(deserializer)?;
+        match (enable, reading) {
+            (Enable::Off, None) => Ok(Self::Off),
+            (Enable::On, Some(reading)) => Ok(Self::On(reading)),
+            (Enable::Unchecked, Some(reading)) => Ok(Self::Unchecked(reading)),
+            _ => Err(serde::de::Error::custom(
+                "a port carries a reading exactly where it is not off",
+            )),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Type, Clone, PartialEq, Eq, Debug)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "each is an independent thing the EC reports about a port; the one pair with an impossible combination is Epr"
+)]
+pub struct PortReading {
     pub partner: PortPartner,
     /// Whether a power delivery contract stands. False on a Type-C
     /// connection that negotiated none, which still carries power.
@@ -819,20 +875,10 @@ pub struct PortState {
     pub vconn: bool,
     pub cc: CcPolarity,
     pub epr: Epr,
-    /// The controller's own port mask, and None where it could not be read.
-    pub enabled: Option<bool>,
-    /// None where the controller was not asked, nothing is attached, the
-    /// port is turned off, or the read failed.
+    /// The controller's own registers rather than the EC's cache, and None
+    /// where the controller was not asked, nothing is attached, or the read
+    /// failed.
     pub registers: Option<PortRegisters>,
-}
-
-impl PortState {
-    /// Whether the controller has this port disabled, which leaves every
-    /// field the EC caches standing at what it last saw.
-    #[must_use]
-    pub fn turned_off(&self) -> bool {
-        self.enabled == Some(false)
-    }
 }
 
 /// USB-C ports by the EC's port number: the ones whose controller registers

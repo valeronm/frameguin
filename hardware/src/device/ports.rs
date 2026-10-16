@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use frameguin_contract::{
-    Board, DeviceResult, Platform, PortPartner, PortSet, PortState, PortsControl,
+    Board, DeviceResult, Platform, PortMask, PortPartner, PortSet, PortState, PortsControl,
 };
 
 use crate::ec::{Ec, PdPorts};
@@ -88,23 +88,28 @@ impl PortsControl for Ports {
             })
             .collect();
         Ok((0..self.count)
-            .filter_map(|port| self.ec.port_state(port).ok().flatten())
-            .map(|mut state| {
-                let c = usize::from(state.index / PORTS_PER_CONTROLLER);
-                state.enabled = masks
+            .filter_map(|index| {
+                let reading = self.ec.port_state(index).ok().flatten()?;
+                let c = usize::from(index / PORTS_PER_CONTROLLER);
+                let enabled = masks
                     .get(c)
                     .copied()
                     .flatten()
-                    .map(|mask| pd_controller::enabled(mask, state.index));
-                if controller_ports.contains(state.index)
-                    && state.partner != PortPartner::Nothing
-                    && !state.turned_off()
+                    .map(|mask| pd_controller::enabled(mask, index));
+                let mut mask = match enabled {
+                    Some(false) => PortMask::Off,
+                    Some(true) => PortMask::On(reading),
+                    None => PortMask::Unchecked(reading),
+                };
+                if let PortMask::On(reading) | PortMask::Unchecked(reading) = &mut mask
+                    && controller_ports.contains(index)
+                    && reading.partner != PortPartner::Nothing
                     && let Some(&Some(controller)) = self.controllers.get(c)
                     && controller.registers
                 {
-                    state.registers = self.ec.port_registers(state.index, controller.address).ok();
+                    reading.registers = self.ec.port_registers(index, controller.address).ok();
                 }
-                state
+                Some(PortState { index, mask })
             })
             .collect())
     }
@@ -115,8 +120,8 @@ mod tests {
     use std::sync::Arc;
 
     use frameguin_contract::{
-        Cable, CableLatency, CableSpeed, PdContract, Platform, PortRegisters, PortSet,
-        PortsControl, SupplyKind,
+        Cable, CableLatency, CableSpeed, PdContract, Platform, PortMask, PortReading,
+        PortRegisters, PortSet, PortState, PortsControl, SupplyKind,
     };
 
     use super::Ports;
@@ -127,6 +132,13 @@ mod tests {
 
     fn laptop_13_pro() -> &'static [(u8, u16)] {
         pd_controller::controllers(LAPTOP_13_PRO)
+    }
+
+    fn on(state: &PortState) -> &PortReading {
+        let PortMask::On(reading) = &state.mask else {
+            panic!("port {} is not on: {:?}", state.index, state.mask);
+        };
+        reading
     }
 
     #[test]
@@ -214,7 +226,7 @@ mod tests {
         });
         let ports = Ports::new(ec, LAPTOP_13_PRO).expect("four ports answered");
         let read = ready(ports.ports(PortSet::ALL)).unwrap();
-        assert_eq!(read[0].registers, Some(charging()));
+        assert_eq!(on(&read[0]).registers, Some(charging()));
     }
 
     #[test]
@@ -226,7 +238,7 @@ mod tests {
         let ports = Ports::new(ec.clone(), LAPTOP_13_PRO).expect("four ports answered");
         ec.registers_read.lock().unwrap().clear();
         let read = ready(ports.ports(PortSet::ALL)).unwrap();
-        assert_eq!(read[1].registers, None);
+        assert_eq!(on(&read[1]).registers, None);
         assert_eq!(
             *ec.registers_read.lock().unwrap(),
             vec![(0, laptop_13_pro()[0])]
@@ -244,7 +256,7 @@ mod tests {
         ec.registers_read.lock().unwrap().clear();
         let read = ready(ports.ports(PortSet::ALL)).unwrap();
         assert_eq!(read.len(), 4);
-        assert_eq!(read[0].registers, None);
+        assert_eq!(on(&read[0]).registers, None);
         assert!(ec.registers_read.lock().unwrap().is_empty());
     }
 
@@ -259,8 +271,8 @@ mod tests {
         let ports = Ports::new(ec.clone(), LAPTOP_13_PRO).expect("four ports answered");
         ec.registers_read.lock().unwrap().clear();
         let read = ready(ports.ports(PortSet::ALL)).unwrap();
-        assert_eq!(read[0].registers, Some(charging()));
-        assert_eq!(read[2].registers, None);
+        assert_eq!(on(&read[0]).registers, Some(charging()));
+        assert_eq!(on(&read[2]).registers, None);
         assert_eq!(
             *ec.registers_read.lock().unwrap(),
             vec![(0, laptop_13_pro()[0])]
@@ -275,7 +287,9 @@ mod tests {
         });
         let ports = Ports::new(ec.clone(), Platform::Unknown).expect("the ports still answered");
         let read = ready(ports.ports(PortSet::ALL)).unwrap();
-        assert_eq!(read[0].registers, None);
+        assert!(
+            matches!(&read[0].mask, PortMask::Unchecked(reading) if reading.registers.is_none())
+        );
         assert!(ec.registers_read.lock().unwrap().is_empty());
     }
 
@@ -289,7 +303,7 @@ mod tests {
         let ports = Ports::new(ec.clone(), LAPTOP_13_PRO).expect("four ports answered");
         ec.registers_read.lock().unwrap().clear();
         let read = ready(ports.ports(PortSet::ALL)).unwrap();
-        assert_eq!(read[2].registers, Some(charging()));
+        assert_eq!(on(&read[2]).registers, Some(charging()));
         assert!(
             ec.registers_read
                 .lock()
@@ -307,7 +321,7 @@ mod tests {
         let ports = Ports::new(ec.clone(), LAPTOP_13_PRO).expect("four ports answered");
         ec.registers_read.lock().unwrap().clear();
         let read = ready(ports.ports(PortSet::default())).unwrap();
-        assert_eq!(read[0].registers, None);
+        assert_eq!(on(&read[0]).registers, None);
         assert!(ec.registers_read.lock().unwrap().is_empty());
     }
 
@@ -319,8 +333,12 @@ mod tests {
         };
         let ports = Ports::new(Arc::new(ec), LAPTOP_13_PRO).expect("four ports answered");
         let read = ready(ports.ports(PortSet::ALL)).unwrap();
-        let enabled: Vec<_> = read.iter().map(|state| state.enabled).collect();
-        assert_eq!(enabled, [Some(true), Some(true), Some(true), Some(false)]);
+        assert!(
+            read[..3]
+                .iter()
+                .all(|state| matches!(state.mask, PortMask::On(_)))
+        );
+        assert_eq!(read[3].mask, PortMask::Off);
     }
 
     #[test]
@@ -328,8 +346,8 @@ mod tests {
         let ec = Connectors::default().with_port_off(LAPTOP_13_PRO, 3);
         let ports = Ports::new(Arc::new(ec), LAPTOP_13_PRO).expect("four ports answered");
         let read = ready(ports.ports(PortSet::ALL)).unwrap();
-        assert_eq!(read[2].enabled, Some(true));
-        assert_eq!(read[3].enabled, Some(false));
+        assert!(matches!(read[2].mask, PortMask::On(_)));
+        assert_eq!(read[3].mask, PortMask::Off);
     }
 
     #[test]
@@ -343,7 +361,7 @@ mod tests {
         let ports = Ports::new(ec.clone(), LAPTOP_13_PRO).expect("four ports answered");
         ec.registers_read.lock().unwrap().clear();
         let read = ready(ports.ports(PortSet::of(3))).unwrap();
-        assert_eq!(read[3].registers, None);
+        assert_eq!(read[3].mask, PortMask::Off);
         assert!(ec.registers_read.lock().unwrap().is_empty());
     }
 
@@ -355,8 +373,8 @@ mod tests {
         };
         let ports = Ports::new(Arc::new(ec), LAPTOP_13_PRO).expect("four ports answered");
         let read = ready(ports.ports(PortSet::ALL)).unwrap();
-        assert_eq!(read[0].enabled, Some(true));
-        assert_eq!(read[2].enabled, None);
+        assert!(matches!(read[0].mask, PortMask::On(_)));
+        assert!(matches!(read[2].mask, PortMask::Unchecked(_)));
     }
 
     #[test]
@@ -376,7 +394,10 @@ mod tests {
         let ports = Ports::new(Arc::new(Connectors::default()), Platform::Unknown)
             .expect("the ports still answered");
         let read = ready(ports.ports(PortSet::ALL)).unwrap();
-        assert!(read.iter().all(|state| state.enabled.is_none()));
+        assert!(
+            read.iter()
+                .all(|state| matches!(state.mask, PortMask::Unchecked(_)))
+        );
     }
 
     #[test]
@@ -389,8 +410,8 @@ mod tests {
         let ports = Ports::new(ec.clone(), LAPTOP_13_PRO).expect("four ports answered");
         ec.registers_read.lock().unwrap().clear();
         let read = ready(ports.ports(PortSet::of(2))).unwrap();
-        assert_eq!(read[0].registers, None);
-        assert_eq!(read[2].registers, Some(charging()));
+        assert_eq!(on(&read[0]).registers, None);
+        assert_eq!(on(&read[2]).registers, Some(charging()));
         assert_eq!(
             *ec.registers_read.lock().unwrap(),
             vec![(2, laptop_13_pro()[1])]

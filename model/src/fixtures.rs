@@ -5,8 +5,8 @@ use std::num::NonZeroU32;
 
 use crate::control::battery::ChargeSpeeds;
 use frameguin_contract::{
-    BatteryState, CcPolarity, ChargeCurrentLimit, ChargeFlow, DataRole, Epr, PortPartner,
-    PortState, PowerRole,
+    BatteryState, CcPolarity, ChargeCurrentLimit, ChargeFlow, DataRole, Epr, PortMask, PortPartner,
+    PortReading, PortState, PowerRole,
 };
 
 /// A 4640 mAh pack, the Laptop 13's.
@@ -40,11 +40,20 @@ pub fn state(flow: ChargeFlow, milliamps: u32) -> BatteryState {
     }
 }
 
+/// Port `index`, enabled in its controller's mask.
 #[must_use]
 pub fn port(index: u8) -> PortState {
-    let charging = index == 0;
     PortState {
         index,
+        mask: PortMask::On(reading(index)),
+    }
+}
+
+/// The first port charging under a 100 W contract, every other empty.
+#[must_use]
+pub fn reading(index: u8) -> PortReading {
+    let charging = index == 0;
+    PortReading {
         partner: if charging {
             PortPartner::Source
         } else {
@@ -64,7 +73,6 @@ pub fn port(index: u8) -> PortState {
         vconn: charging,
         cc: CcPolarity::Cc1,
         epr: Epr::Unsupported,
-        enabled: Some(true),
         registers: None,
     }
 }

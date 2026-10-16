@@ -14,7 +14,7 @@ use frameguin_contract::{
     Attached, BatteryCondition, BatteryInfo, BatteryState, CcPolarity, ChargeCurrentLimit,
     ChargeFlow, ChassisState, ClickForce, DataRole, DeckState, Detail, DeviceError, DeviceResult,
     Epr, ExtenderStage, ExtenderState, Identity, LinkState, NetworkLink, PartKind, Platform,
-    PortPartner, PortRegisters, PortState, PowerLedLevel, PowerRole, PrivacyState, UsbSpeed,
+    PortPartner, PortReading, PortRegisters, PowerLedLevel, PowerRole, PrivacyState, UsbSpeed,
 };
 
 use crate::ec::{
@@ -479,10 +479,9 @@ impl HapticPad for Haptic {
 
 /// One port as a stub answers for it: the first is charging under a 100 W
 /// contract, every other is empty.
-pub fn port(index: u8) -> PortState {
+pub fn port(index: u8) -> PortReading {
     let charging = index == 0;
-    PortState {
-        index,
+    PortReading {
         partner: if charging {
             PortPartner::Source
         } else {
@@ -502,7 +501,6 @@ pub fn port(index: u8) -> PortState {
         vconn: charging,
         cc: CcPolarity::Cc1,
         epr: Epr::Unsupported,
-        enabled: None,
         registers: None,
     }
 }
@@ -573,13 +571,13 @@ impl PdPorts for Connectors {
         self.controllers
     }
 
-    fn port_state(&self, index: u8) -> DeviceResult<Option<PortState>> {
+    fn port_state(&self, index: u8) -> DeviceResult<Option<PortReading>> {
         Ok((self.refusing_none || index < self.count).then(|| {
-            let mut state = port(index);
+            let mut reading = port(index);
             if self.sink == Some(index) {
-                state.partner = PortPartner::Sink;
+                reading.partner = PortPartner::Sink;
             }
-            state
+            reading
         }))
     }
 

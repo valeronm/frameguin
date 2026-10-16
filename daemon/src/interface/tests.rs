@@ -8,8 +8,8 @@ use std::time::Duration;
 use async_io::Async;
 use frameguin_contract::{
     BatteryFeature, Board, ChargeCurrentLimit, ChargingLedFeature, ChargingLedSide, ChassisFeature,
-    ClickForce, DeckState, DeviceError, Platform, PortPartner, PortSet, PowerLedLevel, Temperature,
-    ThermalFeature, VENDOR,
+    ClickForce, DeckState, DeviceError, Platform, PortMask, PortPartner, PortSet, PowerLedLevel,
+    Temperature, ThermalFeature, VENDOR,
 };
 use frameguin_hardware::device::Devices;
 use frameguin_hardware::device::battery::Battery;
@@ -270,10 +270,14 @@ fn every_getter_answers_through_its_proxy() {
         let ports = p.ports.get_ports(PortSet::ALL).await.unwrap();
         assert_eq!(ports.len(), 4);
         assert_eq!(ports[0].index, 0);
-        assert!(ports[0].charging);
-        assert_eq!(ports[0].partner, PortPartner::Source);
-        assert!(!ports[1].charging);
-        assert_eq!(ports[1].partner, PortPartner::Nothing);
+        assert!(matches!(
+            &ports[0].mask,
+            PortMask::Unchecked(reading) if reading.charging && reading.partner == PortPartner::Source
+        ));
+        assert!(matches!(
+            &ports[1].mask,
+            PortMask::Unchecked(reading) if !reading.charging && reading.partner == PortPartner::Nothing
+        ));
         assert_eq!(p.chassis.get_state().await.unwrap(), Cover::default().state);
         assert_eq!(
             p.chassis.get_features().await.unwrap(),
@@ -546,6 +550,24 @@ fn a_restore_is_refused_where_polkit_refuses_and_writes_nothing_while_off() {
         root(&p).await.restore().await.unwrap();
     });
     assert_eq!(*machine.charger.limit.lock().unwrap(), 100);
+}
+
+#[test]
+fn a_port_turned_off_crosses_with_no_reading() {
+    let platform = Platform::Laptop13ProUltra3;
+    let connectors = Connectors::default().with_port_off(platform, 3);
+    let peer = serve_devices(
+        true,
+        Devices {
+            ports: Ports::new(Arc::new(connectors), platform),
+            ..devices()
+        },
+    );
+    peer.run(|p| async move {
+        let ports = p.ports.get_ports(PortSet::ALL).await.unwrap();
+        assert!(matches!(&ports[2].mask, PortMask::On(_)));
+        assert_eq!(ports[3].mask, PortMask::Off);
+    });
 }
 
 #[test]

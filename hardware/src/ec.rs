@@ -75,7 +75,7 @@ pub trait PdPorts: Send + Sync {
     /// None where the EC refuses the number as out of range. A second bound
     /// rather than the only one, since a board has been seen to answer past
     /// its last port instead of refusing.
-    fn port_state(&self, port: u8) -> DeviceResult<Option<contract::PortState>>;
+    fn port_state(&self, port: u8) -> DeviceResult<Option<contract::PortReading>>;
     /// Read from `controller` — its (EC I2C port, 7-bit address) — over I2C
     /// passthrough.
     fn port_registers(
@@ -372,10 +372,10 @@ impl PdPorts for Ec {
         u8::try_from(self.pd_versions().len()).unwrap_or(u8::MAX)
     }
 
-    fn port_state(&self, port: u8) -> DeviceResult<Option<contract::PortState>> {
+    fn port_state(&self, port: u8) -> DeviceResult<Option<contract::PortReading>> {
         let request = EcRequestGetPdPortState { port };
         match request.send_command(&self.ec()) {
-            Ok(raw) => Ok(Some(pd::port_state(port, &raw))),
+            Ok(raw) => Ok(Some(pd::port_state(&raw))),
             Err(EcError::Response(EcResponseStatus::InvalidParameter)) => Ok(None),
             Err(e) => Err(device_error(e)),
         }

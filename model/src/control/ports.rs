@@ -2,7 +2,9 @@
 
 use std::rc::Rc;
 
-use frameguin_contract::{DeviceResult as Result, PortSet, PortState, PortsControl};
+use frameguin_contract::{
+    DeviceResult as Result, PortMask, PortReading, PortSet, PortState, PortsControl,
+};
 
 use super::present;
 use crate::port::Placement;
@@ -33,24 +35,28 @@ impl<C: PortsControl> Ports<C> {
     }
 }
 
-/// The port the machine is drawing its power through, and None where none
-/// is. At most one answers, the EC picking among those offering.
+/// The port the machine is drawing its power through, by its index, and
+/// None where none is. At most one answers, the EC picking among those
+/// offering.
 #[must_use]
-pub fn powering(ports: &[PortState]) -> Option<&PortState> {
-    ports
-        .iter()
-        .find(|port| port.charging && !port.turned_off())
+pub fn powering(ports: &[PortState]) -> Option<(u8, &PortReading)> {
+    ports.iter().find_map(|port| match &port.mask {
+        PortMask::Off => None,
+        PortMask::On(reading) | PortMask::Unchecked(reading) => {
+            reading.charging.then_some((port.index, reading))
+        }
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use std::rc::Rc;
 
-    use frameguin_contract::{DeviceError, DeviceResult as Result, PortSet, PortState};
+    use frameguin_contract::{DeviceError, DeviceResult as Result, PortMask, PortSet, PortState};
 
     use super::{Ports, powering};
     use crate::port::Placement;
-    use crate::testing::{Machine, absent, port, ready};
+    use crate::testing::{Machine, absent, port, reading, ready};
 
     fn detect(machine: &Rc<Machine>) -> Result<Option<Ports<Machine>>> {
         ready(Ports::detect(machine, Placement::default()))
@@ -79,23 +85,23 @@ mod tests {
         let ports = Ports::new(Machine::new(), Placement::default());
         let read = ready(ports.read(PortSet::default())).unwrap();
         assert_eq!(read.len(), 4);
-        assert!(read[0].charging);
+        assert_eq!(read[0], port(0));
     }
 
     #[test]
     fn the_port_charging_the_machine_is_the_one_powering_it() {
         let ports: Vec<_> = (0..4).map(port).collect();
-        assert_eq!(powering(&ports).map(|p| p.index), Some(0));
+        assert_eq!(powering(&ports).map(|(index, _)| index), Some(0));
         let idle: Vec<_> = (1..4).map(port).collect();
         assert!(powering(&idle).is_none());
     }
 
     #[test]
-    fn a_port_turned_off_powers_nothing_whatever_it_last_reported() {
-        let off = PortState {
-            enabled: Some(false),
-            ..port(0)
+    fn a_port_whose_mask_went_unread_still_powers_the_machine() {
+        let unchecked = PortState {
+            index: 0,
+            mask: PortMask::Unchecked(reading(0)),
         };
-        assert!(powering(&[off]).is_none());
+        assert_eq!(powering(&[unchecked]).map(|(index, _)| index), Some(0));
     }
 }

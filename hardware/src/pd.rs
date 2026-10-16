@@ -2,7 +2,7 @@
 //! port's state — apart from [`crate::ec`] so the decoding is testable
 //! without an EC.
 
-use frameguin_contract::{CcPolarity, DataRole, Epr, PortPartner, PortState, PowerRole};
+use frameguin_contract::{CcPolarity, DataRole, Epr, PortPartner, PortReading, PowerRole};
 use framework_lib::ccgx::AppVersion;
 use framework_lib::chromium_ec::commands::EcResponseGetPdPortState;
 
@@ -39,16 +39,15 @@ pub(crate) fn version(blob: [u8; VERSION_LEN]) -> Option<String> {
     Some(AppVersion::from(&blob[APPLICATION..]).to_string())
 }
 
-/// One port's state as the EC hands it over. `index` is the port number the
-/// EC was asked for; `charging` comes from the EC's own answer about which
-/// port is feeding the machine, which it reports per port rather than once.
+/// One port's state as the EC hands it over. `charging` comes from the EC's
+/// own answer about which port is feeding the machine, which it reports per
+/// port rather than once.
 #[must_use]
-pub(crate) fn port_state(index: u8, raw: &EcResponseGetPdPortState) -> PortState {
+pub(crate) fn port_state(raw: &EcResponseGetPdPortState) -> PortReading {
     // Copied out one field at a time: the response is a packed struct, and a
     // reference into an unaligned field is undefined behaviour.
     let (millivolts, milliamps) = (raw.voltage, raw.current);
-    PortState {
-        index,
+    PortReading {
         partner: match raw.c_state {
             0 => PortPartner::Nothing,
             1 => PortPartner::Sink,
@@ -89,7 +88,6 @@ pub(crate) fn port_state(index: u8, raw: &EcResponseGetPdPortState) -> PortState
             (false, true) => Epr::Supported,
             (false, false) => Epr::Unsupported,
         },
-        enabled: None,
         registers: None,
     }
 }
@@ -122,8 +120,7 @@ mod tests {
 
     #[test]
     fn a_negotiated_port_carries_what_it_settled_on() {
-        let port = port_state(2, &display());
-        assert_eq!(port.index, 2);
+        let port = port_state(&display());
         assert_eq!(port.partner, PortPartner::Source);
         assert!(port.contract);
         assert_eq!(port.power_role, PowerRole::Sink);
@@ -142,7 +139,7 @@ mod tests {
             pd_alt_mode_status: 0,
             ..display()
         };
-        let port = port_state(3, &raw);
+        let port = port_state(&raw);
         assert!(port.charging);
         assert!(!port.video);
     }
@@ -155,7 +152,7 @@ mod tests {
             pd_alt_mode_status: 0xfc,
             ..display()
         };
-        assert!(!port_state(0, &raw).video);
+        assert!(!port_state(&raw).video);
     }
 
     #[test]
@@ -167,7 +164,7 @@ mod tests {
             current: 0,
             ..display()
         };
-        let port = port_state(0, &raw);
+        let port = port_state(&raw);
         assert_eq!(port.partner, PortPartner::Nothing);
         assert!(!port.contract);
     }
@@ -179,12 +176,12 @@ mod tests {
             epr_support: 1,
             ..display()
         };
-        assert_eq!(port_state(0, &failed).epr, Epr::Supported);
+        assert_eq!(port_state(&failed).epr, Epr::Supported);
         let active = EcResponseGetPdPortState {
             epr_active: 1,
             ..failed
         };
-        assert_eq!(port_state(0, &active).epr, Epr::Active);
+        assert_eq!(port_state(&active).epr, Epr::Active);
     }
 
     #[test]

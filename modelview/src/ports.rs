@@ -1,8 +1,8 @@
 //! The USB-C ports: the words a reader needs for one.
 
 use frameguin_contract::{
-    Cable, CableLatency, CableSpeed, DataRole, Epr, PdContract, PeakCurrent, PortPartner,
-    PortState, PowerRole, SupplyKind,
+    Cable, CableLatency, CableSpeed, DataRole, Epr, PdContract, PeakCurrent, PortMask, PortPartner,
+    PortReading, PortState, PowerRole, SupplyKind,
 };
 use frameguin_model::control::ports::powering;
 use frameguin_model::port::Placement;
@@ -36,7 +36,7 @@ pub fn partner_label(partner: PortPartner) -> Option<&'static str> {
 /// Type-C's own resistors advertise. None where the port settled on
 /// nothing, a supply of zero being worth no row.
 #[must_use]
-pub fn carried(port: &PortState) -> Option<String> {
+pub fn carried(port: &PortReading) -> Option<String> {
     if port.millivolts == 0 || port.milliamps == 0 {
         return None;
     }
@@ -70,9 +70,9 @@ pub const TURNED_OFF: &str = "Turned off";
 /// the machine.
 #[must_use]
 pub fn port_summary(port: &PortState, device: Option<&str>) -> String {
-    if port.turned_off() {
+    let (PortMask::On(port) | PortMask::Unchecked(port)) = &port.mask else {
         return TURNED_OFF.to_owned();
-    }
+    };
     let partner = partner_label(port.partner);
     let Some(lead) = (if port.charging && (partner.is_some() || device.is_some()) {
         Some(POWERING_THE_MACHINE)
@@ -92,7 +92,7 @@ pub fn port_summary(port: &PortState, device: Option<&str>) -> String {
     format!("{lead} · {flow}{}", power(port))
 }
 
-fn power(port: &PortState) -> String {
+fn power(port: &PortReading) -> String {
     watts(port.millivolts.into(), port.milliamps.into(), Kind::Static)
 }
 
@@ -107,7 +107,7 @@ fn power(port: &PortState) -> String {
 /// for the absence they do share.
 #[must_use]
 pub fn supply_label(ports: &[PortState]) -> String {
-    powering(ports).map_or_else(|| NO_SUPPLY.to_owned(), power)
+    powering(ports).map_or_else(|| NO_SUPPLY.to_owned(), |(_, port)| power(port))
 }
 
 /// Where the power is coming in, to sit under [`supply_label`]. None where
@@ -115,7 +115,7 @@ pub fn supply_label(ports: &[PortState]) -> String {
 /// one that stopped.
 #[must_use]
 pub fn supply_port(ports: &[PortState], placement: Placement) -> Option<String> {
-    powering(ports).map(|port| port::label(placement, port.index))
+    powering(ports).map(|(index, _)| port::label(placement, index))
 }
 
 /// The supply and where it comes in, joined for a caller with one line to
@@ -128,20 +128,20 @@ pub fn supply_port(ports: &[PortState], placement: Placement) -> Option<String> 
 #[must_use]
 pub fn supply_summary(ports: &[PortState], placement: Placement) -> String {
     let supply = supply_label(ports);
-    powering(ports).map_or(supply.clone(), |port| {
-        format!("{supply} · {}", port::inline(placement, port.index))
+    powering(ports).map_or(supply.clone(), |(index, _)| {
+        format!("{supply} · {}", port::inline(placement, index))
     })
 }
 
 /// None where the port is not the one powering the machine.
 #[must_use]
-pub fn powering_label(port: &PortState) -> Option<&'static str> {
+pub fn powering_label(port: &PortReading) -> Option<&'static str> {
     port.charging.then_some(yes_no(true))
 }
 
 /// `DisplayPort` alternate mode, and None where the port is not in it.
 #[must_use]
-pub fn display_port_label(port: &PortState) -> Option<&'static str> {
+pub fn display_port_label(port: &PortReading) -> Option<&'static str> {
     port.video.then_some("Connected")
 }
 
@@ -304,8 +304,8 @@ pub fn cable_length_label(latency: CableLatency) -> &'static str {
 #[cfg(test)]
 mod tests {
     use frameguin_contract::{
-        Cable, CableLatency, CableSpeed, DataRole, PdContract, PeakCurrent, PortPartner, PortState,
-        PowerRole, SupplyKind,
+        Cable, CableLatency, CableSpeed, DataRole, PdContract, PeakCurrent, PortMask, PortPartner,
+        PortReading, PortState, PowerRole, SupplyKind,
     };
     use frameguin_model::port::Placement;
 
@@ -315,7 +315,14 @@ mod tests {
         port_summary, power_limited_label, power_role_label, powering_label, supply_kind_label,
         supply_label, supply_summary,
     };
-    use frameguin_model::fixtures::port;
+    use frameguin_model::fixtures::{port, reading};
+
+    fn on(reading: PortReading) -> PortState {
+        PortState {
+            index: 0,
+            mask: PortMask::On(reading),
+        }
+    }
 
     #[test]
     fn a_measured_voltage_reads_to_a_tenth_of_a_volt() {
@@ -324,23 +331,23 @@ mod tests {
 
     #[test]
     fn what_a_link_carries_reads_as_volts_amps_and_watts() {
-        assert_eq!(carried(&port(0)).as_deref(), Some("20 V, 5 A (100 W)"));
+        assert_eq!(carried(&reading(0)).as_deref(), Some("20 V, 5 A (100 W)"));
     }
 
     #[test]
     fn a_contract_short_of_a_whole_watt_keeps_its_tenth() {
-        let usb = PortState {
+        let usb = PortReading {
             millivolts: 5_000,
             milliamps: 1_500,
-            ..port(0)
+            ..reading(0)
         };
         assert_eq!(carried(&usb).as_deref(), Some("5 V, 1.5 A (7.5 W)"));
-        assert_eq!(supply_label(&[usb]), "7.5 W");
+        assert_eq!(supply_label(&[on(usb)]), "7.5 W");
     }
 
     #[test]
     fn a_port_that_settled_on_nothing_carries_nothing_to_show() {
-        assert_eq!(carried(&port(1)), None);
+        assert_eq!(carried(&reading(1)), None);
     }
 
     #[test]
@@ -387,10 +394,10 @@ mod tests {
 
     #[test]
     fn a_port_line_names_the_partner_and_the_watts_of_its_contract() {
-        let second_charger = PortState {
+        let second_charger = on(PortReading {
             charging: false,
-            ..port(0)
-        };
+            ..reading(0)
+        });
         assert_eq!(
             port_summary(&second_charger, None),
             "Supplying power · ↑ 100 W"
@@ -408,22 +415,22 @@ mod tests {
 
     #[test]
     fn a_partner_with_no_contract_is_named_without_watts() {
-        let accessory = PortState {
+        let accessory = on(PortReading {
             partner: PortPartner::Audio,
-            ..port(1)
-        };
+            ..reading(1)
+        });
         assert_eq!(port_summary(&accessory, None), "Audio accessory");
     }
 
     #[test]
     fn a_device_in_the_slot_leads_its_ports_summary() {
-        let card = PortState {
+        let card = on(PortReading {
             partner: PortPartner::Sink,
             charging: false,
             millivolts: 5_000,
             milliamps: 680,
-            ..port(0)
-        };
+            ..reading(0)
+        });
         assert_eq!(
             port_summary(&card, Some("HDMI Expansion Card")),
             "HDMI Expansion Card · ↓ 3.4 W"
@@ -439,10 +446,10 @@ mod tests {
     }
 
     #[test]
-    fn a_port_turned_off_says_so_over_whatever_it_last_reported() {
+    fn a_port_turned_off_says_so_over_the_device_in_its_slot() {
         let off = PortState {
-            enabled: Some(false),
-            ..port(0)
+            index: 0,
+            mask: PortMask::Off,
         };
         assert_eq!(port_summary(&off, Some("USB-C Hub")), "Turned off");
     }
@@ -454,10 +461,10 @@ mod tests {
 
     #[test]
     fn powering_the_machine_outranks_a_device_even_when_the_partner_is_nothing() {
-        let charger = PortState {
+        let charger = on(PortReading {
             partner: PortPartner::Nothing,
-            ..port(0)
-        };
+            ..reading(0)
+        });
         assert_eq!(
             port_summary(&charger, Some("HDMI Expansion Card")),
             "Powering the machine · 100 W"
@@ -507,18 +514,18 @@ mod tests {
 
     #[test]
     fn only_the_port_powering_the_machine_says_so() {
-        assert_eq!(powering_label(&port(0)), Some("Yes"));
-        assert_eq!(powering_label(&port(1)), None);
+        assert_eq!(powering_label(&reading(0)), Some("Yes"));
+        assert_eq!(powering_label(&reading(1)), None);
     }
 
     #[test]
     fn only_a_port_in_display_port_mode_says_so() {
-        let video = PortState {
+        let video = PortReading {
             video: true,
-            ..port(1)
+            ..reading(1)
         };
         assert_eq!(display_port_label(&video), Some("Connected"));
-        assert_eq!(display_port_label(&port(1)), None);
+        assert_eq!(display_port_label(&reading(1)), None);
     }
 
     #[test]

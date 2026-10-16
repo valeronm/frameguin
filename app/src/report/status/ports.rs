@@ -17,7 +17,9 @@ use std::cell::{Cell, RefCell};
 use std::rc::{Rc, Weak};
 
 use adw::prelude::*;
-use frameguin_contract::{Attached, PortPartner, PortRegisters, PortSet, PortState, PowerRole};
+use frameguin_contract::{
+    Attached, PortMask, PortPartner, PortReading, PortRegisters, PortSet, PortState, PowerRole,
+};
 use frameguin_model::control::ports::powering;
 use frameguin_model::port::Placement;
 use frameguin_model::reading::Request;
@@ -157,7 +159,7 @@ impl Section {
         devices: &[Attached],
     ) {
         let placement = self.placement;
-        let powering = powering(ports).map(|state| state.index);
+        let powering = powering(ports).map(|(index, _)| index);
         let mut ports: Vec<&PortState> = ports.iter().collect();
         ports.sort_by_key(|state| placement.order(state.index));
         let same = self
@@ -238,29 +240,31 @@ impl PortPage {
         let Some(state) = ports.iter().find(|state| state.index == self.index) else {
             return;
         };
-        let mut state = state.clone();
-        match state.registers {
-            Some(registers) => self.registers.set(Some((state.partner, registers))),
-            None if state.partner == PortPartner::Nothing || state.turned_off() => {
+        let layout = match &state.mask {
+            PortMask::Off => {
                 self.registers.set(None);
+                vec![off_group(self.placement, self.index)]
             }
-            None => {
-                state.registers = self
-                    .registers
-                    .get()
-                    .filter(|&(partner, _)| partner == state.partner)
-                    .map(|(_, registers)| registers);
+            PortMask::On(reading) | PortMask::Unchecked(reading) => {
+                let mut reading = reading.clone();
+                match reading.registers {
+                    Some(registers) => self.registers.set(Some((reading.partner, registers))),
+                    None if reading.partner == PortPartner::Nothing => self.registers.set(None),
+                    None => {
+                        reading.registers = self
+                            .registers
+                            .get()
+                            .filter(|&(partner, _)| partner == reading.partner)
+                            .map(|(_, registers)| registers);
+                    }
+                }
+                let devices = self.placement.attached(self.index, devices);
+                let mut layout = vec![connection_group(self.placement, self.index, &reading)];
+                layout.extend(cable_group(&reading));
+                layout.extend(contract_group(&reading));
+                layout.extend(devices.into_iter().map(device_group));
+                layout
             }
-        }
-        let layout = if state.turned_off() {
-            vec![off_group(self.placement, state.index)]
-        } else {
-            let devices = self.placement.attached(self.index, devices);
-            let mut layout = vec![connection_group(self.placement, &state)];
-            layout.extend(cable_group(&state));
-            layout.extend(contract_group(&state));
-            layout.extend(devices.into_iter().map(device_group));
-            layout
         };
         let mut drawn = self.drawn.borrow_mut();
         if let Some(shown) = drawn.as_mut()
@@ -308,7 +312,6 @@ impl PortPage {
     }
 }
 
-/// Everything else a port turned off carries is what it last saw.
 fn off_group(placement: Placement, index: u8) -> Group {
     let mut group = Group::new(TURNED_OFF);
     if let Some(number) = port::secondary(placement, index) {
@@ -317,9 +320,9 @@ fn off_group(placement: Placement, index: u8) -> Group {
     group
 }
 
-fn connection_group(placement: Placement, state: &PortState) -> Group {
+fn connection_group(placement: Placement, index: u8, state: &PortReading) -> Group {
     let mut group = Group::new(partner_label(state.partner).unwrap_or(NOTHING_ATTACHED));
-    if let Some(number) = port::secondary(placement, state.index) {
+    if let Some(number) = port::secondary(placement, index) {
         group.row("Port", number);
     }
     if state.partner == PortPartner::Nothing {
@@ -347,7 +350,7 @@ fn connection_group(placement: Placement, state: &PortState) -> Group {
     group
 }
 
-fn cable_group(state: &PortState) -> Option<Group> {
+fn cable_group(state: &PortReading) -> Option<Group> {
     let cable = state.registers?.cable?;
     let mut group = Group::new("Cable");
     if let Some(kind) = cable_type_label(cable.active) {
@@ -365,7 +368,7 @@ fn cable_group(state: &PortState) -> Option<Group> {
     Some(group)
 }
 
-fn contract_group(state: &PortState) -> Option<Group> {
+fn contract_group(state: &PortReading) -> Option<Group> {
     if state.partner == PortPartner::Nothing {
         return None;
     }

@@ -12,7 +12,7 @@ use frameguin_contract::{
     TouchscreenControl, UsbControl, UsbSpeed,
 };
 
-pub(crate) use crate::fixtures::{CAPACITY, NOMINAL_MILLIVOLTS, cap, port, state};
+pub(crate) use crate::fixtures::{CAPACITY, NOMINAL_MILLIVOLTS, cap, port, reading, state};
 
 /// The pack's block, part way through a charge.
 pub(crate) fn block() -> BatteryInfo {
