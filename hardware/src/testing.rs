@@ -24,6 +24,7 @@ use crate::led::LedClass;
 use crate::lifetime::{EcBoot, Holders};
 use crate::mirror::Mirrors;
 use crate::part;
+use crate::pd_controller::{self, PORTS_PER_CONTROLLER};
 use crate::platform;
 use crate::state::{self, Store};
 use crate::thermal::{FAN_ENTRIES, FAN_NOT_PRESENT, RawThresholds};
@@ -530,6 +531,20 @@ pub struct Connectors {
     pub refusing_masks: Vec<(u8, u16)>,
     /// Every controller a port mask was asked of, in order.
     pub masks_read: Mutex<Vec<(u8, u16)>>,
+}
+
+impl Connectors {
+    /// Port `index` turned off in its controller's mask, the controller
+    /// placed from `platform`'s table.
+    #[must_use]
+    pub fn with_port_off(mut self, platform: Platform, index: u8) -> Self {
+        let controller = usize::from(index / PORTS_PER_CONTROLLER);
+        if let Some(&address) = pd_controller::controllers(platform).get(controller) {
+            self.masks
+                .push((address, 0b11 & !pd_controller::enable_bit(index)));
+        }
+        self
+    }
 }
 
 impl Default for Connectors {

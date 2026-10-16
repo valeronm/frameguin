@@ -324,6 +324,15 @@ mod tests {
     }
 
     #[test]
+    fn a_stub_turning_one_port_off_leaves_its_neighbour_on() {
+        let ec = Connectors::default().with_port_off(LAPTOP_13_PRO, 3);
+        let ports = Ports::new(Arc::new(ec), LAPTOP_13_PRO).expect("four ports answered");
+        let read = ready(ports.ports(PortSet::ALL)).unwrap();
+        assert_eq!(read[2].enabled, Some(true));
+        assert_eq!(read[3].enabled, Some(false));
+    }
+
+    #[test]
     fn a_port_turned_off_is_never_asked_about_its_cable() {
         let ec = Arc::new(Connectors {
             registers: charging(),

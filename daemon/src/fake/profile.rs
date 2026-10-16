@@ -44,6 +44,8 @@ struct Shape {
     haptic_touchpad: bool,
     pd_controllers: u8,
     pd_ports: u8,
+    /// A port its controller has turned off.
+    port_off: Option<u8>,
     input_deck: bool,
     fan_duty: bool,
     second_fan: bool,
@@ -60,6 +62,7 @@ const BOARDS: &[(&str, Shape)] = &[
             haptic_touchpad: true,
             pd_controllers: 2,
             pd_ports: 4,
+            port_off: Some(3),
             input_deck: true,
             fan_duty: true,
             second_fan: false,
@@ -75,6 +78,7 @@ const BOARDS: &[(&str, Shape)] = &[
             haptic_touchpad: false,
             pd_controllers: 0,
             pd_ports: 0,
+            port_off: None,
             input_deck: false,
             fan_duty: false,
             second_fan: false,
@@ -90,6 +94,7 @@ const BOARDS: &[(&str, Shape)] = &[
             haptic_touchpad: false,
             pd_controllers: 2,
             pd_ports: 4,
+            port_off: None,
             input_deck: false,
             fan_duty: false,
             second_fan: false,
@@ -105,6 +110,7 @@ const BOARDS: &[(&str, Shape)] = &[
             haptic_touchpad: false,
             pd_controllers: 2,
             pd_ports: 4,
+            port_off: None,
             input_deck: false,
             fan_duty: true,
             second_fan: false,
@@ -120,6 +126,7 @@ const BOARDS: &[(&str, Shape)] = &[
             haptic_touchpad: false,
             pd_controllers: 3,
             pd_ports: 5,
+            port_off: None,
             input_deck: true,
             fan_duty: false,
             second_fan: true,
@@ -153,6 +160,14 @@ fn holding() -> Mirrors {
 
 fn machine(shape: &Shape, refusing: bool) -> Detected {
     let mirrors = holding();
+    let mut connectors = Connectors {
+        controllers: shape.pd_controllers,
+        count: shape.pd_ports,
+        ..Connectors::default()
+    };
+    if let Some(port) = shape.port_off {
+        connectors = connectors.with_port_off(shape.platform, port);
+    }
     let devices = Devices {
         battery: Some(Battery::new(
             Arc::new(Gauge::default()),
@@ -199,14 +214,7 @@ fn machine(shape: &Shape, refusing: bool) -> Detected {
             .charging_led
             .then(|| ChargingLed::new(Box::new(Leds::default()), Arc::new(Sides::default())))
             .flatten(),
-        ports: Ports::new(
-            Arc::new(Connectors {
-                controllers: shape.pd_controllers,
-                count: shape.pd_ports,
-                ..Connectors::default()
-            }),
-            shape.platform,
-        ),
+        ports: Ports::new(Arc::new(connectors), shape.platform),
         chassis: Chassis::new(Arc::new(Cover {
             deck: shape.input_deck.then_some(DeckState::On),
             ..Cover::default()
