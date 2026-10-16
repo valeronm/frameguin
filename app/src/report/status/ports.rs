@@ -28,7 +28,7 @@ use frameguin_modelview::ports::{
     NOTHING_ATTACHED, POWERING_THE_MACHINE, TURNED_OFF, cable_length_label, cable_rating_label,
     cable_speed_label, cable_type_label, carried, contract_label, data_role_label,
     display_port_label, epr_label, measured_label, mismatch_label, partner_label, peak_label,
-    port_summary, power_limited_label, power_role_label, powering_label, supply_kind_label,
+    port_line, power_limited_label, power_role_label, powering_label, supply_kind_label,
     vconn_label,
 };
 use frameguin_modelview::usb::{capacity_label, device_name, network_label, speed_label};
@@ -210,11 +210,7 @@ impl Section {
             *self.ports.borrow_mut() = built;
         }
         for (port, state) in self.ports.borrow().iter().zip(&ports) {
-            let name = placement
-                .attached(state.index, devices)
-                .first()
-                .map(|device| device_name(device));
-            port.row.set_subtitle(&port_summary(state, name.as_deref()));
+            port.row.set_subtitle(&port_line(placement, state, devices));
             port.charging.set(powering == Some(state.index));
         }
         if !same {

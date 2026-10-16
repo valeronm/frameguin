@@ -19,8 +19,6 @@ use frameguin_contract::{
     TouchpadControl, TouchscreenControl, UsbControl,
 };
 
-use crate::port::Placement;
-
 /// Whether a device is there, decided by the device's own path: a read the
 /// control answers is the device, one it answers `Absent` is no device, and
 /// anything else is the device being unreachable, which says nothing about
@@ -80,7 +78,7 @@ impl<
             charging_led: charging_led::ChargingLed::detect(control)
                 .await?
                 .map(Rc::new),
-            ports: ports::Ports::detect(control, Placement::of(board.platform()))
+            ports: ports::Ports::detect(control, board.platform())
                 .await?
                 .map(Rc::new),
             chassis: chassis::Chassis::detect(control).await?.map(Rc::new),

@@ -91,7 +91,7 @@ impl Machine {
                 mirrors,
             )),
             charging_led: ChargingLed::new(Box::new(Leds::default()), Arc::new(Sides::default())),
-            ports: Ports::new(Arc::new(Connectors::default()), Platform::Unknown),
+            ports: Ports::new(Arc::new(Connectors::default()), Platform::Laptop13ProUltra3),
             chassis: Chassis::new(Arc::new(Cover::default())),
             privacy_switches: PrivacySwitches::new(Arc::new(Sliders::default())),
             thermal: Thermal::new(Arc::new(Vents::default())),
@@ -272,12 +272,14 @@ fn every_getter_answers_through_its_proxy() {
         assert_eq!(ports[0].index, 0);
         assert!(matches!(
             &ports[0].mask,
-            PortMask::Unchecked(reading) if reading.charging && reading.partner == PortPartner::Source
+            PortMask::On(reading) if reading.charging && reading.partner == PortPartner::Source
         ));
         assert!(matches!(
             &ports[1].mask,
-            PortMask::Unchecked(reading) if !reading.charging && reading.partner == PortPartner::Nothing
+            PortMask::On(reading) if !reading.charging && reading.partner == PortPartner::Nothing
         ));
+        let switchable = p.ports.get_switchable().await.unwrap();
+        assert!((0..4).all(|port| switchable.contains(port)));
         assert_eq!(p.chassis.get_state().await.unwrap(), Cover::default().state);
         assert_eq!(
             p.chassis.get_features().await.unwrap(),
@@ -351,6 +353,9 @@ fn every_setter_writes_when_polkit_allows() {
         );
         p.touchscreen.set_enabled(false).await.unwrap();
         assert!(!p.touchscreen.get_enabled().await.unwrap());
+        p.ports.set_enabled(3, false).await.unwrap();
+        let ports = p.ports.get_ports(PortSet::default()).await.unwrap();
+        assert_eq!(ports[3].mask, PortMask::Off);
     });
 }
 
@@ -383,6 +388,9 @@ fn a_refused_write_leaves_the_device_untouched() {
         );
         assert!(denied(p.touchscreen.set_enabled(false).await));
         assert!(p.touchscreen.get_enabled().await.unwrap());
+        assert!(denied(p.ports.set_enabled(3, false).await));
+        let ports = p.ports.get_ports(PortSet::default()).await.unwrap();
+        assert!(matches!(ports[3].mask, PortMask::On(_)));
     });
 }
 
@@ -402,6 +410,8 @@ fn a_bad_argument_and_a_write_in_place_are_refused_where_polkit_refuses() {
         assert!(denied(p.touchpad.set_haptic_intensity(33).await));
         assert!(denied(p.touchscreen.set_enabled(true).await));
         assert!(denied(p.charging_led.set_enabled(true).await));
+        assert!(denied(p.ports.set_enabled(9, false).await));
+        assert!(denied(p.ports.set_enabled(0, true).await));
     });
 }
 
@@ -416,6 +426,20 @@ fn a_bad_argument_is_refused_once_authorized() {
         assert!(invalid(p.power_led.set_brightness(0).await));
         assert!(invalid(p.power_led.set_level(PowerLedLevel::Custom).await));
         assert!(invalid(p.touchpad.set_haptic_intensity(33).await));
+        assert!(invalid(p.ports.set_enabled(9, false).await));
+    });
+}
+
+#[test]
+fn the_last_port_on_is_refused_its_switch() {
+    let peer = serve(true);
+    peer.run(|p| async move {
+        for port in 0..3 {
+            p.ports.set_enabled(port, false).await.unwrap();
+        }
+        assert!(invalid(p.ports.set_enabled(3, false).await));
+        let ports = p.ports.get_ports(PortSet::default()).await.unwrap();
+        assert!(matches!(ports[3].mask, PortMask::On(_)));
     });
 }
 
@@ -567,6 +591,22 @@ fn a_port_turned_off_crosses_with_no_reading() {
         let ports = p.ports.get_ports(PortSet::ALL).await.unwrap();
         assert!(matches!(&ports[2].mask, PortMask::On(_)));
         assert_eq!(ports[3].mask, PortMask::Off);
+    });
+}
+
+#[test]
+fn a_port_with_no_mask_to_read_crosses_unchecked() {
+    let peer = serve_devices(
+        true,
+        Devices {
+            ports: Ports::new(Arc::new(Connectors::default()), Platform::Unknown),
+            ..devices()
+        },
+    );
+    peer.run(|p| async move {
+        let ports = p.ports.get_ports(PortSet::ALL).await.unwrap();
+        assert!(matches!(&ports[0].mask, PortMask::Unchecked(reading) if reading.charging));
+        assert!(p.ports.get_switchable().await.unwrap().is_empty());
     });
 }
 

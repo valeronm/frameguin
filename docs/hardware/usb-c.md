@@ -453,6 +453,7 @@ Who writes it:
 | Writer | Value | When |
 |---|---|---|
 | `framework_lib` `enable_ports` | `0b11` or `0b00` behind a boolean | on request |
+| This app's daemon | one port's bit, the other as read | on request, never leaving a laptop with no port enabled |
 | The EC, `cypd_reset_pd_chip` | `0` only | the start of a controller reset: up to 650 ms for the ports to discharge, interrupts cleared, 1 s, then a chip reset that restarts the controller's firmware with its ports enabled |
 
 - The EC never writes the mask back.
@@ -469,11 +470,16 @@ Who writes it:
 | Write `0b10` after that | reads back `0b10`; the charger drops, the drive enumerates again without being unplugged |
 | Write `0b11` after that | reads back `0b11`; the charger comes back online |
 | UCSI through each of those writes | the partner, and its `ucsi-source-psy` supply's status and current, unchanged from before the first |
+| Laptop 13 Pro, nothing attached, one port's bit cleared, the mask polled every 50 ms | still enabled 18 ms after the write returned, disabled by 85 ms |
+| The same port's bit set again | enabled on the first read, 19 ms after |
 
 - Consequence: each bit switches its own connector, so a single port of a
   controller can be turned off.
 - Consequence: UCSI's view of a disabled port freezes with the
   controller's, so only the attached device itself shows the port is off.
+- Consequence: a read straight after a write turning a port off can still
+  find it enabled; the time an attached device takes to discharge is
+  unmeasured.
 
 ## Persistence
 

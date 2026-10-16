@@ -130,6 +130,14 @@ impl PortsControl for Bus {
     async fn ports(&self, controller_ports: PortSet) -> DeviceResult<Vec<PortState>> {
         call(self.devices.ports.get_ports(controller_ports)).await
     }
+
+    async fn switchable(&self) -> DeviceResult<PortSet> {
+        call(self.devices.ports.get_switchable()).await
+    }
+
+    async fn set_enabled(&self, port: u8, enabled: bool) -> DeviceResult<()> {
+        call(self.devices.ports.set_enabled(port, enabled)).await
+    }
 }
 
 impl ChassisControl for Bus {

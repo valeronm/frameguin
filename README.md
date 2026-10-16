@@ -26,7 +26,8 @@ The main window has a tab per kind of control, each showing only what the
 board supports:
 
 - **Power** — what the charger is supplying and on which port, what the
-  battery is doing, the charge limit, and the charge speed.
+  battery is doing, the charge limit, the charge speed, and switching a
+  USB-C port off.
 - **Input** — the touchpad's haptic intensity and click force, and
   switching the touchscreen off.
 - **Lights** — the power button LED's brightness, switching the charging LED

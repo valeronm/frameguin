@@ -1,14 +1,15 @@
 //! The USB-C ports: the words a reader needs for one.
 
 use frameguin_contract::{
-    Cable, CableLatency, CableSpeed, DataRole, Epr, PdContract, PeakCurrent, PortMask, PortPartner,
-    PortReading, PortState, PowerRole, SupplyKind,
+    Attached, Cable, CableLatency, CableSpeed, DataRole, Epr, OffRefusal, PdContract, PeakCurrent,
+    PortMask, PortPartner, PortReading, PortState, PowerRole, SupplyKind,
 };
 use frameguin_model::control::ports::powering;
 use frameguin_model::port::Placement;
 
 use crate::port;
 use crate::units::{Kind, amps, tenth_volts, volts, watts};
+use crate::usb::device_name;
 use crate::words::{NO_SUPPLY, yes_no};
 
 /// An empty port, worded as the absence it is rather than as a kind of
@@ -59,6 +60,35 @@ pub const POWERING_THE_MACHINE: &str = "Powering the machine";
 
 /// A port its controller has disabled, worded over what it last reported.
 pub const TURNED_OFF: &str = "Turned off";
+
+/// [`port_summary`] for a port in a list, led by the device placed in its
+/// slot.
+#[must_use]
+pub fn port_line(placement: Placement, port: &PortState, devices: &[Attached]) -> String {
+    let name = placement
+        .attached(port.index, devices)
+        .first()
+        .map(|device| device_name(device));
+    port_summary(port, name.as_deref())
+}
+
+/// A port's switch: why it cannot be turned off where it cannot, worded over
+/// what the port reports, and [`port_line`] otherwise.
+#[must_use]
+pub fn switch_line(
+    placement: Placement,
+    port: &PortState,
+    devices: &[Attached],
+    refusal: Option<OffRefusal>,
+) -> String {
+    match refusal {
+        Some(OffRefusal::LastPort) => "Can't be turned off to allow charging".to_owned(),
+        Some(OffRefusal::Unchecked) => {
+            "Can't be turned off while a port can't be checked".to_owned()
+        }
+        None => port_line(placement, port, devices),
+    }
+}
 
 /// One port on one line: what is attached — the device in the slot where
 /// one was placed there, named for powering the machine where it does — and
@@ -304,8 +334,8 @@ pub fn cable_length_label(latency: CableLatency) -> &'static str {
 #[cfg(test)]
 mod tests {
     use frameguin_contract::{
-        Cable, CableLatency, CableSpeed, DataRole, PdContract, PeakCurrent, PortMask, PortPartner,
-        PortReading, PortState, PowerRole, SupplyKind,
+        Cable, CableLatency, CableSpeed, DataRole, OffRefusal, PdContract, PeakCurrent, PortMask,
+        PortPartner, PortReading, PortState, PowerRole, SupplyKind,
     };
     use frameguin_model::port::Placement;
 
@@ -313,7 +343,7 @@ mod tests {
         cable_length_label, cable_rating_label, cable_speed_label, carried, data_role_label,
         display_port_label, measured_label, mismatch_label, partner_label, peak_label,
         port_summary, power_limited_label, power_role_label, powering_label, supply_kind_label,
-        supply_label, supply_summary,
+        supply_label, supply_summary, switch_line,
     };
     use frameguin_model::fixtures::{port, reading};
 
@@ -620,5 +650,22 @@ mod tests {
             ..fixed()
         };
         assert_eq!(mismatch_label(&short), Some("Yes"));
+    }
+
+    #[test]
+    fn a_locked_switch_says_why_over_what_its_port_reports() {
+        assert_eq!(
+            switch_line(
+                Placement::default(),
+                &port(0),
+                &[],
+                Some(OffRefusal::LastPort)
+            ),
+            "Can't be turned off to allow charging"
+        );
+        assert_eq!(
+            switch_line(Placement::default(), &port(0), &[], None),
+            "Powering the machine · ↑ 100 W"
+        );
     }
 }

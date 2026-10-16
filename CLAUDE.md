@@ -357,8 +357,9 @@ it and the non-obvious constraints.
   `set_charge_current_limit` its mirror, and only for a cap, since the
   mirror holds nothing for a cap written without evidence as much as for
   no cap at all — a lift is always written; the charging LED's `set_enabled`
-  the kernel's hold, the touchscreen's `set_enabled` the pad — and on the
-  route with no pad, nothing: it skips no write at all. A
+  the kernel's hold, the ports' `set_enabled` the controller's mask, the
+  touchscreen's `set_enabled` the pad — and on the route with no pad,
+  nothing: it skips no write at all. A
   mirror is worth skipping on only where the event that invalidates it is the
   one its lifetime ends on, which holds for the charge current limit and not
   here: the panel's mirror catches the boot and the sleep, and a lid opening

@@ -21,7 +21,7 @@ use framework_lib::chromium_ec::commands::{
     DeckStateMode, EcRequestDeckState, EcRequestGetPdPortState, EcRequestGetUptimeInfo,
     EcRequestReadPdVersionV0, EcRequestReadPdVersionV1, FpLedBrightnessLevel,
 };
-use framework_lib::chromium_ec::i2c_passthrough::i2c_read;
+use framework_lib::chromium_ec::i2c_passthrough::{i2c_read, i2c_write};
 use framework_lib::chromium_ec::{CrosEc, CrosEcDriver, EcError, EcResponseStatus, EcResult};
 use framework_lib::power;
 
@@ -86,6 +86,7 @@ pub trait PdPorts: Send + Sync {
     /// `controller`'s port mask over I2C passthrough, a bit per connector set
     /// where it is enabled.
     fn port_enable(&self, controller: (u8, u16)) -> DeviceResult<u8>;
+    fn set_port_enable(&self, controller: (u8, u16), mask: u8) -> DeviceResult<()>;
 }
 
 pub trait ChassisEc: Send + Sync {
@@ -400,6 +401,19 @@ impl PdPorts for Ec {
     fn port_enable(&self, (bus, address): (u8, u16)) -> DeviceResult<u8> {
         let [mask] = i2c_block(&self.ec(), bus, address, pd_controller::PDPORT_ENABLE)?;
         Ok(mask)
+    }
+
+    fn set_port_enable(&self, (bus, address): (u8, u16), mask: u8) -> DeviceResult<()> {
+        i2c_write(
+            &self.ec(),
+            bus,
+            address,
+            pd_controller::PDPORT_ENABLE,
+            &[mask],
+        )
+        .map_err(device_error)?
+        .is_successful()
+        .map_err(device_error)
     }
 }
 

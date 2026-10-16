@@ -1,14 +1,21 @@
-//! The machine's USB-C ports: one device answering for all of them, read and
-//! never set.
+//! The machine's USB-C ports: one device answering for all of them, and the
+//! switch each controller's port mask is.
 
 use std::sync::Arc;
+use std::thread;
+use std::time::{Duration, Instant};
 
 use frameguin_contract::{
-    Board, DeviceResult, Platform, PortMask, PortPartner, PortSet, PortState, PortsControl,
+    Board, DeviceError, DeviceResult, OffRefusal, Platform, PortMask, PortPartner, PortSet,
+    PortState, PortsControl, off_refusal,
 };
 
 use crate::ec::{Ec, PdPorts};
 use crate::pd_controller::{self, PORTS_PER_CONTROLLER};
+
+/// How long a write waits for the controller's mask to show it.
+const SETTLE: Duration = Duration::from_secs(1);
+const SETTLE_POLL: Duration = Duration::from_millis(20);
 
 pub struct Ports {
     ec: Arc<dyn PdPorts>,
@@ -19,6 +26,7 @@ pub struct Ports {
     /// By the EC's controller order, and None for one the board's table does
     /// not place.
     controllers: Vec<Option<Controller>>,
+    platform: Platform,
 }
 
 /// A controller's (I2C port, address), and which of its reads answered at
@@ -67,8 +75,41 @@ impl Ports {
             ec,
             count,
             controllers,
+            platform,
         })
     }
+
+    /// Each controller's mask by the EC's controller order, and None for one
+    /// whose mask did not read.
+    fn masks(&self) -> Vec<Option<u8>> {
+        self.controllers
+            .iter()
+            .map(|controller| {
+                controller
+                    .filter(|controller| controller.mask)
+                    .and_then(|controller| self.ec.port_enable(controller.address).ok())
+            })
+            .collect()
+    }
+
+    fn switchable_controller(&self, port: u8) -> Option<Controller> {
+        if port >= self.count {
+            return None;
+        }
+        self.controllers
+            .get(controller_of(port))
+            .copied()
+            .flatten()
+            .filter(|controller| controller.mask)
+    }
+}
+
+fn controller_of(port: u8) -> usize {
+    usize::from(port / PORTS_PER_CONTROLLER)
+}
+
+fn mask_of(masks: &[Option<u8>], port: u8) -> Option<u8> {
+    masks.get(controller_of(port)).copied().flatten()
 }
 
 impl PortsControl for Ports {
@@ -78,24 +119,12 @@ impl PortsControl for Ports {
     /// not read leave the port without them for that read rather than
     /// costing the port.
     async fn ports(&self, controller_ports: PortSet) -> DeviceResult<Vec<PortState>> {
-        let masks: Vec<_> = self
-            .controllers
-            .iter()
-            .map(|controller| {
-                controller
-                    .filter(|controller| controller.mask)
-                    .and_then(|controller| self.ec.port_enable(controller.address).ok())
-            })
-            .collect();
+        let masks = self.masks();
         Ok((0..self.count)
             .filter_map(|index| {
                 let reading = self.ec.port_state(index).ok().flatten()?;
-                let c = usize::from(index / PORTS_PER_CONTROLLER);
-                let enabled = masks
-                    .get(c)
-                    .copied()
-                    .flatten()
-                    .map(|mask| pd_controller::enabled(mask, index));
+                let enabled =
+                    mask_of(&masks, index).map(|mask| pd_controller::enabled(mask, index));
                 let mut mask = match enabled {
                     Some(false) => PortMask::Off,
                     Some(true) => PortMask::On(reading),
@@ -104,7 +133,7 @@ impl PortsControl for Ports {
                 if let PortMask::On(reading) | PortMask::Unchecked(reading) = &mut mask
                     && controller_ports.contains(index)
                     && reading.partner != PortPartner::Nothing
-                    && let Some(&Some(controller)) = self.controllers.get(c)
+                    && let Some(&Some(controller)) = self.controllers.get(controller_of(index))
                     && controller.registers
                 {
                     reading.registers = self.ec.port_registers(index, controller.address).ok();
@@ -113,6 +142,67 @@ impl PortsControl for Ports {
             })
             .collect())
     }
+
+    /// Every controller whose mask read at detection: `PDPORT_ENABLE` is one
+    /// register of the host-interface map every `CCGx` shares, so a mask that
+    /// reads is one that takes a write.
+    async fn switchable(&self) -> DeviceResult<PortSet> {
+        Ok((0..self.count)
+            .filter(|&port| self.switchable_controller(port).is_some())
+            .fold(PortSet::default(), |set, port| set.union(PortSet::of(port))))
+    }
+
+    async fn set_enabled(&self, port: u8, enabled: bool) -> DeviceResult<()> {
+        let Some(controller) = self.switchable_controller(port) else {
+            return Err(DeviceError::InvalidArgs(format!(
+                "port {port} has no switch"
+            )));
+        };
+        let mask = self.ec.port_enable(controller.address).map_err(|_| {
+            DeviceError::Failed(format!(
+                "port {port}'s controller did not answer for its mask"
+            ))
+        })?;
+        if pd_controller::enabled(mask, port) == enabled {
+            return Ok(());
+        }
+        if !enabled {
+            let masks = self.masks();
+            let states = (0..self.count).map(|index| {
+                let enabled =
+                    mask_of(&masks, index).map(|mask| pd_controller::enabled(mask, index));
+                (index, enabled)
+            });
+            match off_refusal(self.platform, port, states) {
+                Some(OffRefusal::LastPort) => {
+                    return Err(DeviceError::InvalidArgs(
+                        "the last port on can't be turned off to allow charging".into(),
+                    ));
+                }
+                Some(OffRefusal::Unchecked) => {
+                    return Err(DeviceError::Failed(
+                        "a port can't be checked, so none can be turned off".into(),
+                    ));
+                }
+                None => {}
+            }
+        }
+        let bit = pd_controller::enable_bit(port);
+        let mask = if enabled { mask | bit } else { mask & !bit };
+        self.ec.set_port_enable(controller.address, mask)?;
+        // A controller turning a port off goes on reading it enabled for tens
+        // of milliseconds after taking the write.
+        let deadline = Instant::now() + SETTLE;
+        while Instant::now() < deadline
+            && self
+                .ec
+                .port_enable(controller.address)
+                .is_ok_and(|read| pd_controller::enabled(read, port) != enabled)
+        {
+            thread::sleep(SETTLE_POLL);
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -120,7 +210,7 @@ mod tests {
     use std::sync::Arc;
 
     use frameguin_contract::{
-        Cable, CableLatency, CableSpeed, PdContract, Platform, PortMask, PortReading,
+        Cable, CableLatency, CableSpeed, DeviceError, PdContract, Platform, PortMask, PortReading,
         PortRegisters, PortSet, PortState, PortsControl, SupplyKind,
     };
 
@@ -327,10 +417,7 @@ mod tests {
 
     #[test]
     fn each_bit_of_a_controllers_mask_is_one_of_its_ports() {
-        let ec = Connectors {
-            masks: vec![(laptop_13_pro()[1], 0b01)],
-            ..Connectors::default()
-        };
+        let ec = Connectors::default().with_port_off(LAPTOP_13_PRO, 3);
         let ports = Ports::new(Arc::new(ec), LAPTOP_13_PRO).expect("four ports answered");
         let read = ready(ports.ports(PortSet::ALL)).unwrap();
         assert!(
@@ -355,8 +442,7 @@ mod tests {
         let ec = Arc::new(Connectors {
             registers: charging(),
             sink: Some(3),
-            masks: vec![(laptop_13_pro()[1], 0b01)],
-            ..Connectors::default()
+            ..Connectors::default().with_port_off(LAPTOP_13_PRO, 3)
         });
         let ports = Ports::new(ec.clone(), LAPTOP_13_PRO).expect("four ports answered");
         ec.registers_read.lock().unwrap().clear();
@@ -416,5 +502,160 @@ mod tests {
             *ec.registers_read.lock().unwrap(),
             vec![(2, laptop_13_pro()[1])]
         );
+    }
+
+    fn switched(ec: &Arc<Connectors>) -> Ports {
+        let ports = Ports::new(ec.clone(), LAPTOP_13_PRO).expect("four ports answered");
+        ec.masks_written.lock().unwrap().clear();
+        ports
+    }
+
+    fn mask(ports: &Ports, index: usize) -> PortMask {
+        ready(ports.ports(PortSet::default())).unwrap()[index]
+            .mask
+            .clone()
+    }
+
+    #[test]
+    fn every_port_whose_mask_reads_is_switchable() {
+        let ec = Connectors {
+            refusing_masks: vec![laptop_13_pro()[1]],
+            ..Connectors::default()
+        };
+        let ports = Ports::new(Arc::new(ec), LAPTOP_13_PRO).expect("four ports answered");
+        let switchable = ready(ports.switchable()).unwrap();
+        assert!(switchable.contains(0) && switchable.contains(1));
+        assert!(!switchable.contains(2) && !switchable.contains(3));
+    }
+
+    #[test]
+    fn a_board_with_no_controller_table_switches_nothing() {
+        let ports = Ports::new(Arc::new(Connectors::default()), Platform::Unknown)
+            .expect("the ports still answered");
+        assert!(ready(ports.switchable()).unwrap().is_empty());
+        assert!(matches!(
+            ready(ports.set_enabled(0, false)),
+            Err(DeviceError::InvalidArgs(_))
+        ));
+    }
+
+    #[test]
+    fn turning_a_port_off_writes_only_its_own_bit() {
+        let ec = Arc::new(Connectors::default());
+        let ports = switched(&ec);
+        ready(ports.set_enabled(3, false)).unwrap();
+        assert_eq!(
+            *ec.masks_written.lock().unwrap(),
+            vec![(laptop_13_pro()[1], 0b01)]
+        );
+        assert_eq!(mask(&ports, 3), PortMask::Off);
+        assert!(matches!(mask(&ports, 2), PortMask::On(_)));
+    }
+
+    #[test]
+    fn turning_a_port_back_on_sets_its_bit() {
+        let ec = Arc::new(Connectors::default().with_port_off(LAPTOP_13_PRO, 3));
+        let ports = switched(&ec);
+        ready(ports.set_enabled(3, true)).unwrap();
+        assert_eq!(
+            *ec.masks_written.lock().unwrap(),
+            vec![(laptop_13_pro()[1], 0b11)]
+        );
+    }
+
+    #[test]
+    fn a_port_already_as_asked_is_not_written() {
+        let ec = Arc::new(Connectors::default());
+        let ports = switched(&ec);
+        ready(ports.set_enabled(0, true)).unwrap();
+        assert!(ec.masks_written.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn the_last_port_on_stays_on() {
+        let ec = Arc::new(Connectors::default());
+        let ports = switched(&ec);
+        for port in 0..3 {
+            ready(ports.set_enabled(port, false)).unwrap();
+        }
+        ec.masks_written.lock().unwrap().clear();
+        assert!(matches!(
+            ready(ports.set_enabled(3, false)),
+            Err(DeviceError::InvalidArgs(_))
+        ));
+        assert!(ec.masks_written.lock().unwrap().is_empty());
+        assert!(matches!(mask(&ports, 3), PortMask::On(_)));
+    }
+
+    #[test]
+    fn a_mask_that_will_not_read_refuses_turning_any_port_off() {
+        let ec = Arc::new(Connectors {
+            refusing_masks: vec![laptop_13_pro()[1]],
+            ..Connectors::default()
+        });
+        let ports = switched(&ec);
+        assert!(matches!(
+            ready(ports.set_enabled(0, false)),
+            Err(DeviceError::Failed(_))
+        ));
+        assert!(ec.masks_written.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_mask_that_will_not_read_still_lets_a_port_back_on() {
+        let ec = Arc::new(Connectors {
+            refusing_masks: vec![laptop_13_pro()[1]],
+            ..Connectors::default().with_port_off(LAPTOP_13_PRO, 0)
+        });
+        let ports = switched(&ec);
+        ready(ports.set_enabled(0, true)).unwrap();
+        assert_eq!(
+            *ec.masks_written.lock().unwrap(),
+            vec![(laptop_13_pro()[0], 0b11)]
+        );
+    }
+
+    #[test]
+    fn a_controller_driving_one_port_counts_only_that_port() {
+        let ec = Arc::new(Connectors {
+            controllers: 3,
+            count: 5,
+            ..Connectors::default()
+        });
+        let ports =
+            Ports::new(ec.clone(), Platform::Laptop16AmdAi300).expect("five ports answered");
+        assert!(ready(ports.switchable()).unwrap().contains(4));
+        for port in 0..4 {
+            ready(ports.set_enabled(port, false)).unwrap();
+        }
+        assert!(matches!(
+            ready(ports.set_enabled(4, false)),
+            Err(DeviceError::InvalidArgs(_))
+        ));
+    }
+
+    #[test]
+    fn a_desktop_may_turn_every_port_off() {
+        let ec = Arc::new(Connectors {
+            controllers: 1,
+            count: 2,
+            ..Connectors::default()
+        });
+        let ports =
+            Ports::new(ec.clone(), Platform::DesktopAmdAiMax300).expect("two ports answered");
+        ready(ports.set_enabled(0, false)).unwrap();
+        ready(ports.set_enabled(1, false)).unwrap();
+        assert_eq!(mask(&ports, 1), PortMask::Off);
+    }
+
+    #[test]
+    fn a_port_turned_off_reads_off_once_the_write_returns() {
+        let ec = Arc::new(Connectors {
+            mask_lag: 3,
+            ..Connectors::default()
+        });
+        let ports = switched(&ec);
+        ready(ports.set_enabled(1, false)).unwrap();
+        assert_eq!(mask(&ports, 1), PortMask::Off);
     }
 }

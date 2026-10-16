@@ -42,6 +42,7 @@ links to carries why.
 | [Charging LED off](led.md#which-leds) | Tested | Expected | Expected | Expected | Expected | Expected | Expected | Expected | -- | -- |
 | [Charging LED side](led.md#charging-led-sides) | Tested | Expected | Expected | Expected | Expected | Expected | Expected | Expected | -- | -- |
 | [Touchscreen off](touchscreen.md) | Tested | -- | -- | -- | Expected | Expected | -- | -- | -- | -- |
+| [USB-C port off](usb-c.md#port-enable) | Tested | Expected | -- | Expected | Expected | Expected | Expected | Expected | -- | Expected |
 
 - The haptic touchpad is found by its own USB ids on any board, so its
   controls follow the pad rather than the mainboard.

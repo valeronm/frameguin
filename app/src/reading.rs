@@ -93,6 +93,8 @@ impl Drop for Subscription {
     }
 }
 
+pub(crate) struct Writing<'a>(#[expect(dead_code, reason = "held for its Drop")] InFlight<'a>);
+
 /// One read's place in [`Feed::reading`], counted for as long as it is held.
 struct InFlight<'a>(&'a Cell<u32>);
 
@@ -133,6 +135,9 @@ pub(crate) struct Feed {
     /// Whether a read for a newly arrived want is already spawned, so views
     /// arriving together are served by one.
     catching_up: Cell<bool>,
+    /// A read that overlaps a write may have been answered from before it.
+    writes: Cell<u64>,
+    writing: Cell<u32>,
 }
 
 impl Feed {
@@ -145,7 +150,17 @@ impl Feed {
             reading: Cell::default(),
             ticks: Cell::default(),
             catching_up: Cell::default(),
+            writes: Cell::default(),
+            writing: Cell::default(),
         }
+    }
+
+    /// Held across a write to something a view shows, so no reading that
+    /// overlaps it is shown; drop it before the fill that shows what the
+    /// write did.
+    pub(crate) fn writing(&self) -> Writing<'_> {
+        self.writes.set(self.writes.get() + 1);
+        Writing(InFlight::enter(&self.writing))
     }
 
     /// Registers a view, and starts the timer where this is the first.
@@ -276,7 +291,8 @@ impl Feed {
     }
 
     /// Takes one reading, shows it on every view, and hands it back with the
-    /// extras that failed.
+    /// extras that failed. A reading that overlapped a write is handed back
+    /// and not shown.
     ///
     /// Raises only where the daemon's controls could not be had; an extra
     /// that failed arrives as None. A device the board does not have is not a
@@ -285,6 +301,7 @@ impl Feed {
         // The `?` below returns early, and a count left raised would lock the
         // tick out for the rest of the process.
         let _in_flight = InFlight::enter(&self.reading);
+        let writes = self.writes.get();
         let controls = self.daemon.controls().await?;
         let mut request = self.requested(|_| true);
         // Every read wants the block; the condition only on the reads that come
@@ -295,6 +312,9 @@ impl Feed {
         self.ticks.set(ticks.wrapping_add(1));
         request.condition &= ticks.is_multiple_of(CONDITION_EVERY);
         let (reading, failures) = reading::read(&controls, request).await;
+        if self.writes.get() != writes || self.writing.get() > 0 {
+            return Ok((reading, failures));
+        }
         // Copied out of the list before anything is shown: a view may drop its
         // subscription from inside its own call, and the borrow would still be
         // held when it did.

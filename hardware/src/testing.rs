@@ -524,11 +524,25 @@ pub struct Connectors {
     /// asked of, in order.
     pub registers_read: Mutex<Vec<(u8, (u8, u16))>>,
     /// Controllers whose port mask is other than both ports enabled.
-    pub masks: Vec<((u8, u16), u8)>,
+    pub masks: Mutex<Vec<((u8, u16), u8)>>,
     /// Controllers that refuse the port mask read.
     pub refusing_masks: Vec<(u8, u16)>,
     /// Every controller a port mask was asked of, in order.
     pub masks_read: Mutex<Vec<(u8, u16)>>,
+    /// Every port mask written, with the controller it was written to, in
+    /// order.
+    pub masks_written: Mutex<Vec<((u8, u16), u8)>>,
+    /// How many reads after a mask write still answer the mask before it.
+    pub mask_lag: u32,
+    pub lagging: Mutex<Option<Lag>>,
+}
+
+/// The mask a controller answered before its last write, and how many reads
+/// will still answer it.
+pub struct Lag {
+    controller: (u8, u16),
+    before: u8,
+    left: u32,
 }
 
 impl Connectors {
@@ -539,9 +553,20 @@ impl Connectors {
         let controller = usize::from(index / PORTS_PER_CONTROLLER);
         if let Some(&address) = pd_controller::controllers(platform).get(controller) {
             self.masks
+                .get_mut()
+                .unwrap()
                 .push((address, 0b11 & !pd_controller::enable_bit(index)));
         }
         self
+    }
+
+    fn mask(&self, controller: (u8, u16)) -> u8 {
+        self.masks
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|(address, _)| *address == controller)
+            .map_or(0b11, |&(_, mask)| mask)
     }
 }
 
@@ -559,9 +584,12 @@ impl Default for Connectors {
             },
             refusing_registers: Vec::new(),
             registers_read: Mutex::new(Vec::new()),
-            masks: Vec::new(),
+            masks: Mutex::new(Vec::new()),
             refusing_masks: Vec::new(),
             masks_read: Mutex::new(Vec::new()),
+            masks_written: Mutex::new(Vec::new()),
+            mask_lag: 0,
+            lagging: Mutex::new(None),
         }
     }
 }
@@ -594,11 +622,32 @@ impl PdPorts for Connectors {
         if self.refusing_masks.contains(&controller) {
             return Err(DeviceError::NotSupported("mask read refused".into()));
         }
-        Ok(self
-            .masks
-            .iter()
-            .find(|(address, _)| *address == controller)
-            .map_or(0b11, |&(_, mask)| mask))
+        let mut lagging = self.lagging.lock().unwrap();
+        if let Some(lag) = lagging.as_mut()
+            && lag.controller == controller
+            && lag.left > 0
+        {
+            lag.left -= 1;
+            return Ok(lag.before);
+        }
+        *lagging = None;
+        Ok(self.mask(controller))
+    }
+
+    fn set_port_enable(&self, controller: (u8, u16), mask: u8) -> DeviceResult<()> {
+        if self.refusing_masks.contains(&controller) {
+            return Err(DeviceError::NotSupported("mask write refused".into()));
+        }
+        self.masks_written.lock().unwrap().push((controller, mask));
+        *self.lagging.lock().unwrap() = Some(Lag {
+            controller,
+            before: self.mask(controller),
+            left: self.mask_lag,
+        });
+        let mut masks = self.masks.lock().unwrap();
+        masks.retain(|(address, _)| *address != controller);
+        masks.push((controller, mask));
+        Ok(())
     }
 }
 

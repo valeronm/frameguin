@@ -228,6 +228,14 @@ impl PortsControl for Machine {
     async fn ports(&self, _controller_ports: PortSet) -> DeviceResult<Vec<PortState>> {
         self.ports.read((0..4).map(port).collect())
     }
+
+    async fn switchable(&self) -> DeviceResult<PortSet> {
+        self.ports.read(PortSet::ALL)
+    }
+
+    async fn set_enabled(&self, _port: u8, _enabled: bool) -> DeviceResult<()> {
+        self.ports.write()
+    }
 }
 
 impl PrivacySwitchesControl for Machine {

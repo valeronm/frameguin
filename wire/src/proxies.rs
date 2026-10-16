@@ -123,6 +123,8 @@ pub trait Battery {
 )]
 pub trait Ports {
     async fn get_ports(&self, controller_ports: PortSet) -> zbus::Result<Vec<PortState>>;
+    async fn get_switchable(&self) -> zbus::Result<PortSet>;
+    async fn set_enabled(&self, port: u8, enabled: bool) -> zbus::Result<()>;
 }
 
 /// Absent from the bus where the EC does not answer the chassis commands.

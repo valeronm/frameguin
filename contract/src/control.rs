@@ -74,13 +74,24 @@ pub trait ChargingLedControl {
 /// what a caller wants is the set — which port is charging is a fact about
 /// the set and not about any one port.
 ///
-/// Read-only. What a port does is negotiated between its controller and
-/// whatever is plugged in; nothing here is this app's to set.
+/// What a port does is negotiated between its controller and whatever is
+/// plugged in; whether the controller has the port enabled at all is the one
+/// thing here this app sets.
 pub trait PortsControl {
     /// Every port the EC answers for, in its own port order. Their number is
     /// fixed for the device's run. A port outside `controller_ports` has no
-    /// [`PortState::registers`].
+    /// [`PortReading::registers`].
+    ///
+    /// [`PortReading::registers`]: crate::PortReading::registers
     async fn ports(&self, controller_ports: PortSet) -> DeviceResult<Vec<PortState>>;
+    /// The ports [`PortsControl::set_enabled`] is offered for; fixed for the
+    /// device's run.
+    async fn switchable(&self) -> DeviceResult<PortSet>;
+    /// Refuses turning a port off wherever [`off_refusal`] does. A port
+    /// turned off stays off through a host reboot.
+    ///
+    /// [`off_refusal`]: crate::off_refusal
+    async fn set_enabled(&self, port: u8, enabled: bool) -> DeviceResult<()>;
 }
 
 pub trait ChassisControl {

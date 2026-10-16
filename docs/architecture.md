@@ -110,13 +110,13 @@ column that crosses every layer the same way. A layer is one row that every
 device crosses. What a device must not know lives in another column; what a
 layer must not link lives in another row.
 
-A column need not reach every row: the USB-C ports are read and never set,
-so they have no group of their own, no tray item and no words for a command —
-a control trait with only getters is still a column, and stops where it runs
-out of things to be. The one row they put in a window sits in the Charging
-State group, that being the question it answers: what is coming in, beside what the
-pack is doing about it — which is why that group is named for the subject
-rather than for the battery whose control it otherwise holds. The chassis,
+A column need not reach every row: a USB-C port is switched off rarely and
+kept that way, so the ports have no tray item — a column stops where it runs
+out of things to be. Beside their own group of switches they put one row in
+the Charging State group, that being the question it answers: what is coming
+in, beside what the pack is doing about it — which is why that group is
+named for the subject rather than for the battery whose control it otherwise
+holds. The chassis,
 the privacy switches, and the temperature sensors and fans put nothing in
 the main window at all; their columns end at the Readings window. The USB
 devices end at the Readings window too, and are placed in a port's page by

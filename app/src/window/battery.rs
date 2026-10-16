@@ -5,8 +5,8 @@
 //!
 //! Titled for the subject rather than for the battery whose control they
 //! otherwise hold: the charger row at the state's head reads the USB-C
-//! ports, which have no group of their own, and a mainboard running
-//! standalone has that row and no pack at all.
+//! ports, and a mainboard running standalone has that row and no pack at
+//! all.
 
 use std::cell::Cell;
 use std::num::NonZeroU32;
@@ -18,7 +18,6 @@ use frameguin_model::control::battery::{
     self, CUSTOM_CHARGE_STEP_MA, ChargeSpeeds, MIN_CHARGE_LIMIT, MIN_CUSTOM_CHARGE_MA,
     custom_charge_ma,
 };
-use frameguin_model::control::ports;
 use frameguin_model::port::Placement;
 use frameguin_model::reading::Request;
 use frameguin_modelview::battery::{
@@ -36,6 +35,7 @@ use gtk4 as gtk;
 use crate::reading::show_while_mapped;
 use crate::report::status::{self, Target};
 use crate::tray::TrayValues;
+use crate::window::ports::Ports;
 use crate::window::widgets::{
     SliderWrites, build_scale, combo_selection, connect_combo, connect_slider_writes, reveal_under,
     scale_percent, select_row, string_list,
@@ -43,8 +43,6 @@ use crate::window::widgets::{
 use crate::window::{Sink, Ui};
 
 pub(crate) type Battery = battery::Battery<Bus>;
-/// The other device the state group draws a row for.
-pub(crate) type Ports = ports::Ports<Bus>;
 
 /// Named as an action rather than wired to a handler, so offering the report
 /// needs no bus connection.
