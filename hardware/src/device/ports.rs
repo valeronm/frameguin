@@ -16,9 +16,18 @@ pub struct Ports {
     /// board's, and re-probing the tail would spend a refused command on
     /// every read to learn what cannot have changed.
     count: u8,
-    /// Each controller's (I2C port, address), by the EC's controller order,
-    /// and None for one that did not answer a register read at detection.
-    controllers: Vec<Option<(u8, u16)>>,
+    /// By the EC's controller order, and None for one the board's table does
+    /// not place.
+    controllers: Vec<Option<Controller>>,
+}
+
+/// A controller's (I2C port, address), and which of its reads answered at
+/// detection.
+#[derive(Clone, Copy)]
+struct Controller {
+    address: (u8, u16),
+    registers: bool,
+    mask: bool,
 }
 
 impl Ports {
@@ -47,10 +56,11 @@ impl Ports {
         }
         let controllers = (0..count.div_ceil(PORTS_PER_CONTROLLER))
             .map(|c| {
-                controllers
-                    .get(usize::from(c))
-                    .copied()
-                    .filter(|&address| ec.port_registers(c * PORTS_PER_CONTROLLER, address).is_ok())
+                controllers.get(usize::from(c)).map(|&address| Controller {
+                    address,
+                    registers: ec.port_registers(c * PORTS_PER_CONTROLLER, address).is_ok(),
+                    mask: ec.port_enable(address).is_ok(),
+                })
             })
             .collect();
         Some(Self {
@@ -68,16 +78,31 @@ impl PortsControl for Ports {
     /// not read leave the port without them for that read rather than
     /// costing the port.
     async fn ports(&self, controller_ports: PortSet) -> DeviceResult<Vec<PortState>> {
+        let masks: Vec<_> = self
+            .controllers
+            .iter()
+            .map(|controller| {
+                controller
+                    .filter(|controller| controller.mask)
+                    .and_then(|controller| self.ec.port_enable(controller.address).ok())
+            })
+            .collect();
         Ok((0..self.count)
             .filter_map(|port| self.ec.port_state(port).ok().flatten())
             .map(|mut state| {
+                let c = usize::from(state.index / PORTS_PER_CONTROLLER);
+                state.enabled = masks
+                    .get(c)
+                    .copied()
+                    .flatten()
+                    .map(|mask| pd_controller::enabled(mask, state.index));
                 if controller_ports.contains(state.index)
                     && state.partner != PortPartner::Nothing
-                    && let Some(&Some(address)) = self
-                        .controllers
-                        .get(usize::from(state.index / PORTS_PER_CONTROLLER))
+                    && !state.turned_off()
+                    && let Some(&Some(controller)) = self.controllers.get(c)
+                    && controller.registers
                 {
-                    state.registers = self.ec.port_registers(state.index, address).ok();
+                    state.registers = self.ec.port_registers(state.index, controller.address).ok();
                 }
                 state
             })
@@ -284,6 +309,65 @@ mod tests {
         let read = ready(ports.ports(PortSet::default())).unwrap();
         assert_eq!(read[0].registers, None);
         assert!(ec.registers_read.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn each_bit_of_a_controllers_mask_is_one_of_its_ports() {
+        let ec = Connectors {
+            masks: vec![(laptop_13_pro()[1], 0b01)],
+            ..Connectors::default()
+        };
+        let ports = Ports::new(Arc::new(ec), LAPTOP_13_PRO).expect("four ports answered");
+        let read = ready(ports.ports(PortSet::ALL)).unwrap();
+        let enabled: Vec<_> = read.iter().map(|state| state.enabled).collect();
+        assert_eq!(enabled, [Some(true), Some(true), Some(true), Some(false)]);
+    }
+
+    #[test]
+    fn a_port_turned_off_is_never_asked_about_its_cable() {
+        let ec = Arc::new(Connectors {
+            registers: charging(),
+            sink: Some(3),
+            masks: vec![(laptop_13_pro()[1], 0b01)],
+            ..Connectors::default()
+        });
+        let ports = Ports::new(ec.clone(), LAPTOP_13_PRO).expect("four ports answered");
+        ec.registers_read.lock().unwrap().clear();
+        let read = ready(ports.ports(PortSet::of(3))).unwrap();
+        assert_eq!(read[3].registers, None);
+        assert!(ec.registers_read.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_controller_refusing_its_mask_leaves_only_its_own_ports_unknown() {
+        let ec = Connectors {
+            refusing_masks: vec![laptop_13_pro()[1]],
+            ..Connectors::default()
+        };
+        let ports = Ports::new(Arc::new(ec), LAPTOP_13_PRO).expect("four ports answered");
+        let read = ready(ports.ports(PortSet::ALL)).unwrap();
+        assert_eq!(read[0].enabled, Some(true));
+        assert_eq!(read[2].enabled, None);
+    }
+
+    #[test]
+    fn a_mask_refused_at_detection_is_never_asked_again() {
+        let ec = Arc::new(Connectors {
+            refusing_masks: vec![laptop_13_pro()[1]],
+            ..Connectors::default()
+        });
+        let ports = Ports::new(ec.clone(), LAPTOP_13_PRO).expect("four ports answered");
+        ec.masks_read.lock().unwrap().clear();
+        ready(ports.ports(PortSet::ALL)).unwrap();
+        assert_eq!(*ec.masks_read.lock().unwrap(), vec![laptop_13_pro()[0]]);
+    }
+
+    #[test]
+    fn a_board_with_no_controller_table_knows_no_mask() {
+        let ports = Ports::new(Arc::new(Connectors::default()), Platform::Unknown)
+            .expect("the ports still answered");
+        let read = ready(ports.ports(PortSet::ALL)).unwrap();
+        assert!(read.iter().all(|state| state.enabled.is_none()));
     }
 
     #[test]

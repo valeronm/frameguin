@@ -57,15 +57,22 @@ pub fn measured_label(millivolts: u16) -> String {
 /// one more charger among those that may be attached.
 pub const POWERING_THE_MACHINE: &str = "Powering the machine";
 
+/// A port its controller has disabled, worded over what it last reported.
+pub const TURNED_OFF: &str = "Turned off";
+
 /// One port on one line: what is attached — the device in the slot where
 /// one was placed there, named for powering the machine where it does — and
-/// the watts it carries where it carries any.
+/// the watts it carries where it carries any. A port turned off is only
+/// [`TURNED_OFF`].
 ///
 /// A lead naming the device in the slot says nothing about which way its
 /// power goes. The arrow is the direction for the thing attached, not for
 /// the machine.
 #[must_use]
 pub fn port_summary(port: &PortState, device: Option<&str>) -> String {
+    if port.turned_off() {
+        return TURNED_OFF.to_owned();
+    }
     let partner = partner_label(port.partner);
     let Some(lead) = (if port.charging && (partner.is_some() || device.is_some()) {
         Some(POWERING_THE_MACHINE)
@@ -429,6 +436,15 @@ mod tests {
             port_summary(&port(0), Some("USB-C Hub")),
             "Powering the machine · ↑ 100 W"
         );
+    }
+
+    #[test]
+    fn a_port_turned_off_says_so_over_whatever_it_last_reported() {
+        let off = PortState {
+            enabled: Some(false),
+            ..port(0)
+        };
+        assert_eq!(port_summary(&off, Some("USB-C Hub")), "Turned off");
     }
 
     #[test]

@@ -18,11 +18,12 @@ use std::rc::{Rc, Weak};
 
 use adw::prelude::*;
 use frameguin_contract::{Attached, PortPartner, PortRegisters, PortSet, PortState, PowerRole};
+use frameguin_model::control::ports::powering;
 use frameguin_model::port::Placement;
 use frameguin_model::reading::Request;
 use frameguin_modelview::port;
 use frameguin_modelview::ports::{
-    NOTHING_ATTACHED, POWERING_THE_MACHINE, cable_length_label, cable_rating_label,
+    NOTHING_ATTACHED, POWERING_THE_MACHINE, TURNED_OFF, cable_length_label, cable_rating_label,
     cable_speed_label, cable_type_label, carried, contract_label, data_role_label,
     display_port_label, epr_label, measured_label, mismatch_label, partner_label, peak_label,
     port_summary, power_limited_label, power_role_label, powering_label, supply_kind_label,
@@ -156,6 +157,7 @@ impl Section {
         devices: &[Attached],
     ) {
         let placement = self.placement;
+        let powering = powering(ports).map(|state| state.index);
         let mut ports: Vec<&PortState> = ports.iter().collect();
         ports.sort_by_key(|state| placement.order(state.index));
         let same = self
@@ -211,7 +213,7 @@ impl Section {
                 .first()
                 .map(|device| device_name(device));
             port.row.set_subtitle(&port_summary(state, name.as_deref()));
-            port.charging.set(state.charging);
+            port.charging.set(powering == Some(state.index));
         }
         if !same {
             sidebar.settle();
@@ -239,7 +241,9 @@ impl PortPage {
         let mut state = state.clone();
         match state.registers {
             Some(registers) => self.registers.set(Some((state.partner, registers))),
-            None if state.partner == PortPartner::Nothing => self.registers.set(None),
+            None if state.partner == PortPartner::Nothing || state.turned_off() => {
+                self.registers.set(None);
+            }
             None => {
                 state.registers = self
                     .registers
@@ -248,11 +252,16 @@ impl PortPage {
                     .map(|(_, registers)| registers);
             }
         }
-        let devices = self.placement.attached(self.index, devices);
-        let mut layout = vec![connection_group(self.placement, &state)];
-        layout.extend(cable_group(&state));
-        layout.extend(contract_group(&state));
-        layout.extend(devices.into_iter().map(device_group));
+        let layout = if state.turned_off() {
+            vec![off_group(self.placement, state.index)]
+        } else {
+            let devices = self.placement.attached(self.index, devices);
+            let mut layout = vec![connection_group(self.placement, &state)];
+            layout.extend(cable_group(&state));
+            layout.extend(contract_group(&state));
+            layout.extend(devices.into_iter().map(device_group));
+            layout
+        };
         let mut drawn = self.drawn.borrow_mut();
         if let Some(shown) = drawn.as_mut()
             && shown
@@ -297,6 +306,15 @@ impl PortPage {
             layout,
         });
     }
+}
+
+/// Everything else a port turned off carries is what it last saw.
+fn off_group(placement: Placement, index: u8) -> Group {
+    let mut group = Group::new(TURNED_OFF);
+    if let Some(number) = port::secondary(placement, index) {
+        group.row("Port", number);
+    }
+    group
 }
 
 fn connection_group(placement: Placement, state: &PortState) -> Group {

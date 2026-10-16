@@ -11,6 +11,8 @@ use frameguin_contract::{
 };
 
 pub(crate) const PD_STATUS: u16 = 0x08;
+/// One bit per connector, set where it is enabled.
+pub(crate) const PDPORT_ENABLE: u16 = 0x2C;
 /// The controller's ADC reading of VBUS, 16 bits in 100 mV units.
 const BUS_VOLTAGE: u16 = 0x0D;
 /// The source's PDO the current contract stands on.
@@ -36,6 +38,16 @@ const ACTIVE_CABLE: u8 = 1 << 6;
 /// The EC numbers a port as its controller times this plus which of the
 /// controller's connectors it is.
 pub(crate) const PORTS_PER_CONTROLLER: u8 = 2;
+
+/// `port`'s bit in its controller's [`PDPORT_ENABLE`] mask.
+pub(crate) fn enable_bit(port: u8) -> u8 {
+    1 << (port % PORTS_PER_CONTROLLER)
+}
+
+/// Whether `mask`, read from `port`'s controller, has `port` enabled.
+pub(crate) fn enabled(mask: u8, port: u8) -> bool {
+    mask & enable_bit(port) != 0
+}
 
 /// A connector's register block: `0x1000` for a controller's first
 /// connector and `0x2000` for its second.

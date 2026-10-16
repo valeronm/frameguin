@@ -37,14 +37,16 @@ impl<C: PortsControl> Ports<C> {
 /// is. At most one answers, the EC picking among those offering.
 #[must_use]
 pub fn powering(ports: &[PortState]) -> Option<&PortState> {
-    ports.iter().find(|port| port.charging)
+    ports
+        .iter()
+        .find(|port| port.charging && !port.turned_off())
 }
 
 #[cfg(test)]
 mod tests {
     use std::rc::Rc;
 
-    use frameguin_contract::{DeviceError, DeviceResult as Result, PortSet};
+    use frameguin_contract::{DeviceError, DeviceResult as Result, PortSet, PortState};
 
     use super::{Ports, powering};
     use crate::port::Placement;
@@ -86,5 +88,14 @@ mod tests {
         assert_eq!(powering(&ports).map(|p| p.index), Some(0));
         let idle: Vec<_> = (1..4).map(port).collect();
         assert!(powering(&idle).is_none());
+    }
+
+    #[test]
+    fn a_port_turned_off_powers_nothing_whatever_it_last_reported() {
+        let off = PortState {
+            enabled: Some(false),
+            ..port(0)
+        };
+        assert!(powering(&[off]).is_none());
     }
 }

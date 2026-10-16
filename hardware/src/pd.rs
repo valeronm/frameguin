@@ -89,6 +89,7 @@ pub(crate) fn port_state(index: u8, raw: &EcResponseGetPdPortState) -> PortState
             (false, true) => Epr::Supported,
             (false, false) => Epr::Unsupported,
         },
+        enabled: None,
         registers: None,
     }
 }

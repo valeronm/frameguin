@@ -64,8 +64,8 @@ pub trait Pack: Send + Sync {
 }
 
 /// What the ports' device needs of the EC: how many PD controllers answered,
-/// one port's state, and what that port's controller reads of its cable and
-/// its bus.
+/// one port's state, what that port's controller reads of its cable and its
+/// bus, and which of its ports the controller has enabled.
 pub trait PdPorts: Send + Sync {
     /// How many controllers the EC reports a version for. Each drives at
     /// most two ports, which is what bounds the walk — the EC cannot be
@@ -83,6 +83,9 @@ pub trait PdPorts: Send + Sync {
         port: u8,
         controller: (u8, u16),
     ) -> DeviceResult<contract::PortRegisters>;
+    /// `controller`'s port mask over I2C passthrough, a bit per connector set
+    /// where it is enabled.
+    fn port_enable(&self, controller: (u8, u16)) -> DeviceResult<u8>;
 }
 
 pub trait ChassisEc: Send + Sync {
@@ -392,6 +395,11 @@ impl PdPorts for Ec {
             pd_controller::block(port) + pd_controller::PD_STATUS,
         )?;
         Ok(pd_controller::decode(&span))
+    }
+
+    fn port_enable(&self, (bus, address): (u8, u16)) -> DeviceResult<u8> {
+        let [mask] = i2c_block(&self.ec(), bus, address, pd_controller::PDPORT_ENABLE)?;
+        Ok(mask)
     }
 }
 

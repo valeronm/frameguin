@@ -64,6 +64,7 @@ pub fn port(index: u8) -> PortState {
         vconn: charging,
         cc: CcPolarity::Cc1,
         epr: Epr::Unsupported,
+        enabled: Some(true),
         registers: None,
     }
 }

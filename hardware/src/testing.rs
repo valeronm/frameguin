@@ -501,6 +501,7 @@ pub fn port(index: u8) -> PortState {
         vconn: charging,
         cc: CcPolarity::Cc1,
         epr: Epr::Unsupported,
+        enabled: None,
         registers: None,
     }
 }
@@ -523,6 +524,12 @@ pub struct Connectors {
     /// Every port a register read was asked for, with the controller it was
     /// asked of, in order.
     pub registers_read: Mutex<Vec<(u8, (u8, u16))>>,
+    /// Controllers whose port mask is other than both ports enabled.
+    pub masks: Vec<((u8, u16), u8)>,
+    /// Controllers that refuse the port mask read.
+    pub refusing_masks: Vec<(u8, u16)>,
+    /// Every controller a port mask was asked of, in order.
+    pub masks_read: Mutex<Vec<(u8, u16)>>,
 }
 
 impl Default for Connectors {
@@ -539,6 +546,9 @@ impl Default for Connectors {
             },
             refusing_registers: Vec::new(),
             registers_read: Mutex::new(Vec::new()),
+            masks: Vec::new(),
+            refusing_masks: Vec::new(),
+            masks_read: Mutex::new(Vec::new()),
         }
     }
 }
@@ -564,6 +574,18 @@ impl PdPorts for Connectors {
             return Err(DeviceError::NotSupported("register read refused".into()));
         }
         Ok(self.registers)
+    }
+
+    fn port_enable(&self, controller: (u8, u16)) -> DeviceResult<u8> {
+        self.masks_read.lock().unwrap().push(controller);
+        if self.refusing_masks.contains(&controller) {
+            return Err(DeviceError::NotSupported("mask read refused".into()));
+        }
+        Ok(self
+            .masks
+            .iter()
+            .find(|(address, _)| *address == controller)
+            .map_or(0b11, |&(_, mask)| mask))
     }
 }
 

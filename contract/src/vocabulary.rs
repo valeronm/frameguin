@@ -785,9 +785,9 @@ pub struct PdContract {
 
 /// One USB-C port, as the EC's copy of its controller's state has it.
 ///
-/// Every field but `registers` is the EC's cache rather than the port
-/// itself: a controller whose ports have been disabled stops updating it,
-/// and the entry then stands at whatever it last saw.
+/// Every field but `enabled` and `registers` is the EC's cache rather than
+/// the port itself: a controller stops updating it for a port it has
+/// disabled, and the entry then stands at whatever it last saw.
 /// `docs/hardware/usb-c.md` has the reading.
 #[derive(Serialize, Deserialize, Type, Clone, PartialEq, Eq, Debug)]
 #[allow(
@@ -819,9 +819,20 @@ pub struct PortState {
     pub vconn: bool,
     pub cc: CcPolarity,
     pub epr: Epr,
-    /// None where the controller was not asked, nothing is attached, or the
-    /// read failed.
+    /// The controller's own port mask, and None where it could not be read.
+    pub enabled: Option<bool>,
+    /// None where the controller was not asked, nothing is attached, the
+    /// port is turned off, or the read failed.
     pub registers: Option<PortRegisters>,
+}
+
+impl PortState {
+    /// Whether the controller has this port disabled, which leaves every
+    /// field the EC caches standing at what it last saw.
+    #[must_use]
+    pub fn turned_off(&self) -> bool {
+        self.enabled == Some(false)
+    }
 }
 
 /// USB-C ports by the EC's port number: the ones whose controller registers
