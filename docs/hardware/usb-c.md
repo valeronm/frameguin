@@ -465,26 +465,42 @@ Who writes it:
 |---|---|
 | Write `0` | power, data and alternate mode stop; an attached display goes dark |
 | Write `0b11` after that | the mask reads back, alternate mode returns, a source attached while off is negotiated without being unplugged |
+| Write `0b01`, a charger on connector 0 and a USB drive on connector 1 | reads back `0b01`; the drive disconnects, the charger stays online |
+| Write `0b10` after that | reads back `0b10`; the charger drops, the drive enumerates again without being unplugged |
+| Write `0b11` after that | reads back `0b11`; the charger comes back online |
+| UCSI through each of those writes | the partner, and its `ucsi-source-psy` supply's status and current, unchanged from before the first |
+
+- Consequence: each bit switches its own connector, so a single port of a
+  controller can be turned off.
+- Consequence: UCSI's view of a disabled port freezes with the
+  controller's, so only the attached device itself shows the port is off.
 
 ## Persistence
 
-| Event | Expected | Source |
+| Event | Mask | Source |
 |---|---|---|
-| Suspend | mask stands | nothing in the EC writes the register outside a controller reset |
-| Reboot, Laptop 13 Pro | mask cleared, ports back | `sakura/project.conf` sets `CONFIG_PLATFORM_EC_PD_RESET_BEFORE_EC_REBOOT`, the one board in the tree that does; `board_reset_pd_mcu` then resets every controller on the EC's way into a reboot |
-| Reboot, other boards | mask stands | `board_reset_pd_mcu` compiles to a return |
-| EC restart | mask stands while the controller keeps its supply | nothing in the EC touches the register |
+| Suspend | stands | nothing in the EC writes the register outside a controller reset |
+| Reboot | stands | the EC runs straight through a host reboot, so `board_reset_pd_mcu` is not reached |
+| EC restart, Laptop 13 Pro | cleared, ports back | `sakura/project.conf` sets `CONFIG_PLATFORM_EC_PD_RESET_BEFORE_EC_REBOOT`, the one board in the tree that does; `board_reset_pd_mcu` then resets every controller on the EC's way into its own reboot |
+| EC restart, other boards | stands while the controller keeps its supply | the `lotus`/`azalea`, `tulip`, `marigold`, `dogwood` and `lilac` branches have no `board_reset_pd_mcu` and write the register only from the `cypdctl reset` console command; on the `sunflower`/`dahlia` branch the hook compiles to a return |
 
 ### Observed
 
-Nothing. Every row is an expectation from the source, and the mask
-[written back](#port-enable) is the only recovery demonstrated.
+| Setup | Reading |
+|---|---|
+| Laptop 13 Pro, controller 1 disabled, through a suspend | its ports still off |
+| The same, through a host reboot | its ports still off |
+| The same, through `framework_tool --reboot-ec reboot` | its ports back |
+
+- Consequence: on the Laptop 13 Pro a mask of zero on both controllers
+  outlives a host reboot, and only an EC restart brings the ports back.
 
 ## Open
 
-- Whether a controller honors a per-port mask, `0b01`.
-- Every row of [Persistence](#persistence).
-- The reset hook's path on the Laptop 13 Pro.
+- Whether the ports come back after an EC restart because of the reset
+  hook or because the controller lost its supply.
+- Whether a controller keeps its supply through an EC restart on a board
+  without the reset hook.
 - Every observation above on a CCG5 or CCG6 controller.
 
 ## Sources

@@ -28,10 +28,13 @@ section marks its finding untested, means exactly that.
 | [Haptic touchpad](touchpad.md#persistence) | Kept | Kept | Kept |
 | [Touchscreen, pad route](touchscreen.md#persistence) | **Lost** | **Lost** | not a case |
 | [Touchscreen, panel route](touchscreen.md#persistence) | Unknown | Unknown | Unknown |
-| [USB-C port enable](usb-c.md#persistence) | Unknown | Unknown | Unknown |
+| [USB-C port enable](usb-c.md#persistence) | Kept | Kept | **Lost** |
 
 On `hx20` and `hx30` the charge current limit is also lost at every
 suspend and shutdown.
+
+The USB-C port enable's EC-restart cell is the Laptop 13 Pro's, the one
+board that resets its PD controllers on the EC's way into a reboot.
 
 The pad route loses its setting to a fourth event the columns cannot carry —
 the lid opening — and the panel route is the Laptop 12's, where none of the
