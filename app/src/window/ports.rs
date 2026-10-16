@@ -3,6 +3,7 @@
 
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::time::Duration;
 
 use adw::prelude::*;
 use frameguin_contract::{Attached, PortMask, PortState};
@@ -11,12 +12,15 @@ use frameguin_model::reading::Request;
 use frameguin_modelview::port;
 use frameguin_modelview::ports::switch_line;
 use frameguin_wire::Bus;
+use gtk4::glib;
 
 use crate::reading::show_while_mapped;
 use crate::window::Ui;
 use crate::window::widgets::{connect_switch, show_switch};
 
 pub(crate) type Ports = ports::Ports<Bus>;
+
+const PARTNER_DETECTED: Duration = Duration::from_millis(500);
 
 pub(crate) struct Group {
     pub(crate) widget: adw::PreferencesGroup,
@@ -117,6 +121,7 @@ impl Group {
                         let _writing = ui.feed.writing();
                         control.set_enabled(index, enabled).await
                     };
+                    let turned_on = enabled && written.is_ok();
                     if let Err(e) = written {
                         ui.toast_error("Switching a USB-C port", e);
                         if let Some(row) = switched.upgrade() {
@@ -125,6 +130,12 @@ impl Group {
                     }
                     // Its own failure is the next tick's to report.
                     let _ = ui.feed.fill(&ui.ports.widget).await;
+                    if turned_on {
+                        // A port turned on reads nothing attached until its
+                        // controller has detected the partner.
+                        glib::timeout_future(PARTNER_DETECTED).await;
+                        let _ = ui.feed.fill(&ui.ports.widget).await;
+                    }
                 }
             });
         }

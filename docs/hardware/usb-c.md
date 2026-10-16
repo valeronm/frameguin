@@ -239,6 +239,19 @@ none, and the EC neither clears nor marks the entry.
   is: two chargers gave opposite `data_role` and `vconn`, the polarity is
   the cable's orientation, and EPR is the charger's contract. None is a
   fact about the port itself.
+- Laptop 13 Pro, every port settled, a 28 V EPR charger on one and a
+  phone drawing 5 V on another: partner, contract, power and data role,
+  VCONN, CC polarity, EPR active, voltage and current decoded from the
+  controller's `TYPE_C_STATUS`, `PD_STATUS`, current PDO and RDO the way
+  `cypd_update_port_state` derives them matched the EC's entry on all four
+  ports.
+- The charger's port just re-enabled: the EC's entry still read the 28 V
+  contract with `active_port` set, the controller's `TYPE_C_STATUS` read
+  nothing attached. Consequence: after a re-enable the EC's entry, its
+  answer for which port it charges from included, describes the port as it
+  was before it was disabled until the controller's next event.
+- Four `EC_CMD_GET_PD_PORT_STATE` calls took 5.6 to 9.2 ms; four reads of
+  the controllers' `PD_STATUS` through `CABLE_VDO` span took 8.8 to 11.9 ms.
 
 ## Controller registers
 

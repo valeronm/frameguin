@@ -79,11 +79,8 @@ pub trait ChargingLedControl {
 /// thing here this app sets.
 pub trait PortsControl {
     /// Every port the EC answers for, in its own port order. Their number is
-    /// fixed for the device's run. A port outside `controller_ports` has no
-    /// [`PortReading::registers`].
-    ///
-    /// [`PortReading::registers`]: crate::PortReading::registers
-    async fn ports(&self, controller_ports: PortSet) -> DeviceResult<Vec<PortState>>;
+    /// fixed for the device's run.
+    async fn ports(&self) -> DeviceResult<Vec<PortState>>;
     /// The ports [`PortsControl::set_enabled`] is offered for; fixed for the
     /// device's run.
     async fn switchable(&self) -> DeviceResult<PortSet>;

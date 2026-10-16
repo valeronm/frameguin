@@ -264,9 +264,9 @@ it and the non-obvious constraints.
   an EC and `ec.rs` stays every EC call and nothing else —
   `thermal.rs` what the memmap's thermal bytes and the threshold and fan
   duty commands mean, apart from `ec.rs` for the same reason —
-  `pd_controller.rs` what a PD controller reads of a port's cable, contract
-  and bus and where each board's controllers sit, apart from `ec.rs` for the
-  same reason — `edid.rs` what a
+  `pd_controller.rs` what a PD controller reads of a port's state, cable,
+  contract and bus and where each board's controllers sit, apart from
+  `ec.rs` for the same reason — `edid.rs` what a
   panel's own block says it is, apart from `drm.rs` for the same reason —
   `udev.rs` the words udev's database holds for an id sysfs gives bare — the
   record it cached for a device it processed, and the vendor list read

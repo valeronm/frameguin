@@ -919,13 +919,12 @@ pub struct PortReading {
     pub cc: CcPolarity,
     pub epr: Epr,
     /// The controller's own registers rather than the EC's cache, and None
-    /// where the controller was not asked, nothing is attached, or the read
-    /// failed.
+    /// where nothing is attached, the controller is not read directly, or the
+    /// read failed.
     pub registers: Option<PortRegisters>,
 }
 
-/// USB-C ports by the EC's port number: the ones whose controller registers
-/// a read asks for.
+/// USB-C ports by the EC's port number.
 #[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug, Default)]
 #[zvariant(signature = "y")]
 #[serde(transparent)]

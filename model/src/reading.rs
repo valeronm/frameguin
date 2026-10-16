@@ -14,9 +14,8 @@
 use frameguin_contract::{
     Attached, BatteryCondition, BatteryControl, BatteryFeature, BatteryInfo, ChargingLedControl,
     ChargingLedFeature, ChargingLedSide, ChassisControl, ChassisFeature, ChassisState, DeckState,
-    DeviceError, DeviceResult, ExtenderState, FanDuty, PortSet, PortState, PortsControl,
-    PrivacyState, PrivacySwitchesControl, ThermalControl, ThermalFeature, ThermalState, Thresholds,
-    UsbControl,
+    DeviceError, DeviceResult, ExtenderState, FanDuty, PortState, PortsControl, PrivacyState,
+    PrivacySwitchesControl, ThermalControl, ThermalFeature, ThermalState, Thresholds, UsbControl,
 };
 
 use crate::control::Controls;
@@ -39,13 +38,9 @@ pub struct Request {
     /// A transfer per cell plus two, each an EC host command carrying an
     /// `SMBus` pair to a gauge the EC is itself polling.
     pub condition: bool,
-    /// The USB-C ports. One call however many there are, and host commands
-    /// only.
+    /// The USB-C ports: one call, an EC host command per port, and an I2C
+    /// transfer per enabled port on a controller read directly.
     pub ports: bool,
-    /// The ports whose controller registers are read with the ports, asking
-    /// for the ports too: an I2C transfer to a PD controller per port asked
-    /// for that has something attached.
-    pub controller_ports: PortSet,
     /// Two host commands and no transfer past them.
     pub chassis: bool,
     /// One host command.
@@ -75,7 +70,6 @@ impl Request {
             battery: self.battery || other.battery,
             condition: self.condition || other.condition,
             ports: self.ports || other.ports,
-            controller_ports: self.controller_ports.union(other.controller_ports),
             chassis: self.chassis || other.chassis,
             deck: self.deck || other.deck,
             privacy_switches: self.privacy_switches || other.privacy_switches,
@@ -133,7 +127,7 @@ impl Extra {
         match self {
             Self::Battery => request.battery,
             Self::Condition => request.condition,
-            Self::Ports => request.ports || !request.controller_ports.is_empty(),
+            Self::Ports => request.ports,
             Self::Chassis => request.chassis,
             Self::Deck => request.deck,
             Self::PrivacySwitches => request.privacy_switches,
@@ -304,13 +298,7 @@ where
     // Asked of the ports control rather than the pack's: a board can have
     // one and not the other.
     let ports = extras
-        .read(
-            Extra::Ports,
-            controls
-                .ports
-                .as_ref()
-                .map(|p| p.read(request.controller_ports)),
-        )
+        .read(Extra::Ports, controls.ports.as_ref().map(|p| p.read()))
         .await;
     let (chassis, deck) = chassis_column(&mut extras, controls).await;
     let privacy_switches = extras
@@ -357,7 +345,7 @@ where
 mod tests {
     use std::rc::Rc;
 
-    use frameguin_contract::{DeviceError, PortSet};
+    use frameguin_contract::DeviceError;
 
     use super::{Extra, Request, read};
     use crate::control::Controls;
@@ -442,16 +430,6 @@ mod tests {
         assert!(reading.condition.is_none());
         assert!(reading.extender.is_none());
         assert!(failures.is_empty());
-    }
-
-    #[test]
-    fn controller_ports_alone_ask_for_the_ports() {
-        let request = Request {
-            controller_ports: PortSet::of(0),
-            ..Request::default()
-        };
-        assert!(Extra::Ports.requested(request));
-        assert!(!Extra::Battery.requested(request));
     }
 
     #[test]

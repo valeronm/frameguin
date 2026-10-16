@@ -29,15 +29,15 @@ impl<C: PortsControl> Ports<C> {
     }
 
     pub async fn detect(control: &Rc<C>, platform: Platform) -> Result<Option<Self>> {
-        if present(control.ports(PortSet::default()).await)?.is_none() {
+        if present(control.ports().await)?.is_none() {
             return Ok(None);
         }
         let switchable = control.switchable().await?;
         Ok(Some(Self::new(control.clone(), platform, switchable)))
     }
 
-    pub async fn read(&self, controller_ports: PortSet) -> Result<Vec<PortState>> {
-        self.control.ports(controller_ports).await
+    pub async fn read(&self) -> Result<Vec<PortState>> {
+        self.control.ports().await
     }
 
     /// The ports offered a switch, fixed for the device's run.
@@ -125,7 +125,7 @@ mod tests {
     #[test]
     fn a_read_carries_every_port() {
         let ports = Ports::new(Machine::new(), Platform::Unknown, PortSet::default());
-        let read = ready(ports.read(PortSet::default())).unwrap();
+        let read = ready(ports.read()).unwrap();
         assert_eq!(read.len(), 4);
         assert_eq!(read[0], port(0));
     }

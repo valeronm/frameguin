@@ -18,7 +18,7 @@ use std::rc::{Rc, Weak};
 
 use adw::prelude::*;
 use frameguin_contract::{
-    Attached, PortMask, PortPartner, PortReading, PortRegisters, PortSet, PortState, PowerRole,
+    Attached, PortMask, PortPartner, PortReading, PortRegisters, PortState, PowerRole,
 };
 use frameguin_model::control::ports::powering;
 use frameguin_model::port::Placement;
@@ -189,10 +189,6 @@ impl Section {
                         sidebar.add(&self.list, &port::label(placement, state.index), &widget);
                     row.set_use_markup(false);
                     if let Some(feed) = &feed {
-                        let request = Request {
-                            controller_ports: PortSet::of(state.index),
-                            ..request
-                        };
                         show_while_mapped(feed, &widget, request, move |reading| {
                             if let Some(ports) = &reading.ports {
                                 let devices = reading.usb.as_deref().unwrap_or_default();

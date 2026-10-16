@@ -1,5 +1,5 @@
-//! What a PD controller reads of the cable, the contract and the bus on one
-//! of its ports, and where each board's controllers sit on the EC's I2C
+//! What a PD controller reads of the state, the cable, the contract and the
+//! bus on one of its ports, and where each board's controllers sit on the EC's I2C
 //! buses — apart from [`crate::ec`] so the decoding is testable without an
 //! EC.
 //!
@@ -7,10 +7,14 @@
 //! `CCGx` controllers on every Framework board.
 
 use frameguin_contract::{
-    Cable, CableLatency, CableSpeed, PdContract, PeakCurrent, Platform, PortRegisters, SupplyKind,
+    Cable, CableLatency, CableSpeed, CcPolarity, DataRole, Epr, PdContract, PeakCurrent, Platform,
+    PortPartner, PortReading, PortRegisters, PowerRole, SupplyKind,
 };
 
 pub(crate) const PD_STATUS: u16 = 0x08;
+/// The partner in bits 2 to 4, the CC polarity in [`CC2`], and in bits 6 and
+/// 7 the current a Type-C source advertises.
+const TYPE_C_STATUS: u16 = 0x0C;
 /// One bit per connector, set where it is enabled.
 pub(crate) const PDPORT_ENABLE: u16 = 0x2C;
 /// The controller's ADC reading of VBUS, 16 bits in 100 mV units.
@@ -25,6 +29,21 @@ const CABLE_VDO: u16 = 0x18;
 /// the registers between them are plain data.
 pub(crate) const SPAN: usize = (CABLE_VDO + 4 - PD_STATUS) as usize;
 
+/// Type-C's own voltage, which a port carries without a contract.
+const TYPE_C_MILLIVOLTS: u16 = 5000;
+
+/// Bit 6 of `PD_STATUS`'s first byte, set where this machine is the
+/// downstream-facing end.
+const DATA_ROLE_DFP: u8 = 1 << 6;
+/// Bit 0 of `PD_STATUS`'s second byte, set where this machine is the source.
+const POWER_ROLE_SOURCE: u8 = 1;
+/// Bit 5 of `PD_STATUS`'s second byte.
+const VCONN_SOURCE: u8 = 1 << 5;
+/// Bit 7 of `PD_STATUS`'s third byte.
+const EPR_ACTIVE: u8 = 1 << 7;
+/// Bit 1.
+const CC2: u8 = 1 << 1;
+
 /// Bit 3 of `PD_STATUS`'s second byte, which the EC's own console prints as
 /// `EMCA`.
 const E_MARKER: u8 = 1 << 3;
@@ -38,6 +57,20 @@ const ACTIVE_CABLE: u8 = 1 << 6;
 /// The EC numbers a port as its controller times this plus which of the
 /// controller's connectors it is.
 pub(crate) const PORTS_PER_CONTROLLER: u8 = 2;
+
+/// The controller's own `c_state` code, which the EC copies unchanged.
+pub(crate) fn partner(c_state: u8) -> PortPartner {
+    match c_state {
+        0 => PortPartner::Nothing,
+        1 => PortPartner::Sink,
+        2 => PortPartner::Source,
+        3 => PortPartner::Debug,
+        4 => PortPartner::Audio,
+        5 => PortPartner::PoweredAccessory,
+        6 => PortPartner::Unsupported,
+        _ => PortPartner::Invalid,
+    }
+}
 
 /// `port`'s bit in its controller's [`PDPORT_ENABLE`] mask.
 pub(crate) fn enable_bit(port: u8) -> u8 {
@@ -79,18 +112,145 @@ pub(crate) fn controllers(platform: Platform) -> &'static [(u8, u16)] {
     }
 }
 
-/// A port's readings from one read of [`SPAN`] bytes at `PD_STATUS`.
-pub(crate) fn decode(span: &[u8; SPAN]) -> PortRegisters {
-    let word = |register: u16| {
-        let at = usize::from(register - PD_STATUS);
-        u32::from_le_bytes(span[at..at + 4].try_into().unwrap_or_default())
+/// What one read of [`SPAN`] bytes at `PD_STATUS` says of a port: its state
+/// as the controller holds it now, and its cable, contract and bus.
+pub struct ControllerRead {
+    pub partner: PortPartner,
+    pub contract: bool,
+    pub power_role: PowerRole,
+    pub data_role: DataRole,
+    pub millivolts: u16,
+    pub milliamps: u16,
+    pub vconn: bool,
+    pub cc: CcPolarity,
+    pub epr_active: bool,
+    pub registers: PortRegisters,
+}
+
+impl ControllerRead {
+    /// The port's reading, the EC's `entry` answering for which port it
+    /// charges from, the alternate mode and whether a source offers EPR: the
+    /// registers carry none of them.
+    pub(crate) fn over(self, entry: &PortReading) -> PortReading {
+        PortReading {
+            partner: self.partner,
+            contract: self.contract,
+            power_role: self.power_role,
+            data_role: self.data_role,
+            millivolts: self.millivolts,
+            milliamps: self.milliamps,
+            charging: entry.charging,
+            video: entry.video,
+            vconn: self.vconn,
+            cc: self.cc,
+            epr: if self.epr_active {
+                Epr::Active
+            } else if entry.epr == Epr::Unsupported {
+                Epr::Unsupported
+            } else {
+                Epr::Supported
+            },
+            registers: (self.partner != PortPartner::Nothing).then_some(self.registers),
+        }
+    }
+}
+
+/// The state as `cypd_update_port_state` derives the EC's entry from these
+/// registers.
+pub(crate) fn read(span: &[u8; SPAN]) -> ControllerRead {
+    let typec = span[usize::from(TYPE_C_STATUS - PD_STATUS)];
+    let contract = span[1] & CONTRACT != 0;
+    let sourcing = span[1] & POWER_ROLE_SOURCE != 0;
+    let partner = partner((typec >> 2) & 0b111);
+    let advertised_ma = match typec >> 6 {
+        0 => 900,
+        1 => 1500,
+        2 => 3000,
+        _ => 0,
     };
+    let (mut millivolts, mut milliamps) = match partner {
+        PortPartner::Sink | PortPartner::Source => (TYPE_C_MILLIVOLTS, advertised_ma),
+        _ => (0, 0),
+    };
+    if contract {
+        (millivolts, milliamps) = if sourcing {
+            (TYPE_C_MILLIVOLTS, rdo_operating_ma(word(span, CURRENT_RDO)))
+        } else {
+            pdo_offer(word(span, CURRENT_PDO))
+        };
+    }
+    ControllerRead {
+        partner,
+        contract,
+        power_role: if sourcing {
+            PowerRole::Source
+        } else {
+            PowerRole::Sink
+        },
+        data_role: if span[0] & DATA_ROLE_DFP != 0 {
+            DataRole::DownstreamFacing
+        } else {
+            DataRole::UpstreamFacing
+        },
+        millivolts,
+        milliamps,
+        vconn: span[1] & VCONN_SOURCE != 0,
+        cc: if typec & CC2 != 0 {
+            CcPolarity::Cc2
+        } else {
+            CcPolarity::Cc1
+        },
+        epr_active: span[2] & EPR_ACTIVE != 0,
+        registers: decode(span),
+    }
+}
+
+/// The voltage and the current of the offer a sink's contract stands on, as
+/// the EC takes them: a battery supply's power over its highest voltage, and
+/// the top of a variable or programmable range.
+fn pdo_offer(pdo: u32) -> (u16, u16) {
+    let (millivolts, milliamps) = match supply(pdo).0 {
+        SupplyKind::Fixed => (field(pdo, 10, 10) * 50, field(pdo, 0, 10) * 10),
+        SupplyKind::Battery => {
+            let top_millivolts = field(pdo, 20, 10) * 50;
+            let rated_milliwatts = field(pdo, 0, 10) * 250;
+            (
+                field(pdo, 10, 10) * 50,
+                (rated_milliwatts * 1000)
+                    .checked_div(top_millivolts)
+                    .unwrap_or(0),
+            )
+        }
+        SupplyKind::Variable => (field(pdo, 20, 10) * 50, field(pdo, 0, 10) * 10),
+        SupplyKind::Pps | SupplyKind::SprAvs | SupplyKind::EprAvs | SupplyKind::Reserved => {
+            (field(pdo, 17, 8) * 100, field(pdo, 0, 7) * 50)
+        }
+    };
+    (
+        u16::try_from(millivolts).unwrap_or(u16::MAX),
+        u16::try_from(milliamps).unwrap_or(u16::MAX),
+    )
+}
+
+/// The operating current a sink requested, in 10 mA units at bits 10 to 19.
+fn rdo_operating_ma(rdo: u32) -> u16 {
+    u16::try_from(field(rdo, 10, 10) * 10).unwrap_or(u16::MAX)
+}
+
+fn word(span: &[u8; SPAN], register: u16) -> u32 {
+    let at = usize::from(register - PD_STATUS);
+    u32::from_le_bytes(span[at..at + 4].try_into().unwrap_or_default())
+}
+
+/// A port's cable, contract and bus from one read of [`SPAN`] bytes at
+/// `PD_STATUS`.
+fn decode(span: &[u8; SPAN]) -> PortRegisters {
     let voltage = usize::from(BUS_VOLTAGE - PD_STATUS);
     let measured = u16::from_le_bytes(span[voltage..voltage + 2].try_into().unwrap_or_default());
-    let pdo = word(CURRENT_PDO);
+    let pdo = word(span, CURRENT_PDO);
     PortRegisters {
-        cable: cable([span[1], span[2]], word(CABLE_VDO)),
-        pd: (span[1] & CONTRACT != 0 && pdo != 0).then(|| contract(pdo, word(CURRENT_RDO))),
+        cable: cable([span[1], span[2]], word(span, CABLE_VDO)),
+        pd: (span[1] & CONTRACT != 0 && pdo != 0).then(|| contract(pdo, word(span, CURRENT_RDO))),
         measured_millivolts: measured.saturating_mul(100),
     }
 }
@@ -116,7 +276,19 @@ fn peak(code: u32) -> Option<PeakCurrent> {
 /// The layouts are the USB PD specification's source PDO and request data
 /// object; bit 26 of every RDO flags a capability mismatch.
 fn contract(pdo: u32, rdo: u32) -> PdContract {
-    let (kind, peak_code, power_limited) = match pdo >> 30 {
+    let (kind, peak_code, power_limited) = supply(pdo);
+    PdContract {
+        kind,
+        peak: peak_code.and_then(peak),
+        power_limited,
+        capability_mismatch: bit(rdo, 26),
+    }
+}
+
+/// A PDO's kind by its type bits, with its peak current code and its power
+/// limited bit where the kind has them.
+fn supply(pdo: u32) -> (SupplyKind, Option<u32>, Option<bool>) {
+    match pdo >> 30 {
         0 => (SupplyKind::Fixed, Some(field(pdo, 20, 2)), None),
         1 => (SupplyKind::Battery, None, None),
         2 => (SupplyKind::Variable, None, None),
@@ -126,12 +298,6 @@ fn contract(pdo: u32, rdo: u32) -> PdContract {
             2 => (SupplyKind::SprAvs, None, None),
             _ => (SupplyKind::Reserved, None, None),
         },
-    };
-    PdContract {
-        kind,
-        peak: peak_code.and_then(peak),
-        power_limited,
-        capability_mismatch: bit(rdo, 26),
     }
 }
 
@@ -177,7 +343,9 @@ mod tests {
         CableLatency, CableSpeed, PdContract, PeakCurrent, Platform, SupplyKind,
     };
 
-    use super::{SPAN, block, cable, controllers, decode};
+    use frameguin_contract::{CcPolarity, DataRole, PortPartner, PowerRole};
+
+    use super::{SPAN, block, cable, controllers, decode, read};
 
     const CHARGING_CABLE_STATUS: [u8; 2] = [0x9c, 0x25];
     const CHARGING_CABLE_VDO: u32 = 0x000a_6640;
@@ -303,5 +471,44 @@ mod tests {
     #[test]
     fn a_board_nobody_addressed_has_no_controllers() {
         assert!(controllers(Platform::Unknown).is_empty());
+    }
+
+    #[test]
+    fn a_charger_under_an_epr_contract_reads_as_the_ec_reported_it() {
+        let read = read(&CHARGER_SPAN);
+        assert_eq!(read.partner, PortPartner::Source);
+        assert!(read.contract);
+        assert_eq!(read.power_role, PowerRole::Sink);
+        assert_eq!(read.data_role, DataRole::DownstreamFacing);
+        assert_eq!((read.millivolts, read.milliamps), (28_000, 5000));
+        assert_eq!(read.cc, CcPolarity::Cc1);
+        assert!(!read.vconn);
+        assert!(read.epr_active);
+    }
+
+    #[test]
+    fn a_card_this_machine_powers_reads_its_requested_current() {
+        let read = read(&CARD_SPAN);
+        assert_eq!(read.partner, PortPartner::Sink);
+        assert_eq!(read.power_role, PowerRole::Source);
+        assert_eq!((read.millivolts, read.milliamps), (5000, 680));
+        assert!(read.vconn);
+    }
+
+    #[test]
+    fn a_device_without_a_contract_carries_the_advertised_current() {
+        let read = read(&TYPE_C_ONLY_SPAN);
+        assert!(!read.contract);
+        assert_eq!((read.millivolts, read.milliamps), (5000, 1500));
+    }
+
+    #[test]
+    fn a_port_with_nothing_attached_carries_nothing() {
+        let mut span = CHARGER_SPAN;
+        span[4] = 0;
+        span[1] &= !super::CONTRACT;
+        let read = read(&span);
+        assert_eq!(read.partner, PortPartner::Nothing);
+        assert_eq!((read.millivolts, read.milliamps), (0, 0));
     }
 }

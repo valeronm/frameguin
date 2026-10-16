@@ -11,11 +11,8 @@ use crate::served::Served;
 
 #[interface(name = "io.github.valeronm.Frameguin1.Ports")]
 impl Served<Ports> {
-    async fn get_ports(&self, controller_ports: PortSet) -> fdo::Result<Vec<PortState>> {
-        self.device()
-            .ports(controller_ports)
-            .await
-            .map_err(fdo_error)
+    async fn get_ports(&self) -> fdo::Result<Vec<PortState>> {
+        self.device().ports().await.map_err(fdo_error)
     }
 
     async fn get_switchable(&self) -> fdo::Result<PortSet> {

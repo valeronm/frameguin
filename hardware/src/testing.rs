@@ -24,7 +24,7 @@ use crate::led::LedClass;
 use crate::lifetime::{EcBoot, Holders};
 use crate::mirror::Mirrors;
 use crate::part;
-use crate::pd_controller::{self, PORTS_PER_CONTROLLER};
+use crate::pd_controller::{self, ControllerRead, PORTS_PER_CONTROLLER};
 use crate::platform;
 use crate::state::{self, Store};
 use crate::thermal::{FAN_ENTRIES, FAN_NOT_PRESENT, RawThresholds};
@@ -518,6 +518,8 @@ pub struct Connectors {
     pub sink: Option<u8>,
     /// What every port's register span reads as.
     pub registers: PortRegisters,
+    /// Ports whose controller answers other than the EC's entry for them.
+    pub live: Vec<(u8, PortReading)>,
     /// Controllers that refuse the register read.
     pub refusing_registers: Vec<(u8, u16)>,
     /// Every port a register read was asked for, with the controller it was
@@ -560,6 +562,14 @@ impl Connectors {
         self
     }
 
+    fn entry(&self, index: u8) -> PortReading {
+        let mut reading = port(index);
+        if self.sink == Some(index) {
+            reading.partner = PortPartner::Sink;
+        }
+        reading
+    }
+
     fn mask(&self, controller: (u8, u16)) -> u8 {
         self.masks
             .lock()
@@ -583,6 +593,7 @@ impl Default for Connectors {
                 measured_millivolts: 0,
             },
             refusing_registers: Vec::new(),
+            live: Vec::new(),
             registers_read: Mutex::new(Vec::new()),
             masks: Mutex::new(Vec::new()),
             refusing_masks: Vec::new(),
@@ -600,21 +611,31 @@ impl PdPorts for Connectors {
     }
 
     fn port_state(&self, index: u8) -> DeviceResult<Option<PortReading>> {
-        Ok((self.refusing_none || index < self.count).then(|| {
-            let mut reading = port(index);
-            if self.sink == Some(index) {
-                reading.partner = PortPartner::Sink;
-            }
-            reading
-        }))
+        Ok((self.refusing_none || index < self.count).then(|| self.entry(index)))
     }
 
-    fn port_registers(&self, port: u8, controller: (u8, u16)) -> DeviceResult<PortRegisters> {
+    fn port_controller(&self, port: u8, controller: (u8, u16)) -> DeviceResult<ControllerRead> {
         self.registers_read.lock().unwrap().push((port, controller));
         if self.refusing_registers.contains(&controller) {
             return Err(DeviceError::NotSupported("register read refused".into()));
         }
-        Ok(self.registers)
+        let reading = self
+            .live
+            .iter()
+            .find(|(index, _)| *index == port)
+            .map_or_else(|| self.entry(port), |(_, reading)| reading.clone());
+        Ok(ControllerRead {
+            partner: reading.partner,
+            contract: reading.contract,
+            power_role: reading.power_role,
+            data_role: reading.data_role,
+            millivolts: reading.millivolts,
+            milliamps: reading.milliamps,
+            vconn: reading.vconn,
+            cc: reading.cc,
+            epr_active: reading.epr == Epr::Active,
+            registers: self.registers,
+        })
     }
 
     fn port_enable(&self, controller: (u8, u16)) -> DeviceResult<u8> {

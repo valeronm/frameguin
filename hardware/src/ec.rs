@@ -64,8 +64,8 @@ pub trait Pack: Send + Sync {
 }
 
 /// What the ports' device needs of the EC: how many PD controllers answered,
-/// one port's state, what that port's controller reads of its cable and its
-/// bus, and which of its ports the controller has enabled.
+/// one port's state, what that port's controller reads of its state, cable
+/// and bus, and which of its ports the controller has enabled.
 pub trait PdPorts: Send + Sync {
     /// How many controllers the EC reports a version for. Each drives at
     /// most two ports, which is what bounds the walk — the EC cannot be
@@ -78,11 +78,11 @@ pub trait PdPorts: Send + Sync {
     fn port_state(&self, port: u8) -> DeviceResult<Option<contract::PortReading>>;
     /// Read from `controller` — its (EC I2C port, 7-bit address) — over I2C
     /// passthrough.
-    fn port_registers(
+    fn port_controller(
         &self,
         port: u8,
         controller: (u8, u16),
-    ) -> DeviceResult<contract::PortRegisters>;
+    ) -> DeviceResult<pd_controller::ControllerRead>;
     /// `controller`'s port mask over I2C passthrough, a bit per connector set
     /// where it is enabled.
     fn port_enable(&self, controller: (u8, u16)) -> DeviceResult<u8>;
@@ -384,18 +384,18 @@ impl PdPorts for Ec {
 
     /// One read spans `PD_STATUS` through `CABLE_VDO`, so the status and the
     /// VDO it describes come from the same moment.
-    fn port_registers(
+    fn port_controller(
         &self,
         port: u8,
         (bus, address): (u8, u16),
-    ) -> DeviceResult<contract::PortRegisters> {
+    ) -> DeviceResult<pd_controller::ControllerRead> {
         let span = i2c_block(
             &self.ec(),
             bus,
             address,
             pd_controller::block(port) + pd_controller::PD_STATUS,
         )?;
-        Ok(pd_controller::decode(&span))
+        Ok(pd_controller::read(&span))
     }
 
     fn port_enable(&self, (bus, address): (u8, u16)) -> DeviceResult<u8> {

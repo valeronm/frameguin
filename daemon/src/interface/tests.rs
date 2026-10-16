@@ -8,7 +8,7 @@ use std::time::Duration;
 use async_io::Async;
 use frameguin_contract::{
     BatteryFeature, Board, ChargeCurrentLimit, ChargingLedFeature, ChargingLedSide, ChassisFeature,
-    ClickForce, DeckState, DeviceError, Platform, PortMask, PortPartner, PortSet, PowerLedLevel,
+    ClickForce, DeckState, DeviceError, Platform, PortMask, PortPartner, PowerLedLevel,
     Temperature, ThermalFeature, VENDOR,
 };
 use frameguin_hardware::device::Devices;
@@ -267,7 +267,7 @@ fn every_getter_answers_through_its_proxy() {
             ClickForce::Medium
         );
         assert!(p.touchscreen.get_enabled().await.unwrap());
-        let ports = p.ports.get_ports(PortSet::ALL).await.unwrap();
+        let ports = p.ports.get_ports().await.unwrap();
         assert_eq!(ports.len(), 4);
         assert_eq!(ports[0].index, 0);
         assert!(matches!(
@@ -354,7 +354,7 @@ fn every_setter_writes_when_polkit_allows() {
         p.touchscreen.set_enabled(false).await.unwrap();
         assert!(!p.touchscreen.get_enabled().await.unwrap());
         p.ports.set_enabled(3, false).await.unwrap();
-        let ports = p.ports.get_ports(PortSet::default()).await.unwrap();
+        let ports = p.ports.get_ports().await.unwrap();
         assert_eq!(ports[3].mask, PortMask::Off);
     });
 }
@@ -389,7 +389,7 @@ fn a_refused_write_leaves_the_device_untouched() {
         assert!(denied(p.touchscreen.set_enabled(false).await));
         assert!(p.touchscreen.get_enabled().await.unwrap());
         assert!(denied(p.ports.set_enabled(3, false).await));
-        let ports = p.ports.get_ports(PortSet::default()).await.unwrap();
+        let ports = p.ports.get_ports().await.unwrap();
         assert!(matches!(ports[3].mask, PortMask::On(_)));
     });
 }
@@ -438,7 +438,7 @@ fn the_last_port_on_is_refused_its_switch() {
             p.ports.set_enabled(port, false).await.unwrap();
         }
         assert!(invalid(p.ports.set_enabled(3, false).await));
-        let ports = p.ports.get_ports(PortSet::default()).await.unwrap();
+        let ports = p.ports.get_ports().await.unwrap();
         assert!(matches!(ports[3].mask, PortMask::On(_)));
     });
 }
@@ -588,7 +588,7 @@ fn a_port_turned_off_crosses_with_no_reading() {
         },
     );
     peer.run(|p| async move {
-        let ports = p.ports.get_ports(PortSet::ALL).await.unwrap();
+        let ports = p.ports.get_ports().await.unwrap();
         assert!(matches!(&ports[2].mask, PortMask::On(_)));
         assert_eq!(ports[3].mask, PortMask::Off);
     });
@@ -604,7 +604,7 @@ fn a_port_with_no_mask_to_read_crosses_unchecked() {
         },
     );
     peer.run(|p| async move {
-        let ports = p.ports.get_ports(PortSet::ALL).await.unwrap();
+        let ports = p.ports.get_ports().await.unwrap();
         assert!(matches!(&ports[0].mask, PortMask::Unchecked(reading) if reading.charging));
         assert!(p.ports.get_switchable().await.unwrap().is_empty());
     });
@@ -625,7 +625,7 @@ fn a_device_detection_did_not_find_is_not_on_the_bus() {
         assert!(p.touchpad.get_click_force().await.is_ok());
         assert!(p.power_led.get_brightness().await.is_ok());
         assert!(p.charging_led.get_enabled().await.is_ok());
-        assert!(p.ports.get_ports(PortSet::default()).await.is_ok());
+        assert!(p.ports.get_ports().await.is_ok());
         assert!(p.chassis.get_state().await.is_ok());
         assert!(p.privacy_switches.get_switches().await.is_ok());
         assert!(p.thermal.get_state().await.is_ok());

@@ -2,9 +2,11 @@
 //! port's state — apart from [`crate::ec`] so the decoding is testable
 //! without an EC.
 
-use frameguin_contract::{CcPolarity, DataRole, Epr, PortPartner, PortReading, PowerRole};
+use frameguin_contract::{CcPolarity, DataRole, Epr, PortReading, PowerRole};
 use framework_lib::ccgx::AppVersion;
 use framework_lib::chromium_ec::commands::EcResponseGetPdPortState;
+
+use crate::pd_controller;
 
 /// Bits 0 and 1 of the alternate-mode byte, either of which is `DisplayPort`
 /// connected in one direction or the other. The rest describe a link that
@@ -48,16 +50,7 @@ pub(crate) fn port_state(raw: &EcResponseGetPdPortState) -> PortReading {
     // reference into an unaligned field is undefined behaviour.
     let (millivolts, milliamps) = (raw.voltage, raw.current);
     PortReading {
-        partner: match raw.c_state {
-            0 => PortPartner::Nothing,
-            1 => PortPartner::Sink,
-            2 => PortPartner::Source,
-            3 => PortPartner::Debug,
-            4 => PortPartner::Audio,
-            5 => PortPartner::PoweredAccessory,
-            6 => PortPartner::Unsupported,
-            _ => PortPartner::Invalid,
-        },
+        partner: pd_controller::partner(raw.c_state),
         contract: raw.pd_state != 0,
         power_role: match raw.power_role {
             0 => PowerRole::Sink,

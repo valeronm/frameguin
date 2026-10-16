@@ -127,8 +127,8 @@ impl ChargingLedControl for Bus {
 }
 
 impl PortsControl for Bus {
-    async fn ports(&self, controller_ports: PortSet) -> DeviceResult<Vec<PortState>> {
-        call(self.devices.ports.get_ports(controller_ports)).await
+    async fn ports(&self) -> DeviceResult<Vec<PortState>> {
+        call(self.devices.ports.get_ports()).await
     }
 
     async fn switchable(&self) -> DeviceResult<PortSet> {

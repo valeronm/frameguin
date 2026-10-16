@@ -225,7 +225,7 @@ impl TouchpadControl for Machine {
 }
 
 impl PortsControl for Machine {
-    async fn ports(&self, _controller_ports: PortSet) -> DeviceResult<Vec<PortState>> {
+    async fn ports(&self) -> DeviceResult<Vec<PortState>> {
         self.ports.read((0..4).map(port).collect())
     }
 
