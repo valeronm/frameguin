@@ -29,10 +29,9 @@ impl<C: PortsControl> Ports<C> {
     }
 
     pub async fn detect(control: &Rc<C>, platform: Platform) -> Result<Option<Self>> {
-        if present(control.ports().await)?.is_none() {
+        let Some(switchable) = present(control.switchable().await)? else {
             return Ok(None);
-        }
-        let switchable = control.switchable().await?;
+        };
         Ok(Some(Self::new(control.clone(), platform, switchable)))
     }
 

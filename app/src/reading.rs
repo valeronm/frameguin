@@ -93,10 +93,9 @@ impl Drop for Subscription {
     }
 }
 
-pub(crate) struct Writing<'a>(#[expect(dead_code, reason = "held for its Drop")] InFlight<'a>);
-
-/// One read's place in [`Feed::reading`], counted for as long as it is held.
-struct InFlight<'a>(&'a Cell<u32>);
+/// A read's place in [`Feed::reading`], or a write's in [`Feed::writing`],
+/// counted for as long as it is held.
+pub(crate) struct InFlight<'a>(&'a Cell<u32>);
 
 impl<'a> InFlight<'a> {
     fn enter(count: &'a Cell<u32>) -> Self {
@@ -158,9 +157,9 @@ impl Feed {
     /// Held across a write to something a view shows, so no reading that
     /// overlaps it is shown; drop it before the fill that shows what the
     /// write did.
-    pub(crate) fn writing(&self) -> Writing<'_> {
+    pub(crate) fn writing(&self) -> InFlight<'_> {
         self.writes.set(self.writes.get() + 1);
-        Writing(InFlight::enter(&self.writing))
+        InFlight::enter(&self.writing)
     }
 
     /// Registers a view, and starts the timer where this is the first.
@@ -238,12 +237,13 @@ impl Feed {
         let feed = self.clone();
         self.timer
             .set(Some(Timer::every_seconds(READING_SECONDS, move || {
-                // Skipped while any read is going, a window's fill included.
+                // Skipped while any read is going, a window's fill included,
+                // and while a write is, whose overlapping read is never shown.
                 // Tested before the task is spawned rather than inside it:
                 // `read` takes its place in the count before its first
                 // suspension, so there is nothing an async context would see
                 // that this does not.
-                if feed.reading.get() > 0 {
+                if feed.reading.get() > 0 || feed.writing.get() > 0 {
                     return;
                 }
                 let feed = feed.clone();

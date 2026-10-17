@@ -29,8 +29,7 @@ One meaning per word, and each word names one place in the tree.
   `ChassisControl`, `PrivacySwitchesControl`, `ThermalControl`, `UsbControl` — with one async fn per
   operation and three implementations, the device itself, the bus, and a
   stub. A trait with only getters is a control all the same:
-  `PortsControl` sets nothing, what a USB-C port does being settled between
-  its controller and whatever is plugged in. `DeviceError` is the one error every control and every
+  `UsbControl` sets nothing, the devices on the root ports being only read. `DeviceError` is the one error every control and every
   detection raises.
 - **Board** — what the firmware reports about the machine, vendor and
   product, beside the `Platform` those two settle: `contract::Board`, answered

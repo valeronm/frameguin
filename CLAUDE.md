@@ -310,7 +310,7 @@ it and the non-obvious constraints.
   match. Both the window's handler and the tray item call it; neither writes
   around it. The `Sink` it reports into decides the report's form: a toast
   where a window is built, a desktop notification for a refusal where none
-  is. Controls only the window sets (the touchpad) write inline
+  is. Controls only the window sets (the touchpad, the USB-C ports) write inline
   in their handler — one caller needs no shared function, and giving it one
   would be ceremony. Either way a handler answers `window/widgets.rs` with
   its write as a future: the helper owns the sync guard and the spawn, and a
@@ -325,10 +325,11 @@ it and the non-obvious constraints.
   so a refused write leaves the window asserting a state the hardware never
   took. Correct it where both hold: the prior value is recoverable without a
   read, and the wrong assertion is one a reader acts on rather than merely
-  looks at. The touchscreen and the restore switch are the cases that meet
-  them, a switch's prior value being its negation — the touchscreen's wrong
-  claim is "touch is off", the restore switch's that a setting will come
-  back after a restart. The two EC LEDs
+  looks at. The touchscreen, the restore switch and a USB-C port's switch
+  are the cases that meet them, a switch's prior value being its negation —
+  the touchscreen's wrong claim is "touch is off", the restore switch's that
+  a setting will come back after a restart, a port's whether anything
+  plugged into it is powered. The two EC LEDs
   meet the second and not the first — a level the kernel would not hand
   the power LED back for reads as Off, a charging LED the kernel took half
   a handover for is lit on neither account, and "lit" is a claim of the

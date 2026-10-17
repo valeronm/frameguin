@@ -38,8 +38,9 @@ pub struct Request {
     /// A transfer per cell plus two, each an EC host command carrying an
     /// `SMBus` pair to a gauge the EC is itself polling.
     pub condition: bool,
-    /// The USB-C ports: one call, an EC host command per port, and an I2C
-    /// transfer per enabled port on a controller read directly.
+    /// The USB-C ports: one call, an EC host command per port, an I2C
+    /// transfer per controller for its mask, and one per enabled port on a
+    /// controller read directly.
     pub ports: bool,
     /// Two host commands and no transfer past them.
     pub chassis: bool,

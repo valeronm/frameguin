@@ -268,6 +268,7 @@ is `0x1000` for a controller's first connector and `0x2000` for its second.
 | sink PDO EPR mask | `SELECT_SINK_PDO_EPR_MASK` | block + `0x65` | |
 | `PDPORT_ENABLE` | `CCG_PDPORT_ENABLE_REG` | `0x2C` | bitmask, one bit per port |
 | `PD_STATUS` | `CCG_PD_STATUS_REG` | block + `0x08` | bits below |
+| `TYPE_C_STATUS` | `CCG_TYPE_C_STATUS_REG` | block + `0x0C` | bit 1 CC2 polarity, bits 2 to 4 the partner as the EC's `c_state`, bits 6 and 7 the advertised Type-C current: 0.9, 1.5 or 3 A |
 | `CURRENT_PDO` | `CCG_CURRENT_PDO_REG` | block + `0x10` | the source's PDO the contract stands on, 4 bytes |
 | `CURRENT_RDO` | `CCG_CURRENT_RDO_REG` | block + `0x14` | the sink's RDO against it, 4 bytes |
 | `CABLE_VDO` | — | block + `0x18` | the Cable VDO as the cable's e-marker sent it, 4 bytes |

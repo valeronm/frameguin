@@ -945,11 +945,6 @@ impl PortSet {
     }
 
     #[must_use]
-    pub fn union(self, other: Self) -> Self {
-        Self(self.0 | other.0)
-    }
-
-    #[must_use]
     pub fn is_empty(self) -> bool {
         self.0 == 0
     }
@@ -957,6 +952,16 @@ impl PortSet {
     /// The ports in the set, lowest first.
     pub fn indices(self) -> impl Iterator<Item = u8> {
         (0..8).filter(move |&index| self.contains(index))
+    }
+}
+
+impl FromIterator<u8> for PortSet {
+    fn from_iter<I: IntoIterator<Item = u8>>(ports: I) -> Self {
+        Self(
+            ports
+                .into_iter()
+                .fold(0, |set, port| set | Self::of(port).0),
+        )
     }
 }
 

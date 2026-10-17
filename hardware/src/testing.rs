@@ -24,7 +24,7 @@ use crate::led::LedClass;
 use crate::lifetime::{EcBoot, Holders};
 use crate::mirror::Mirrors;
 use crate::part;
-use crate::pd_controller::{self, ControllerRead, PORTS_PER_CONTROLLER};
+use crate::pd_controller::{self, ControllerRead};
 use crate::platform;
 use crate::state::{self, Store};
 use crate::thermal::{FAN_ENTRIES, FAN_NOT_PRESENT, RawThresholds};
@@ -520,13 +520,13 @@ pub struct Connectors {
     pub registers: PortRegisters,
     /// Ports whose controller answers other than the EC's entry for them.
     pub live: Vec<(u8, PortReading)>,
-    /// Controllers that refuse the register read.
-    pub refusing_registers: Vec<(u8, u16)>,
-    /// Every port a register read was asked for, with the controller it was
-    /// asked of, in order.
-    pub registers_read: Mutex<Vec<(u8, (u8, u16))>>,
+    /// Controllers that refuse the read of a port's registers.
+    pub refusing_controllers: Vec<(u8, u16)>,
+    /// Every port whose registers were read, with the controller they were
+    /// read from, in order.
+    pub controller_reads: Mutex<Vec<(u8, (u8, u16))>>,
     /// Controllers whose port mask is other than both ports enabled.
-    pub masks: Mutex<Vec<((u8, u16), u8)>>,
+    pub masks: Mutex<BTreeMap<(u8, u16), u8>>,
     /// Controllers that refuse the port mask read.
     pub refusing_masks: Vec<(u8, u16)>,
     /// Every controller a port mask was asked of, in order.
@@ -536,14 +536,14 @@ pub struct Connectors {
     pub masks_written: Mutex<Vec<((u8, u16), u8)>>,
     /// How many reads after a mask write still answer the mask before it.
     pub mask_lag: u32,
-    pub lagging: Mutex<Option<Lag>>,
+    pub pending: Mutex<Option<Pending>>,
 }
 
-/// The mask a controller answered before its last write, and how many reads
-/// will still answer it.
-pub struct Lag {
+/// The last mask written, and how many reads of its controller go on
+/// answering the mask before it.
+pub struct Pending {
     controller: (u8, u16),
-    before: u8,
+    mask: u8,
     left: u32,
 }
 
@@ -552,12 +552,12 @@ impl Connectors {
     /// placed from `platform`'s table.
     #[must_use]
     pub fn with_port_off(mut self, platform: Platform, index: u8) -> Self {
-        let controller = usize::from(index / PORTS_PER_CONTROLLER);
+        let controller = pd_controller::controller_of(index);
         if let Some(&address) = pd_controller::controllers(platform).get(controller) {
             self.masks
                 .get_mut()
                 .unwrap()
-                .push((address, 0b11 & !pd_controller::enable_bit(index)));
+                .insert(address, 0b11 & !pd_controller::enable_bit(index));
         }
         self
     }
@@ -574,9 +574,9 @@ impl Connectors {
         self.masks
             .lock()
             .unwrap()
-            .iter()
-            .find(|(address, _)| *address == controller)
-            .map_or(0b11, |&(_, mask)| mask)
+            .get(&controller)
+            .copied()
+            .unwrap_or(0b11)
     }
 }
 
@@ -592,15 +592,15 @@ impl Default for Connectors {
                 pd: None,
                 measured_millivolts: 0,
             },
-            refusing_registers: Vec::new(),
+            refusing_controllers: Vec::new(),
             live: Vec::new(),
-            registers_read: Mutex::new(Vec::new()),
-            masks: Mutex::new(Vec::new()),
+            controller_reads: Mutex::new(Vec::new()),
+            masks: Mutex::default(),
             refusing_masks: Vec::new(),
             masks_read: Mutex::new(Vec::new()),
             masks_written: Mutex::new(Vec::new()),
             mask_lag: 0,
-            lagging: Mutex::new(None),
+            pending: Mutex::new(None),
         }
     }
 }
@@ -615,8 +615,11 @@ impl PdPorts for Connectors {
     }
 
     fn port_controller(&self, port: u8, controller: (u8, u16)) -> DeviceResult<ControllerRead> {
-        self.registers_read.lock().unwrap().push((port, controller));
-        if self.refusing_registers.contains(&controller) {
+        self.controller_reads
+            .lock()
+            .unwrap()
+            .push((port, controller));
+        if self.refusing_controllers.contains(&controller) {
             return Err(DeviceError::NotSupported("register read refused".into()));
         }
         let reading = self
@@ -643,15 +646,17 @@ impl PdPorts for Connectors {
         if self.refusing_masks.contains(&controller) {
             return Err(DeviceError::NotSupported("mask read refused".into()));
         }
-        let mut lagging = self.lagging.lock().unwrap();
-        if let Some(lag) = lagging.as_mut()
-            && lag.controller == controller
-            && lag.left > 0
+        let mut pending = self.pending.lock().unwrap();
+        if let Some(write) = pending.as_mut()
+            && write.controller == controller
         {
-            lag.left -= 1;
-            return Ok(lag.before);
+            if write.left > 0 {
+                write.left -= 1;
+            } else {
+                self.masks.lock().unwrap().insert(controller, write.mask);
+                *pending = None;
+            }
         }
-        *lagging = None;
         Ok(self.mask(controller))
     }
 
@@ -660,14 +665,15 @@ impl PdPorts for Connectors {
             return Err(DeviceError::NotSupported("mask write refused".into()));
         }
         self.masks_written.lock().unwrap().push((controller, mask));
-        *self.lagging.lock().unwrap() = Some(Lag {
-            controller,
-            before: self.mask(controller),
-            left: self.mask_lag,
-        });
-        let mut masks = self.masks.lock().unwrap();
-        masks.retain(|(address, _)| *address != controller);
-        masks.push((controller, mask));
+        if self.mask_lag == 0 {
+            self.masks.lock().unwrap().insert(controller, mask);
+        } else {
+            *self.pending.lock().unwrap() = Some(Pending {
+                controller,
+                mask,
+                left: self.mask_lag,
+            });
+        }
         Ok(())
     }
 }

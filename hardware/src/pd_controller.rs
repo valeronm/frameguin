@@ -72,6 +72,11 @@ pub(crate) fn partner(c_state: u8) -> PortPartner {
     }
 }
 
+/// Where `port`'s controller sits in the EC's controller order.
+pub(crate) fn controller_of(port: u8) -> usize {
+    usize::from(port / PORTS_PER_CONTROLLER)
+}
+
 /// `port`'s bit in its controller's [`PDPORT_ENABLE`] mask.
 pub(crate) fn enable_bit(port: u8) -> u8 {
     1 << (port % PORTS_PER_CONTROLLER)
