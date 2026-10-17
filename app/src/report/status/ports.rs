@@ -17,9 +17,7 @@ use std::cell::{Cell, RefCell};
 use std::rc::{Rc, Weak};
 
 use adw::prelude::*;
-use frameguin_contract::{
-    Attached, PortMask, PortPartner, PortReading, PortRegisters, PortState, PowerRole,
-};
+use frameguin_contract::{Attached, PortMask, PortPartner, PortReading, PortState, PowerRole};
 use frameguin_model::control::ports::powering;
 use frameguin_model::port::Placement;
 use frameguin_model::reading::Request;
@@ -58,10 +56,6 @@ struct PortPage {
     /// Weak: the page's own subscription holds this.
     page: glib::WeakRef<adw::PreferencesPage>,
     placement: Placement,
-    /// The last registers read while the same kind of partner stayed
-    /// attached, standing in for a reading that did not ask for them or
-    /// failed to read them.
-    registers: Cell<Option<(PortPartner, PortRegisters)>>,
     drawn: RefCell<Option<Drawn>>,
 }
 
@@ -182,7 +176,6 @@ impl Section {
                         index: state.index,
                         page: widget.downgrade(),
                         placement,
-                        registers: Cell::default(),
                         drawn: RefCell::default(),
                     };
                     let row =
@@ -233,27 +226,12 @@ impl PortPage {
             return;
         };
         let layout = match &state.mask {
-            PortMask::Off => {
-                self.registers.set(None);
-                vec![off_group(self.placement, self.index)]
-            }
+            PortMask::Off => vec![off_group(self.placement, self.index)],
             PortMask::On(reading) | PortMask::Unchecked(reading) => {
-                let mut reading = reading.clone();
-                match reading.registers {
-                    Some(registers) => self.registers.set(Some((reading.partner, registers))),
-                    None if reading.partner == PortPartner::Nothing => self.registers.set(None),
-                    None => {
-                        reading.registers = self
-                            .registers
-                            .get()
-                            .filter(|&(partner, _)| partner == reading.partner)
-                            .map(|(_, registers)| registers);
-                    }
-                }
                 let devices = self.placement.attached(self.index, devices);
-                let mut layout = vec![connection_group(self.placement, self.index, &reading)];
-                layout.extend(cable_group(&reading));
-                layout.extend(contract_group(&reading));
+                let mut layout = vec![connection_group(self.placement, self.index, reading)];
+                layout.extend(cable_group(reading));
+                layout.extend(contract_group(reading));
                 layout.extend(devices.into_iter().map(device_group));
                 layout
             }
