@@ -18,6 +18,14 @@ fi
 # defect, and cargo would otherwise rewrite it here without saying so.
 cargo build --release --workspace --locked
 
+# A FRAMEGUIN_BUILD stamp left in the shell would name the release after a
+# commit.
+reported="$(target/release/frameguin --version)"
+if [ "$reported" != "frameguin $version" ]; then
+    echo "the build reports '$reported', not 'frameguin $version'" >&2
+    exit 1
+fi
+
 name="frameguin-$version-$(uname -m)-linux"
 stage="target/dist/$name"
 rm -rf "$stage"

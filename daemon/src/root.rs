@@ -88,10 +88,7 @@ impl Daemon {
     fn get_build(&self) -> (String, String) {
         self.service.touch();
         let exe = std::fs::read_link("/proc/self/exe").unwrap_or_else(|_| "unknown".into());
-        (
-            env!("CARGO_PKG_VERSION").to_string(),
-            exe.display().to_string(),
-        )
+        (frameguin_wire::version(), exe.display().to_string())
     }
 }
 

@@ -484,7 +484,7 @@ fn the_root_interface_answers_the_board_the_inventory_and_the_build() {
         assert_eq!(daemon.get_devices().await.unwrap(), parts());
         assert_eq!(
             daemon.get_build().await.unwrap().0,
-            env!("CARGO_PKG_VERSION")
+            frameguin_wire::version()
         );
     });
 }

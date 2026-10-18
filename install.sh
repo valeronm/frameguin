@@ -81,7 +81,7 @@ fi
 if [ ! -x "$built/frameguin-daemon" ] || [ ! -x "$built/frameguin" ]; then
     echo "binaries missing from $built" >&2
     echo "in a checkout, build them first (as your user, not root):" >&2
-    echo "  cargo build --release" >&2
+    echo "  dev/build.sh" >&2
     exit 1
 fi
 

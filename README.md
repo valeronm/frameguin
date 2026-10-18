@@ -170,12 +170,14 @@ sudo dnf install gtk4-devel libadwaita-devel systemd-devel pkgconf-pkg-config gc
 ```
 
 ```sh
-cargo build --release
-sudo ./install.sh
+dev/install.sh
 ```
 
-This installs under `/usr/local`; `git pull` and the same two commands
-update it.
+This installs under `/usr/local`; `git pull` and the same command update
+it. The script is `dev/build.sh`, which is `cargo build --release` with the
+binaries stamped by the commit they were built from, followed by `sudo
+./install.sh`. The stamp is what lets the About window and a bug report
+tell a checkout build from the release it was made on.
 
 A debug build of the app, `target/debug/frameguin`, talks to whichever
 daemon is installed, so a daemon change needs `sudo ./install.sh` first. The

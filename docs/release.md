@@ -35,6 +35,10 @@ is a look rather than a check.
 ./packaging/build-tarball.sh
 ```
 
+The script refuses a build that reports anything but the bare manifest
+version, so a `FRAMEGUIN_BUILD` stamp left in the shell, or a bump the
+binary did not take, stops here.
+
 **5. Commit and push.**
 
 ```sh

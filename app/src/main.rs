@@ -193,7 +193,7 @@ fn main() -> glib::ExitCode {
     );
     app.connect_handle_local_options(|_, options| {
         let report = if options.contains("version") {
-            format!("frameguin {}\n", env!("CARGO_PKG_VERSION"))
+            format!("frameguin {}\n", frameguin_wire::version())
         } else if options.contains("debug-info") {
             glib::MainContext::default().block_on(about::debug_info())
         } else {

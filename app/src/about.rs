@@ -120,7 +120,7 @@ pub(crate) async fn debug_info() -> String {
     let exe = std::env::current_exe().unwrap_or_else(|_| "unknown".into());
     let mut out = format!(
         "Frameguin {} ({})\n",
-        env!("CARGO_PKG_VERSION"),
+        frameguin_wire::version(),
         exe.display()
     );
 
@@ -195,7 +195,7 @@ pub(crate) fn show(parent: Option<&gtk::Window>) {
         .application_icon(APP_ID)
         .application_name("Frameguin")
         .developer_name("Valerii Myronov")
-        .version(env!("CARGO_PKG_VERSION"))
+        .version(frameguin_wire::version())
         .license_type(gtk::License::MitX11)
         // Setting the comments property would create a Details page and move
         // the website link onto it, off the main page.

@@ -541,9 +541,17 @@ the product it was read from.
 
 ## Build, run, verify
 
-- `cargo build --release`, then `sudo ./install.sh` installs system-wide
-  (it kills and restarts a running app). Install and uninstall change system
-  files and need sudo, so the user runs them.
+- `dev/install.sh` builds and installs system-wide (it kills and restarts
+  a running app): `dev/build.sh` as the user, then `sudo ./install.sh`.
+  Install and uninstall change system files and need sudo, so the user
+  runs them. The build script is `cargo build --release` with
+  `FRAMEGUIN_BUILD` set to the commit, which `wire`'s `version()` appends
+  to the manifest version as `X.Y.Z+<commit>` in both
+  binaries, so the About report can tell a checkout build from the release
+  it was made on. It is read in `wire` rather than `contract` so a new
+  stamp rebuilds the two binaries and not every crate under them. A
+  release carries the bare version, which the tarball script checks on
+  the built binary rather than trusting the shell.
 - `clippy::pedantic` is on workspace-wide and CI gates on `-D warnings`, so
   every crate builds warning-free. CI lints only the binaries, not test code.
 - CI also gates on `cargo fmt --all --check`, with the style edition pinned
