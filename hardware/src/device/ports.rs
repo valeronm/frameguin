@@ -134,7 +134,7 @@ impl Ports {
         &self,
         masks: &[Option<u8>],
         port: u8,
-        video: bool,
+        video: impl FnOnce() -> Option<bool>,
         displays: impl FnOnce() -> Option<Displays>,
     ) -> Option<OffRefusal> {
         let enabled = (0..self.count).map(|index| (index, enabled_of(masks, index)));
@@ -168,7 +168,7 @@ impl PortsControl for Ports {
                     });
                 }
                 let reading = self.reading(index)?;
-                let refusal = self.refusal(&masks, index, reading.video, displays);
+                let refusal = self.refusal(&masks, index, || Some(reading.video), displays);
                 let mask = if enabled.is_some() {
                     PortMask::On(reading)
                 } else {
@@ -223,11 +223,9 @@ impl PortsControl for Ports {
             return Ok(());
         }
         if let Some(masks) = &masks {
-            let reading = self.reading(port).ok_or_else(|| {
-                DeviceError::Failed(format!("port {port} did not answer for its state"))
-            })?;
+            let video = || self.reading(port).map(|reading| reading.video);
             let displays = || self.outputs.displays();
-            if let Some(refusal) = self.refusal(masks, port, reading.video, displays) {
+            if let Some(refusal) = self.refusal(masks, port, video, displays) {
                 return Err(refusal::error(refusal));
             }
         }
@@ -600,6 +598,42 @@ mod tests {
         let read = ready(ports.ports()).unwrap();
         assert_eq!(read[0].mask, PortMask::Off);
         assert_eq!(read[0].refusal, None);
+    }
+
+    #[test]
+    fn a_port_that_does_not_answer_for_its_state_is_refused_turning_off() {
+        let ec = Arc::new(Connectors::default());
+        let ports = detect(ec.clone(), LAPTOP_13_PRO).expect("four ports answered");
+        ec.refusing_states.lock().unwrap().push(0);
+        assert!(matches!(
+            ready(ports.set_enabled(0, false)),
+            Err(DeviceError::Failed(_))
+        ));
+        assert!(ec.masks_written.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn the_last_port_on_is_refused_though_its_state_does_not_answer() {
+        let ec = Arc::new(Connectors::default());
+        let ports = detect(ec.clone(), LAPTOP_13_PRO).expect("four ports answered");
+        for port in 0..3 {
+            ready(ports.set_enabled(port, false)).unwrap();
+        }
+        ec.refusing_states.lock().unwrap().push(3);
+        assert!(matches!(
+            ready(ports.set_enabled(3, false)),
+            Err(DeviceError::InvalidArgs(_))
+        ));
+    }
+
+    #[test]
+    fn a_port_whose_entry_stops_answering_is_left_out_of_the_read() {
+        let ec = Arc::new(Connectors::default());
+        let ports = detect(ec.clone(), LAPTOP_13_PRO).expect("four ports answered");
+        ec.refusing_states.lock().unwrap().push(1);
+        let read = ready(ports.ports()).unwrap();
+        assert_eq!(read.len(), 3);
+        assert!(read.iter().all(|state| state.index != 1));
     }
 
     #[test]

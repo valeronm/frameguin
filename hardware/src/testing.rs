@@ -519,6 +519,9 @@ pub struct Connectors {
     pub sink: Option<u8>,
     /// Ports carrying video.
     pub video: Vec<u8>,
+    /// Ports whose entry the EC refuses, set after detection, since its
+    /// walk stops at the first refused entry.
+    pub refusing_states: Mutex<Vec<u8>>,
     /// What every port's register span reads as.
     pub registers: PortRegisters,
     /// Ports whose controller answers other than the EC's entry for them.
@@ -592,6 +595,7 @@ impl Default for Connectors {
             refusing_none: false,
             sink: None,
             video: Vec::new(),
+            refusing_states: Mutex::new(Vec::new()),
             registers: PortRegisters {
                 cable: None,
                 pd: None,
@@ -616,6 +620,9 @@ impl PdPorts for Connectors {
     }
 
     fn port_state(&self, index: u8) -> DeviceResult<Option<PortReading>> {
+        if self.refusing_states.lock().unwrap().contains(&index) {
+            return Err(DeviceError::NotSupported("port state refused".into()));
+        }
         Ok((self.refusing_none || index < self.count).then(|| self.entry(index)))
     }
 

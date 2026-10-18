@@ -860,8 +860,8 @@ impl<'de> Deserialize<'de> for PortMask {
 pub enum OffRefusal {
     /// No other port would be left enabled.
     LastPort,
-    /// A controller's mask could not be read, so whether another port would be
-    /// left enabled is unknown.
+    /// A controller's mask, or the port's own state, could not be read, so
+    /// whether turning the port off is safe is unknown.
     Unchecked,
     /// The port carries video and no other display is lit.
     LastDisplay,
