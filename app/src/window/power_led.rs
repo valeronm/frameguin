@@ -1,4 +1,4 @@
-//! The Power button LED group: a combo over the levels the board has, and the
+//! The Power Button LED group: a combo over the levels the board has, and the
 //! slider its Custom row reveals.
 
 use std::rc::Rc;
@@ -28,9 +28,9 @@ pub(crate) struct Group {
 
 impl Group {
     pub(crate) fn build() -> Self {
-        // "Power button LED" is the name Framework's own firmware setup uses.
+        // The wording is the one Framework's own firmware setup uses.
         let widget = adw::PreferencesGroup::builder()
-            .title("Power button LED")
+            .title("Power Button LED")
             .build();
         // No model: which levels a board has is the device's answer, and the
         // row it would show meanwhile is one the board may not have.

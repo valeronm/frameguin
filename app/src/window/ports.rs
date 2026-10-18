@@ -33,7 +33,7 @@ pub(crate) struct Group {
 impl Group {
     pub(crate) fn build() -> Self {
         let widget = adw::PreferencesGroup::builder()
-            .title("USB-C ports")
+            .title("USB-C Ports")
             .description("A port stays off through restarts until it is switched back on")
             .build();
         Self {
