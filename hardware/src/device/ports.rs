@@ -164,21 +164,16 @@ impl PortsControl for Ports {
                     return Some(PortState {
                         index,
                         mask: PortMask::Off,
-                        refusal: None,
                     });
                 }
                 let reading = self.reading(index)?;
                 let refusal = self.refusal(&masks, index, || Some(reading.video), displays);
                 let mask = if enabled.is_some() {
-                    PortMask::On(reading)
+                    PortMask::On(reading, refusal)
                 } else {
-                    PortMask::Unchecked(reading)
+                    PortMask::Unchecked(reading, refusal)
                 };
-                Some(PortState {
-                    index,
-                    mask,
-                    refusal,
-                })
+                Some(PortState { index, mask })
             })
             .collect())
     }
@@ -272,7 +267,7 @@ mod tests {
     }
 
     fn on(state: &PortState) -> &PortReading {
-        let PortMask::On(reading) = &state.mask else {
+        let PortMask::On(reading, _) = &state.mask else {
             panic!("port {} is not on: {:?}", state.index, state.mask);
         };
         reading
@@ -422,7 +417,7 @@ mod tests {
         let ports = detect(ec.clone(), Platform::Unknown).expect("the ports still answered");
         let read = ready(ports.ports()).unwrap();
         assert!(
-            matches!(&read[0].mask, PortMask::Unchecked(reading) if reading.registers.is_none())
+            matches!(&read[0].mask, PortMask::Unchecked(reading, _) if reading.registers.is_none())
         );
         assert!(ec.controller_reads.lock().unwrap().is_empty());
     }
@@ -454,7 +449,7 @@ mod tests {
         assert!(
             read[..3]
                 .iter()
-                .all(|state| matches!(state.mask, PortMask::On(_)))
+                .all(|state| matches!(state.mask, PortMask::On(..)))
         );
         assert_eq!(read[3].mask, PortMask::Off);
     }
@@ -464,7 +459,7 @@ mod tests {
         let ec = Connectors::default().with_port_off(LAPTOP_13_PRO, 3);
         let ports = detect(Arc::new(ec), LAPTOP_13_PRO).expect("four ports answered");
         let read = ready(ports.ports()).unwrap();
-        assert!(matches!(read[2].mask, PortMask::On(_)));
+        assert!(matches!(read[2].mask, PortMask::On(..)));
         assert_eq!(read[3].mask, PortMask::Off);
     }
 
@@ -496,8 +491,8 @@ mod tests {
         };
         let ports = detect(Arc::new(ec), LAPTOP_13_PRO).expect("four ports answered");
         let read = ready(ports.ports()).unwrap();
-        assert!(matches!(read[0].mask, PortMask::On(_)));
-        assert!(matches!(read[2].mask, PortMask::Unchecked(_)));
+        assert!(matches!(read[0].mask, PortMask::On(..)));
+        assert!(matches!(read[2].mask, PortMask::Unchecked(..)));
     }
 
     #[test]
@@ -578,8 +573,8 @@ mod tests {
         let ec = video_on(0);
         let (ports, screens) = with_screens(&ec, ONE_MONITOR);
         let read = ready(ports.ports()).unwrap();
-        assert_eq!(read[0].refusal, Some(OffRefusal::LastDisplay));
-        assert_eq!(read[1].refusal, None);
+        assert_eq!(read[0].mask.refusal(), Some(OffRefusal::LastDisplay));
+        assert_eq!(read[1].mask.refusal(), None);
         assert_eq!(*screens.reads.lock().unwrap(), 1);
     }
 
@@ -597,7 +592,7 @@ mod tests {
         let ports = detect(Arc::new(ec), LAPTOP_13_PRO).expect("four ports answered");
         let read = ready(ports.ports()).unwrap();
         assert_eq!(read[0].mask, PortMask::Off);
-        assert_eq!(read[0].refusal, None);
+        assert_eq!(read[0].mask.refusal(), None);
     }
 
     #[test]
@@ -661,7 +656,7 @@ mod tests {
         let read = ready(ports.ports()).unwrap();
         assert!(
             read.iter()
-                .all(|state| matches!(state.mask, PortMask::Unchecked(_)))
+                .all(|state| matches!(state.mask, PortMask::Unchecked(..)))
         );
     }
 
@@ -734,7 +729,7 @@ mod tests {
             vec![(laptop_13_pro()[1], 0b01)]
         );
         assert_eq!(mask(&ports, 3), PortMask::Off);
-        assert!(matches!(mask(&ports, 2), PortMask::On(_)));
+        assert!(matches!(mask(&ports, 2), PortMask::On(..)));
     }
 
     #[test]
@@ -769,7 +764,7 @@ mod tests {
             Err(DeviceError::InvalidArgs(_))
         ));
         assert!(ec.masks_written.lock().unwrap().is_empty());
-        assert!(matches!(mask(&ports, 3), PortMask::On(_)));
+        assert!(matches!(mask(&ports, 3), PortMask::On(..)));
     }
 
     #[test]

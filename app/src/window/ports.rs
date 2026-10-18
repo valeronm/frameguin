@@ -100,7 +100,7 @@ impl Group {
                     continue;
                 };
                 row.set_active(!matches!(state.mask, PortMask::Off));
-                row.set_sensitive(state.refusal.is_none());
+                row.set_sensitive(state.mask.refusal().is_none());
                 row.set_subtitle(&switch_line(placement, state, devices));
             }
         });

@@ -276,11 +276,11 @@ fn every_getter_answers_through_its_proxy() {
         assert_eq!(ports[0].index, 0);
         assert!(matches!(
             &ports[0].mask,
-            PortMask::On(reading) if reading.charging && reading.partner == PortPartner::Source
+            PortMask::On(reading, _) if reading.charging && reading.partner == PortPartner::Source
         ));
         assert!(matches!(
             &ports[1].mask,
-            PortMask::On(reading) if !reading.charging && reading.partner == PortPartner::Nothing
+            PortMask::On(reading, _) if !reading.charging && reading.partner == PortPartner::Nothing
         ));
         let switchable = p.ports.get_switchable().await.unwrap();
         assert!((0..4).all(|port| switchable.contains(port)));
@@ -394,7 +394,7 @@ fn a_refused_write_leaves_the_device_untouched() {
         assert!(p.touchscreen.get_enabled().await.unwrap());
         assert!(denied(p.ports.set_enabled(3, false).await));
         let ports = p.ports.get_ports().await.unwrap();
-        assert!(matches!(ports[3].mask, PortMask::On(_)));
+        assert!(matches!(ports[3].mask, PortMask::On(..)));
     });
 }
 
@@ -443,7 +443,7 @@ fn the_last_port_on_is_refused_its_switch() {
         }
         assert!(invalid(p.ports.set_enabled(3, false).await));
         let ports = p.ports.get_ports().await.unwrap();
-        assert!(matches!(ports[3].mask, PortMask::On(_)));
+        assert!(matches!(ports[3].mask, PortMask::On(..)));
     });
 }
 
@@ -468,10 +468,10 @@ fn the_port_driving_the_only_lit_display_is_refused_its_switch() {
     );
     peer.run(|p| async move {
         let ports = p.ports.get_ports().await.unwrap();
-        assert_eq!(ports[1].refusal, Some(OffRefusal::LastDisplay));
+        assert_eq!(ports[1].mask.refusal(), Some(OffRefusal::LastDisplay));
         assert!(invalid(p.ports.set_enabled(1, false).await));
         let ports = p.ports.get_ports().await.unwrap();
-        assert!(matches!(&ports[1].mask, PortMask::On(reading) if reading.video));
+        assert!(matches!(&ports[1].mask, PortMask::On(reading, _) if reading.video));
     });
 }
 
@@ -621,7 +621,7 @@ fn a_port_turned_off_crosses_with_no_reading() {
     );
     peer.run(|p| async move {
         let ports = p.ports.get_ports().await.unwrap();
-        assert!(matches!(&ports[2].mask, PortMask::On(_)));
+        assert!(matches!(&ports[2].mask, PortMask::On(..)));
         assert_eq!(ports[3].mask, PortMask::Off);
     });
 }
@@ -641,7 +641,7 @@ fn a_port_with_no_mask_to_read_crosses_unchecked() {
     );
     peer.run(|p| async move {
         let ports = p.ports.get_ports().await.unwrap();
-        assert!(matches!(&ports[0].mask, PortMask::Unchecked(reading) if reading.charging));
+        assert!(matches!(&ports[0].mask, PortMask::Unchecked(reading, _) if reading.charging));
         assert!(p.ports.get_switchable().await.unwrap().is_empty());
     });
 }

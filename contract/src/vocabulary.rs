@@ -791,9 +791,6 @@ pub struct PortState {
     /// position to it, and only for a board it was measured on.
     pub index: u8,
     pub mask: PortMask,
-    /// Why turning the port off is refused, and None where it is not or the
-    /// port is already off.
-    pub refusal: Option<OffRefusal>,
 }
 
 /// Whether the port's controller has it enabled, and what the port reads
@@ -803,14 +800,28 @@ pub struct PortState {
 /// stops updating it for a port it has disabled, and the entry then stands
 /// at whatever it last saw. `docs/hardware/usb-c.md` has the reading.
 ///
-/// A mask crosses the bus as its name and an array of zero or one reading.
+/// A port that is not off carries why turning it off is refused, None where
+/// it is not.
+///
+/// A mask crosses the bus as its name, an array of zero or one reading and
+/// an array of zero or one refusal.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum PortMask {
     Off,
-    On(PortReading),
+    On(PortReading, Option<OffRefusal>),
     /// The mask could not be read, so nothing vouches that the reading is
     /// live.
-    Unchecked(PortReading),
+    Unchecked(PortReading, Option<OffRefusal>),
+}
+
+impl PortMask {
+    #[must_use]
+    pub fn refusal(&self) -> Option<OffRefusal> {
+        match self {
+            Self::Off => None,
+            Self::On(_, refusal) | Self::Unchecked(_, refusal) => *refusal,
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Type)]
@@ -822,7 +833,7 @@ enum Enable {
     Unchecked,
 }
 
-type Mask<R> = (Enable, Option<R>);
+type Mask<R> = (Enable, Option<R>, Option<OffRefusal>);
 
 impl Type for PortMask {
     const SIGNATURE: &'static zvariant::Signature = <Mask<PortReading>>::SIGNATURE;
@@ -831,9 +842,9 @@ impl Type for PortMask {
 impl Serialize for PortMask {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         match self {
-            Self::Off => (Enable::Off, None),
-            Self::On(reading) => (Enable::On, Some(reading)),
-            Self::Unchecked(reading) => (Enable::Unchecked, Some(reading)),
+            Self::Off => (Enable::Off, None, None),
+            Self::On(reading, refusal) => (Enable::On, Some(reading), *refusal),
+            Self::Unchecked(reading, refusal) => (Enable::Unchecked, Some(reading), *refusal),
         }
         .serialize(serializer)
     }
@@ -841,13 +852,13 @@ impl Serialize for PortMask {
 
 impl<'de> Deserialize<'de> for PortMask {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let (enable, reading) = <Mask<PortReading>>::deserialize(deserializer)?;
-        match (enable, reading) {
-            (Enable::Off, None) => Ok(Self::Off),
-            (Enable::On, Some(reading)) => Ok(Self::On(reading)),
-            (Enable::Unchecked, Some(reading)) => Ok(Self::Unchecked(reading)),
+        let (enable, reading, refusal) = <Mask<PortReading>>::deserialize(deserializer)?;
+        match (enable, reading, refusal) {
+            (Enable::Off, None, None) => Ok(Self::Off),
+            (Enable::On, Some(reading), refusal) => Ok(Self::On(reading, refusal)),
+            (Enable::Unchecked, Some(reading), refusal) => Ok(Self::Unchecked(reading, refusal)),
             _ => Err(serde::de::Error::custom(
-                "a port carries a reading exactly where it is not off",
+                "a port carries a reading, and may carry a refusal, exactly where it is not off",
             )),
         }
     }

@@ -76,7 +76,7 @@ pub fn port_line(placement: Placement, port: &PortState, devices: &[Attached]) -
 /// what the port reports, and [`port_line`] otherwise.
 #[must_use]
 pub fn switch_line(placement: Placement, port: &PortState, devices: &[Attached]) -> String {
-    match port.refusal {
+    match port.mask.refusal() {
         Some(OffRefusal::LastPort) => "Can't be turned off to allow charging".to_owned(),
         Some(OffRefusal::Unchecked) => {
             "Can't be turned off while a port can't be checked".to_owned()
@@ -101,7 +101,7 @@ pub fn switch_line(placement: Placement, port: &PortState, devices: &[Attached])
 /// the machine.
 #[must_use]
 pub fn port_summary(port: &PortState, device: Option<&str>) -> String {
-    let (PortMask::On(port) | PortMask::Unchecked(port)) = &port.mask else {
+    let (PortMask::On(port, _) | PortMask::Unchecked(port, _)) = &port.mask else {
         return TURNED_OFF.to_owned();
     };
     let partner = partner_label(port.partner);
@@ -351,8 +351,7 @@ mod tests {
     fn on(reading: PortReading) -> PortState {
         PortState {
             index: 0,
-            mask: PortMask::On(reading),
-            refusal: None,
+            mask: PortMask::On(reading, None),
         }
     }
 
@@ -482,7 +481,6 @@ mod tests {
         let off = PortState {
             index: 0,
             mask: PortMask::Off,
-            refusal: None,
         };
         assert_eq!(port_summary(&off, Some("USB-C Hub")), "Turned off");
     }
@@ -658,8 +656,8 @@ mod tests {
     #[test]
     fn a_locked_switch_says_why_over_what_its_port_reports() {
         let refused = |refusal| PortState {
-            refusal: Some(refusal),
-            ..port(0)
+            index: 0,
+            mask: PortMask::On(reading(0), Some(refusal)),
         };
         assert_eq!(
             switch_line(Placement::default(), &refused(OffRefusal::LastPort), &[]),

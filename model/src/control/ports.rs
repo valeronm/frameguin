@@ -60,7 +60,7 @@ impl<C: PortsControl> Ports<C> {
 pub fn powering(ports: &[PortState]) -> Option<(u8, &PortReading)> {
     ports.iter().find_map(|port| match &port.mask {
         PortMask::Off => None,
-        PortMask::On(reading) | PortMask::Unchecked(reading) => {
+        PortMask::On(reading, _) | PortMask::Unchecked(reading, _) => {
             reading.charging.then_some((port.index, reading))
         }
     })
@@ -119,8 +119,7 @@ mod tests {
     fn a_port_whose_mask_went_unread_still_powers_the_machine() {
         let unchecked = PortState {
             index: 0,
-            mask: PortMask::Unchecked(reading(0)),
-            refusal: None,
+            mask: PortMask::Unchecked(reading(0), None),
         };
         assert_eq!(powering(&[unchecked]).map(|(index, _)| index), Some(0));
     }

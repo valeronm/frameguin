@@ -227,7 +227,7 @@ impl PortPage {
         };
         let layout = match &state.mask {
             PortMask::Off => vec![off_group(self.placement, self.index)],
-            PortMask::On(reading) | PortMask::Unchecked(reading) => {
+            PortMask::On(reading, _) | PortMask::Unchecked(reading, _) => {
                 let devices = self.placement.attached(self.index, devices);
                 let mut layout = vec![connection_group(self.placement, self.index, reading)];
                 layout.extend(cable_group(reading));

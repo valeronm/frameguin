@@ -45,8 +45,7 @@ pub fn state(flow: ChargeFlow, milliamps: u32) -> BatteryState {
 pub fn port(index: u8) -> PortState {
     PortState {
         index,
-        mask: PortMask::On(reading(index)),
-        refusal: None,
+        mask: PortMask::On(reading(index), None),
     }
 }
 
