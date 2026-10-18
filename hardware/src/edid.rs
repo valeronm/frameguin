@@ -34,10 +34,10 @@ pub(crate) struct Edid {
     pub(crate) name: String,
     /// Empty where the EDID carries no serial-number descriptor.
     pub(crate) serial: String,
-    /// Millimetres from the preferred timing, ten times the precision of
-    /// the header's whole centimetres.
+    /// Millimeters from the preferred timing, ten times the precision of
+    /// the header's whole centimeters.
     pub(crate) size: Option<(u16, u16)>,
-    /// Bits per colour.
+    /// Bits per color.
     pub(crate) depth: Option<u8>,
     /// The active pixels of the timing the panel prefers, which on a fixed
     /// panel is the only one it really has.
@@ -90,7 +90,7 @@ fn size(block: &[u8]) -> Option<(u16, u16)> {
         .or_else(|| stated((u16::from(block[WIDTH]) * 10, u16::from(block[HEIGHT]) * 10)))
 }
 
-/// An analogue panel's byte means something else entirely, and the codes
+/// An analog panel's byte means something else entirely, and the codes
 /// for an undefined and a reserved depth name none.
 fn depth(input: u8) -> Option<u8> {
     (input & 0x80 != 0).then_some(())?;

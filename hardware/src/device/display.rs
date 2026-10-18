@@ -59,7 +59,7 @@ fn details(edid: &Edid) -> Vec<Detail> {
             .map(|(across, down)| Detail::Resolution { across, down }),
         edid.size
             .map(|(across, down)| Detail::PanelSize { across, down }),
-        edid.depth.map(Detail::ColourDepth),
+        edid.depth.map(Detail::ColorDepth),
         edid.refresh
             .map(|(slowest, fastest)| Detail::RefreshRate { slowest, fastest }),
         edid.year.map(|year| match year {

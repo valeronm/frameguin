@@ -271,7 +271,7 @@ struct Tab {
     groups: Vec<adw::PreferencesGroup>,
 }
 
-/// None where the catalogue carries no entry: the firmware's own product
+/// None where the catalog carries no entry: the firmware's own product
 /// name is an ordering code rather than a name.
 fn caption(platform: Platform) -> Option<String> {
     let sold = part::mainboard(platform)?;

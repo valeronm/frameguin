@@ -127,7 +127,7 @@ Nothing confirms how they relate, so each is reported as it stands.
 One place matches a product name — the mapping above — and three tables key
 on the `Platform` it answers, each needing a different fact about the board:
 
-- The mainboard's catalogue entry, for the name the board is sold under and
+- The mainboard's catalog entry, for the name the board is sold under and
   its marketplace link.
 - The USB-C port layout, for where each port's socket is on the chassis.
 - The touchscreen's processor pad, which is known for one board only and

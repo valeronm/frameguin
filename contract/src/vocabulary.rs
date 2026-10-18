@@ -1009,13 +1009,13 @@ pub enum Detail {
         across: u16,
         down: u16,
     },
-    /// In millimetres.
+    /// In millimeters.
     PanelSize {
         across: u16,
         down: u16,
     },
-    /// Bits per colour.
-    ColourDepth(u8),
+    /// Bits per color.
+    ColorDepth(u8),
     /// The vertical rates a panel accepts, in whole Hz — both ends the same
     /// on a panel of one rate.
     RefreshRate {
@@ -1051,7 +1051,7 @@ enum Fact {
     ManufactureDate,
     Resolution,
     PanelSize,
-    ColourDepth,
+    ColorDepth,
     RefreshRate,
     ManufactureYear,
     ModelYear,
@@ -1079,7 +1079,7 @@ impl Serialize for Detail {
             Self::ManufactureDate(date) => (Fact::ManufactureDate, Value::from(date.as_str())),
             Self::Resolution { across, down } => (Fact::Resolution, Value::from((*across, *down))),
             Self::PanelSize { across, down } => (Fact::PanelSize, Value::from((*across, *down))),
-            Self::ColourDepth(bits) => (Fact::ColourDepth, Value::from(*bits)),
+            Self::ColorDepth(bits) => (Fact::ColorDepth, Value::from(*bits)),
             Self::RefreshRate { slowest, fastest } => {
                 (Fact::RefreshRate, Value::from((*slowest, *fastest)))
             }
@@ -1117,7 +1117,7 @@ impl<'de> Deserialize<'de> for Detail {
             Fact::PanelSize => {
                 <(u16, u16)>::try_from(value).map(|(across, down)| Self::PanelSize { across, down })
             }
-            Fact::ColourDepth => u8::try_from(value).map(Self::ColourDepth),
+            Fact::ColorDepth => u8::try_from(value).map(Self::ColorDepth),
             Fact::RefreshRate => <(u16, u16)>::try_from(value)
                 .map(|(slowest, fastest)| Self::RefreshRate { slowest, fastest }),
             Fact::ManufactureYear => u16::try_from(value).map(Self::ManufactureYear),
@@ -1266,7 +1266,7 @@ impl Board {
 
 /// What detection found of a part: the hardware's own words but for the
 /// vendor name a registry supplies, and never the name a person buys it
-/// under, which is `modelview`'s catalogue to say.
+/// under, which is `modelview`'s catalog to say.
 #[derive(Serialize, Deserialize, Type, Clone, PartialEq, Eq, Debug)]
 pub struct Identity {
     pub kind: PartKind,
@@ -1347,7 +1347,7 @@ mod tests {
                 across: 285,
                 down: 190,
             },
-            Detail::ColourDepth(10),
+            Detail::ColorDepth(10),
             Detail::RefreshRate {
                 slowest: 30,
                 fastest: 120,

@@ -82,7 +82,7 @@ pub fn display_identity() -> Identity {
                 across: 285,
                 down: 190,
             },
-            Detail::ColourDepth(10),
+            Detail::ColorDepth(10),
             Detail::RefreshRate {
                 slowest: 30,
                 fastest: 120,

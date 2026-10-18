@@ -27,7 +27,7 @@ it and the non-obvious constraints.
   app shows them — every word for a value, the presets a control offers with
   the row each one sits on, the names for the curated facts `model`
   holds, where a reading's marks sit along the line it is drawn on, and the
-  catalogue of what a part is sold as.
+  catalog of what a part is sold as.
   `docs/architecture.md` opens with the vocabulary, and each word means one
   thing; "device" is the real thing on the machine and nothing on the app
   side. The
@@ -104,7 +104,7 @@ it and the non-obvious constraints.
   something else belongs to whoever knows the word: `modelview`'s where the
   word is curated, group heading and list row alike, and `contract`'s where the
   hardware announced it. `modelview` answers for a part whether or not the
-  catalogue names it, so a widget never picks a part's words by whether a
+  catalog names it, so a widget never picks a part's words by whether a
   lookup hit. Which row a reading shows needs what only the widget knows: a
   value dialled in that happens to equal a preset is indistinguishable from
   it — the app derives one over the value, the EC's firmware hands back a
@@ -422,7 +422,7 @@ the power LED's custom levels ask for command v1, exactly right for the
 percentage write but only a stand-in for the ultra-low and auto levels, which
 the v0 handler takes on any firmware that has them. Narrowing an offer on a
 proxy costs at worst a row nobody could have used; refusing a call on one
-denies what the EC would have honoured — and what a device offers is
+denies what the EC would have honored — and what a device offers is
 settled once per daemon lifetime, so one transient read would deny it for the
 whole run. So no method consults what was offered. A setter validates against
 the thing itself, as `PowerLed::set_level` looks up the LED node, and a
@@ -530,7 +530,7 @@ the product it was read from.
   nothing, so they need no feature: the count is read inside the `Pack`
   role's `info`, once per run and then remembered, absence included, and
   the date inside its `identity`, which detection asks once.
-- A pack is catalogued by the seven characters the EC's memory map holds and
+- A pack is cataloged by the seven characters the EC's memory map holds and
   never by the fuller name `EC_CMD_BATTERY_GET_STATIC` would answer with,
   which firmware on battery API v1 does not implement at all — so a pack
   carried between two machines would key two ways.
@@ -588,7 +588,7 @@ the product it was read from.
   beside them, name things the way the code names them, and stop where the
   fact stops: one sentence, unless a second independent constraint earns
   another. A docstring on a cross-module interface may run longer, for the
-  behavioural contract and the caller-side caveats only. Tests carry no
+  behavioral contract and the caller-side caveats only. Tests carry no
   commentary — a fixture that needs explaining wants named values instead.
 - **A why that needs a paragraph is architecture, and belongs in this file**
   or in `docs/`, not in a module doc. The module doc says what the module is

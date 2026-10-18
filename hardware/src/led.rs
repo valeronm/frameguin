@@ -92,7 +92,7 @@ impl LedClass for Sysfs {
     ///
     /// This is the kernel's record of what it last commanded rather than a
     /// reading: the driver implements no `brightness_get`, and the EC's LED
-    /// command answers only with which colours exist. So a write that goes
+    /// command answers only with which colors exist. So a write that goes
     /// straight to the EC (`ectool led`) passes unseen, while a host reboot
     /// re-probes the driver and re-attaches the trigger, which reads as on.
     fn held_dark(&self) -> Option<PathBuf> {

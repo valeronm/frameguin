@@ -12,7 +12,7 @@ One meaning per word, and each word names one place in the tree.
   kernel's LED class, the firmware's SMBIOS table. `hardware/src/<name>.rs`.
 - **Role** — what a device, or the mirror beneath it, needs of a transport,
   as a trait a stub can stand in for: `HapticPad`, `TouchSwitch`, `Store`. Declared beside the transport
-  that fulfils it — or, where two transports can, beside the arbitration
+  that fulfills it — or, where two transports can, beside the arbitration
   that picks one.
 - **Device** — a thing detection finds on the machine: the haptic touchpad,
   a memory module, the battery. `hardware/src/device/<name>.rs`, one struct
@@ -38,7 +38,7 @@ One meaning per word, and each word names one place in the tree.
 - **Platform** — which Framework board this is, as one enum variant:
   `contract::Platform`. The DMI product strings behind it are matched in
   `hardware/src/dmi.rs` and go no further, so every table keyed on a board —
-  the port layout, the mainboard's catalogue entry, the touchscreen's pad —
+  the port layout, the mainboard's catalog entry, the touchscreen's pad —
   keys on the variant rather than on a string. `Platform::Unknown` covers a
   machine that is not this hardware and a board newer than the build alike,
   which is why the vendor, not the platform, answers whether this is
@@ -60,7 +60,7 @@ One meaning per word, and each word names one place in the tree.
 - **Words and presets** — how the app shows a control: every word for a
   value, the presets a control offers with the row each one sits on, the
   names for `model`'s curated facts, where a reading's marks sit along the
-  line it is drawn on, and the catalogue of what a part is sold as.
+  line it is drawn on, and the catalog of what a part is sold as.
   `modelview/src/`.
 - **Reading** — one pass over the controls for what a `Request` asks,
   every extra arriving or not: `model/src/reading.rs`. The app's feed
@@ -130,7 +130,7 @@ the chassis, is a row on the Chassis page.
 |---|---|---|---|---|---|
 | Groups, tray | `app` | GTK, libadwaita, ksni, `model`, `modelview` | Widgets, toasts, the sync guard, timers, the tray thread's copy of each value | Which daemon operation a command becomes; any preset's value | Kept thin; the widgets not at all, a pure function beside them in place |
 | Client controls | `model` | `contract` | One object per control: its read, and what a read leaves that its presets derive from; its commands | GTK, the bus, another control's trait | A stub of the control trait |
-| Words and presets | `modelview` | `model`, `contract` | Every word for a value, the preset tables with their rows, the names for `model`'s curated facts, where a reading's marks sit along its line, the catalogue of what a part is sold as | GTK, the bus | Plain unit tests over fixture values |
+| Words and presets | `modelview` | `model`, `contract` | Every word for a value, the preset tables with their rows, the names for `model`'s curated facts, where a reading's marks sit along its line, the catalog of what a part is sold as | GTK, the bus | Plain unit tests over fixture values |
 | Control traits | `contract` | serde, zvariant | One trait per device, one async fn per operation; the values they carry and the encoding those cross the bus in; `DeviceError` | How an operation is reached; the bus | Its own encodings, round-tripped |
 | Bus | `wire`, `daemon` | zbus, polkit | One proxy per interface, `Bus` implementing the traits over them, and how `DeviceError` crosses (`wire`); `Served<Device>`, authorizing every write attempt before anything else (`daemon`) | Anything that touches hardware (`wire`); which EC command a role sends (`daemon`) | Its own `wire` proxies over a socket pair, the devices on the same stubs |
 | Devices | `hardware` | `contract` | `detect()`, the control impl with its argument checks and skips, the `Part` impl, mirrors under a declared lifetime, arbitrations | The bus, polkit | The stub per role and the store in memory, in `hardware::testing` |
@@ -264,7 +264,7 @@ list, a control's device is on it only where it happens to be a part, and
 the bus carries it as one method on the root interface —
 `GetDevices -> Vec<Identity>` — beside the per-device control interfaces. Where a part maps to
 something purchasable — the pad's descriptor names nothing, the part a
-person buys is Framework's — that is `modelview::part::catalogue`, a curated
+person buys is Framework's — that is `modelview::part::catalog`, a curated
 table keyed per kind on whichever of a part's announcements is guaranteed
 to be there, and on the machine's series where what a part announces does
 not say which machine it is listed for:

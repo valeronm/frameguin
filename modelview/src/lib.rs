@@ -1,6 +1,6 @@
 //! How the app shows the machine: the words for every value, the presets a
 //! control offers with the row each one sits on, the names for the curated
-//! facts `frameguin_model` holds, and the catalogue of what a part is sold
+//! facts `frameguin_model` holds, and the catalog of what a part is sold
 //! as. A front end takes its words and rows from here, so two of them cannot
 //! disagree about what a value is called or what a row sends.
 

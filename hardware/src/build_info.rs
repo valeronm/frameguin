@@ -10,7 +10,7 @@ pub(crate) struct Build {
 
 /// The stamp is itself two space-separated fields. A string of another shape
 /// is kept whole as the version, a firmware being worth showing as it
-/// spelled itself even where nothing here recognises the shape.
+/// spelled itself even where nothing here recognizes the shape.
 #[must_use]
 pub(crate) fn parse(info: &str) -> Build {
     let fields: Vec<&str> = info.split_whitespace().collect();

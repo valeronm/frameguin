@@ -47,7 +47,7 @@ pub(crate) fn version(blob: [u8; VERSION_LEN]) -> Option<String> {
 #[must_use]
 pub(crate) fn port_state(raw: &EcResponseGetPdPortState) -> PortReading {
     // Copied out one field at a time: the response is a packed struct, and a
-    // reference into an unaligned field is undefined behaviour.
+    // reference into an unaligned field is undefined behavior.
     let (millivolts, milliamps) = (raw.voltage, raw.current);
     PortReading {
         partner: pd_controller::partner(raw.c_state),

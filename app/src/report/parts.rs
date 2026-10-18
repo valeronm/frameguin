@@ -8,8 +8,7 @@ use adw::prelude::*;
 use frameguin_contract::{DeviceResult, Identity, Platform};
 use frameguin_modelview::date;
 use frameguin_modelview::part::{
-    Catalogue, catalogue, detail_rows, firmware_name, generation, inventory, maker, name,
-    part_number,
+    Catalog, catalog, detail_rows, firmware_name, generation, inventory, maker, name, part_number,
 };
 use frameguin_wire::from_bus_error;
 use gtk4 as gtk;
@@ -109,7 +108,7 @@ impl Panes {
         } = self;
         let rows: Vec<(String, adw::PreferencesPage)> = inventory(parts)
             .into_iter()
-            .map(|(part, title)| (title, details(part, catalogue(part, parts, platform))))
+            .map(|(part, title)| (title, details(part, catalog(part, parts, platform))))
             .collect();
         if rows.is_empty() {
             pages.add_child(
@@ -152,7 +151,7 @@ impl Panes {
 /// placeholder — an I2C-HID descriptor carries no vendor and often no
 /// serial, and a column of "Unknown" is what teaches a reader to skip the
 /// column.
-fn details(part: &Identity, sold: Option<Catalogue>) -> adw::PreferencesPage {
+fn details(part: &Identity, sold: Option<Catalog>) -> adw::PreferencesPage {
     // Whole, so a field added to the identity cannot reach the window without
     // a decision about it; the fields bound to `_` are read by the helpers
     // below that take the whole part.

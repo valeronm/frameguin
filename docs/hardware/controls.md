@@ -23,7 +23,7 @@ section marks its finding untested, means exactly that.
 | [Charge current limit](battery.md#persistence) | Kept | Kept | **Lost** |
 | [Power button LED level](led.md#persistence) | Kept | **Lost** | Kept |
 | [Power button LED darkness](led.md#persistence) | Kept | **Lost** | **Lost** |
-| [Charging LED colour](led.md#persistence) | Kept | **Lost** | **Lost** |
+| [Charging LED color](led.md#persistence) | Kept | **Lost** | **Lost** |
 | [Keyboard backlight](keyboard-backlight.md#persistence) | Kept | Kept | Kept |
 | [Haptic touchpad](touchpad.md#persistence) | Kept | Kept | Kept |
 | [Touchscreen, pad route](touchscreen.md#persistence) | **Lost** | **Lost** | not a case |

@@ -148,7 +148,7 @@ pub(crate) async fn debug_info() -> String {
         Err(e) => {
             out.push_str(&format!("daemon: {e}\n"));
             if let Ok(p) = &proxy {
-                // Labelled with the unit asked about, which the answer does
+                // Labeled with the unit asked about, which the answer does
                 // not name: a drifted unit name would report "not-found" as
                 // confidently as a missing install does.
                 out.push_str(&line(DAEMON_UNIT, unit_state(p.inner().connection()).await));

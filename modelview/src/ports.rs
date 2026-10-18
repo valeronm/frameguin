@@ -28,7 +28,7 @@ pub fn partner_label(partner: PortPartner) -> Option<&'static str> {
         PortPartner::Audio => "Audio accessory",
         PortPartner::PoweredAccessory => "Powered accessory",
         PortPartner::Unsupported => "Unsupported",
-        PortPartner::Invalid => "Not recognised",
+        PortPartner::Invalid => "Not recognized",
     })
 }
 
