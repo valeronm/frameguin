@@ -75,16 +75,17 @@ pub fn port_line(placement: Placement, port: &PortState, devices: &[Attached]) -
 /// A port's switch: why it cannot be turned off where it cannot, worded over
 /// what the port reports, and [`port_line`] otherwise.
 #[must_use]
-pub fn switch_line(
-    placement: Placement,
-    port: &PortState,
-    devices: &[Attached],
-    refusal: Option<OffRefusal>,
-) -> String {
-    match refusal {
+pub fn switch_line(placement: Placement, port: &PortState, devices: &[Attached]) -> String {
+    match port.refusal {
         Some(OffRefusal::LastPort) => "Can't be turned off to allow charging".to_owned(),
         Some(OffRefusal::Unchecked) => {
             "Can't be turned off while a port can't be checked".to_owned()
+        }
+        Some(OffRefusal::LastDisplay) => {
+            "Can't be turned off while it drives the only display".to_owned()
+        }
+        Some(OffRefusal::DisplaysUnchecked) => {
+            "Can't be turned off while the displays can't be checked".to_owned()
         }
         None => port_line(placement, port, devices),
     }
@@ -351,6 +352,7 @@ mod tests {
         PortState {
             index: 0,
             mask: PortMask::On(reading),
+            refusal: None,
         }
     }
 
@@ -480,6 +482,7 @@ mod tests {
         let off = PortState {
             index: 0,
             mask: PortMask::Off,
+            refusal: None,
         };
         assert_eq!(port_summary(&off, Some("USB-C Hub")), "Turned off");
     }
@@ -654,17 +657,20 @@ mod tests {
 
     #[test]
     fn a_locked_switch_says_why_over_what_its_port_reports() {
+        let refused = |refusal| PortState {
+            refusal: Some(refusal),
+            ..port(0)
+        };
         assert_eq!(
-            switch_line(
-                Placement::default(),
-                &port(0),
-                &[],
-                Some(OffRefusal::LastPort)
-            ),
+            switch_line(Placement::default(), &refused(OffRefusal::LastPort), &[]),
             "Can't be turned off to allow charging"
         );
         assert_eq!(
-            switch_line(Placement::default(), &port(0), &[], None),
+            switch_line(Placement::default(), &refused(OffRefusal::LastDisplay), &[]),
+            "Can't be turned off while it drives the only display"
+        );
+        assert_eq!(
+            switch_line(Placement::default(), &port(0), &[]),
             "Powering the machine · ↑ 100 W"
         );
     }

@@ -2,8 +2,10 @@
 
 The panel is read from its connector under `/sys/class/drm`: the `status`
 attribute for whether a panel is on it, and the `edid` attribute for the
-panel's own block. Both are world-readable, so no root, no ioctl and no
-compositor is involved. The read is `hardware/src/drm.rs`; the block's
+panel's own block. Every connector's `enabled` attribute says whether the
+compositor drives it, the one fact here that is the compositor's rather than
+the kernel's. All three are world-readable, so no root and no ioctl is
+involved. The read is `hardware/src/drm.rs`; the block's
 decoding is `hardware/src/edid.rs`; the vendor's name for the PNP id comes
 from udev's ACPI vendor list, `hardware/src/udev.rs`.
 
@@ -34,6 +36,9 @@ Every heading in the file appears here.
   block, so `status` is read first.
 - i915 settles an eDP connector's `status` when it initializes the panel,
   not from the lid switch.
+- `enabled` is whether the compositor drives the connector, on a monitor's
+  connector as on the panel's, so a panel under a shut lid reads
+  `connected` and `disabled`.
 
 ### Observed
 

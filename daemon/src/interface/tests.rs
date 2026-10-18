@@ -8,7 +8,7 @@ use std::time::Duration;
 use async_io::Async;
 use frameguin_contract::{
     BatteryFeature, Board, ChargeCurrentLimit, ChargingLedFeature, ChargingLedSide, ChassisFeature,
-    ClickForce, DeckState, DeviceError, Platform, PortMask, PortPartner, PowerLedLevel,
+    ClickForce, DeckState, DeviceError, OffRefusal, Platform, PortMask, PortPartner, PowerLedLevel,
     Temperature, ThermalFeature, VENDOR,
 };
 use frameguin_hardware::device::Devices;
@@ -27,8 +27,8 @@ use frameguin_hardware::part::Identity;
 use frameguin_hardware::restore::Restore;
 use frameguin_hardware::testing::{
     Connectors, Cover, EC_BOOT, EXTENDER, EcCharger, Gauge, Haptic, Hub, LedEc, Leds, Memory,
-    OTHER_SYSTEMS, Route, Sides, Sliders, Vents, battery_identity, block, cap, display_identity,
-    mirrors, product, touchpad_identity,
+    ONE_MONITOR, OTHER_SYSTEMS, Route, Screens, Sides, Sliders, Vents, battery_identity, block,
+    cap, display_identity, mirrors, product, touchpad_identity,
 };
 use frameguin_wire::{FrameguinProxy, Proxies, from_bus_error, proxy};
 use futures_lite::future::{block_on, or};
@@ -91,7 +91,11 @@ impl Machine {
                 mirrors,
             )),
             charging_led: ChargingLed::new(Box::new(Leds::default()), Arc::new(Sides::default())),
-            ports: Ports::new(Arc::new(Connectors::default()), Platform::Laptop13ProUltra3),
+            ports: Ports::new(
+                Arc::new(Connectors::default()),
+                Arc::new(Screens::default()),
+                Platform::Laptop13ProUltra3,
+            ),
             chassis: Chassis::new(Arc::new(Cover::default())),
             privacy_switches: PrivacySwitches::new(Arc::new(Sliders::default())),
             thermal: Thermal::new(Arc::new(Vents::default())),
@@ -444,6 +448,34 @@ fn the_last_port_on_is_refused_its_switch() {
 }
 
 #[test]
+fn the_port_driving_the_only_lit_display_is_refused_its_switch() {
+    let peer = serve_devices(
+        true,
+        Devices {
+            ports: Ports::new(
+                Arc::new(Connectors {
+                    video: vec![1],
+                    ..Connectors::default()
+                }),
+                Arc::new(Screens {
+                    displays: ONE_MONITOR,
+                    ..Screens::default()
+                }),
+                Platform::Laptop13ProUltra3,
+            ),
+            ..devices()
+        },
+    );
+    peer.run(|p| async move {
+        let ports = p.ports.get_ports().await.unwrap();
+        assert_eq!(ports[1].refusal, Some(OffRefusal::LastDisplay));
+        assert!(invalid(p.ports.set_enabled(1, false).await));
+        let ports = p.ports.get_ports().await.unwrap();
+        assert!(matches!(&ports[1].mask, PortMask::On(reading) if reading.video));
+    });
+}
+
+#[test]
 fn the_root_interface_answers_the_board_the_inventory_and_the_build() {
     let peer = serve(true);
     peer.run(|p| async move {
@@ -583,7 +615,7 @@ fn a_port_turned_off_crosses_with_no_reading() {
     let peer = serve_devices(
         true,
         Devices {
-            ports: Ports::new(Arc::new(connectors), platform),
+            ports: Ports::new(Arc::new(connectors), Arc::new(Screens::default()), platform),
             ..devices()
         },
     );
@@ -599,7 +631,11 @@ fn a_port_with_no_mask_to_read_crosses_unchecked() {
     let peer = serve_devices(
         true,
         Devices {
-            ports: Ports::new(Arc::new(Connectors::default()), Platform::Unknown),
+            ports: Ports::new(
+                Arc::new(Connectors::default()),
+                Arc::new(Screens::default()),
+                Platform::Unknown,
+            ),
             ..devices()
         },
     );

@@ -20,8 +20,8 @@ use frameguin_hardware::mirror::Mirrors;
 use frameguin_hardware::part;
 use frameguin_hardware::testing::{
     Connectors, Cover, EC_BOOT, EcCharger, Gauge, HOST_BOOT, Haptic, Hub, LedEc, Leds, Memory,
-    Route, Sides, Sliders, Vents, battery_identity, display_identity, fans, mirrors, product,
-    reader, touchpad_identity, webcam,
+    Route, Screens, Sides, Sliders, Vents, battery_identity, display_identity, fans, mirrors,
+    product, reader, touchpad_identity, webcam,
 };
 
 /// Which of a touch panel's two routes a board has: the pad's level reads
@@ -214,7 +214,11 @@ fn machine(shape: &Shape, refusing: bool) -> Detected {
             .charging_led
             .then(|| ChargingLed::new(Box::new(Leds::default()), Arc::new(Sides::default())))
             .flatten(),
-        ports: Ports::new(Arc::new(connectors), shape.platform),
+        ports: Ports::new(
+            Arc::new(connectors),
+            Arc::new(Screens::default()),
+            shape.platform,
+        ),
         chassis: Chassis::new(Arc::new(Cover {
             deck: shape.input_deck.then_some(DeckState::On),
             ..Cover::default()

@@ -17,6 +17,7 @@ use frameguin_contract::{
     PortPartner, PortReading, PortRegisters, PowerLedLevel, PowerRole, PrivacyState, UsbSpeed,
 };
 
+use crate::drm::{Displays, Outputs};
 use crate::ec::{
     self, Charger, ChassisEc, Pack, PdPorts, PowerLedEc, PrivacyEc, SideEnables, ThermalEc,
 };
@@ -516,6 +517,8 @@ pub struct Connectors {
     pub refusing_none: bool,
     /// A port with a device drawing power through it.
     pub sink: Option<u8>,
+    /// Ports carrying video.
+    pub video: Vec<u8>,
     /// What every port's register span reads as.
     pub registers: PortRegisters,
     /// Ports whose controller answers other than the EC's entry for them.
@@ -567,6 +570,7 @@ impl Connectors {
         if self.sink == Some(index) {
             reading.partner = PortPartner::Sink;
         }
+        reading.video = self.video.contains(&index);
         reading
     }
 
@@ -587,6 +591,7 @@ impl Default for Connectors {
             count: 4,
             refusing_none: false,
             sink: None,
+            video: Vec::new(),
             registers: PortRegisters {
                 cable: None,
                 pd: None,
@@ -675,6 +680,42 @@ impl PdPorts for Connectors {
             });
         }
         Ok(())
+    }
+}
+
+/// The panel lit and nothing else.
+pub const PANEL_ONLY: Option<Displays> = Some(Displays {
+    internal: true,
+    external: 0,
+});
+
+/// One monitor lit and the panel dark.
+pub const ONE_MONITOR: Option<Displays> = Some(Displays {
+    internal: false,
+    external: 1,
+});
+
+/// The DRM class.
+pub struct Screens {
+    /// None for a class that does not read.
+    pub displays: Option<Displays>,
+    /// How many times the class was read.
+    pub reads: Mutex<u32>,
+}
+
+impl Default for Screens {
+    fn default() -> Self {
+        Self {
+            displays: PANEL_ONLY,
+            reads: Mutex::new(0),
+        }
+    }
+}
+
+impl Outputs for Screens {
+    fn displays(&self) -> Option<Displays> {
+        *self.reads.lock().unwrap() += 1;
+        self.displays
     }
 }
 

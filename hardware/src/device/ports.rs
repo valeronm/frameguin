@@ -1,17 +1,21 @@
 //! The machine's USB-C ports: one device answering for all of them, and the
 //! switch each controller's port mask is.
 
+use std::cell::OnceCell;
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
 use frameguin_contract::{
-    Board, DeviceError, DeviceResult, OffRefusal, Platform, PortMask, PortSet, PortState,
-    PortsControl, off_refusal,
+    Board, DeviceError, DeviceResult, OffRefusal, Platform, PortMask, PortReading, PortSet,
+    PortState, PortsControl,
 };
 
+use crate::drm::{self, Displays, Outputs};
 use crate::ec::{Ec, PdPorts};
 use crate::pd_controller::{self, PORTS_PER_CONTROLLER, controller_of};
+
+mod refusal;
 
 /// How long a write waits for the controller's mask to show it.
 const SETTLE: Duration = Duration::from_secs(1);
@@ -19,6 +23,7 @@ const SETTLE_POLL: Duration = Duration::from_millis(20);
 
 pub struct Ports {
     ec: Arc<dyn PdPorts>,
+    outputs: Arc<dyn Outputs>,
     /// How many ports answered at detection. Settled once: the count is the
     /// board's, and re-probing the tail would spend a refused command on
     /// every read to learn what cannot have changed.
@@ -46,7 +51,7 @@ impl Ports {
     /// firmware has no such command included, since a port that cannot be
     /// asked about is one this device has nothing to say about.
     pub(crate) fn detect(ec: &Arc<Ec>, board: &Board) -> Option<Self> {
-        Self::new(ec.clone(), board.platform())
+        Self::new(ec.clone(), Arc::new(drm::Sysfs), board.platform())
     }
 
     /// The walk is bounded by the controllers rather than by where the EC
@@ -55,7 +60,11 @@ impl Ports {
     /// `0xFF`s, having read past its own array. So the count is what the
     /// controllers can account for, and the refusal is only a second bound
     /// under it.
-    pub fn new(ec: Arc<dyn PdPorts>, platform: Platform) -> Option<Self> {
+    pub fn new(
+        ec: Arc<dyn PdPorts>,
+        outputs: Arc<dyn Outputs>,
+        platform: Platform,
+    ) -> Option<Self> {
         let controllers = pd_controller::controllers(platform);
         let ceiling = ec.pd_controllers().saturating_mul(PORTS_PER_CONTROLLER);
         // The first port refused is the count of those before it.
@@ -79,6 +88,7 @@ impl Ports {
             .collect();
         Some(Self {
             ec,
+            outputs,
             count,
             controllers,
             platform,
@@ -103,6 +113,33 @@ impl Ports {
         }
         self.controllers.get(controller_of(port))?.as_ref()
     }
+
+    /// The EC's entry with the controller's registers over it where they
+    /// read; a controller that does not answer leaves the port on the entry
+    /// for that read. None where the EC refused the entry.
+    fn reading(&self, port: u8) -> Option<PortReading> {
+        let entry = self.ec.port_state(port).ok().flatten()?;
+        Some(match self.controller(port) {
+            Some(controller) if controller.direct => {
+                match self.ec.port_controller(port, controller.address) {
+                    Ok(read) => read.over(&entry),
+                    Err(_) => entry,
+                }
+            }
+            _ => entry,
+        })
+    }
+
+    fn refusal(
+        &self,
+        masks: &[Option<u8>],
+        port: u8,
+        video: bool,
+        displays: impl FnOnce() -> Option<Displays>,
+    ) -> Option<OffRefusal> {
+        let enabled = (0..self.count).map(|index| (index, enabled_of(masks, index)));
+        refusal::off_refusal(self.platform, port, video, displays, enabled)
+    }
 }
 
 /// Whether `port`'s controller has it enabled, and None where its mask did
@@ -115,11 +152,11 @@ fn enabled_of(masks: &[Option<u8>], port: u8) -> Option<bool> {
 impl PortsControl for Ports {
     /// A port on that the EC refuses part way through the walk is left out
     /// rather than failing the read: what a caller wants is the set, and one
-    /// port gone silent costs its own row and not the window. A controller
-    /// that does not answer for its registers leaves the port on the EC's
-    /// entry for that read.
+    /// port gone silent costs its own row and not the window.
     async fn ports(&self) -> DeviceResult<Vec<PortState>> {
         let masks = self.masks();
+        let displays = OnceCell::new();
+        let displays = || *displays.get_or_init(|| self.outputs.displays());
         Ok((0..self.count)
             .filter_map(|index| {
                 let enabled = enabled_of(&masks, index);
@@ -127,24 +164,21 @@ impl PortsControl for Ports {
                     return Some(PortState {
                         index,
                         mask: PortMask::Off,
+                        refusal: None,
                     });
                 }
-                let entry = self.ec.port_state(index).ok().flatten()?;
-                let reading = match self.controller(index) {
-                    Some(controller) if controller.direct => {
-                        match self.ec.port_controller(index, controller.address) {
-                            Ok(read) => read.over(&entry),
-                            Err(_) => entry,
-                        }
-                    }
-                    _ => entry,
-                };
+                let reading = self.reading(index)?;
+                let refusal = self.refusal(&masks, index, reading.video, displays);
                 let mask = if enabled.is_some() {
                     PortMask::On(reading)
                 } else {
                     PortMask::Unchecked(reading)
                 };
-                Some(PortState { index, mask })
+                Some(PortState {
+                    index,
+                    mask,
+                    refusal,
+                })
             })
             .collect())
     }
@@ -189,19 +223,12 @@ impl PortsControl for Ports {
             return Ok(());
         }
         if let Some(masks) = &masks {
-            let states = (0..self.count).map(|index| (index, enabled_of(masks, index)));
-            match off_refusal(self.platform, port, states) {
-                Some(OffRefusal::LastPort) => {
-                    return Err(DeviceError::InvalidArgs(
-                        "the last port on can't be turned off to allow charging".into(),
-                    ));
-                }
-                Some(OffRefusal::Unchecked) => {
-                    return Err(DeviceError::Failed(
-                        "a port can't be checked, so none can be turned off".into(),
-                    ));
-                }
-                None => {}
+            let reading = self.reading(port).ok_or_else(|| {
+                DeviceError::Failed(format!("port {port} did not answer for its state"))
+            })?;
+            let displays = || self.outputs.displays();
+            if let Some(refusal) = self.refusal(masks, port, reading.video, displays) {
+                return Err(refusal::error(refusal));
             }
         }
         let bit = pd_controller::enable_bit(port);
@@ -227,15 +254,20 @@ mod tests {
     use std::sync::Arc;
 
     use frameguin_contract::{
-        Cable, CableLatency, CableSpeed, DeviceError, PdContract, Platform, PortMask, PortPartner,
-        PortReading, PortRegisters, PortState, PortsControl, SupplyKind,
+        Cable, CableLatency, CableSpeed, DeviceError, OffRefusal, PdContract, Platform, PortMask,
+        PortPartner, PortReading, PortRegisters, PortState, PortsControl, SupplyKind,
     };
 
     use super::Ports;
+    use crate::drm::Displays;
     use crate::pd_controller;
-    use crate::testing::{Connectors, ready};
+    use crate::testing::{Connectors, ONE_MONITOR, PANEL_ONLY, Screens, ready};
 
     const LAPTOP_13_PRO: Platform = Platform::Laptop13ProUltra3;
+
+    fn detect(ec: Arc<Connectors>, platform: Platform) -> Option<Ports> {
+        Ports::new(ec, Arc::new(Screens::default()), platform)
+    }
 
     fn laptop_13_pro() -> &'static [(u8, u16)] {
         pd_controller::controllers(LAPTOP_13_PRO)
@@ -250,8 +282,8 @@ mod tests {
 
     #[test]
     fn the_ports_the_ec_answers_for_are_the_ports_there_are() {
-        let ports = Ports::new(Arc::new(Connectors::default()), LAPTOP_13_PRO)
-            .expect("four ports answered");
+        let ports =
+            detect(Arc::new(Connectors::default()), LAPTOP_13_PRO).expect("four ports answered");
         let read = ready(ports.ports()).unwrap();
         assert_eq!(read.len(), 4);
         assert_eq!(read[3].index, 3);
@@ -263,7 +295,7 @@ mod tests {
             count: 0,
             ..Connectors::default()
         };
-        assert!(Ports::new(Arc::new(ec), LAPTOP_13_PRO).is_none());
+        assert!(detect(Arc::new(ec), LAPTOP_13_PRO).is_none());
     }
 
     #[test]
@@ -272,7 +304,7 @@ mod tests {
             controllers: 0,
             ..Connectors::default()
         };
-        assert!(Ports::new(Arc::new(ec), LAPTOP_13_PRO).is_none());
+        assert!(detect(Arc::new(ec), LAPTOP_13_PRO).is_none());
     }
 
     /// The bug this bound exists for: an EC that answers for every port
@@ -284,7 +316,7 @@ mod tests {
             refusing_none: true,
             ..Connectors::default()
         };
-        let ports = Ports::new(Arc::new(ec), LAPTOP_13_PRO).expect("the ceiling still allows four");
+        let ports = detect(Arc::new(ec), LAPTOP_13_PRO).expect("the ceiling still allows four");
         assert_eq!(ready(ports.ports()).unwrap().len(), 4);
     }
 
@@ -297,8 +329,7 @@ mod tests {
             count: 5,
             ..Connectors::default()
         };
-        let ports =
-            Ports::new(Arc::new(ec), Platform::Laptop16AmdAi300).expect("five ports answered");
+        let ports = detect(Arc::new(ec), Platform::Laptop16AmdAi300).expect("five ports answered");
         assert_eq!(ready(ports.ports()).unwrap().len(), 5);
     }
 
@@ -331,7 +362,7 @@ mod tests {
             registers: charging(),
             ..Connectors::default()
         });
-        let ports = Ports::new(ec, LAPTOP_13_PRO).expect("four ports answered");
+        let ports = detect(ec, LAPTOP_13_PRO).expect("four ports answered");
         let read = ready(ports.ports()).unwrap();
         assert_eq!(on(&read[0]).registers, Some(charging()));
     }
@@ -342,7 +373,7 @@ mod tests {
             registers: charging(),
             ..Connectors::default()
         });
-        let ports = Ports::new(ec, LAPTOP_13_PRO).expect("four ports answered");
+        let ports = detect(ec, LAPTOP_13_PRO).expect("four ports answered");
         let read = ready(ports.ports()).unwrap();
         assert_eq!(on(&read[1]).registers, None);
     }
@@ -354,7 +385,7 @@ mod tests {
             refusing_controllers: laptop_13_pro().to_vec(),
             ..Connectors::default()
         });
-        let ports = Ports::new(ec.clone(), LAPTOP_13_PRO).expect("the ports still answered");
+        let ports = detect(ec.clone(), LAPTOP_13_PRO).expect("the ports still answered");
         ec.controller_reads.lock().unwrap().clear();
         let read = ready(ports.ports()).unwrap();
         assert_eq!(read.len(), 4);
@@ -370,7 +401,7 @@ mod tests {
             refusing_controllers: vec![laptop_13_pro()[1]],
             ..Connectors::default()
         });
-        let ports = Ports::new(ec.clone(), LAPTOP_13_PRO).expect("four ports answered");
+        let ports = detect(ec.clone(), LAPTOP_13_PRO).expect("four ports answered");
         ec.controller_reads.lock().unwrap().clear();
         let read = ready(ports.ports()).unwrap();
         assert_eq!(on(&read[0]).registers, Some(charging()));
@@ -390,7 +421,7 @@ mod tests {
             registers: charging(),
             ..Connectors::default()
         });
-        let ports = Ports::new(ec.clone(), Platform::Unknown).expect("the ports still answered");
+        let ports = detect(ec.clone(), Platform::Unknown).expect("the ports still answered");
         let read = ready(ports.ports()).unwrap();
         assert!(
             matches!(&read[0].mask, PortMask::Unchecked(reading) if reading.registers.is_none())
@@ -405,7 +436,7 @@ mod tests {
             sink: Some(2),
             ..Connectors::default()
         });
-        let ports = Ports::new(ec.clone(), LAPTOP_13_PRO).expect("four ports answered");
+        let ports = detect(ec.clone(), LAPTOP_13_PRO).expect("four ports answered");
         ec.controller_reads.lock().unwrap().clear();
         let read = ready(ports.ports()).unwrap();
         assert_eq!(on(&read[2]).registers, Some(charging()));
@@ -420,7 +451,7 @@ mod tests {
     #[test]
     fn each_bit_of_a_controllers_mask_is_one_of_its_ports() {
         let ec = Connectors::default().with_port_off(LAPTOP_13_PRO, 3);
-        let ports = Ports::new(Arc::new(ec), LAPTOP_13_PRO).expect("four ports answered");
+        let ports = detect(Arc::new(ec), LAPTOP_13_PRO).expect("four ports answered");
         let read = ready(ports.ports()).unwrap();
         assert!(
             read[..3]
@@ -433,7 +464,7 @@ mod tests {
     #[test]
     fn a_stub_turning_one_port_off_leaves_its_neighbour_on() {
         let ec = Connectors::default().with_port_off(LAPTOP_13_PRO, 3);
-        let ports = Ports::new(Arc::new(ec), LAPTOP_13_PRO).expect("four ports answered");
+        let ports = detect(Arc::new(ec), LAPTOP_13_PRO).expect("four ports answered");
         let read = ready(ports.ports()).unwrap();
         assert!(matches!(read[2].mask, PortMask::On(_)));
         assert_eq!(read[3].mask, PortMask::Off);
@@ -446,7 +477,7 @@ mod tests {
             sink: Some(3),
             ..Connectors::default().with_port_off(LAPTOP_13_PRO, 3)
         });
-        let ports = Ports::new(ec.clone(), LAPTOP_13_PRO).expect("four ports answered");
+        let ports = detect(ec.clone(), LAPTOP_13_PRO).expect("four ports answered");
         ec.controller_reads.lock().unwrap().clear();
         let read = ready(ports.ports()).unwrap();
         assert_eq!(read[3].mask, PortMask::Off);
@@ -465,7 +496,7 @@ mod tests {
             refusing_masks: vec![laptop_13_pro()[1]],
             ..Connectors::default()
         };
-        let ports = Ports::new(Arc::new(ec), LAPTOP_13_PRO).expect("four ports answered");
+        let ports = detect(Arc::new(ec), LAPTOP_13_PRO).expect("four ports answered");
         let read = ready(ports.ports()).unwrap();
         assert!(matches!(read[0].mask, PortMask::On(_)));
         assert!(matches!(read[2].mask, PortMask::Unchecked(_)));
@@ -477,7 +508,7 @@ mod tests {
             refusing_masks: vec![laptop_13_pro()[1]],
             ..Connectors::default()
         });
-        let ports = Ports::new(ec.clone(), LAPTOP_13_PRO).expect("four ports answered");
+        let ports = detect(ec.clone(), LAPTOP_13_PRO).expect("four ports answered");
         ec.masks_read.lock().unwrap().clear();
         ready(ports.ports()).unwrap();
         assert_eq!(*ec.masks_read.lock().unwrap(), laptop_13_pro());
@@ -489,7 +520,7 @@ mod tests {
             refusing_masks: vec![laptop_13_pro()[1]],
             ..Connectors::default()
         });
-        let ports = Ports::new(ec.clone(), LAPTOP_13_PRO).expect("four ports answered");
+        let ports = detect(ec.clone(), LAPTOP_13_PRO).expect("four ports answered");
         ec.masks_read.lock().unwrap().clear();
         assert!(matches!(
             ready(ports.set_enabled(2, true)),
@@ -498,10 +529,91 @@ mod tests {
         assert_eq!(*ec.masks_read.lock().unwrap(), vec![laptop_13_pro()[1]]);
     }
 
+    fn video_on(port: u8) -> Arc<Connectors> {
+        Arc::new(Connectors {
+            video: vec![port],
+            ..Connectors::default()
+        })
+    }
+
+    fn with_screens(ec: &Arc<Connectors>, displays: Option<Displays>) -> (Ports, Arc<Screens>) {
+        let screens = Arc::new(Screens {
+            displays,
+            ..Screens::default()
+        });
+        let ports = Ports::new(ec.clone(), screens.clone(), LAPTOP_13_PRO).expect("four ports");
+        (ports, screens)
+    }
+
+    #[test]
+    fn the_port_driving_the_only_lit_display_is_refused_turning_off() {
+        let ec = video_on(0);
+        let (ports, _) = with_screens(&ec, ONE_MONITOR);
+        assert!(matches!(
+            ready(ports.set_enabled(0, false)),
+            Err(DeviceError::InvalidArgs(_))
+        ));
+        assert!(ec.masks_written.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_port_carrying_video_turns_off_beside_the_lit_panel() {
+        let ec = video_on(0);
+        let (ports, _) = with_screens(&ec, PANEL_ONLY);
+        ready(ports.set_enabled(0, false)).unwrap();
+        assert_eq!(ec.masks_written.lock().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn a_port_carrying_video_is_refused_while_the_displays_do_not_read() {
+        let ec = video_on(0);
+        let (ports, _) = with_screens(&ec, None);
+        assert!(matches!(
+            ready(ports.set_enabled(0, false)),
+            Err(DeviceError::Failed(_))
+        ));
+        assert!(ec.masks_written.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_read_carries_the_refusal_of_the_port_driving_the_only_lit_display() {
+        let ec = video_on(0);
+        let (ports, screens) = with_screens(&ec, ONE_MONITOR);
+        let read = ready(ports.ports()).unwrap();
+        assert_eq!(read[0].refusal, Some(OffRefusal::LastDisplay));
+        assert_eq!(read[1].refusal, None);
+        assert_eq!(*screens.reads.lock().unwrap(), 1);
+    }
+
+    #[test]
+    fn a_read_with_no_port_carrying_video_reads_no_display() {
+        let ec = Arc::new(Connectors::default());
+        let (ports, screens) = with_screens(&ec, None);
+        ready(ports.ports()).unwrap();
+        assert_eq!(*screens.reads.lock().unwrap(), 0);
+    }
+
+    #[test]
+    fn a_read_carries_no_refusal_for_a_port_already_off() {
+        let ec = Connectors::default().with_port_off(LAPTOP_13_PRO, 0);
+        let ports = detect(Arc::new(ec), LAPTOP_13_PRO).expect("four ports answered");
+        let read = ready(ports.ports()).unwrap();
+        assert_eq!(read[0].mask, PortMask::Off);
+        assert_eq!(read[0].refusal, None);
+    }
+
+    #[test]
+    fn a_port_without_video_turns_off_without_reading_the_displays() {
+        let ec = Arc::new(Connectors::default());
+        let (ports, screens) = with_screens(&ec, None);
+        ready(ports.set_enabled(0, false)).unwrap();
+        assert_eq!(*screens.reads.lock().unwrap(), 0);
+    }
+
     #[test]
     fn turning_a_port_off_reads_its_own_mask_once_before_the_write() {
         let ec = Arc::new(Connectors::default());
-        let ports = Ports::new(ec.clone(), LAPTOP_13_PRO).expect("four ports answered");
+        let ports = detect(ec.clone(), LAPTOP_13_PRO).expect("four ports answered");
         ec.masks_read.lock().unwrap().clear();
         ready(ports.set_enabled(0, false)).unwrap();
         let [own, other] = [laptop_13_pro()[0], laptop_13_pro()[1]];
@@ -510,7 +622,7 @@ mod tests {
 
     #[test]
     fn a_board_with_no_controller_table_knows_no_mask() {
-        let ports = Ports::new(Arc::new(Connectors::default()), Platform::Unknown)
+        let ports = detect(Arc::new(Connectors::default()), Platform::Unknown)
             .expect("the ports still answered");
         let read = ready(ports.ports()).unwrap();
         assert!(
@@ -525,7 +637,7 @@ mod tests {
             live: vec![(0, crate::testing::port(1))],
             ..Connectors::default()
         });
-        let ports = Ports::new(ec, LAPTOP_13_PRO).expect("four ports answered");
+        let ports = detect(ec, LAPTOP_13_PRO).expect("four ports answered");
         let read = ready(ports.ports()).unwrap();
         assert_eq!(on(&read[0]).partner, PortPartner::Nothing);
         assert_eq!((on(&read[0]).millivolts, on(&read[0]).milliamps), (0, 0));
@@ -534,7 +646,7 @@ mod tests {
     #[test]
     fn the_ec_still_answers_which_port_it_charges_from() {
         let ec = Arc::new(Connectors::default());
-        let ports = Ports::new(ec, LAPTOP_13_PRO).expect("four ports answered");
+        let ports = detect(ec, LAPTOP_13_PRO).expect("four ports answered");
         let read = ready(ports.ports()).unwrap();
         assert!(on(&read[0]).charging);
     }
@@ -546,7 +658,7 @@ mod tests {
             refusing_controllers: vec![laptop_13_pro()[0]],
             ..Connectors::default()
         });
-        let ports = Ports::new(ec, LAPTOP_13_PRO).expect("four ports answered");
+        let ports = detect(ec, LAPTOP_13_PRO).expect("four ports answered");
         let read = ready(ports.ports()).unwrap();
         assert_eq!(on(&read[0]).partner, PortPartner::Source);
     }
@@ -561,7 +673,7 @@ mod tests {
             refusing_masks: vec![laptop_13_pro()[1]],
             ..Connectors::default()
         };
-        let ports = Ports::new(Arc::new(ec), LAPTOP_13_PRO).expect("four ports answered");
+        let ports = detect(Arc::new(ec), LAPTOP_13_PRO).expect("four ports answered");
         let switchable = ready(ports.switchable()).unwrap();
         assert!(switchable.contains(0) && switchable.contains(1));
         assert!(!switchable.contains(2) && !switchable.contains(3));
@@ -569,7 +681,7 @@ mod tests {
 
     #[test]
     fn a_board_with_no_controller_table_switches_nothing() {
-        let ports = Ports::new(Arc::new(Connectors::default()), Platform::Unknown)
+        let ports = detect(Arc::new(Connectors::default()), Platform::Unknown)
             .expect("the ports still answered");
         assert!(ready(ports.switchable()).unwrap().is_empty());
         assert!(matches!(
@@ -581,7 +693,7 @@ mod tests {
     #[test]
     fn turning_a_port_off_writes_only_its_own_bit() {
         let ec = Arc::new(Connectors::default());
-        let ports = Ports::new(ec.clone(), LAPTOP_13_PRO).expect("four ports answered");
+        let ports = detect(ec.clone(), LAPTOP_13_PRO).expect("four ports answered");
         ready(ports.set_enabled(3, false)).unwrap();
         assert_eq!(
             *ec.masks_written.lock().unwrap(),
@@ -594,7 +706,7 @@ mod tests {
     #[test]
     fn turning_a_port_back_on_sets_its_bit() {
         let ec = Arc::new(Connectors::default().with_port_off(LAPTOP_13_PRO, 3));
-        let ports = Ports::new(ec.clone(), LAPTOP_13_PRO).expect("four ports answered");
+        let ports = detect(ec.clone(), LAPTOP_13_PRO).expect("four ports answered");
         ready(ports.set_enabled(3, true)).unwrap();
         assert_eq!(
             *ec.masks_written.lock().unwrap(),
@@ -605,7 +717,7 @@ mod tests {
     #[test]
     fn a_port_already_as_asked_is_not_written() {
         let ec = Arc::new(Connectors::default());
-        let ports = Ports::new(ec.clone(), LAPTOP_13_PRO).expect("four ports answered");
+        let ports = detect(ec.clone(), LAPTOP_13_PRO).expect("four ports answered");
         ready(ports.set_enabled(0, true)).unwrap();
         assert!(ec.masks_written.lock().unwrap().is_empty());
     }
@@ -613,7 +725,7 @@ mod tests {
     #[test]
     fn the_last_port_on_stays_on() {
         let ec = Arc::new(Connectors::default());
-        let ports = Ports::new(ec.clone(), LAPTOP_13_PRO).expect("four ports answered");
+        let ports = detect(ec.clone(), LAPTOP_13_PRO).expect("four ports answered");
         for port in 0..3 {
             ready(ports.set_enabled(port, false)).unwrap();
         }
@@ -632,7 +744,7 @@ mod tests {
             refusing_masks: vec![laptop_13_pro()[1]],
             ..Connectors::default()
         });
-        let ports = Ports::new(ec.clone(), LAPTOP_13_PRO).expect("four ports answered");
+        let ports = detect(ec.clone(), LAPTOP_13_PRO).expect("four ports answered");
         assert!(matches!(
             ready(ports.set_enabled(0, false)),
             Err(DeviceError::Failed(_))
@@ -646,7 +758,7 @@ mod tests {
             refusing_masks: vec![laptop_13_pro()[1]],
             ..Connectors::default().with_port_off(LAPTOP_13_PRO, 0)
         });
-        let ports = Ports::new(ec.clone(), LAPTOP_13_PRO).expect("four ports answered");
+        let ports = detect(ec.clone(), LAPTOP_13_PRO).expect("four ports answered");
         ready(ports.set_enabled(0, true)).unwrap();
         assert_eq!(
             *ec.masks_written.lock().unwrap(),
@@ -661,8 +773,7 @@ mod tests {
             count: 5,
             ..Connectors::default()
         });
-        let ports =
-            Ports::new(ec.clone(), Platform::Laptop16AmdAi300).expect("five ports answered");
+        let ports = detect(ec.clone(), Platform::Laptop16AmdAi300).expect("five ports answered");
         assert!(ready(ports.switchable()).unwrap().contains(4));
         for port in 0..4 {
             ready(ports.set_enabled(port, false)).unwrap();
@@ -680,8 +791,7 @@ mod tests {
             count: 2,
             ..Connectors::default()
         });
-        let ports =
-            Ports::new(ec.clone(), Platform::DesktopAmdAiMax300).expect("two ports answered");
+        let ports = detect(ec.clone(), Platform::DesktopAmdAiMax300).expect("two ports answered");
         ready(ports.set_enabled(0, false)).unwrap();
         ready(ports.set_enabled(1, false)).unwrap();
         assert_eq!(mask(&ports, 1), PortMask::Off);
@@ -693,7 +803,7 @@ mod tests {
             mask_lag: 3,
             ..Connectors::default()
         });
-        let ports = Ports::new(ec.clone(), LAPTOP_13_PRO).expect("four ports answered");
+        let ports = detect(ec.clone(), LAPTOP_13_PRO).expect("four ports answered");
         ready(ports.set_enabled(1, false)).unwrap();
         assert_eq!(mask(&ports, 1), PortMask::Off);
     }

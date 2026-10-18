@@ -4,8 +4,7 @@
 use std::rc::Rc;
 
 use frameguin_contract::{
-    DeviceResult as Result, OffRefusal, Platform, PortMask, PortReading, PortSet, PortState,
-    PortsControl, off_refusal,
+    DeviceResult as Result, Platform, PortMask, PortReading, PortSet, PortState, PortsControl,
 };
 
 use super::present;
@@ -15,7 +14,6 @@ pub struct Ports<C> {
     control: Rc<C>,
     placement: Placement,
     switchable: PortSet,
-    platform: Platform,
 }
 
 impl<C: PortsControl> Ports<C> {
@@ -24,7 +22,6 @@ impl<C: PortsControl> Ports<C> {
             control,
             placement: Placement::of(platform),
             switchable,
-            platform,
         }
     }
 
@@ -47,25 +44,6 @@ impl<C: PortsControl> Ports<C> {
 
     pub async fn set_enabled(&self, port: u8, enabled: bool) -> Result<()> {
         self.control.set_enabled(port, enabled).await
-    }
-
-    /// Why the hardware would refuse turning `port` off, and None where it
-    /// would not or the port is already off.
-    #[must_use]
-    pub fn refusal(&self, ports: &[PortState], port: u8) -> Option<OffRefusal> {
-        let this = ports.iter().find(|state| state.index == port)?;
-        if this.mask == PortMask::Off {
-            return None;
-        }
-        let states = ports.iter().map(|state| {
-            let enabled = match state.mask {
-                PortMask::Off => Some(false),
-                PortMask::On(_) => Some(true),
-                PortMask::Unchecked(_) => None,
-            };
-            (state.index, enabled)
-        });
-        off_refusal(self.platform, port, states)
     }
 
     /// Where this board's sockets are, fixed for the device's run.
@@ -93,7 +71,7 @@ mod tests {
     use std::rc::Rc;
 
     use frameguin_contract::{
-        DeviceError, DeviceResult as Result, OffRefusal, Platform, PortMask, PortSet, PortState,
+        DeviceError, DeviceResult as Result, Platform, PortMask, PortSet, PortState,
     };
 
     use super::{Ports, powering};
@@ -142,47 +120,9 @@ mod tests {
         let unchecked = PortState {
             index: 0,
             mask: PortMask::Unchecked(reading(0)),
+            refusal: None,
         };
         assert_eq!(powering(&[unchecked]).map(|(index, _)| index), Some(0));
-    }
-
-    fn off(index: u8) -> PortState {
-        PortState {
-            index,
-            mask: PortMask::Off,
-        }
-    }
-
-    fn laptop() -> Ports<Machine> {
-        Ports::new(Machine::new(), Platform::Laptop13ProUltra3, PortSet::ALL)
-    }
-
-    #[test]
-    fn the_last_port_on_is_refused_its_switch() {
-        let ports = [off(0), port(1), off(2), off(3)];
-        assert_eq!(laptop().refusal(&ports, 1), Some(OffRefusal::LastPort));
-    }
-
-    #[test]
-    fn a_port_already_off_is_never_refused() {
-        let ports = [off(0), port(1), off(2), off(3)];
-        assert_eq!(laptop().refusal(&ports, 0), None);
-    }
-
-    #[test]
-    fn every_port_on_is_refused_while_a_mask_went_unread() {
-        let unchecked = PortState {
-            index: 2,
-            mask: PortMask::Unchecked(reading(2)),
-        };
-        let ports = [port(0), port(1), unchecked];
-        assert_eq!(laptop().refusal(&ports, 0), Some(OffRefusal::Unchecked));
-    }
-
-    #[test]
-    fn a_desktop_refuses_no_port() {
-        let ports = Ports::new(Machine::new(), Platform::DesktopAmdAiMax300, PortSet::ALL);
-        assert_eq!(ports.refusal(&[off(0), port(1)], 1), None);
     }
 
     #[test]

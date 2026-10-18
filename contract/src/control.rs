@@ -84,10 +84,9 @@ pub trait PortsControl {
     /// The ports [`PortsControl::set_enabled`] is offered for; fixed for the
     /// device's run.
     async fn switchable(&self) -> DeviceResult<PortSet>;
-    /// Refuses turning a port off wherever [`off_refusal`] does. A port
-    /// turned off stays off through a host reboot.
-    ///
-    /// [`off_refusal`]: crate::off_refusal
+    /// Refuses turning a port off wherever its [`PortState::refusal`] is
+    /// set, weighed afresh at the write. A port turned off stays off through
+    /// a host reboot.
     async fn set_enabled(&self, port: u8, enabled: bool) -> DeviceResult<()>;
 }
 

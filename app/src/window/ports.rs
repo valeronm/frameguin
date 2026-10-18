@@ -99,10 +99,9 @@ impl Group {
                 let Some(state) = ports.iter().find(|state| state.index == *index) else {
                     continue;
                 };
-                let refusal = control.refusal(ports, *index);
                 row.set_active(!matches!(state.mask, PortMask::Off));
-                row.set_sensitive(refusal.is_none());
-                row.set_subtitle(&switch_line(placement, state, devices, refusal));
+                row.set_sensitive(state.refusal.is_none());
+                row.set_subtitle(&switch_line(placement, state, devices));
             }
         });
     }

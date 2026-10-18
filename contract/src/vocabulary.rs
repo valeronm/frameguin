@@ -137,16 +137,6 @@ impl Platform {
             Self::Unknown => None,
         }
     }
-
-    /// A laptop charges through its USB-C ports, every one of which takes a
-    /// charger; the Desktop runs off a supply of its own.
-    #[must_use]
-    pub const fn charges_through_ports(self) -> bool {
-        matches!(
-            self.series(),
-            Some(Series::Laptop13 | Series::Laptop12 | Series::Laptop16)
-        )
-    }
 }
 
 /// What a battery offers past the block every pack answers with, each a
@@ -801,6 +791,9 @@ pub struct PortState {
     /// position to it, and only for a board it was measured on.
     pub index: u8,
     pub mask: PortMask,
+    /// Why turning the port off is refused, and None where it is not or the
+    /// port is already off.
+    pub refusal: Option<OffRefusal>,
 }
 
 /// Whether the port's controller has it enabled, and what the port reads
@@ -861,36 +854,20 @@ impl<'de> Deserialize<'de> for PortMask {
 }
 
 /// Why a port may not be turned off.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug)]
+#[zvariant(signature = "s")]
+#[serde(rename_all = "kebab-case")]
 pub enum OffRefusal {
     /// No other port would be left enabled.
     LastPort,
     /// A controller's mask could not be read, so whether another port would be
     /// left enabled is unknown.
     Unchecked,
-}
-
-/// Why turning `port` off is refused, and None where it is not, given each
-/// port's index and whether its controller has it enabled, None where the
-/// mask did not read. Only a machine that
-/// [charges through its ports](Platform::charges_through_ports) refuses: one
-/// port has to stay enabled for a charger.
-pub fn off_refusal(
-    platform: Platform,
-    port: u8,
-    enabled: impl IntoIterator<Item = (u8, Option<bool>)>,
-) -> Option<OffRefusal> {
-    if !platform.charges_through_ports() {
-        return None;
-    }
-    let mut another_on = false;
-    for (index, enabled) in enabled {
-        match enabled {
-            None => return Some(OffRefusal::Unchecked),
-            Some(on) => another_on |= on && index != port,
-        }
-    }
-    (!another_on).then_some(OffRefusal::LastPort)
+    /// The port carries video and no other display is lit.
+    LastDisplay,
+    /// The port carries video and the displays could not be read, so whether
+    /// another would be left lit is unknown.
+    DisplaysUnchecked,
 }
 
 #[derive(Serialize, Deserialize, Type, Clone, PartialEq, Eq, Debug)]
@@ -1327,32 +1304,9 @@ mod tests {
     use std::num::NonZeroU32;
 
     use super::{
-        Attached, ChargeCurrentLimit, Detail, FirmwareKind, LinkState, NetworkLink, OffRefusal,
-        Platform, Series, UsbSpeed, off_refusal,
+        Attached, ChargeCurrentLimit, Detail, FirmwareKind, LinkState, NetworkLink, Platform,
+        Series, UsbSpeed,
     };
-
-    const LAPTOP: Platform = Platform::Laptop13ProUltra3;
-
-    #[test]
-    fn a_laptop_keeps_its_last_port_on() {
-        let states = [(0, Some(false)), (1, Some(true))];
-        assert_eq!(off_refusal(LAPTOP, 1, states), Some(OffRefusal::LastPort));
-        let states = [(0, Some(true)), (1, Some(true))];
-        assert_eq!(off_refusal(LAPTOP, 1, states), None);
-    }
-
-    #[test]
-    fn a_laptop_refuses_while_any_mask_is_unknown() {
-        let states = [(0, Some(true)), (1, Some(true)), (2, None)];
-        assert_eq!(off_refusal(LAPTOP, 1, states), Some(OffRefusal::Unchecked));
-    }
-
-    #[test]
-    fn a_machine_off_its_own_supply_refuses_nothing() {
-        let states = [(0, Some(false)), (1, Some(true)), (2, None)];
-        assert_eq!(off_refusal(Platform::DesktopAmdAiMax300, 1, states), None);
-        assert_eq!(off_refusal(Platform::Unknown, 1, states), None);
-    }
 
     #[test]
     fn a_platform_is_in_a_series_unless_it_is_unknown() {

@@ -467,7 +467,7 @@ Who writes it:
 | Writer | Value | When |
 |---|---|---|
 | `framework_lib` `enable_ports` | `0b11` or `0b00` behind a boolean | on request |
-| This app's daemon | one port's bit, the other as read | on request, never leaving a laptop with no port enabled |
+| This app's daemon | one port's bit, the other as read | on request, never leaving a laptop with no port enabled, nor any machine with a port carrying video off while it may drive the only lit display |
 | The EC, `cypd_reset_pd_chip` | `0` only | the start of a controller reset: up to 650 ms for the ports to discharge, interrupts cleared, 1 s, then a chip reset that restarts the controller's firmware with its ports enabled |
 
 - The EC never writes the mask back.

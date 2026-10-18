@@ -46,6 +46,7 @@ pub fn port(index: u8) -> PortState {
     PortState {
         index,
         mask: PortMask::On(reading(index)),
+        refusal: None,
     }
 }
 
