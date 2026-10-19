@@ -768,14 +768,16 @@ mod tests {
     }
 
     #[test]
-    fn a_mask_that_will_not_read_refuses_turning_any_port_off() {
+    fn a_mask_that_will_not_read_refuses_only_the_last_port_known_on() {
         let ec = Arc::new(Connectors {
             refusing_masks: vec![laptop_13_pro()[1]],
             ..Connectors::default()
         });
         let ports = detect(ec.clone(), LAPTOP_13_PRO).expect("four ports answered");
+        ready(ports.set_enabled(0, false)).unwrap();
+        ec.masks_written.lock().unwrap().clear();
         assert!(matches!(
-            ready(ports.set_enabled(0, false)),
+            ready(ports.set_enabled(1, false)),
             Err(DeviceError::Failed(_))
         ));
         assert!(ec.masks_written.lock().unwrap().is_empty());

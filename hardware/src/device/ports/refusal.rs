@@ -11,10 +11,11 @@ use crate::drm::Displays;
 /// read). Each read is called only where the rest leaves the answer open.
 ///
 /// Only a machine that charges through its ports keeps a port enabled, for a
-/// charger. Every machine keeps a port carrying video on while no panel and
-/// at most one other output is lit, since no output is placed on a port and
-/// the one lit may be the port's own, and keeps on a port whose entry did
-/// not answer.
+/// charger. A mask that did not read refuses only where no other port is
+/// known to be on. Every machine keeps a port carrying video on while no
+/// panel and at most one other output is lit, since no output is placed on a
+/// port and the one lit may be the port's own, and keeps on a port whose
+/// entry did not answer.
 pub(super) fn off_refusal(
     platform: Platform,
     port: u8,
@@ -33,14 +34,19 @@ fn last_port(
     if !charges_through_ports(platform) {
         return None;
     }
-    let mut another_on = false;
+    let mut unknown = false;
     for (index, enabled) in enabled {
         match enabled {
-            None => return Some(OffRefusal::Unchecked),
-            Some(on) => another_on |= on && index != port,
+            Some(true) if index != port => return None,
+            None => unknown = true,
+            Some(_) => {}
         }
     }
-    (!another_on).then_some(OffRefusal::LastPort)
+    Some(if unknown {
+        OffRefusal::Unchecked
+    } else {
+        OffRefusal::LastPort
+    })
 }
 
 /// A laptop charges through its USB-C ports, every one of which takes a
@@ -117,11 +123,16 @@ mod tests {
     }
 
     #[test]
-    fn a_laptop_refuses_while_any_mask_is_unknown() {
-        let states = [(0, Some(true)), (1, Some(true)), (2, None)];
+    fn a_laptop_refuses_an_unknown_mask_only_with_no_other_port_on() {
+        let states = [(0, Some(false)), (1, Some(true)), (2, None)];
         assert_eq!(
             off_refusal(LAPTOP, 1, || Some(false), || PANEL_ONLY, states),
             Some(OffRefusal::Unchecked)
+        );
+        let states = [(0, Some(true)), (1, Some(true)), (2, None)];
+        assert_eq!(
+            off_refusal(LAPTOP, 1, || Some(false), || PANEL_ONLY, states),
+            None
         );
     }
 
