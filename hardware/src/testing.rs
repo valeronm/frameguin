@@ -17,6 +17,7 @@ use frameguin_contract::{
     PortPartner, PortReading, PortRegisters, PowerLedLevel, PowerRole, PrivacyState, UsbSpeed,
 };
 
+use crate::bay;
 use crate::drm::{Displays, Outputs};
 use crate::ec::{
     self, Charger, ChassisEc, Pack, PdPorts, PowerLedEc, PrivacyEc, SideEnables, ThermalEc,
@@ -543,6 +544,9 @@ pub struct Connectors {
     /// How many reads after a mask write still answer the mask before it.
     pub mask_lag: u32,
     pub pending: Mutex<Option<Pending>>,
+    /// The bay module's EEPROM address and contents, and None for a bay
+    /// where no EEPROM answers.
+    pub bay: Option<(u16, Vec<u8>)>,
 }
 
 /// The last mask written, and how many reads of its controller go on
@@ -610,8 +614,38 @@ impl Default for Connectors {
             masks_written: Mutex::new(Vec::new()),
             mask_lag: 0,
             pending: Mutex::new(None),
+            bay: None,
         }
     }
+}
+
+/// A bay module's descriptor holding `blocks`, each a block type and its
+/// data, under a header that checks.
+pub fn module(blocks: &[(u8, &[u8])]) -> Vec<u8> {
+    let body: Vec<u8> = blocks
+        .iter()
+        .flat_map(|(kind, data)| {
+            let len = u8::try_from(data.len()).expect("a block fits a length byte");
+            [*kind, len].into_iter().chain(data.iter().copied())
+        })
+        .collect();
+    let mut header = vec![0; bay::HEADER_LEN];
+    let body_len = u32::try_from(body.len()).expect("a descriptor fits a word");
+    header[bay::DESCRIPTOR_LENGTH..bay::DESCRIPTOR_LENGTH + 4]
+        .copy_from_slice(&body_len.to_le_bytes());
+    let crc = bay::crc32(&header[..bay::HEADER_CRC]);
+    header[bay::HEADER_CRC..bay::HEADER_CRC + 4].copy_from_slice(&crc.to_le_bytes());
+    header.extend(body);
+    header
+}
+
+pub fn ccg8s_module(address: u8) -> Vec<u8> {
+    module(&[(bay::PD_BLOCK, &[bay::CCG8S, address])])
+}
+
+pub fn ej889i_module() -> Vec<u8> {
+    let (ej889i, address) = (1, 0x60);
+    module(&[(bay::PD_BLOCK, &[ej889i, address])])
 }
 
 impl PdPorts for Connectors {
@@ -687,6 +721,15 @@ impl PdPorts for Connectors {
             });
         }
         Ok(())
+    }
+
+    fn eeprom(&self, _bus: u8, address: u16, offset: usize, len: usize) -> DeviceResult<Vec<u8>> {
+        self.bay
+            .as_ref()
+            .filter(|(at, _)| *at == address)
+            .and_then(|(_, contents)| contents.get(offset..offset + len))
+            .map(<[u8]>::to_vec)
+            .ok_or_else(|| DeviceError::NotSupported("EEPROM read refused".into()))
     }
 }
 

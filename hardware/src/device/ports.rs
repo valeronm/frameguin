@@ -13,7 +13,7 @@ use frameguin_contract::{
 
 use crate::drm::{self, Displays, Outputs};
 use crate::ec::{Ec, PdPorts};
-use crate::pd_controller::{self, PORTS_PER_CONTROLLER, controller_of};
+use crate::pd_controller::{self, Bay, PORTS_PER_CONTROLLER, controller_of};
 
 mod refusal;
 
@@ -28,8 +28,7 @@ pub struct Ports {
     /// board's, and re-probing the tail would spend a refused command on
     /// every read to learn what cannot have changed.
     count: u8,
-    /// By the EC's controller order, and None for one the board's table does
-    /// not place.
+    /// By the EC's controller order, and None for one nothing places.
     controllers: Vec<Option<Controller>>,
     platform: Platform,
 }
@@ -65,8 +64,16 @@ impl Ports {
         outputs: Arc<dyn Outputs>,
         platform: Platform,
     ) -> Option<Self> {
-        let controllers = pd_controller::controllers(platform);
-        let ceiling = ec.pd_controllers().saturating_mul(PORTS_PER_CONTROLLER);
+        let mut controllers = pd_controller::controllers(platform).to_vec();
+        let mut ceiling = ec.pd_controllers().saturating_mul(PORTS_PER_CONTROLLER);
+        match pd_controller::bay(platform, ec.as_ref()) {
+            Bay::None => {}
+            Bay::Controller(controller) => controllers.push(controller),
+            Bay::Silent => {
+                let mainboard = u8::try_from(controllers.len()).unwrap_or(u8::MAX);
+                ceiling = ceiling.min(mainboard.saturating_mul(PORTS_PER_CONTROLLER));
+            }
+        }
         // The first port refused is the count of those before it.
         let count = (0..ceiling)
             .find(|port| !matches!(ec.port_state(*port), Ok(Some(_))))
@@ -254,7 +261,7 @@ mod tests {
     use super::Ports;
     use crate::drm::Displays;
     use crate::pd_controller;
-    use crate::testing::{Connectors, ONE_MONITOR, PANEL_ONLY, Screens, ready};
+    use crate::testing::{Connectors, ONE_MONITOR, PANEL_ONLY, Screens, ccg8s_module, ready};
 
     const LAPTOP_13_PRO: Platform = Platform::Laptop13ProUltra3;
 
@@ -320,10 +327,42 @@ mod tests {
         let ec = Connectors {
             controllers: 3,
             count: 5,
+            bay: Some((0x50, ccg8s_module(0x42))),
             ..Connectors::default()
         };
         let ports = detect(Arc::new(ec), Platform::Laptop16AmdAi300).expect("five ports answered");
         assert_eq!(ready(ports.ports()).unwrap().len(), 5);
+    }
+
+    #[test]
+    fn a_bay_that_gives_no_descriptor_has_no_port() {
+        let ec = Connectors {
+            controllers: 3,
+            count: 5,
+            ..Connectors::default()
+        };
+        let ports = detect(Arc::new(ec), Platform::Laptop16Amd7040).expect("four ports answered");
+        assert_eq!(ready(ports.ports()).unwrap().len(), 4);
+        assert!(!ready(ports.switchable()).unwrap().contains(4));
+    }
+
+    #[test]
+    fn the_bay_controller_is_read_at_the_address_the_module_gives() {
+        let ec = Arc::new(Connectors {
+            controllers: 3,
+            count: 5,
+            bay: Some((0x50, ccg8s_module(0x08))),
+            ..Connectors::default()
+        });
+        let ports = detect(ec.clone(), Platform::Laptop16Amd7040).expect("five ports answered");
+        ec.controller_reads.lock().unwrap().clear();
+        ready(ports.ports()).unwrap();
+        assert!(
+            ec.controller_reads
+                .lock()
+                .unwrap()
+                .contains(&(4, (5, 0x08)))
+        );
     }
 
     fn marked() -> Cable {
@@ -802,6 +841,7 @@ mod tests {
         let ec = Arc::new(Connectors {
             controllers: 3,
             count: 5,
+            bay: Some((0x50, ccg8s_module(0x42))),
             ..Connectors::default()
         });
         let ports = detect(ec.clone(), Platform::Laptop16AmdAi300).expect("five ports answered");

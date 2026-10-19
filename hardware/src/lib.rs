@@ -23,7 +23,8 @@
 //! `thermal` what the EC's memmap thermal bytes and its threshold command
 //! mean, `pd` what the EC's cached PD controller version means,
 //! `pd_controller` what a PD controller reads of a port's cable, contract
-//! and bus and where each board's controllers sit, `ccg3` what an HDMI or
+//! and bus and where each board's controllers sit, `bay` what an expansion
+//! bay module's descriptor declares, `ccg3` what an HDMI or
 //! `DisplayPort` card's firmware report means, `platform` which board the
 //! DMI strings name, `extender` what the battery extender command carries,
 //! `edid` what a panel's own block says it is, `state` the store for what
@@ -41,6 +42,7 @@
     reason = "a workspace-private crate with one caller; its signatures are the contract"
 )]
 
+pub(crate) mod bay;
 pub(crate) mod block;
 pub(crate) mod build_info;
 pub(crate) mod ccg3;

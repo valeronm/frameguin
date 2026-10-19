@@ -20,8 +20,8 @@ use frameguin_hardware::mirror::Mirrors;
 use frameguin_hardware::part;
 use frameguin_hardware::testing::{
     Connectors, Cover, EC_BOOT, EcCharger, Gauge, HOST_BOOT, Haptic, Hub, LedEc, Leds, Memory,
-    Route, Screens, Sides, Sliders, Vents, battery_identity, display_identity, fans, mirrors,
-    product, reader, touchpad_identity, webcam,
+    Route, Screens, Sides, Sliders, Vents, battery_identity, ccg8s_module, display_identity, fans,
+    mirrors, product, reader, touchpad_identity, webcam,
 };
 
 /// Which of a touch panel's two routes a board has: the pad's level reads
@@ -46,6 +46,8 @@ struct Shape {
     pd_ports: u8,
     /// A port its controller has turned off.
     port_off: Option<u8>,
+    /// The address of the bay module's CCG8S.
+    bay_ccg8s: Option<u8>,
     input_deck: bool,
     fan_duty: bool,
     second_fan: bool,
@@ -63,6 +65,7 @@ const BOARDS: &[(&str, Shape)] = &[
             pd_controllers: 2,
             pd_ports: 4,
             port_off: Some(3),
+            bay_ccg8s: None,
             input_deck: true,
             fan_duty: true,
             second_fan: false,
@@ -79,6 +82,7 @@ const BOARDS: &[(&str, Shape)] = &[
             pd_controllers: 0,
             pd_ports: 0,
             port_off: None,
+            bay_ccg8s: None,
             input_deck: false,
             fan_duty: false,
             second_fan: false,
@@ -95,6 +99,7 @@ const BOARDS: &[(&str, Shape)] = &[
             pd_controllers: 2,
             pd_ports: 4,
             port_off: None,
+            bay_ccg8s: None,
             input_deck: false,
             fan_duty: false,
             second_fan: false,
@@ -111,6 +116,7 @@ const BOARDS: &[(&str, Shape)] = &[
             pd_controllers: 2,
             pd_ports: 4,
             port_off: None,
+            bay_ccg8s: None,
             input_deck: false,
             fan_duty: true,
             second_fan: false,
@@ -127,6 +133,7 @@ const BOARDS: &[(&str, Shape)] = &[
             pd_controllers: 3,
             pd_ports: 5,
             port_off: None,
+            bay_ccg8s: Some(0x42),
             input_deck: true,
             fan_duty: false,
             second_fan: true,
@@ -163,6 +170,7 @@ fn machine(shape: &Shape, refusing: bool) -> Detected {
     let mut connectors = Connectors {
         controllers: shape.pd_controllers,
         count: shape.pd_ports,
+        bay: shape.bay_ccg8s.map(|address| (0x50, ccg8s_module(address))),
         ..Connectors::default()
     };
     if let Some(port) = shape.port_off {

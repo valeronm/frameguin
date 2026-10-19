@@ -21,7 +21,9 @@ use framework_lib::chromium_ec::commands::{
     DeckStateMode, EcRequestDeckState, EcRequestGetPdPortState, EcRequestGetUptimeInfo,
     EcRequestReadPdVersionV0, EcRequestReadPdVersionV1, FpLedBrightnessLevel,
 };
-use framework_lib::chromium_ec::i2c_passthrough::{i2c_read, i2c_write};
+use framework_lib::chromium_ec::i2c_passthrough::{
+    MAX_I2C_CHUNK, i2c_read, i2c_read_16bit_addr, i2c_write,
+};
 use framework_lib::chromium_ec::{CrosEc, CrosEcDriver, EcError, EcResponseStatus, EcResult};
 use framework_lib::power;
 
@@ -87,6 +89,9 @@ pub trait PdPorts: Send + Sync {
     /// where it is enabled.
     fn port_enable(&self, controller: (u8, u16)) -> DeviceResult<u8>;
     fn set_port_enable(&self, controller: (u8, u16), mask: u8) -> DeviceResult<()>;
+    /// `len` bytes from `offset` of the EEPROM at `address` on `bus`, which
+    /// takes 16-bit offsets.
+    fn eeprom(&self, bus: u8, address: u16, offset: usize, len: usize) -> DeviceResult<Vec<u8>>;
 }
 
 pub trait ChassisEc: Send + Sync {
@@ -414,6 +419,26 @@ impl PdPorts for Ec {
         .map_err(device_error)?
         .is_successful()
         .map_err(device_error)
+    }
+
+    fn eeprom(&self, bus: u8, address: u16, offset: usize, len: usize) -> DeviceResult<Vec<u8>> {
+        let ec = self.ec();
+        let mut data = Vec::with_capacity(len);
+        while data.len() < len {
+            let chunk = (len - data.len()).min(MAX_I2C_CHUNK);
+            let at = u16::try_from(offset + data.len()).map_err(device_error)?;
+            let size = u16::try_from(chunk).map_err(device_error)?;
+            let response =
+                i2c_read_16bit_addr(&ec, bus, address, at, size).map_err(device_error)?;
+            response.is_successful().map_err(device_error)?;
+            if response.data.len() != chunk {
+                return Err(DeviceError::Failed(format!(
+                    "EEPROM read of {chunk} bytes came back short"
+                )));
+            }
+            data.extend(response.data);
+        }
+        Ok(data)
     }
 }
 

@@ -40,15 +40,33 @@ Every heading in the file appears here.
 | Board | Controllers | Ports | Source |
 |---|---|---|---|
 | Laptop 12, Laptop 13 | 2 | 2 + 2 | `CONFIG_PLATFORM_EC_PD_CHIP_MAX_COUNT` default |
-| Laptop 16 | 3 | 2 + 2 + 1 | `lotus/project.conf` and `tulip/project.conf` raise the count; the third controller is on the expansion bay module |
+| Laptop 16 | 3 | 2 + 2 + 1 | `lotus/project.conf` and `tulip/project.conf` on the `tulip` branch raise the count; the third controller is on the expansion bay module. The `lotus-azalea` and `lilac` branches keep 2 |
 | Desktop | | 2 | `dogwood`, per the commit message of the [port index fix](#port-index); not in a `sakura` checkout |
 
 - A controller answers at its own I²C address on its own EC bus, and both
   its ports come with it. Nothing addresses a port on its own.
 - The Laptop 16's third controller is declared in `usbc_5port_config.c`
-  with address `0xFF` and a `CCG_STATE_NO_POWER` initial state;
-  `ccg8s_init` fills the address in when the module powers up. Its
-  controller count is a fact about what is installed, not about the machine.
+  with address `0xFF` and a `CCG_STATE_NO_POWER` initial state, on
+  `I2C_PORT_PD_MCU2`, the same bus 5 as the module's EEPROM.
+  `ccg8s_init` fills the address in from the PD block of the module's
+  descriptor, and only for a block naming a CCG8S.
+- What PD chip a bay module carries is the module's: the descriptors
+  built into `lotus/src/gpu_configuration.c` give the AMD module
+  (`FRAKMBCP81`) an Etron EJ889I at `0x60` and the NVIDIA module
+  (`FRAKMQCP41`) a CCG8S at `0x42`. `ej889i.c` never writes
+  `pd_port_states`, so behind an EJ889I port 4's entry stays at its zeroed
+  initial state, which decodes as nothing attached.
+- `cmd_get_pd_port_state` answers from `pd_port_states` for any index
+  under `PD_PORT_COUNT`, whatever the state of the controller behind it.
+- The EC reads the descriptor from the EEPROM at `0x50`, else `0x52`, and
+  rejects a header with a `0xFF` magic byte or a CRC-32 that does not
+  match; without one it assumes the AMD module where an EJ889I answers at
+  `0x60`, and a dual SSD module where only a blank EEPROM does.
+- Laptop 16 7040 interfaces schematic: TypeC-L1, L2, R1 and R2 are the
+  5–48 V/5 A connectors, one CCG8D per side (UT25 left, UT26 right);
+  TypeC-L3 and R3 are 5 V/1 A with no PD controller; L1 and R1 carry
+  USB4. The PD controller pages are not in the published schematic, so it
+  does not settle which EC port reaches which connector.
 - Controller I²C addresses, from `framework_lib`'s `PdPort` table:
   controller 0 at `0x42` (CCG8 boards) or `0x08` (CCG5 and CCG6 boards),
   controller 1 at `0x40`.
@@ -168,8 +186,9 @@ numbers them:
   same four positions, for the AI 300 board as well; nobody has read that
   board's slots.
 - Both side controllers report silicon ID `0x3580`, firmware base
-  3.7.0.197, app 0.0.21. The bay's controller, with a Radeon RX 7700S
-  module fitted, failed `framework_tool --pd-info`'s silicon ID read.
+  3.7.0.197, app 0.0.21. With a Radeon RX 7700S module fitted, the bay's
+  failed `framework_tool --pd-info`'s silicon ID read, the module carrying
+  an EJ889I rather than a CCG.
 
 ## Host commands
 
@@ -552,9 +571,15 @@ Who writes it:
   port-state and version host commands; `src/ucsi_port_*.c` and
   `sakura/src/ucsi_port.c` the per-board connector maps, selected in
   `CMakeLists.txt`; `src/usbc_5port_config.c` the Laptop 16's third
-  controller; and each board's `project.conf` its controller count and
+  controller; `lotus/src/gpu_configuration.c` the bay descriptor's parse
+  and the built-in module descriptors, `include/lotus/gpu_configuration.h`
+  its layout, and `lotus/src/ej889i.c` the AMD module's PD chip; and each
+  board's `project.conf` its controller count and
   whether the controllers are reset before an EC reboot.
   `common/charge_manager.c` at the top level is `EC_CMD_USB_PD_POWER_INFO`.
+- [FrameworkComputer/Framework-Laptop-16](https://github.com/FrameworkComputer/Framework-Laptop-16)
+  — `Mainboard/Mainboard_Interfaces_Schematic_Framework_Laptop_16_7040_Series.pdf`
+  for the connectors and their supplies.
 - [FrameworkComputer/framework-system](https://github.com/FrameworkComputer/framework-system)
   — `framework_lib/src/ccgx/device.rs` for the controller addresses and the
   port-enable write, `framework_lib/src/power.rs` for the port-state

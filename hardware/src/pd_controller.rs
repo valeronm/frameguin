@@ -11,6 +11,9 @@ use frameguin_contract::{
     PortPartner, PortReading, PortRegisters, PowerRole, SupplyKind,
 };
 
+use crate::bay;
+use crate::ec::PdPorts;
+
 pub(crate) const PD_STATUS: u16 = 0x08;
 /// The partner in bits 2 to 4, the CC polarity in [`CC2`], and in bits 6 and
 /// 7 the current a Type-C source advertises.
@@ -93,8 +96,8 @@ pub(crate) fn block(port: u8) -> u16 {
     (u16::from(port % PORTS_PER_CONTROLLER) + 1) * 0x1000
 }
 
-/// Each controller's (EC I2C port, 7-bit address), in the EC's controller
-/// order, and empty for a board this table does not cover.
+/// Each mainboard controller's (EC I2C port, 7-bit address), in the EC's
+/// controller order, and empty for a board this table does not cover.
 ///
 /// Copied from `framework_lib`'s `PdPort::i2c_port` and `i2c_address`, which
 /// its `PdController` keeps private for reads. The Laptop 13 Pro's pair was
@@ -106,14 +109,39 @@ pub(crate) fn controllers(platform: Platform) -> &'static [(u8, u16)] {
         Platform::Laptop13Ultra1 | Platform::Laptop12Gen13 | Platform::Laptop12Core3 => {
             &[(1, 0x08), (2, 0x40)]
         }
-        Platform::Laptop13Amd7040 | Platform::Laptop13AmdAi300 | Platform::Laptop13ProUltra3 => {
-            &[(1, 0x42), (2, 0x40)]
-        }
-        Platform::Laptop16Amd7040 | Platform::Laptop16AmdAi300 => {
-            &[(1, 0x42), (2, 0x40), (5, 0x42)]
-        }
+        Platform::Laptop13Amd7040
+        | Platform::Laptop13AmdAi300
+        | Platform::Laptop13ProUltra3
+        | Platform::Laptop16Amd7040
+        | Platform::Laptop16AmdAi300 => &[(1, 0x42), (2, 0x40)],
         Platform::DesktopAmdAiMax300 => &[(1, 0x08)],
         Platform::Unknown => &[],
+    }
+}
+
+/// What a board's expansion bay adds to its controllers.
+pub(crate) enum Bay {
+    /// The board has no bay.
+    None,
+    /// The module declares no CCG8S, and the EC fills a bay port's entry only
+    /// from one.
+    Silent,
+    Controller((u8, u16)),
+}
+
+/// The bay's PD controller sits on the module's own EEPROM bus, at the
+/// address the module declares.
+pub(crate) fn bay(platform: Platform, ec: &dyn PdPorts) -> Bay {
+    const BUS: u8 = 5;
+    if !matches!(
+        platform,
+        Platform::Laptop16Amd7040 | Platform::Laptop16AmdAi300
+    ) {
+        return Bay::None;
+    }
+    match bay::ccg8s(ec, BUS) {
+        Some(address) => Bay::Controller((BUS, u16::from(address))),
+        None => Bay::Silent,
     }
 }
 
