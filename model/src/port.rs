@@ -41,7 +41,8 @@ pub enum Position {
     /// The derived `Ord` compares side before depth. No depth is a side that
     /// was named rather than measured.
     Side { side: Side, depth: Option<Depth> },
-    /// The Laptop 16's expansion bay, whose module carries a port of its own.
+    /// The Laptop 16's expansion bay, whose module carries a port of its own,
+    /// driven by the EC's third controller.
     Back,
 }
 
@@ -143,11 +144,15 @@ const LAYOUTS: &[Layout] = &[
             Some(pro_ultra_3(1, 4)),
         ],
     },
-    // The same controller table's sides, and the EC declaring the bay's
-    // controller third, driving one port.
     Layout {
         platforms: &[Platform::Laptop16Amd7040, Platform::Laptop16AmdAi300],
-        positions: &[RIGHT, RIGHT, LEFT, LEFT, Some(Position::Back)],
+        positions: &[
+            Some(Position::at(Side::Right, Depth::Rear)),
+            Some(Position::at(Side::Right, Depth::Middle)),
+            Some(Position::at(Side::Left, Depth::Middle)),
+            Some(Position::at(Side::Left, Depth::Rear)),
+            Some(Position::Back),
+        ],
         wiring: &[],
     },
 ];
@@ -280,7 +285,7 @@ mod tests {
 
     #[test]
     fn the_back_lists_after_the_sides() {
-        assert_eq!(listed(Platform::Laptop16Amd7040, 0..5), [2, 3, 0, 1, 4]);
+        assert_eq!(listed(Platform::Laptop16Amd7040, 0..5), [3, 2, 0, 1, 4]);
     }
 
     fn on(controller: &str, root_port: u8, product: &str) -> Attached {

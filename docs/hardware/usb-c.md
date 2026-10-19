@@ -152,6 +152,25 @@ turned over shows the mirror image of every one.
   the `sakura` map above.
 - None of this table transfers to another board.
 
+Laptop 16 (AMD Ryzen 7040), read from a source attached to one slot at a
+time on a board not here, slots numbered as Framework's knowledge base
+numbers them:
+
+| EC port | Controller | Slot | Position |
+|---|---|---|---|
+| 0 | Right / Ports 01 | 4 | right rear |
+| 1 | Right / Ports 01 | 5 | right middle |
+| 2 | Left / Ports 23 | 2 | left middle |
+| 3 | Left / Ports 23 | 1 | left rear |
+
+- The front slots, 3 and 6, are on no PD controller.
+- `framework_lib`'s Laptop 16 case in `get_and_print_pd_info` names the
+  same four positions, for the AI 300 board as well; nobody has read that
+  board's slots.
+- Both side controllers report silicon ID `0x3580`, firmware base
+  3.7.0.197, app 0.0.21. The bay's controller, with a Radeon RX 7700S
+  module fitted, failed `framework_tool --pd-info`'s silicon ID read.
+
 ## Host commands
 
 | Command | Id | Answers | Caveat |
