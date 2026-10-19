@@ -612,6 +612,13 @@ the product it was read from.
   a manifest allow is invisible where the code is read and blankets the whole
   workspace. `#[expect]` when the suppression is situational, so a stale one
   fails the build; `#[allow]` only when it is permanent by design.
+- Capitalization follows the GNOME HIG split: a heading, a window title, a
+  menu item and a tab are in Title Case, a row title and a value in
+  sentence case. A heading that is a sentence stays one — the Readings
+  port page heads its groups with words that are also values on the main
+  window's port rows, so Title Case there would mean a second spelling
+  in `modelview` — and so do the tray's items, which name the window
+  rows they move, and the empty pages' titles. Nothing checks it.
 - History is public, so it moves by normal commits; pushed commits are not
   amended.
 - "Framework" is Framework Computer Inc.'s trademark. The project name avoids
