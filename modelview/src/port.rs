@@ -143,13 +143,16 @@ mod tests {
     }
 
     #[test]
-    fn a_laptop_16_places_its_bay_port_at_the_back_and_its_others_by_side() {
+    fn a_laptop_16_places_its_bay_port_at_the_back_and_its_others_rear_and_middle() {
         for platform in [Platform::Laptop16Amd7040, Platform::Laptop16AmdAi300] {
             let placement = Placement::of(platform);
             assert_eq!(label(placement, 4), "Back");
             assert_eq!(secondary(placement, 4).as_deref(), Some("Port 4"));
-            assert_eq!(label(placement, 0), "Right · Port 0");
-            assert_eq!(label(placement, 3), "Left · Port 3");
+            let sides: Vec<String> = (0..4).map(|index| label(placement, index)).collect();
+            assert_eq!(
+                sides,
+                ["Right rear", "Right middle", "Left middle", "Left rear"]
+            );
         }
     }
 }
