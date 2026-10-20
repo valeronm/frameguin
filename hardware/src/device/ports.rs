@@ -3,9 +3,10 @@
 
 use std::cell::OnceCell;
 use std::sync::Arc;
-use std::thread;
 use std::time::{Duration, Instant};
 
+use async_io::Timer;
+use async_lock::Mutex;
 use frameguin_contract::{
     Board, DeviceError, DeviceResult, OffRefusal, Platform, PortMask, PortReading, PortSet,
     PortState, PortsControl,
@@ -31,6 +32,9 @@ pub struct Ports {
     /// By the EC's controller order, and None for one nothing places.
     controllers: Vec<Option<Controller>>,
     platform: Platform,
+    /// A write's settle awaits, and a turn-off weighs every other port's
+    /// mask.
+    writing: Mutex<()>,
 }
 
 /// A controller's (I2C port, address), and what answered of it at detection.
@@ -99,6 +103,7 @@ impl Ports {
             count,
             controllers,
             platform,
+            writing: Mutex::new(()),
         })
     }
 
@@ -203,6 +208,7 @@ impl PortsControl for Ports {
                 "port {port} has no switch"
             )));
         };
+        let _writing = self.writing.lock().await;
         let unanswered = || {
             DeviceError::Failed(format!(
                 "port {port}'s controller did not answer for its mask"
@@ -243,7 +249,7 @@ impl PortsControl for Ports {
                 .port_enable(controller.address)
                 .is_ok_and(|read| pd_controller::enabled(read, port) != enabled)
         {
-            thread::sleep(SETTLE_POLL);
+            Timer::after(SETTLE_POLL).await;
         }
         Ok(())
     }
@@ -875,7 +881,24 @@ mod tests {
             ..Connectors::default()
         });
         let ports = detect(ec.clone(), LAPTOP_13_PRO).expect("four ports answered");
-        ready(ports.set_enabled(1, false)).unwrap();
+        async_io::block_on(ports.set_enabled(1, false)).unwrap();
+        assert_eq!(mask(&ports, 1), PortMask::Off);
+    }
+
+    #[test]
+    fn two_ports_on_one_controller_turned_off_at_once_both_read_off() {
+        let ec = Arc::new(Connectors {
+            mask_lag: 3,
+            ..Connectors::default()
+        });
+        let ports = detect(ec, LAPTOP_13_PRO).expect("four ports answered");
+        let (first, second) = async_io::block_on(futures_lite::future::zip(
+            ports.set_enabled(0, false),
+            ports.set_enabled(1, false),
+        ));
+        first.unwrap();
+        second.unwrap();
+        assert_eq!(mask(&ports, 0), PortMask::Off);
         assert_eq!(mask(&ports, 1), PortMask::Off);
     }
 }

@@ -17,11 +17,16 @@ testing = []
 # The one crate that links the hardware libraries. A process that links it
 # has hardware access, which is why the app does not and the daemon does.
 [dependencies]
-# Named for the power LED's one timer.
+# Named for the timers a device's write awaits.
 async-io = "2"
+# Named for a device's write lock.
+async-lock = "3"
 frameguin-contract = { workspace = true }
 framework_lib = { version = "0.6.6", default-features = false, features = ["hidapi"] }
 hidapi = "2"
 # Already in the tree via framework_lib; named for the GPIO character
 # device's ioctls, which no safe wrapper here would be smaller than.
 libc = "0.2"
+
+[dev-dependencies]
+futures-lite = "2"

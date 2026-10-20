@@ -664,8 +664,10 @@ name = "frameguin-hardware"
 version = "0.5.3"
 dependencies = [
  "async-io",
+ "async-lock",
  "frameguin-contract",
  "framework_lib",
+ "futures-lite",
  "hidapi",
  "libc",
 ]

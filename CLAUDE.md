@@ -373,6 +373,10 @@ it and the non-obvious constraints.
   moves the panel with neither, so within one waking run it is no fresher
   than the client's own idea. What decides is whether a client can be stale,
   not whether the value is readable.
+- A setter that awaits between reading state and writing it holds its
+  device's write lock for the whole call. The control traits are async, so
+  another call to the same device, over the bus or from `Restore`, can run
+  inside the wait. Nothing checks that such a setter takes the lock.
 - **Evidence is best effort, never a gate.** Where a mirror takes evidence
   for its lifetime — the EC's boot for the charge current limit, the host's
   for the touch panel — evidence that cannot be taken costs the record and
@@ -397,7 +401,8 @@ it and the non-obvious constraints.
   connection. Detection — the pinctrl walk for the touchscreen's pad, the EC
   waking — runs before the name is claimed, so no client waits on it; a
   slow call after that is fixed by moving it off the executor onto a
-  blocking pool, not by more `async`.
+  blocking pool, not by more `async`. A wait between calls is not a slow
+  call: it awaits a timer.
 
 ## The probe rule
 
