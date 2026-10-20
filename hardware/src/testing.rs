@@ -878,6 +878,8 @@ pub struct Hub {
     pub firmware: Option<String>,
     /// The device directories firmware was asked of.
     pub asked: Mutex<Vec<PathBuf>>,
+    /// Every device's `devnum`; raising it reconnects them all.
+    pub connection: Mutex<u16>,
 }
 
 impl Default for Hub {
@@ -929,6 +931,7 @@ impl Default for Hub {
             refusing: false,
             firmware: Some("3.0.10.06A".to_owned()),
             asked: Mutex::default(),
+            connection: Mutex::new(2),
         }
     }
 }
@@ -973,6 +976,7 @@ impl UsbTree for Hub {
                     ..attached.clone()
                 },
                 path: hub_path(attached),
+                connection: *self.connection.lock().unwrap(),
             })
             .collect())
     }

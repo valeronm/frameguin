@@ -14,6 +14,8 @@ const DEVICES: &str = "/sys/bus/usb/devices";
 pub struct RootDevice {
     pub attached: Attached,
     pub path: PathBuf,
+    /// The kernel's `devnum`, which changes each time the device connects.
+    pub connection: u16,
 }
 
 /// What a device on the bus announces about itself, each string empty where
@@ -128,13 +130,14 @@ pub(crate) fn matching<'a>(
         .find(|device| device.vendor_id == vendor && products.contains(&device.product_id))
 }
 
-/// A device whose ids do not read is skipped: the kernel is still
+/// A device whose ids or `devnum` do not read is skipped: the kernel is still
 /// enumerating it.
 fn read(link: &Path, root_port: u8) -> Option<RootDevice> {
     let path = fs::canonicalize(link).ok()?;
     // `…/0000:00:14.0/usb3/3-5`: the root hub's parent is the controller.
     let controller = path.parent()?.parent()?.file_name()?.to_str()?.to_owned();
     let attribute = |name: &str| attribute(&path, name);
+    let connection = attribute("devnum").parse().ok()?;
     Some(RootDevice {
         attached: Attached {
             controller,
@@ -149,6 +152,7 @@ fn read(link: &Path, root_port: u8) -> Option<RootDevice> {
             storage: Vec::new(),
         },
         path,
+        connection,
     })
 }
 

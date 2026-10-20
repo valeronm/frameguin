@@ -404,6 +404,8 @@ From the kernel:
   report `0xE0`, then calls `flashing_mode`, so the check as a whole leaves
   the card in flashing mode.
 - `decode_fw_info` asserts the unlocked report's signature is `CY`.
+- `framework_lib`'s update ends with a reset, after which the card
+  reconnects under a new USB device number (`devnum`).
 
 #### Observed
 
@@ -416,10 +418,13 @@ From the kernel:
 | Setup | Reading |
 |---|---|
 | Feature report `0xE0` from an HDMI or DisplayPort card, no unlock sent | answered; signature `AA` instead of `CY`, otherwise the same layout: silicon id, a UID matching the USB serial, and a version matching `framework_tool --dp-hdmi-info` |
+| Opening a DisplayPort card's hidraw node and reading report `0xE0`, three times in a row | 168 ms, then 75 ms and 71 ms; the rest of the bus walk took under 3 ms |
 
 - Consequence: a card is named by what it announces. An id-to-name
   table buys nothing and risks a wrong name for a third-party device sharing
   a bridge chip's ids.
+- Consequence: a card's firmware is asked once per connection, since a swap
+  and an update both reconnect it.
 
 ### Network adapters
 
