@@ -24,6 +24,7 @@
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
+use std::time::{Duration, Instant};
 
 use frameguin_contract::DeviceResult;
 use frameguin_model::reading::{self, Failure, Reading, Request};
@@ -110,6 +111,23 @@ impl Drop for InFlight<'_> {
     }
 }
 
+/// The reading last shown.
+struct Last {
+    reading: Rc<Reading>,
+    request: Request,
+    taken: Instant,
+}
+
+impl Last {
+    fn covers(&self, request: Request) -> bool {
+        self.request.with(request) == self.request
+    }
+
+    fn fresh(&self) -> bool {
+        self.taken.elapsed() < Duration::from_secs(READING_SECONDS.into())
+    }
+}
+
 pub(crate) struct Feed {
     daemon: Rc<Daemon>,
     views: RefCell<Vec<(u64, View)>>,
@@ -128,15 +146,19 @@ pub(crate) struct Feed {
     /// finish cleared would unlock the tick behind it.
     reading: Cell<u32>,
     /// Reads taken, for spacing the ones that cost more than a memmap walk —
-    /// see [`CONDITION_EVERY`]. Rewound whenever a view arrives, so what it
-    /// spaces is repetition and never a window's first sight of anything.
+    /// see [`CONDITION_EVERY`]. Rewound when a view asking for the condition
+    /// arrives with no fresh reading covering it: what it spaces is
+    /// repetition, never a view's first sight of the condition.
     ticks: Cell<u32>,
-    /// Whether a read for a newly arrived want is already spawned, so views
+    /// Whether a read for a newly arrived view is already spawned, so views
     /// arriving together are served by one.
     catching_up: Cell<bool>,
     /// A read that overlaps a write may have been answered from before it.
     writes: Cell<u64>,
     writing: Cell<u32>,
+    /// Dropped with the last view and at a write, so nothing is shown a
+    /// reading from before its window hid or from before a write.
+    last: RefCell<Option<Last>>,
 }
 
 impl Feed {
@@ -151,6 +173,7 @@ impl Feed {
             catching_up: Cell::default(),
             writes: Cell::default(),
             writing: Cell::default(),
+            last: RefCell::default(),
         }
     }
 
@@ -159,6 +182,7 @@ impl Feed {
     /// write did.
     pub(crate) fn writing(&self) -> InFlight<'_> {
         self.writes.set(self.writes.get() + 1);
+        self.last.take();
         InFlight::enter(&self.writing)
     }
 
@@ -166,8 +190,8 @@ impl Feed {
     ///
     /// Takes no reading for the first view: its window subscribes and then
     /// fills itself, and that read is the one placed to say so when it fails.
-    /// A later view asking for something no view wanted yet is read for at
-    /// once, silently as a tick is, rather than a tick later.
+    /// A later view is shown the last reading where it covers the view, and
+    /// read for at once, silently as a tick is, unless that reading is fresh.
     fn subscribe(
         self: &Rc<Self>,
         request: Request,
@@ -176,14 +200,15 @@ impl Feed {
     ) -> Subscription {
         let id = self.next_id.get();
         self.next_id.set(id + 1);
-        // The next read serves a view that has seen nothing yet, so let it be
-        // a full one — where there is anything spaced for it to see. A window
-        // returning from the tray asks for no extra, and would otherwise buy
-        // one it cannot show.
-        if request.condition {
+        let (covered, fresh) = self.last.borrow().as_ref().map_or((false, false), |last| {
+            let covered = last.covers(request);
+            (covered, covered && last.fresh())
+        });
+        // A window returning from the tray asks for no condition, and a rewind
+        // would buy a read it cannot show.
+        if request.condition && !fresh {
             self.ticks.set(0);
         }
-        let before = self.requested(|_| true);
         let first = {
             let mut views = self.views.borrow_mut();
             views.push((
@@ -198,8 +223,13 @@ impl Feed {
         };
         if first {
             self.arm();
-        } else if before.with(request) != before {
-            self.catch_up();
+        } else {
+            if covered {
+                self.show_last(id, request);
+            }
+            if !fresh {
+                self.catch_up();
+            }
         }
         Subscription {
             feed: self.clone(),
@@ -215,10 +245,38 @@ impl Feed {
         };
         if empty {
             self.timer.set(None);
+            self.last.take();
         }
     }
 
-    /// A read already going leaves the new want to the next tick, since reads
+    /// A view subscribes from its widget's map handler, often while a reading
+    /// is being shown.
+    fn show_last(self: &Rc<Self>, id: u64, request: Request) {
+        let feed = self.clone();
+        glib::idle_add_local_once(move || {
+            // A tick may have replaced the reading with a narrower one.
+            let Some(reading) = feed
+                .last
+                .borrow()
+                .as_ref()
+                .filter(|last| last.covers(request))
+                .map(|last| last.reading.clone())
+            else {
+                return;
+            };
+            let show = feed
+                .views
+                .borrow()
+                .iter()
+                .find(|(view_id, _)| *view_id == id)
+                .map(|(_, view)| view.show.clone());
+            if let Some(show) = show {
+                show(&reading);
+            }
+        });
+    }
+
+    /// A read already going leaves the new view to the next tick, since reads
     /// run one at a time against the daemon.
     fn catch_up(self: &Rc<Self>) {
         if self.catching_up.replace(true) {
@@ -269,7 +327,7 @@ impl Feed {
     pub(crate) async fn fill(
         &self,
         widget: &impl IsA<gtk::Widget>,
-    ) -> DeviceResult<(Reading, Option<Failure>)> {
+    ) -> DeviceResult<(Rc<Reading>, Option<Failure>)> {
         let (reading, failures) = self.read().await?;
         let asked = widget.root().map_or_else(Request::default, |root| {
             self.requested(|view| view.sits_in(&root))
@@ -297,7 +355,7 @@ impl Feed {
     /// Raises only where the daemon's controls could not be had; an extra
     /// that failed arrives as None. A device the board does not have is not a
     /// failure: its field arrives as None, as one nobody asked for does.
-    async fn read(&self) -> DeviceResult<(Reading, Vec<Failure>)> {
+    async fn read(&self) -> DeviceResult<(Rc<Reading>, Vec<Failure>)> {
         // The `?` below returns early, and a count left raised would lock the
         // tick out for the rest of the process.
         let _in_flight = InFlight::enter(&self.reading);
@@ -305,16 +363,20 @@ impl Feed {
         let controls = self.daemon.controls().await?;
         let mut request = self.requested(|_| true);
         // Every read wants the block; the condition only on the reads that come
-        // round to it. Subscribing rewinds the count, so the fill that follows
-        // a view arriving is always one of them and the spacing only applies
-        // to the repeats after it.
+        // round to it.
         let ticks = self.ticks.get();
         self.ticks.set(ticks.wrapping_add(1));
         request.condition &= ticks.is_multiple_of(CONDITION_EVERY);
         let (reading, failures) = reading::read(&controls, request).await;
+        let reading = Rc::new(reading);
         if self.writes.get() != writes || self.writing.get() > 0 {
             return Ok((reading, failures));
         }
+        self.last.replace(Some(Last {
+            reading: reading.clone(),
+            request,
+            taken: Instant::now(),
+        }));
         // Copied out of the list before anything is shown: a view may drop its
         // subscription from inside its own call, and the borrow would still be
         // held when it did.

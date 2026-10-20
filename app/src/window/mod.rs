@@ -173,8 +173,8 @@ impl Ui {
                 if let Some(failure) = failure {
                     self.toast_error(attempt(failure.extra), failure.error);
                 }
-                values.battery = reading.info.map(|info| info.state);
-                values.ports = reading.ports;
+                values.battery = reading.info.as_ref().map(|info| info.state);
+                values.ports.clone_from(&reading.ports);
             }
             Err(e) => self.toast_error("Reading the hardware", e),
         }

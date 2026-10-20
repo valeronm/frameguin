@@ -132,7 +132,8 @@ it and the non-obvious constraints.
   middle one is necessary and not sufficient — a subscription is taken when
   its widget is mapped, so what completes it is that a tab reloads from its
   own map — a row on a hidden tab being unmapped until then — and a row that
-  is somehow unmapped when its tab shows waits a tick rather than failing;
+  is somehow unmapped when its tab shows is filled when it maps, or a tick
+  later, rather than failing;
   `window/widgets.rs` is the chrome no one group owns, and `synced.rs` the
   sync guard and the switch helpers every writing window shares. `report/`
   holds the windows that report on the machine, and the shell they share in
@@ -188,7 +189,10 @@ it and the non-obvious constraints.
   fills through the feed's own read rather than beside it — the feed serves
   what its subscribers want, so a row that has not subscribed is one the fill
   reads nothing for, and the fill is broadcast like a tick, so opening one
-  window cannot leave another showing what it saw before.
+  window cannot leave another showing what it saw before. A view arriving
+  beside others is shown the last reading where it covers the view, and read
+  for at once unless that reading is under a tick old, so a page opened
+  between ticks is not left empty until the next.
   `daemon.rs` is the app's
   end of the daemon — the bus connection, the detected controls and the
   board, the facts fixed for its run that every window wants — dialled and
