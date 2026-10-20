@@ -1,6 +1,7 @@
 //! The USB-C ports: a row per port carrying what is plugged into it,
 //! and a page per port with the rest of what the EC's copy of its
-//! controller's state says and what the controller's own registers add.
+//! controller's state says and what the controller's own registers add,
+//! headed by a switch where the controller can turn the port off.
 //!
 //! A page is laid out as titled rows before any widget is built and redrawn
 //! whole only when the titles change, its rows coming and going with what is
@@ -15,10 +16,11 @@
 
 use std::cell::{Cell, RefCell};
 use std::rc::{Rc, Weak};
+use std::time::Duration;
 
 use adw::prelude::*;
 use frameguin_contract::{Attached, PortMask, PortPartner, PortReading, PortState, PowerRole};
-use frameguin_model::control::ports::powering;
+use frameguin_model::control::ports::{Ports, powering};
 use frameguin_model::port::Placement;
 use frameguin_model::reading::Request;
 use frameguin_modelview::port;
@@ -26,22 +28,29 @@ use frameguin_modelview::ports::{
     NOTHING_ATTACHED, POWERING_THE_MACHINE, TURNED_OFF, cable_length_label, cable_rating_label,
     cable_speed_label, cable_type_label, carried, contract_label, data_role_label,
     display_port_label, epr_label, measured_label, mismatch_label, partner_label, peak_label,
-    port_line, power_limited_label, power_role_label, powering_label, supply_kind_label,
-    vconn_label,
+    port_line, power_limited_label, power_role_label, powering_label, refusal_label,
+    supply_kind_label, vconn_label,
 };
 use frameguin_modelview::usb::{capacity_label, device_name, network_label, speed_label};
+use frameguin_wire::Bus;
 use gtk4 as gtk;
 use gtk4::glib;
 
-use super::{Sidebar, Target};
+use super::{Sidebar, Target, Writes};
 use crate::reading::{Feed, show_while_mapped};
 use crate::report::{described_value, value};
+use crate::synced::{Guard, connect_switch, show_switch};
+
+const STAYS_OFF: &str = "A port stays off through restarts until it is switched back on";
+
+const PARTNER_DETECTED: Duration = Duration::from_millis(500);
 
 /// The section's rows, one per port the last reading carried.
 struct Section {
     list: gtk::ListBox,
     ports: RefCell<Vec<Port>>,
-    placement: Placement,
+    control: Rc<Ports<Bus>>,
+    writes: Rc<Writes>,
 }
 
 struct Port {
@@ -56,6 +65,9 @@ struct PortPage {
     /// Weak: the page's own subscription holds this.
     page: glib::WeakRef<adw::PreferencesPage>,
     placement: Placement,
+    /// Beside the first group's title, moved onto the new one on a redraw.
+    switch: Option<gtk::Switch>,
+    guard: Guard,
     drawn: RefCell<Option<Drawn>>,
 }
 
@@ -110,7 +122,14 @@ impl Group {
 
 /// The rows arrive with the first reading, which is what says how many ports
 /// there are.
-pub(super) fn add(sidebar: &Rc<Sidebar>, feed: &Rc<Feed>, usb: bool, placement: Placement) {
+pub(super) fn add(
+    sidebar: &Rc<Sidebar>,
+    feed: &Rc<Feed>,
+    usb: bool,
+    control: &Rc<Ports<Bus>>,
+    writes: &Rc<Writes>,
+) {
+    let placement = control.placement();
     let request = Request {
         ports: true,
         usb: usb && placement.wired(),
@@ -119,7 +138,8 @@ pub(super) fn add(sidebar: &Rc<Sidebar>, feed: &Rc<Feed>, usb: bool, placement: 
     let section = Rc::new(Section {
         list: sidebar.section("USB-C Ports"),
         ports: RefCell::default(),
-        placement,
+        control: control.clone(),
+        writes: writes.clone(),
     });
 
     let answering = Rc::downgrade(&section);
@@ -152,7 +172,7 @@ impl Section {
         ports: &[PortState],
         devices: &[Attached],
     ) {
-        let placement = self.placement;
+        let placement = self.control.placement();
         let powering = powering(ports).map(|(index, _)| index);
         let mut ports: Vec<&PortState> = ports.iter().collect();
         ports.sort_by_key(|state| placement.order(state.index));
@@ -167,21 +187,32 @@ impl Section {
             for port in gone {
                 sidebar.remove(&port.row);
             }
-            let feed = feed.upgrade();
+            let switchable = self.control.switchable();
             let built = ports
                 .iter()
                 .map(|state| {
                     let widget = adw::PreferencesPage::new();
+                    let switch = switchable.contains(state.index).then(|| {
+                        let switch = gtk::Switch::builder()
+                            .valign(gtk::Align::Center)
+                            .sensitive(false)
+                            .build();
+                        switch.update_property(&[gtk::accessible::Property::Label("Enabled")]);
+                        self.connect(state.index, &switch, feed);
+                        switch
+                    });
                     let page = PortPage {
                         index: state.index,
                         page: widget.downgrade(),
                         placement,
+                        switch,
+                        guard: self.writes.guard.clone(),
                         drawn: RefCell::default(),
                     };
                     let row =
                         sidebar.add(&self.list, &port::label(placement, state.index), &widget);
                     row.set_use_markup(false);
-                    if let Some(feed) = &feed {
+                    if let Some(feed) = &feed.upgrade() {
                         show_while_mapped(feed, &widget, request, move |reading| {
                             if let Some(ports) = &reading.ports {
                                 let devices = reading.usb.as_deref().unwrap_or_default();
@@ -205,6 +236,52 @@ impl Section {
         if !same {
             sidebar.settle();
         }
+    }
+
+    /// A refused write puts the switch back: a port shown in a state it is
+    /// not in is one someone plugs into or leaves alone on its word. Every
+    /// write is followed by a reading, since the lock moves with the port
+    /// switched.
+    fn connect(&self, index: u8, switch: &gtk::Switch, feed: &Weak<Feed>) {
+        let (switched, feed) = (switch.downgrade(), feed.clone());
+        connect_switch(
+            &self.writes.guard,
+            &self.writes,
+            &self.control,
+            switch,
+            move |writes, control, enabled| {
+                let (switched, feed) = (switched.clone(), feed.clone());
+                async move {
+                    let Some(feed) = feed.upgrade() else {
+                        return;
+                    };
+                    let written = {
+                        let _writing = feed.writing();
+                        control.set_enabled(index, enabled).await
+                    };
+                    let turned_on = enabled && written.is_ok();
+                    if let Err(e) = written {
+                        writes.toast_error("Switching a USB-C port", e);
+                        if let Some(switch) = switched.upgrade() {
+                            show_switch(&writes.guard, &switch, !enabled);
+                        }
+                    }
+                    // Its own failure is the next tick's to report.
+                    let refill = async || {
+                        if let Some(switch) = switched.upgrade() {
+                            let _ = feed.fill(&switch).await;
+                        }
+                    };
+                    refill().await;
+                    if turned_on {
+                        // A port turned on reads nothing attached until its
+                        // controller has detected the partner.
+                        glib::timeout_future(PARTNER_DETECTED).await;
+                        refill().await;
+                    }
+                }
+            },
+        );
     }
 
     fn charger(&self) -> Option<gtk::ListBoxRow> {
@@ -252,9 +329,13 @@ impl PortPage {
                 }
             }
             shown.layout = layout;
+            self.show_mask(state, &shown.groups);
             return;
         }
         if let Some(shown) = drawn.take() {
+            if let Some(first) = shown.groups.first() {
+                first.set_header_suffix(None::<&gtk::Widget>);
+            }
             for group in shown.groups {
                 page.remove(&group);
             }
@@ -274,10 +355,28 @@ impl PortPage {
             page.add(&group);
             groups.push(group);
         }
+        if let (Some(switch), Some(first)) = (&self.switch, groups.first()) {
+            first.set_header_suffix(Some(switch));
+        }
+        self.show_mask(state, &groups);
         *drawn = Some(Drawn {
             groups,
             values,
             layout,
+        });
+    }
+
+    /// The first group's description is the switch's, since the switch has
+    /// no row of its own to carry one.
+    fn show_mask(&self, state: &PortState, groups: &[adw::PreferencesGroup]) {
+        let (Some(switch), Some(first)) = (&self.switch, groups.first()) else {
+            return;
+        };
+        let refusal = state.mask.refusal();
+        first.set_description(Some(refusal.map_or(STAYS_OFF, refusal_label)));
+        self.guard.sync(|| {
+            switch.set_active(!matches!(state.mask, PortMask::Off));
+            switch.set_sensitive(refusal.is_none());
         });
     }
 }

@@ -26,17 +26,17 @@ The main window has a tab per kind of control, each showing only what the
 board supports:
 
 - **Power** — what the charger is supplying and on which port, what the
-  battery is doing, the charge limit, the charge speed, and switching a
-  USB-C port off.
+  battery is doing, the charge limit and the charge speed.
 - **Input** — the touchpad's haptic intensity and click force, and
   switching the touchscreen off.
 - **Lights** — the power button LED's brightness, switching the charging LED
   off, and which side's charging LED is lit.
 
-The other windows only read:
+The other windows report on the machine:
 
 - **Readings** — what the machine is doing now: the battery's charge, flow
   and health, what each USB-C port has attached and the power it negotiated,
+  and a switch to turn the port off,
   the battery extender, the chassis, the privacy switches, and the
   temperatures and fans.
 - **Hardware** — every part the daemon found, with its identity and

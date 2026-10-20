@@ -11,8 +11,8 @@ use frameguin_wire::Bus;
 use gtk4 as gtk;
 
 use crate::reading::show_while_mapped;
+use crate::synced::{connect_switch, show_switch};
 use crate::window::Ui;
-use crate::window::widgets::{connect_switch, show_switch};
 
 pub(crate) type ChargingLed = charging_led::ChargingLed<Bus>;
 
@@ -75,7 +75,7 @@ impl Group {
 
     pub(crate) async fn load(&self, ui: &Ui, control: &ChargingLed) {
         match control.read().await {
-            Ok(enabled) => show_switch(ui, &self.switch, enabled),
+            Ok(enabled) => show_switch(&ui.guard, &self.switch, enabled),
             Err(e) => ui.toast_error("Reading the charging LED", e),
         }
     }
@@ -84,6 +84,7 @@ impl Group {
     /// a refused write claims warnings are hidden that the LED still shows.
     pub(crate) fn connect(&self, ui: &Rc<Ui>, control: &Rc<ChargingLed>) {
         connect_switch(
+            &ui.guard,
             ui,
             control,
             &self.switch,
@@ -93,7 +94,7 @@ impl Group {
                 }
                 let group = &ui.charging_led;
                 if let Ok(enabled) = control.read().await {
-                    show_switch(&ui, &group.switch, enabled);
+                    show_switch(&ui.guard, &group.switch, enabled);
                 }
                 if control.has(ChargingLedFeature::Side)
                     && let Ok(side) = control.side().await

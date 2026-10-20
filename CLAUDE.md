@@ -133,14 +133,15 @@ it and the non-obvious constraints.
   its widget is mapped, so what completes it is that a tab reloads from its
   own map — a row on a hidden tab being unmapped until then — and a row that
   is somehow unmapped when its tab shows waits a tick rather than failing;
-  `window/widgets.rs` is the chrome no one group owns. `report/` holds the windows
-  that only read, and the shell they share in its `mod.rs` — found by name or
-  built, destroyed on close — so the single-instance rule is one private
+  `window/widgets.rs` is the chrome no one group owns, and `synced.rs` the
+  sync guard and the switch helpers every writing window shares. `report/`
+  holds the windows that report on the machine, and the shell they share in
+  its `mod.rs` — found by name or built, destroyed on close — so the single-instance rule is one private
   function rather than one copy per window, and nothing outside the tree can
   borrow it. `report/parts.rs` is the inventory `GetDevices` answers, drawn
   once per open since the list is fixed for the daemon's run.
-  `report/status/` is the Readings window: no sync guard, no debounce, no tray
-  push, a sidebar of sections beside the selected row's page. Its `mod.rs`
+  `report/status/` is the Readings window: no debounce, no tray push, a
+  sidebar of sections beside the selected row's page. Its `mod.rs`
   holds the window, the one selection across every section's list, and the
   targets it can be opened on. A section is a heading over one list, and
   each page is a module of its own, adding its rows to the section `mod.rs`
@@ -223,7 +224,10 @@ it and the non-obvious constraints.
   window holds what can be set, Hardware what the hardware is — fixed for the
   daemon's run and read once — and Readings what the hardware is doing now,
   read only while it is on screen. A new reading is a page in Readings
-  rather than a window of its own or a row in the main window.
+  rather than a window of its own or a row in the main window. A control
+  rarely needed is the exception to the first: it sits on its part's page in
+  Readings, beside what it acts on, so the main window holds only what is
+  set often enough to earn a place — a USB-C port's switch is the case.
 - The main window and the reports are reached differently, and which way is
   decided by whether the window survives being closed. The main window hides rather than closing
   wherever there is a tray to hide to, so its slot in `AppState` outlives it —
@@ -312,10 +316,10 @@ it and the non-obvious constraints.
   match. Both the window's handler and the tray item call it; neither writes
   around it. The `Sink` it reports into decides the report's form: a toast
   where a window is built, a desktop notification for a refusal where none
-  is. Controls only the window sets (the touchpad, the USB-C ports) write inline
+  is. Controls the tray cannot set (the touchpad, the USB-C ports) write inline
   in their handler — one caller needs no shared function, and giving it one
-  would be ceremony. Either way a handler answers `window/widgets.rs` with
-  its write as a future: the helper owns the sync guard and the spawn, and a
+  would be ceremony. Either way a handler answers `window/widgets.rs`, or
+  `synced.rs` for a switch, with its write as a future: the helper owns the sync guard and the spawn, and a
   handler spawning for itself is caught by nothing but the `glib` import it
   would need. Writing *by* moving the widget, which the tray used to
   do, makes state the command channel: a widget already showing the requested

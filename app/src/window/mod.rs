@@ -13,14 +13,12 @@
 pub(crate) mod battery;
 mod charging_led;
 mod fill;
-mod ports;
 pub(crate) mod power_led;
 mod preferences;
 mod touchpad;
 pub(crate) mod touchscreen;
 mod widgets;
 
-use std::cell::Cell;
 use std::rc::Rc;
 
 use adw::prelude::*;
@@ -37,19 +35,17 @@ use crate::daemon::Daemon;
 use crate::failure::{self, Notifier};
 use crate::reading::Feed;
 use crate::report::{parts, status};
+use crate::synced::Guard;
 use crate::tray::{TrayIcon, TrayValues, tray_push};
 
 pub(crate) struct Ui {
     toasts: adw::ToastOverlay,
-    /// Set while widgets are being moved to mirror the hardware, so their
-    /// change handlers don't echo the reading back as a write.
-    syncing: Cell<bool>,
+    guard: Guard,
     header: adw::HeaderBar,
     switcher: adw::ViewSwitcher,
     stack: adw::ViewStack,
     tabs: Vec<Tab>,
     battery: battery::Group,
-    ports: ports::Group,
     power_led: power_led::Group,
     charging_led: charging_led::Group,
     touchpad: touchpad::Group,
@@ -69,14 +65,6 @@ impl Ui {
         self.toasts.add_toast(failure::toast(attempt, error));
     }
 
-    /// Moves widgets to match the hardware without their handlers writing the
-    /// value straight back. Every setter returns early while this is set.
-    fn sync(&self, update: impl FnOnce()) {
-        self.syncing.set(true);
-        update();
-        self.syncing.set(false);
-    }
-
     fn sync_tray(&self, values: TrayValues) {
         if let Some(handle) = &self.tray {
             tray_push(handle, values);
@@ -90,7 +78,6 @@ impl Ui {
         let caption = caption(controls.board.platform());
         self.battery
             .gate(controls.battery.as_ref(), controls.ports.as_ref());
-        self.ports.gate(controls.ports.as_ref());
         self.power_led.gate(controls.power_led.as_ref());
         self.charging_led.gate(controls.charging_led.as_ref());
         self.touchpad.gate(controls.touchpad.as_ref());
@@ -125,13 +112,12 @@ impl Ui {
     /// already the gate.
     fn watch(self: &Rc<Self>) {
         self.battery.watch(self);
-        self.ports.watch(self);
         self.charging_led.watch(self);
     }
 
     /// Re-reads every tab's controls and moves the widgets to match, pushing
     /// the same values to the tray along with what each control offers.
-    /// Each write goes through [`Ui::sync`], so a reload can't echo back as a
+    /// Each write goes through the guard, so a reload can't echo back as a
     /// setter call. The tray's copies are collected and handed over in one go
     /// at the end: each push blocks on the tray's thread and rebuilds its
     /// whole menu, which would be wasted once per control on a menu nobody
@@ -165,7 +151,6 @@ impl Ui {
     fn groups(&self) -> Groups<'_> {
         Groups {
             battery: &self.battery,
-            ports: &self.ports,
             power_led: &self.power_led,
             charging_led: &self.charging_led,
             touchpad: &self.touchpad,
@@ -204,9 +189,6 @@ impl Ui {
     fn connect_handlers(self: &Rc<Self>, controls: &Controls<Bus>) {
         if let Some(battery) = &controls.battery {
             self.battery.connect(self, battery);
-        }
-        if let Some(ports) = &controls.ports {
-            self.ports.connect(self, ports);
         }
         if let Some(power_led) = &controls.power_led {
             self.power_led.connect(self, power_led);
@@ -296,7 +278,7 @@ impl TabKind {
     /// loading it read.
     fn members(self, groups: Groups<'_>) -> Vec<Member<'_>> {
         match self {
-            Self::Power => vec![Member::Battery(groups.battery), Member::Ports(groups.ports)],
+            Self::Power => vec![Member::Battery(groups.battery)],
             Self::Input => vec![
                 Member::Touchpad(groups.touchpad),
                 Member::Touchscreen(groups.touchscreen),
@@ -329,7 +311,6 @@ impl TabKind {
 #[derive(Clone, Copy)]
 struct Groups<'a> {
     battery: &'a battery::Group,
-    ports: &'a ports::Group,
     power_led: &'a power_led::Group,
     charging_led: &'a charging_led::Group,
     touchpad: &'a touchpad::Group,
@@ -338,7 +319,6 @@ struct Groups<'a> {
 
 enum Member<'a> {
     Battery(&'a battery::Group),
-    Ports(&'a ports::Group),
     PowerLed(&'a power_led::Group),
     ChargingLed(&'a charging_led::Group),
     Touchpad(&'a touchpad::Group),
@@ -349,7 +329,6 @@ impl Member<'_> {
     fn widgets(&self) -> Vec<&adw::PreferencesGroup> {
         match self {
             Self::Battery(group) => vec![&group.state, &group.limits],
-            Self::Ports(group) => vec![&group.widget],
             Self::PowerLed(group) => vec![&group.widget],
             Self::ChargingLed(group) => vec![&group.widget],
             Self::Touchpad(group) => vec![&group.widget],
@@ -360,7 +339,6 @@ impl Member<'_> {
     fn has_fed_rows(&self) -> bool {
         match self {
             Self::Battery(group) => group.has_fed_rows(),
-            Self::Ports(group) => group.has_fed_rows(),
             Self::ChargingLed(group) => group.has_fed_rows(),
             Self::PowerLed(_) | Self::Touchpad(_) | Self::Touchscreen(_) => false,
         }
@@ -374,8 +352,6 @@ impl Member<'_> {
                     group.load(ui, battery, values).await;
                 }
             }
-            // Fed alone: the fill that precedes the members' loads shows it.
-            Self::Ports(_) => {}
             Self::PowerLed(group) => {
                 if let Some(power_led) = &controls.power_led {
                     group.load(ui, power_led).await;
@@ -453,7 +429,6 @@ pub(crate) fn build_window(
     feed: Rc<Feed>,
 ) -> (adw::ApplicationWindow, Rc<Ui>) {
     let battery = battery::Group::build();
-    let ports = ports::Group::build();
     let touchpad = touchpad::Group::build();
     let touchscreen = touchscreen::Group::build();
     let power_led = power_led::Group::build();
@@ -461,7 +436,6 @@ pub(crate) fn build_window(
     let stack = adw::ViewStack::new();
     let groups = Groups {
         battery: &battery,
-        ports: &ports,
         power_led: &power_led,
         charging_led: &charging_led,
         touchpad: &touchpad,
@@ -504,13 +478,12 @@ pub(crate) fn build_window(
 
     let ui = Rc::new(Ui {
         toasts,
-        syncing: Cell::new(false),
+        guard: Guard::default(),
         header,
         switcher,
         stack,
         tabs,
         battery,
-        ports,
         power_led,
         charging_led,
         touchpad,

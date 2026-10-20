@@ -1,5 +1,6 @@
-//! The windows that only read — the Hardware window, what the hardware is,
-//! and the Readings window, what it is doing — and the shell they share: a toast
+//! The windows that report on the machine — the Hardware window, what the
+//! hardware is, and the Readings window, what it is doing — and the shell they
+//! share: a toast
 //! overlay filling the window, a page under a header bar, the row that names
 //! one value, and the one way such a window is opened.
 //!

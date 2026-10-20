@@ -1,8 +1,8 @@
 //! The Readings window: what the hardware is doing now, as sections of rows in
 //! a sidebar and the selected row's page beside them.
 //!
-//! Nothing here writes, so none of [`crate::window`]'s machinery applies — no
-//! sync guard, no debounce, no tray push.
+//! A rarely needed switch sits on the page of the part it acts on, under
+//! [`crate::synced`]'s guard; nothing here debounces or pushes to the tray.
 
 mod battery;
 mod battery_extender;
@@ -15,7 +15,7 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use adw::prelude::*;
-use frameguin_contract::BatteryFeature;
+use frameguin_contract::{BatteryFeature, DeviceError};
 use frameguin_model::reading::{Reading, Request};
 use gtk4 as gtk;
 use gtk4::gio;
@@ -23,7 +23,9 @@ use gtk4::glib;
 
 use super::{Shell, collapse_when_narrow, headed};
 use crate::daemon::Daemon;
+use crate::failure;
 use crate::reading::{Feed, show_while_mapped};
+use crate::synced::Guard;
 
 /// The only way the window is opened.
 pub(crate) const ACTION: &str = "status";
@@ -99,13 +101,23 @@ fn build(
     let daemon = daemon.clone();
     let feed = feed.clone();
     glib::spawn_future_local(async move {
-        fill(&sidebar, &daemon, &feed, &shell).await;
+        let writes = Rc::new(Writes {
+            guard: Guard::default(),
+            toasts: shell.toasts.downgrade(),
+        });
+        fill(&sidebar, &daemon, &feed, &shell, &writes).await;
         sidebar.pages.set_opacity(1.0);
     });
     split
 }
 
-async fn fill(sidebar: &Rc<Sidebar>, daemon: &Daemon, feed: &Rc<Feed>, shell: &Shell) {
+async fn fill(
+    sidebar: &Rc<Sidebar>,
+    daemon: &Daemon,
+    feed: &Rc<Feed>,
+    shell: &Shell,
+    writes: &Rc<Writes>,
+) {
     let controls = match daemon.controls().await {
         Ok(controls) => controls,
         Err(e) => {
@@ -134,7 +146,7 @@ async fn fill(sidebar: &Rc<Sidebar>, daemon: &Daemon, feed: &Rc<Feed>, shell: &S
         }
     }
     if let Some(control) = &controls.ports {
-        ports::add(sidebar, feed, controls.usb.is_some(), control.placement());
+        ports::add(sidebar, feed, controls.usb.is_some(), control, writes);
     }
     if controls.chassis.is_some() || controls.privacy_switches.is_some() {
         let list = sidebar.section("Switches");
@@ -162,6 +174,21 @@ async fn fill(sidebar: &Rc<Sidebar>, daemon: &Daemon, feed: &Rc<Feed>, shell: &S
     sidebar.settle();
     if let Some(e) = failure {
         shell.toast_error("Reading the hardware", e);
+    }
+}
+
+/// What a control on a page writes through, one for the window.
+struct Writes {
+    guard: Guard,
+    /// Weak: an ancestor of every control whose handler holds this.
+    toasts: glib::WeakRef<adw::ToastOverlay>,
+}
+
+impl Writes {
+    fn toast_error(&self, attempt: &str, error: impl Into<DeviceError>) {
+        if let Some(toasts) = self.toasts.upgrade() {
+            toasts.add_toast(failure::toast(attempt, error));
+        }
     }
 }
 

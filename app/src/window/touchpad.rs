@@ -60,7 +60,7 @@ impl Group {
     /// back, and makes them usable — a row is only ever filled from a read
     /// that succeeded.
     fn show(&self, ui: &Ui, snapshot: Snapshot) {
-        ui.sync(|| {
+        ui.guard.sync(|| {
             self.haptic_combo
                 .set_selected(combo_selection(haptic_row(snapshot.haptic_intensity)));
             self.haptic_combo.set_sensitive(true);

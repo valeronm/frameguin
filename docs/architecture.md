@@ -110,9 +110,10 @@ device crosses. What a device must not know lives in another column; what a
 layer must not link lives in another row.
 
 A column need not reach every row: a USB-C port is switched off rarely and
-kept that way, so the ports have no tray item — a column stops where it runs
-out of things to be. Beside their own group of switches they put one row in
-the Charging State group, that being the question it answers: what is coming
+kept that way, so the ports have no tray item and no group of their own in
+the main window — a column stops where it runs out of things to be. Their
+switch sits on each port's Readings page, and they put one row in the
+Charging State group, that being the question it answers: what is coming
 in, beside what the pack is doing about it — which is why that group is
 named for the subject rather than for the battery whose control it otherwise
 holds. The chassis,
@@ -281,7 +282,8 @@ in one that exists, with a stub in `hardware::testing` for any role it
 adds; its interface in the daemon, and its field in `device::Devices` with
 the line in `device::detect()` that fills it, which is what puts it on the
 bus and in front of the proxies in `interface/tests.rs`; the client control
-in `model`; its words and presets in `modelview`; the group; the tray item,
+in `model`; its words and presets in `modelview`; the group, or for a
+control rarely needed its place on its part's Readings page; the tray item,
 where the menu offers it; its rows
 in `docs/hardware/controls.md` and `docs/hardware/boards.md`. What another device shares is a line in a struct or a fan-out — the
 `Devices`, `Proxies` and `Controls` fields, the window's `gate`, `watch`,

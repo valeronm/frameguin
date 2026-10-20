@@ -10,6 +10,7 @@ mod failure;
 mod mapped;
 mod reading;
 mod report;
+mod synced;
 mod tray;
 mod window;
 

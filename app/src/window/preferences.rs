@@ -9,7 +9,7 @@ use frameguin_wire::from_bus_error;
 use gtk4::gio;
 
 use super::Ui;
-use super::widgets::{connect_switch, show_switch};
+use crate::synced::{connect_switch, show_switch};
 use crate::{autostart, failure};
 
 pub(super) const ACTION: &str = "preferences";
@@ -90,7 +90,7 @@ impl Group {
             bus.frameguin.get_restore().await.map_err(from_bus_error)
         };
         match enabled.await {
-            Ok(enabled) => show_switch(ui, &self.restore, enabled),
+            Ok(enabled) => show_switch(&ui.guard, &self.restore, enabled),
             Err(e) => ui.toast_error(&format!("Reading “{}”", self.restore.title()), e),
         }
     }
@@ -99,6 +99,7 @@ impl Group {
     /// after a restart, and its prior value is the negation.
     pub(super) fn connect(&self, ui: &Rc<Ui>) {
         connect_switch(
+            &ui.guard,
             ui,
             &ui.daemon,
             &self.restore,
@@ -113,7 +114,7 @@ impl Group {
                 if let Err(e) = written.await {
                     let group = &ui.preferences;
                     group.toast_error(&setting(&group.restore), e);
-                    show_switch(&ui, &group.restore, !enabled);
+                    show_switch(&ui.guard, &group.restore, !enabled);
                 }
             },
         );

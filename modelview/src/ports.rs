@@ -72,22 +72,14 @@ pub fn port_line(placement: Placement, port: &PortState, devices: &[Attached]) -
     port_summary(port, name.as_deref())
 }
 
-/// A port's switch: why it cannot be turned off where it cannot, worded over
-/// what the port reports, and [`port_line`] otherwise.
+/// Why a port's switch cannot turn it off.
 #[must_use]
-pub fn switch_line(placement: Placement, port: &PortState, devices: &[Attached]) -> String {
-    match port.mask.refusal() {
-        Some(OffRefusal::LastPort) => "Can't be turned off to allow charging".to_owned(),
-        Some(OffRefusal::Unchecked) => {
-            "Can't be turned off while a port can't be checked".to_owned()
-        }
-        Some(OffRefusal::LastDisplay) => {
-            "Can't be turned off while it drives the only display".to_owned()
-        }
-        Some(OffRefusal::DisplaysUnchecked) => {
-            "Can't be turned off while the displays can't be checked".to_owned()
-        }
-        None => port_line(placement, port, devices),
+pub fn refusal_label(refusal: OffRefusal) -> &'static str {
+    match refusal {
+        OffRefusal::LastPort => "Can't be turned off to allow charging",
+        OffRefusal::Unchecked => "Can't be turned off while a port can't be checked",
+        OffRefusal::LastDisplay => "Can't be turned off while it drives the only display",
+        OffRefusal::DisplaysUnchecked => "Can't be turned off while the displays can't be checked",
     }
 }
 
@@ -335,8 +327,8 @@ pub fn cable_length_label(latency: CableLatency) -> &'static str {
 #[cfg(test)]
 mod tests {
     use frameguin_contract::{
-        Cable, CableLatency, CableSpeed, DataRole, OffRefusal, PdContract, PeakCurrent, PortMask,
-        PortPartner, PortReading, PortState, PowerRole, SupplyKind,
+        Cable, CableLatency, CableSpeed, DataRole, PdContract, PeakCurrent, PortMask, PortPartner,
+        PortReading, PortState, PowerRole, SupplyKind,
     };
     use frameguin_model::port::Placement;
 
@@ -344,7 +336,7 @@ mod tests {
         cable_length_label, cable_rating_label, cable_speed_label, carried, data_role_label,
         display_port_label, measured_label, mismatch_label, partner_label, peak_label,
         port_summary, power_limited_label, power_role_label, powering_label, supply_kind_label,
-        supply_label, supply_summary, switch_line,
+        supply_label, supply_summary,
     };
     use frameguin_model::fixtures::{port, reading};
 
@@ -651,25 +643,5 @@ mod tests {
             ..fixed()
         };
         assert_eq!(mismatch_label(&short), Some("Yes"));
-    }
-
-    #[test]
-    fn a_locked_switch_says_why_over_what_its_port_reports() {
-        let refused = |refusal| PortState {
-            index: 0,
-            mask: PortMask::On(reading(0), Some(refusal)),
-        };
-        assert_eq!(
-            switch_line(Placement::default(), &refused(OffRefusal::LastPort), &[]),
-            "Can't be turned off to allow charging"
-        );
-        assert_eq!(
-            switch_line(Placement::default(), &refused(OffRefusal::LastDisplay), &[]),
-            "Can't be turned off while it drives the only display"
-        );
-        assert_eq!(
-            switch_line(Placement::default(), &port(0), &[]),
-            "Powering the machine · ↑ 100 W"
-        );
     }
 }

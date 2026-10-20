@@ -1,6 +1,6 @@
-//! The chrome the groups share: sliders, combos, and the sync guard,
-//! debounce and spawn their writes go through — a handler answers with the
-//! write as a future and spawns nothing for itself.
+//! The chrome the groups share: sliders, combos, and the debounce and spawn
+//! their writes go through — a handler answers with the write as a future and
+//! spawns nothing for itself.
 
 use std::cell::Cell;
 use std::rc::Rc;
@@ -128,38 +128,12 @@ pub(super) fn connect_combo<C: 'static, T, Fut: Future<Output = ()> + 'static>(
 ) {
     let (ui, control) = (ui.clone(), control.clone());
     combo.connect_selected_notify(move |row| {
-        if ui.syncing.get() {
+        if ui.guard.syncing() {
             return;
         }
         if let Some(value) = combo_position(row.selected()).and_then(&at) {
             glib::spawn_future_local(write(ui.clone(), control.clone(), value));
         }
-    });
-}
-
-/// Under the sync guard so the fill does not echo back as a write, and made
-/// usable here because a row is only ever filled from a read that succeeded.
-pub(super) fn show_switch(ui: &Ui, switch: &adw::SwitchRow, active: bool) {
-    ui.sync(|| {
-        switch.set_active(active);
-        switch.set_sensitive(true);
-    });
-}
-
-/// A switch a sync moved must not be written back, and a switch wired here
-/// cannot forget that.
-pub(super) fn connect_switch<C: 'static, Fut: Future<Output = ()> + 'static>(
-    ui: &Rc<Ui>,
-    control: &Rc<C>,
-    switch: &adw::SwitchRow,
-    write: impl Fn(Rc<Ui>, Rc<C>, bool) -> Fut + 'static,
-) {
-    let (ui, control) = (ui.clone(), control.clone());
-    switch.connect_active_notify(move |row| {
-        if ui.syncing.get() {
-            return;
-        }
-        glib::spawn_future_local(write(ui.clone(), control.clone(), row.is_active()));
     });
 }
 
@@ -225,7 +199,7 @@ pub(super) fn connect_slider_writes<
     let keys_dragging = dragging.clone();
     let (keys_read, keys_write) = (read.clone(), write.clone());
     scale.connect_value_changed(move |scale| {
-        if keys_ui.syncing.get() || keys_dragging.get().is_some() {
+        if keys_ui.guard.syncing() || keys_dragging.get().is_some() {
             return;
         }
         let value = keys_read(scale.value());

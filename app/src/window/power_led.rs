@@ -80,7 +80,7 @@ impl Group {
     /// back, and makes them usable — a row is only ever filled from a read
     /// that succeeded.
     fn show(&self, ui: &Ui, control: &PowerLed, snapshot: Snapshot, custom: Custom) {
-        ui.sync(|| {
+        ui.guard.sync(|| {
             self.scale.set_value(f64::from(snapshot.percent));
             self.scale.set_sensitive(true);
             self.combo.set_sensitive(true);

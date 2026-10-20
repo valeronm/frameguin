@@ -18,6 +18,7 @@ use frameguin_model::control::battery::{
     self, CUSTOM_CHARGE_STEP_MA, ChargeSpeeds, MIN_CHARGE_LIMIT, MIN_CUSTOM_CHARGE_MA,
     custom_charge_ma,
 };
+use frameguin_model::control::ports::Ports;
 use frameguin_model::port::Placement;
 use frameguin_model::reading::Request;
 use frameguin_modelview::battery::{
@@ -35,7 +36,6 @@ use gtk4 as gtk;
 use crate::reading::show_while_mapped;
 use crate::report::status::{self, Target};
 use crate::tray::TrayValues;
-use crate::window::ports::Ports;
 use crate::window::widgets::{
     SliderWrites, build_scale, combo_selection, connect_combo, connect_slider_writes, reveal_under,
     scale_percent, select_row, string_list,
@@ -177,7 +177,7 @@ impl Group {
     /// Two controls where every sibling group takes one: the state group
     /// draws two devices' rows. Narrower than the whole set, which would let
     /// these groups gate on a device that is not their own.
-    pub(crate) fn gate(&self, control: Option<&Rc<Battery>>, ports: Option<&Rc<Ports>>) {
+    pub(crate) fn gate(&self, control: Option<&Rc<Battery>>, ports: Option<&Rc<Ports<Bus>>>) {
         self.placement
             .set(ports.map(|ports| ports.placement()).unwrap_or_default());
         self.state.set_visible(control.is_some() || ports.is_some());
@@ -214,7 +214,7 @@ impl Group {
     /// the counterpart of [`Group::show_charge_speed`] — change one and read
     /// the other.
     fn show_charge_limit(&self, ui: &Ui, percent: u8, custom: Custom) {
-        ui.sync(|| {
+        ui.guard.sync(|| {
             select_row(&self.limit_combo, |selected| {
                 charge_limit_row(percent, selected, custom)
             });
@@ -227,10 +227,11 @@ impl Group {
     /// disagree about which one is in effect.
     fn show_charge_speed(&self, ui: &Ui, limit: ChargeCurrentLimit, custom: Custom) {
         let Some(speeds) = self.speeds.get() else {
-            ui.sync(|| self.speed_combo.set_selected(combo_selection(None)));
+            ui.guard
+                .sync(|| self.speed_combo.set_selected(combo_selection(None)));
             return;
         };
-        ui.sync(|| {
+        ui.guard.sync(|| {
             select_row(&self.speed_combo, |selected| {
                 charge_speed_row(speeds, limit, selected, custom)
             });
@@ -325,7 +326,7 @@ impl Group {
             return;
         }
         let labels = with_custom_row(charge_speed_labels(speeds));
-        ui.sync(|| {
+        ui.guard.sync(|| {
             self.speed_combo.set_model(Some(&string_list(&labels)));
             self.speed_scale
                 .adjustment()
@@ -341,7 +342,7 @@ impl Group {
             match control.charge_limit().await {
                 Ok(limit) => {
                     self.show_charge_limit(ui, limit, Custom::Rederive);
-                    ui.sync(|| {
+                    ui.guard.sync(|| {
                         self.limit_combo.set_sensitive(true);
                         self.limit_scale.set_sensitive(true);
                     });
@@ -360,7 +361,7 @@ impl Group {
                     // Without the battery's capacity the fractions have no
                     // milliamps behind them, so the row stays read-only.
                     let known = self.speeds.get().is_some();
-                    ui.sync(|| {
+                    ui.guard.sync(|| {
                         self.speed_combo.set_sensitive(known);
                         self.speed_scale.set_sensitive(known);
                     });
