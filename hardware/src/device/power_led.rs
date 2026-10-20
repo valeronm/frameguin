@@ -10,6 +10,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_io::Timer;
+use async_lock::Mutex;
 use frameguin_contract::{
     DeviceError, DeviceResult, MIN_POWER_LED_BRIGHTNESS, PowerLedControl, PowerLedLevel,
 };
@@ -68,6 +69,9 @@ pub struct PowerLed {
     leds: Box<dyn LedClass>,
     levels: Vec<PowerLedLevel>,
     wanted: Wanted<Brightness>,
+    /// An Off written while [`release`](Self::release) waits out
+    /// [`LEVEL_SETTLE`] would be relit by its `release_held`.
+    writing: Mutex<()>,
 }
 
 impl PowerLed {
@@ -102,6 +106,7 @@ impl PowerLed {
             leds,
             levels,
             wanted: mirrors.wanted(KEY_BRIGHTNESS),
+            writing: Mutex::new(()),
         }
     }
 
@@ -192,7 +197,9 @@ impl PowerLedControl for PowerLed {
     /// here rather than in each caller's memory of it, since an EC-driven
     /// write that skipped it would never be seen.
     async fn set_level(&self, level: PowerLedLevel) -> DeviceResult<()> {
-        let wanted = match self.write_for(level)? {
+        let write = self.write_for(level)?;
+        let _writing = self.writing.lock().await;
+        let wanted = match write {
             Write::Dark => {
                 self.leds.hold_dark()?;
                 None
@@ -209,6 +216,7 @@ impl PowerLedControl for PowerLed {
 
     async fn set_brightness(&self, percent: u8) -> DeviceResult<()> {
         Self::check_brightness(percent)?;
+        let _writing = self.writing.lock().await;
         self.ec.set_power_led_percentage(percent)?;
         self.release().await?;
         self.wanted.set(Some(&Brightness::Percent(percent)));
@@ -372,6 +380,20 @@ mod tests {
         async_io::block_on(led.set_level(PowerLedLevel::Low)).unwrap();
         assert_eq!(writes(&log), ["darken", "level Low", "release"]);
         assert_eq!(ready(led.brightness()), Ok((55, PowerLedLevel::Low)));
+    }
+
+    #[test]
+    fn off_asked_while_a_level_out_of_off_settles_stays_off() {
+        let Bench { led, log } = over(&FULL);
+        ready(led.set_level(PowerLedLevel::Off)).unwrap();
+        let (level, off) = async_io::block_on(futures_lite::future::zip(
+            led.set_level(PowerLedLevel::Low),
+            led.set_level(PowerLedLevel::Off),
+        ));
+        level.unwrap();
+        off.unwrap();
+        assert_eq!(writes(&log), ["darken", "level Low", "release", "darken"]);
+        assert_eq!(ready(led.brightness()), Ok((55, PowerLedLevel::Off)));
     }
 
     #[test]
