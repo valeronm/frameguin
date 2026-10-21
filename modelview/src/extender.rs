@@ -33,6 +33,20 @@ pub fn stage_label(state: ExtenderState, charge_limit: Option<u8>) -> String {
     }
 }
 
+#[must_use]
+pub fn description() -> String {
+    let window = |stage| {
+        let (lower, upper) = stage_window(stage).unwrap_or_default();
+        format!("{lower}–{upper}%")
+    };
+    format!(
+        "Keeps the battery less full after days on the charger, to slow its wear: \
+         {} at stage 1, {} two days later.",
+        window(ExtenderStage::First),
+        window(ExtenderStage::Second),
+    )
+}
+
 /// How long until the first stage, and None where no countdown runs.
 #[must_use]
 pub fn first_stage_label(state: ExtenderState) -> Option<String> {
@@ -46,8 +60,33 @@ pub fn trigger_label(days: u16) -> String {
     format!("After {} without a reset", days_label(u32::from(days)))
 }
 
+/// The reset row's title, value and subtitle, which change together.
+pub struct ResetWords {
+    pub title: &'static str,
+    pub value: String,
+    pub subtitle: Option<String>,
+}
+
+/// The time left where a reset counts down, which needs the extender on and
+/// the battery block read with no charger attached; the setting otherwise.
 #[must_use]
-pub fn reset_label(minutes: u16) -> String {
+pub fn reset_words(state: ExtenderState, charger_connected: Option<bool>) -> ResetWords {
+    if state.enabled && charger_connected == Some(false) && state.reset_seconds > 0 {
+        ResetWords {
+            title: "Resets in",
+            value: duration(state.reset_seconds),
+            subtitle: Some(format!("After {}", reset_label(state.reset_minutes))),
+        }
+    } else {
+        ResetWords {
+            title: "Resets after",
+            value: reset_label(state.reset_minutes),
+            subtitle: None,
+        }
+    }
+}
+
+fn reset_label(minutes: u16) -> String {
     format!(
         "{} off the charger",
         duration(u32::from(minutes) * SECONDS_PER_MINUTE)
@@ -79,7 +118,7 @@ fn days_label(days: u32) -> String {
 mod tests {
     use frameguin_contract::{ExtenderStage, ExtenderState};
 
-    use super::{first_stage_label, reset_label, stage_label, trigger_label};
+    use super::{description, first_stage_label, reset_words, stage_label, trigger_label};
 
     const COUNTING: ExtenderState = ExtenderState {
         enabled: true,
@@ -87,6 +126,7 @@ mod tests {
         trigger_days: 5,
         first_stage_seconds: 3 * 86_400 + 4 * 3_600 + 59,
         reset_minutes: 30,
+        reset_seconds: 30 * 60,
     };
 
     const FIRST: ExtenderState = ExtenderState {
@@ -139,6 +179,36 @@ mod tests {
     }
 
     #[test]
+    fn only_a_reset_counting_off_the_charger_has_time_left() {
+        let unplugged = ExtenderState {
+            reset_seconds: 12 * 60 + 30,
+            ..COUNTING
+        };
+        let counting = reset_words(unplugged, Some(false));
+        assert_eq!(counting.title, "Resets in");
+        assert_eq!(counting.value, "12 min");
+        assert_eq!(
+            counting.subtitle.as_deref(),
+            Some("After 30 min off the charger")
+        );
+        let none_pending = ExtenderState {
+            reset_seconds: 0,
+            ..COUNTING
+        };
+        for (state, charger_connected) in [
+            (COUNTING, Some(true)),
+            (unplugged, None),
+            (none_pending, Some(false)),
+            (OFF, Some(false)),
+        ] {
+            let setting = reset_words(state, charger_connected);
+            assert_eq!(setting.title, "Resets after");
+            assert_eq!(setting.value, "30 min off the charger");
+            assert_eq!(setting.subtitle, None);
+        }
+    }
+
+    #[test]
     fn time_left_reads_to_the_minute_under_an_hour() {
         let at = |first_stage_seconds| {
             first_stage_label(ExtenderState {
@@ -153,9 +223,17 @@ mod tests {
     }
 
     #[test]
+    fn the_description_names_both_windows() {
+        assert_eq!(
+            description(),
+            "Keeps the battery less full after days on the charger, to slow its wear: \
+             90–95% at stage 1, 85–87% two days later."
+        );
+    }
+
+    #[test]
     fn the_settings_read_as_sentences() {
         assert_eq!(trigger_label(5), "After 5 days without a reset");
         assert_eq!(trigger_label(1), "After 1 day without a reset");
-        assert_eq!(reset_label(30), "30 min off the charger");
     }
 }

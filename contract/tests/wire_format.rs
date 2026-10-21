@@ -51,7 +51,7 @@ fn the_composite_signatures_are_the_ones_the_methods_declare() {
     assert_eq!(BatteryCondition::SIGNATURE, "(auasn)");
     assert_eq!(Board::SIGNATURE, "(sss)");
     assert_eq!(ChargeCurrentLimit::SIGNATURE, "au");
-    assert_eq!(ExtenderState::SIGNATURE, "(bsquq)");
+    assert_eq!(ExtenderState::SIGNATURE, "(bsququ)");
     assert_eq!(Identity::SIGNATURE, "(sssssssa((sy)sss)a(sv))");
 }
 

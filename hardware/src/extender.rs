@@ -23,7 +23,10 @@ const MICROS_PER_SECOND: u64 = 1_000_000;
 /// firmware does not define.
 pub(crate) fn state(raw: &[u8]) -> Option<ExtenderState> {
     let word = |at: usize| Some(u16::from_le_bytes(raw.get(at..at + 2)?.try_into().ok()?));
-    let trigger_micros = u64::from_le_bytes(raw.get(6..14)?.try_into().ok()?);
+    let seconds = |at: usize| {
+        let micros = u64::from_le_bytes(raw.get(at..at + 8)?.try_into().ok()?);
+        Some(u32::try_from(micros / MICROS_PER_SECOND).unwrap_or(u32::MAX))
+    };
     Some(ExtenderState {
         enabled: *raw.get(5)? == 0,
         stage: match raw.first()? {
@@ -33,8 +36,9 @@ pub(crate) fn state(raw: &[u8]) -> Option<ExtenderState> {
             _ => return None,
         },
         trigger_days: word(1)?,
-        first_stage_seconds: u32::try_from(trigger_micros / MICROS_PER_SECOND).unwrap_or(u32::MAX),
+        first_stage_seconds: seconds(6)?,
         reset_minutes: word(3)?,
+        reset_seconds: seconds(14)?,
     })
 }
 
@@ -67,6 +71,7 @@ mod tests {
                 trigger_days: 5,
                 first_stage_seconds: 3 * 86_400,
                 reset_minutes: 30,
+                reset_seconds: 30 * 60,
             })
         );
     }
@@ -87,6 +92,6 @@ mod tests {
 
     #[test]
     fn a_short_answer_is_no_state() {
-        assert_eq!(state(&answer(0, 0, 0)[..13]), None);
+        assert_eq!(state(&answer(0, 0, 0)[..21]), None);
     }
 }

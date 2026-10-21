@@ -49,7 +49,8 @@ pub struct Request {
     /// One host command, whose handler prints two lines to the EC console.
     pub privacy_switches: bool,
     /// The extender and the charge limit its window is weighed against: two
-    /// host commands.
+    /// host commands. The battery block comes with it, being what says whether
+    /// a charger holds the extender's reset back.
     pub extender: bool,
     /// The devices on the USB root ports: a walk of sysfs, no EC transfer.
     pub usb: bool,
@@ -126,7 +127,7 @@ impl Extra {
     #[must_use]
     pub fn requested(self, request: Request) -> bool {
         match self {
-            Self::Battery => request.battery,
+            Self::Battery => request.battery || request.extender,
             Self::Condition => request.condition,
             Self::Ports => request.ports,
             Self::Chassis => request.chassis,
@@ -431,6 +432,17 @@ mod tests {
         assert!(reading.condition.is_none());
         assert!(reading.extender.is_none());
         assert!(failures.is_empty());
+    }
+
+    #[test]
+    fn the_extender_brings_the_battery_block() {
+        let (_, controls) = detected();
+        let request = Request {
+            extender: true,
+            ..Request::default()
+        };
+        let (reading, _) = ready(read(&controls, request));
+        assert!(reading.info.is_some());
     }
 
     #[test]

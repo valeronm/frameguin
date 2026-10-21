@@ -198,6 +198,7 @@ impl BatteryControl for Machine {
             trigger_days: 5,
             first_stage_seconds: 3 * 86_400,
             reset_minutes: 30,
+            reset_seconds: 30 * 60,
         })
     }
 }

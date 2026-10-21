@@ -7,7 +7,9 @@ use std::rc::Rc;
 
 use adw::prelude::*;
 use frameguin_model::reading::Request;
-use frameguin_modelview::extender::{first_stage_label, reset_label, stage_label, trigger_label};
+use frameguin_modelview::extender::{
+    description, first_stage_label, reset_words, stage_label, trigger_label,
+};
 use gtk4 as gtk;
 
 use super::Sidebar;
@@ -16,10 +18,12 @@ use crate::report::{value, value_row};
 
 pub(super) fn add(sidebar: &Rc<Sidebar>, list: &gtk::ListBox, feed: &Rc<Feed>) {
     let page = adw::PreferencesPage::new();
-    let group = adw::PreferencesGroup::new();
+    let group = adw::PreferencesGroup::builder()
+        .description(description())
+        .build();
     let stage = value(&group, "Stage");
     let (first_stage_row, first_stage) = value_row(&group, "Starts in");
-    let (reset_row, reset) = value_row(&group, "Resets after");
+    let (reset_row, reset) = value_row(&group, "");
     page.add(&group);
     let row = sidebar.add(list, "Extender", &page);
 
@@ -41,6 +45,12 @@ pub(super) fn add(sidebar: &Rc<Sidebar>, list: &gtk::ListBox, feed: &Rc<Feed>) {
         }
         first_stage_row.set_subtitle(&trigger_label(extender.trigger_days));
         reset_row.set_visible(extender.enabled);
-        reset.set_label(&reset_label(extender.reset_minutes));
+        let words = reset_words(
+            extender,
+            reading.info.as_ref().map(|info| info.charger_connected),
+        );
+        reset_row.set_title(words.title);
+        reset.set_label(&words.value);
+        reset_row.set_subtitle(words.subtitle.as_deref().unwrap_or_default());
     });
 }

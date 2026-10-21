@@ -182,6 +182,10 @@ pub struct ExtenderState {
     /// Minutes continuously off the charger that return the extender to
     /// [`ExtenderStage::Inactive`] and restart its countdown.
     pub reset_minutes: u16,
+    /// Seconds left until a reset, and 0 where none is pending. A charger
+    /// attached holds it at the whole of `reset_minutes`, the EC setting it
+    /// back every second.
+    pub reset_seconds: u32,
 }
 
 /// Something wrong with the pack, as the pack itself judges it — named rather
