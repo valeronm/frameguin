@@ -97,6 +97,10 @@ impl Ui {
             .set_title_widget((shown > 1).then_some(&self.switcher));
     }
 
+    fn has_content(&self) -> bool {
+        self.tabs.iter().any(|tab| tab.page.is_visible())
+    }
+
     fn show_first_tab(&self) {
         if let Some(tab) = self.tabs.iter().find(|tab| tab.page.is_visible()) {
             self.stack.set_visible_child(&tab.page.child());

@@ -90,18 +90,6 @@ impl<
             board,
         })
     }
-
-    /// Whether the main window has nothing to show: the readings only the
-    /// Readings window carries are left out.
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.battery.is_none()
-            && self.touchpad.is_none()
-            && self.touchscreen.is_none()
-            && self.power_led.is_none()
-            && self.charging_led.is_none()
-            && self.ports.is_none()
-    }
 }
 
 #[cfg(test)]
@@ -125,17 +113,26 @@ mod tests {
         assert!(controls.touchscreen.is_some());
         assert!(controls.power_led.is_some());
         assert!(controls.charging_led.is_some());
+        assert!(controls.ports.is_some());
         assert!(controls.chassis.is_some());
         assert!(controls.privacy_switches.is_some());
         assert!(controls.thermal.is_some());
         assert!(controls.usb.is_some());
-        assert!(!controls.is_empty());
     }
 
     #[test]
     fn a_board_whose_devices_all_answer_absent_has_no_controls() {
         let controls = detect(&Machine::failing(absent())).unwrap();
-        assert!(controls.is_empty());
+        assert!(controls.battery.is_none());
+        assert!(controls.touchpad.is_none());
+        assert!(controls.touchscreen.is_none());
+        assert!(controls.power_led.is_none());
+        assert!(controls.charging_led.is_none());
+        assert!(controls.ports.is_none());
+        assert!(controls.chassis.is_none());
+        assert!(controls.privacy_switches.is_none());
+        assert!(controls.thermal.is_none());
+        assert!(controls.usb.is_none());
     }
 
     #[test]

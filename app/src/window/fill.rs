@@ -273,24 +273,17 @@ struct Init {
 }
 
 impl Init {
-    /// What a tab does every time it comes to the screen. The hardware moves
-    /// while the app sits in the tray — the EC's battery extender lowers the
-    /// charge limit on its own, and `framework_tool` writes any of these
-    /// behind the app's back — so a shown tab reloads rather than trusting
-    /// what it read at startup. Nothing while there is no answer yet, a fill
-    /// in flight loading every value itself, or a board with no controls.
+    // The battery extender and other tools can change settings while the
+    // window is hidden.
     async fn reload(&self, kind: TabKind) {
-        if !self.answered.get() || self.filling.get() {
+        if !self.answered.get() || self.filling.get() || !self.ui.has_content() {
             return;
         }
-        // Cached since detection, so this cannot realistically fail; nothing
-        // to say if it does, the next map asking again.
+        // Controls are cached before `answered` is set.
         let Ok(controls) = self.ui.daemon.controls().await else {
             return;
         };
-        if !controls.is_empty() {
-            self.ui.load_tab(kind, &controls).await;
-        }
+        self.ui.load_tab(kind, &controls).await;
     }
 
     fn spawn<F: Future<Output = ()> + 'static>(self: &Rc<Self>, run: impl FnOnce(Rc<Self>) -> F) {
@@ -377,13 +370,9 @@ impl Init {
             }
         };
         ui.gate(&controls);
-        // Set whatever the answer was: what a later map needs to know is
-        // that this daemon has said its piece, not what it said.
+        // Successful detection ends startup retries even when every tab is hidden.
         self.answered.set(true);
-        if controls.is_empty() {
-            // The daemon gates its EC on the vendor it reports, so an empty
-            // answer is expected on anything else and says nothing about the
-            // board; only a Framework answering with none is a finding.
+        if !ui.has_content() {
             return Some(if controls.board.is_framework() {
                 Empty::NoControls
             } else {
