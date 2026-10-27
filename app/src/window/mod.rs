@@ -401,6 +401,12 @@ fn add_tab(stack: &adw::ViewStack, kind: TabKind, groups: Groups<'_>) -> Tab {
 fn menu_button() -> gtk::MenuButton {
     let menu = gio::Menu::new();
     menu.append(Some("_Hardware"), Some(&format!("app.{}", parts::ACTION)));
+    let status_item = gio::MenuItem::new(Some("_Readings"), None);
+    status_item.set_action_and_target_value(
+        Some(&format!("app.{}", status::ACTION)),
+        Some(&status::target(None)),
+    );
+    menu.append_item(&status_item);
     menu.append(
         Some("_Preferences"),
         Some(&format!("win.{}", preferences::ACTION)),
@@ -412,18 +418,6 @@ fn menu_button() -> gtk::MenuButton {
         .menu_model(&menu)
         .tooltip_text("Main menu")
         .build()
-}
-
-/// Readings is opened again and again where Hardware is read once, so it is
-/// the one report worth a header button.
-fn readings_button() -> gtk::Button {
-    let button = gtk::Button::builder()
-        .icon_name("power-profile-performance-symbolic")
-        .action_name(format!("app.{}", status::ACTION))
-        .tooltip_text("Readings")
-        .build();
-    button.set_action_target_value(Some(&status::target(None)));
-    button
 }
 
 pub(crate) fn build_window(
@@ -457,7 +451,6 @@ pub(crate) fn build_window(
         .policy(adw::ViewSwitcherPolicy::Wide)
         .build();
     let header = adw::HeaderBar::new();
-    header.pack_start(&readings_button());
     header.pack_end(&menu_button());
     let view = adw::ToolbarView::new();
     view.add_top_bar(&header);
