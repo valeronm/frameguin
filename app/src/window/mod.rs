@@ -19,10 +19,11 @@ mod touchpad;
 pub(crate) mod touchscreen;
 mod widgets;
 
+use std::cell::Cell;
 use std::rc::Rc;
 
 use adw::prelude::*;
-use frameguin_contract::{DeviceError, Platform};
+use frameguin_contract::DeviceError;
 use frameguin_model::control::Controls;
 use frameguin_modelview::part;
 use frameguin_modelview::reading::attempt;
@@ -42,7 +43,12 @@ pub(crate) struct Ui {
     toasts: adw::ToastOverlay,
     guard: Guard,
     header: adw::HeaderBar,
+    title: adw::WindowTitle,
     switcher: adw::ViewSwitcher,
+    switcher_bar: adw::ViewSwitcherBar,
+    narrow: adw::Breakpoint,
+    /// Set by `gate`, since every tab page is visible until the first gate runs.
+    switchable: Cell<bool>,
     stack: adw::ViewStack,
     tabs: Vec<Tab>,
     battery: battery::Group,
@@ -72,10 +78,10 @@ impl Ui {
     }
 
     /// Shows each group where its control is, each tab where one of its
-    /// groups is, and the switcher where more than one tab is left to switch
-    /// between, each tab captioned with the mainboard's listing.
+    /// groups is, and the switcher where more than one tab is left.
     fn gate(&self, controls: &Controls<Bus>) {
-        let caption = caption(controls.board.platform());
+        self.title
+            .set_subtitle(part::mainboard_name(controls.board.platform()));
         self.battery
             .gate(controls.battery.as_ref(), controls.ports.as_ref());
         self.power_led.gate(controls.power_led.as_ref());
@@ -84,17 +90,30 @@ impl Ui {
         self.touchscreen.gate(controls.touchscreen.as_ref());
         let mut shown = 0;
         for tab in &self.tabs {
-            if let Some(caption) = &caption {
-                tab.content.set_description(caption);
-            }
             let visible = tab.groups.iter().any(WidgetExt::is_visible);
             tab.page.set_visible(visible);
             shown += usize::from(visible);
         }
-        // Swapped out rather than hidden, so the header falls back to the
-        // window's title instead of showing none.
-        self.header
-            .set_title_widget((shown > 1).then_some(&self.switcher));
+        self.switchable.set(shown > 1);
+        self.place_switcher();
+    }
+
+    // Not a breakpoint setter: on unapply a setter restores the value from
+    // before it applied, undoing a title widget `gate` set while narrow.
+    fn place_switcher(&self) {
+        let narrow = self
+            .header
+            .root()
+            .and_downcast::<adw::ApplicationWindow>()
+            .and_then(|window| window.current_breakpoint())
+            .is_some_and(|current| current == self.narrow);
+        let switchable = self.switchable.get();
+        if switchable && !narrow {
+            self.header.set_title_widget(Some(&self.switcher));
+        } else {
+            self.header.set_title_widget(Some(&self.title));
+        }
+        self.switcher_bar.set_reveal(switchable && narrow);
     }
 
     fn has_content(&self) -> bool {
@@ -253,18 +272,7 @@ impl Sink<'_> {
 struct Tab {
     kind: TabKind,
     page: adw::ViewStackPage,
-    content: adw::PreferencesPage,
     groups: Vec<adw::PreferencesGroup>,
-}
-
-/// None where the catalog carries no entry: the firmware's own product
-/// name is an ordering code rather than a name.
-fn caption(platform: Platform) -> Option<String> {
-    let sold = part::mainboard(platform)?;
-    Some(match sold.variant {
-        Some(variant) => format!("<b>{}</b>\n{variant}", sold.model),
-        None => format!("<b>{}</b>", sold.model),
-    })
 }
 
 #[derive(Clone, Copy)]
@@ -381,7 +389,7 @@ impl Member<'_> {
 }
 
 fn add_tab(stack: &adw::ViewStack, kind: TabKind, groups: Groups<'_>) -> Tab {
-    let content = widgets::captioned_page();
+    let content = adw::PreferencesPage::new();
     let widgets: Vec<adw::PreferencesGroup> = kind
         .members(groups)
         .iter()
@@ -393,7 +401,6 @@ fn add_tab(stack: &adw::ViewStack, kind: TabKind, groups: Groups<'_>) -> Tab {
     Tab {
         kind,
         page: stack.add_titled_with_icon(&content, None, kind.title(), kind.icon()),
-        content,
         groups: widgets,
     }
 }
@@ -419,6 +426,8 @@ fn menu_button() -> gtk::MenuButton {
         .tooltip_text("Main menu")
         .build()
 }
+
+const TITLE: &str = "Frameguin";
 
 pub(crate) fn build_window(
     app: &adw::Application,
@@ -450,24 +459,37 @@ pub(crate) fn build_window(
         .stack(&stack)
         .policy(adw::ViewSwitcherPolicy::Wide)
         .build();
-    let header = adw::HeaderBar::new();
+    let switcher_bar = adw::ViewSwitcherBar::builder().stack(&stack).build();
+    let title = adw::WindowTitle::new(TITLE, "");
+    let header = adw::HeaderBar::builder().title_widget(&title).build();
     header.pack_end(&menu_button());
     let view = adw::ToolbarView::new();
     view.add_top_bar(&header);
+    view.add_bottom_bar(&switcher_bar);
     let empty = fill::build_empty_page(&view, &stack);
     let toasts = adw::ToastOverlay::new();
     toasts.set_child(Some(&view));
 
     let window = adw::ApplicationWindow::builder()
         .application(app)
-        .title("Frameguin")
-        // At the default font scale, wide enough for the header to spell every
-        // tab title and tall enough for the taller tab.
-        .default_width(480)
-        .default_height(560)
+        .title(TITLE)
+        .default_width(410)
+        .default_height(500)
+        // libadwaita requires a minimum size on a window with breakpoints.
+        .width_request(360)
+        .height_request(294)
         .content(&toasts)
         .icon_name(APP_ID)
         .build();
+
+    // The width a header needs to spell every tab title beside its menu
+    // button and a minimize, maximize and close button.
+    let narrow = adw::Breakpoint::new(adw::BreakpointCondition::new_length(
+        adw::BreakpointConditionLengthType::MaxWidth,
+        535.0,
+        adw::LengthUnit::Sp,
+    ));
+    window.add_breakpoint(narrow.clone());
 
     // Hiding instead of closing only makes sense while a tray icon exists to
     // bring the window back.
@@ -477,7 +499,11 @@ pub(crate) fn build_window(
         toasts,
         guard: Guard::default(),
         header,
+        title,
         switcher,
+        switcher_bar,
+        narrow,
+        switchable: Cell::default(),
         stack,
         tabs,
         battery,
@@ -493,6 +519,9 @@ pub(crate) fn build_window(
 
     ui.preferences.attach(app, &window);
     fill::attach(&window, &ui, empty);
+
+    let resized_ui = ui.clone();
+    window.connect_current_breakpoint_notify(move |_| resized_ui.place_switcher());
 
     // On unmap, since switching on map would reload a second tab beside the
     // one the map already reloaded.

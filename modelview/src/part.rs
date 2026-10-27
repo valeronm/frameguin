@@ -119,8 +119,7 @@ fn has_pro_input_cover(parts: &[Identity]) -> bool {
         .any(|part| key(part) == (PartKind::Touchpad, PRO_INPUT_COVER_TOUCHPAD))
 }
 
-#[must_use]
-pub fn mainboard(platform: Platform) -> Option<Catalog> {
+fn mainboard(platform: Platform) -> Option<Catalog> {
     match platform {
         Platform::Laptop13Gen11 => Some(varied("Laptop 13 Mainboard", "11th Gen Intel Core", None)),
         Platform::Laptop13Gen12 => Some(varied("Laptop 13 Mainboard", "12th Gen Intel Core", None)),
@@ -176,6 +175,13 @@ pub fn mainboard(platform: Platform) -> Option<Catalog> {
         )),
         Platform::Unknown => None,
     }
+}
+
+/// Empty where the catalog carries no entry: the firmware's own product name
+/// is an ordering code rather than a name.
+#[must_use]
+pub fn mainboard_name(platform: Platform) -> &'static str {
+    mainboard(platform).map_or("", |sold| sold.model)
 }
 
 /// The marketplace entry for a part. Curated from Framework's own listings,
@@ -641,7 +647,7 @@ mod tests {
 
     use super::{
         aspect, catalog, detail_row, detail_rows, firmware_name, generation, inventory, listing,
-        maker, name, ordered, part_number,
+        mainboard_name, maker, name, ordered, part_number,
     };
 
     /// The machine the part fixtures are read from.
@@ -833,6 +839,11 @@ mod tests {
         let sold = catalog(&board(), &[], Platform::Laptop13Gen12).unwrap();
         assert_eq!(sold.model, "Laptop 13 Mainboard");
         assert!(sold.url.is_none());
+    }
+
+    #[test]
+    fn a_board_of_no_known_machine_has_an_empty_name() {
+        assert_eq!(mainboard_name(Platform::Unknown), "");
     }
 
     #[test]

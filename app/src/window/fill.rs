@@ -85,9 +85,8 @@ pub(super) fn build_empty_page(
     stack.add_named(controls, Some(CONTROLS_PAGE));
 
     let status = adw::StatusPage::new();
-    // Compact, which is libadwaita's own answer to the page-high icon: this
-    // window is 420px wide and the icon at full size fills it, which reads as
-    // a catastrophe whatever the icon happens to be.
+    // A full-size icon on a window this small reads as a catastrophe whatever
+    // the icon happens to be.
     status.add_css_class("compact");
     // Compact is libadwaita's smallest, and still larger than this page wants:
     // the icon is a label on a sentence, not the subject of the screen. The
