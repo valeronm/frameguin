@@ -31,13 +31,13 @@ use frameguin_wire::Bus;
 use gtk4 as gtk;
 use gtk4::gio;
 
-use crate::APP_ID;
 use crate::daemon::Daemon;
 use crate::failure::{self, Notifier};
 use crate::reading::Feed;
 use crate::report::{parts, status};
 use crate::synced::Guard;
 use crate::tray::{TrayIcon, TrayValues, tray_push};
+use crate::{APP_ID, APP_NAME};
 
 pub(crate) struct Ui {
     toasts: adw::ToastOverlay,
@@ -427,8 +427,6 @@ fn menu_button() -> gtk::MenuButton {
         .build()
 }
 
-const TITLE: &str = "Frameguin";
-
 pub(crate) fn build_window(
     app: &adw::Application,
     tray: Option<ksni::blocking::Handle<TrayIcon>>,
@@ -460,7 +458,7 @@ pub(crate) fn build_window(
         .policy(adw::ViewSwitcherPolicy::Wide)
         .build();
     let switcher_bar = adw::ViewSwitcherBar::builder().stack(&stack).build();
-    let title = adw::WindowTitle::new(TITLE, "");
+    let title = adw::WindowTitle::new(APP_NAME, "");
     let header = adw::HeaderBar::builder().title_widget(&title).build();
     header.pack_end(&menu_button());
     let view = adw::ToolbarView::new();
@@ -472,7 +470,7 @@ pub(crate) fn build_window(
 
     let window = adw::ApplicationWindow::builder()
         .application(app)
-        .title(TITLE)
+        .title(APP_NAME)
         .default_width(410)
         .default_height(500)
         // libadwaita requires a minimum size on a window with breakpoints.

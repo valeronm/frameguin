@@ -11,8 +11,8 @@ use frameguin_wire::Bus;
 use gtk4 as gtk;
 use gtk4::{gdk, gdk_pixbuf, gio, glib, graphene, gsk};
 
-use crate::APP_ID;
 use crate::mapped;
+use crate::{APP_ID, APP_NAME};
 
 const DAEMON_UNIT: &str = "frameguin-daemon.service";
 /// Where a report is filed. `concat!` rather than a runtime format so the
@@ -193,7 +193,7 @@ pub(crate) async fn report_issue() -> Result<(), glib::Error> {
 pub(crate) fn show(parent: Option<&gtk::Window>) {
     let about = adw::AboutDialog::builder()
         .application_icon(APP_ID)
-        .application_name("Frameguin")
+        .application_name(APP_NAME)
         .developer_name("Valerii Myronov")
         .version(frameguin_wire::version())
         .license_type(gtk::License::MitX11)

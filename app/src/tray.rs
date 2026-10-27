@@ -19,8 +19,8 @@ use frameguin_modelview::ports::supply_summary;
 use frameguin_modelview::touchscreen::{state_at, state_labels, state_row};
 use frameguin_wire::Bus;
 
-use crate::APP_ID;
 use crate::daemon::Daemon;
+use crate::{APP_ID, APP_NAME};
 
 /// `Copy` so a menu item can be built from the event it sends: the boxed
 /// handler runs more than once, and every variant here is a value rather
@@ -108,7 +108,7 @@ impl ksni::Tray for TrayIcon {
     }
 
     fn title(&self) -> String {
-        "Frameguin".into()
+        APP_NAME.into()
     }
 
     fn activate(&mut self, _x: i32, _y: i32) {

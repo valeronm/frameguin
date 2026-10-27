@@ -31,6 +31,7 @@ use crate::tray::{TrayEvent, TrayIcon, refresh_tray};
 use crate::window::{Sink, Ui, build_window};
 
 const APP_ID: &str = "io.github.valeronm.Frameguin";
+const APP_NAME: &str = "Frameguin";
 
 /// Window and tray state shared between activation and tray events. The
 /// window is built on first use, so a service-mode start (autostart) costs
