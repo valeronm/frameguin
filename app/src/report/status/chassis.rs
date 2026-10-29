@@ -12,15 +12,14 @@ use frameguin_model::control::chassis::Chassis;
 use frameguin_model::reading::Request;
 use frameguin_modelview::chassis::{chassis_summary, deck_label, open_now_label, times_label};
 use frameguin_wire::Bus;
-use gtk4 as gtk;
 
-use super::Sidebar;
+use super::{Section, Sidebar};
 use crate::reading::Feed;
 use crate::report::{value, value_row};
 
 pub(super) fn add(
     sidebar: &Rc<Sidebar>,
-    list: &gtk::ListBox,
+    section: Section,
     feed: &Rc<Feed>,
     chassis: &Chassis<Bus>,
 ) {
@@ -33,7 +32,7 @@ pub(super) fn add(
     let has_deck = chassis.has(ChassisFeature::Deck);
     deck_row.set_visible(has_deck);
     page.add(&group);
-    let row = sidebar.add(list, "Chassis", &page);
+    let row = sidebar.add(section, "Chassis", &page);
 
     let request = Request {
         chassis: true,

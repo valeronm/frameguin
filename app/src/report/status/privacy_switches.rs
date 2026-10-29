@@ -8,19 +8,18 @@ use std::rc::Rc;
 use adw::prelude::*;
 use frameguin_model::reading::Request;
 use frameguin_modelview::privacy_switches::{switch_label, switches_summary};
-use gtk4 as gtk;
 
-use super::Sidebar;
+use super::{Section, Sidebar};
 use crate::reading::Feed;
 use crate::report::value;
 
-pub(super) fn add(sidebar: &Rc<Sidebar>, list: &gtk::ListBox, feed: &Rc<Feed>) {
+pub(super) fn add(sidebar: &Rc<Sidebar>, section: Section, feed: &Rc<Feed>) {
     let page = adw::PreferencesPage::new();
     let group = adw::PreferencesGroup::new();
     let camera = value(&group, "Camera");
     let microphone = value(&group, "Microphone");
     page.add(&group);
-    let row = sidebar.add(list, "Privacy", &page);
+    let row = sidebar.add(section, "Privacy", &page);
 
     let request = Request {
         privacy_switches: true,

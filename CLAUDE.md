@@ -143,9 +143,9 @@ it and the non-obvious constraints.
   once per open since the list is fixed for the daemon's run.
   `report/status/` is the Readings window: no debounce, no tray push, a
   sidebar of sections beside the selected row's page. Its `mod.rs`
-  holds the window, the one selection across every section's list, and the
-  targets it can be opened on. A section is a heading over one list, and
-  each page is a module of its own, adding its rows to the section `mod.rs`
+  holds the window, the sidebar's one list, and the targets it can be
+  opened on. A section is a heading over its rows in that list, and each
+  page is a module of its own, adding its rows to the section `mod.rs`
   hands it where the detected controls say the board has what it shows.
   Whether a row carries a summary is its module's call, made by
   what its read costs: a summary is fed for as long as the window is on
@@ -160,13 +160,14 @@ it and the non-obvious constraints.
   EC answers for the machine — its power role, its data role — is inverted
   before it is worded: the page carries the attached device's
   own readings beside them, and one screen with two subjects reads as a
-  contradiction rather than as two facts. Its groups are the connection and
-  what the contract adds, headed by the contract type, because the volts and
-  amps read alike whether power delivery settled them or Type-C's own
-  resistors advertised them. Where a socket is on the machine is
-  `model::port`'s, curated per board and answering nothing for a port nobody
-  placed: the EC's port number says which controller drives a port and not
-  where it is, and a wrong position reads exactly like a right one. A port
+  contradiction rather than as two facts. Its groups are the connection,
+  headed by where the port is, and what the contract adds, headed by the
+  contract type, because the volts and amps read alike whether power
+  delivery settled them or Type-C's own resistors advertised them. Where a
+  socket is on the machine is `model::port`'s, curated per board and
+  answering nothing for a port nobody placed: the EC's port number says
+  which controller drives a port and not where it is, and a wrong position
+  reads exactly like a right one. A port
   is placed by measuring it, or where the controller its number names can
   have only one socket behind it, as the Laptop 16's bay controller does;
   its side alone is taken from Framework's own controller table in
@@ -630,10 +631,10 @@ the product it was read from.
 - Capitalization follows the GNOME HIG split: a heading, a window title, a
   menu item and a tab are in Title Case, a row title and a value in
   sentence case. A heading that is a sentence stays one — the Readings
-  port page heads its groups with words that are also values on the main
-  window's port rows, so Title Case there would mean a second spelling
-  in `modelview` — and so do the tray's items, which name the window
-  rows they move, and the empty pages' titles. Nothing checks it.
+  port page heads a port's group with its position, which is also a value
+  on the main window's battery row, so Title Case there would mean a
+  second spelling in `modelview` — and so do the tray's items, which name
+  the window rows they move, and the empty pages' titles. Nothing checks it.
 - History is public, so it moves by normal commits; pushed commits are not
   amended.
 - "Framework" is Framework Computer Inc.'s trademark. The project name avoids

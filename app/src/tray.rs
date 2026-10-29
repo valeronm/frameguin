@@ -32,8 +32,8 @@ pub(crate) enum TrayEvent {
     /// Carries nothing: the window reads for itself rather than being handed
     /// the summary the menu happens to hold.
     ShowBattery,
-    /// The Readings window's page for the port powering the machine, which the
-    /// menu's supply line heads. Carries nothing, as
+    /// The Readings window's ports page with the port powering the machine
+    /// picked, which the menu's supply line heads. Carries nothing, as
     /// [`TrayEvent::ShowBattery`] does.
     ShowCharger,
     Refresh,
@@ -238,7 +238,8 @@ impl TrayIcon {
         ))
     }
 
-    /// What is powering the machine, and the way into its port's Readings page.
+    /// What is powering the machine, and the way into the Readings window's
+    /// ports page with its port picked.
     /// Gated on a reading, as the battery's line is: a board with ports still
     /// has nothing to say about them until one arrives.
     ///

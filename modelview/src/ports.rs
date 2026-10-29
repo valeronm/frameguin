@@ -1,35 +1,36 @@
 //! The USB-C ports: the words a reader needs for one.
 
 use frameguin_contract::{
-    Attached, Cable, CableLatency, CableSpeed, DataRole, Epr, OffRefusal, PdContract, PeakCurrent,
-    PortMask, PortPartner, PortReading, PortState, PowerRole, SupplyKind,
+    Cable, CableLatency, CableSpeed, DataRole, Epr, OffRefusal, PdContract, PeakCurrent, PortMask,
+    PortPartner, PortReading, PortState, PowerRole, SupplyKind,
 };
-use frameguin_model::control::ports::powering;
+use frameguin_model::control::ports::{Flow, carries_power, flow, powering};
 use frameguin_model::port::Placement;
 
 use crate::port;
 use crate::units::{Kind, amps, tenth_volts, volts, watts};
-use crate::usb::device_name;
 use crate::words::{NO_SUPPLY, yes_no};
 
 /// An empty port, worded as the absence it is rather than as a kind of
 /// partner.
-pub const NOTHING_ATTACHED: &str = "Nothing attached";
+const NOTHING_ATTACHED: &str = "Empty";
 
-/// What is attached, in the words a reader would use for it. None for an
-/// empty port, which the caller words as [`NOTHING_ATTACHED`].
-#[must_use]
-pub fn partner_label(partner: PortPartner) -> Option<&'static str> {
-    Some(match partner {
-        PortPartner::Nothing => return None,
-        PortPartner::Sink => "Drawing power",
-        PortPartner::Source => "Supplying power",
+/// What an attached partner is to the machine's power, and what it is where
+/// it takes no part in it.
+fn role(reading: &PortReading) -> &'static str {
+    if reading.charging {
+        return POWERING;
+    }
+    match reading.partner {
+        PortPartner::Nothing => NOTHING_ATTACHED,
+        PortPartner::Sink => POWERED,
+        PortPartner::Source => AVAILABLE,
         PortPartner::Debug => "Debug accessory",
         PortPartner::Audio => "Audio accessory",
         PortPartner::PoweredAccessory => "Powered accessory",
         PortPartner::Unsupported => "Unsupported",
         PortPartner::Invalid => "Not recognized",
-    })
+    }
 }
 
 /// What the link carries as a person reads it — volts, amps and the watts
@@ -38,7 +39,7 @@ pub fn partner_label(partner: PortPartner) -> Option<&'static str> {
 /// nothing, a supply of zero being worth no row.
 #[must_use]
 pub fn carried(port: &PortReading) -> Option<String> {
-    if port.millivolts == 0 || port.milliamps == 0 {
+    if !carries_power(port) {
         return None;
     }
     Some(format!(
@@ -56,20 +57,70 @@ pub fn measured_label(millivolts: u16) -> String {
 
 /// The port the machine draws its power through, named as that rather than as
 /// one more charger among those that may be attached.
-pub const POWERING_THE_MACHINE: &str = "Powering the machine";
+const POWERING: &str = "Powering";
+
+/// A charger the machine is not drawing from, which still holds its contract
+/// because the EC draws through one port at a time.
+const AVAILABLE: &str = "Available";
+
+/// A partner drawing power from the machine.
+const POWERED: &str = "Powered";
+
+pub const DISPLAY_PORT: &str = "DisplayPort";
 
 /// A port its controller has disabled, worded over what it last reported.
-pub const TURNED_OFF: &str = "Turned off";
+const TURNED_OFF: &str = "Turned off";
 
-/// [`port_summary`] for a port in a list, led by the device placed in its
-/// slot.
+/// A port's lines beside the machine: the watts it carries and under them
+/// what is attached, or the words alone where it carries none.
+#[derive(Debug, PartialEq, Eq)]
+pub struct PortLine {
+    pub main: String,
+    /// Where the port is, where no drawn socket shows it.
+    pub name: Option<String>,
+    pub lead: Option<&'static str>,
+    /// Where the port is in `DisplayPort` alternate mode.
+    pub display: bool,
+}
+
+impl PortLine {
+    /// The line under the main one, empty where it has nothing to say.
+    #[must_use]
+    pub fn caption(&self) -> String {
+        [self.name.as_deref(), self.lead]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>()
+            .join(" · ")
+    }
+}
+
+/// [`line`], naming the port in its caption unless `arrowed`: a socket drawn
+/// with an arrow for its [`Flow`] shows where the port is.
 #[must_use]
-pub fn port_line(placement: Placement, port: &PortState, devices: &[Attached]) -> String {
-    let name = placement
-        .attached(port.index, devices)
-        .first()
-        .map(|device| device_name(device));
-    port_summary(port, name.as_deref())
+pub fn port_line(placement: Placement, port: &PortState, arrowed: bool) -> PortLine {
+    PortLine {
+        name: (!arrowed).then(|| port::inline(placement, port.index)),
+        ..line(port, arrowed)
+    }
+}
+
+/// What a screen reader says for a port: where it is, then its lines, the
+/// way power goes worded on the watts since no arrow is heard.
+#[must_use]
+pub fn spoken(placement: Placement, port: &PortState) -> String {
+    let line = port_line(placement, port, false);
+    let label = port::label(placement, port.index);
+    [
+        Some(label.as_str()),
+        Some(line.main.as_str()),
+        line.display.then_some(DISPLAY_PORT),
+        line.lead,
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>()
+    .join(", ")
 }
 
 /// Why a port's switch cannot turn it off.
@@ -82,36 +133,85 @@ pub fn refusal_label(refusal: OffRefusal) -> &'static str {
     }
 }
 
-/// One port on one line: what is attached — the device in the slot where
-/// one was placed there, named for powering the machine where it does — and
-/// the watts it carries where it carries any. A port turned off is only
-/// [`TURNED_OFF`].
-///
-/// A lead naming the device in the slot says nothing about which way its
-/// power goes. The arrow is the direction for the thing attached, not for
-/// the machine.
-#[must_use]
-pub fn port_summary(port: &PortState, device: Option<&str>) -> String {
-    let (PortMask::On(port, _) | PortMask::Unchecked(port, _)) = &port.mask else {
-        return TURNED_OFF.to_owned();
-    };
-    let partner = partner_label(port.partner);
-    let Some(lead) = (if port.charging && (partner.is_some() || device.is_some()) {
-        Some(POWERING_THE_MACHINE)
-    } else {
-        device.or(partner)
-    }) else {
-        return NOTHING_ATTACHED.to_owned();
-    };
-    if port.millivolts == 0 || port.milliamps == 0 {
-        return lead.to_owned();
+/// What a port holds, which its socket and its line are both drawn from.
+enum Holding<'a> {
+    Off,
+    Empty,
+    Attached(&'a PortReading),
+}
+
+fn holding(port: &PortState) -> Holding<'_> {
+    match &port.mask {
+        PortMask::Off => Holding::Off,
+        PortMask::On(reading, _) | PortMask::Unchecked(reading, _) => {
+            if reading.partner == PortPartner::Nothing {
+                Holding::Empty
+            } else {
+                Holding::Attached(reading)
+            }
+        }
     }
-    let flow = match port.partner {
-        PortPartner::Sink => "↓ ",
-        PortPartner::Source => "↑ ",
-        _ => "",
+}
+
+/// The watts a port carries and what the EC reports attached, named for
+/// powering the machine where it does. The way worded beside the watts is
+/// the attached thing's, not the machine's.
+fn line(port: &PortState, arrowed: bool) -> PortLine {
+    let bare = |main: &str| PortLine {
+        main: main.to_owned(),
+        name: None,
+        lead: None,
+        display: false,
     };
-    format!("{lead} · {flow}{}", power(port))
+    let reading = match holding(port) {
+        Holding::Off => return bare(TURNED_OFF),
+        Holding::Empty => return bare(NOTHING_ATTACHED),
+        Holding::Attached(reading) => reading,
+    };
+    let verbed = flow(reading).filter(|_| !arrowed);
+    let role = role(reading);
+    let (main, lead) = if carries_power(reading) {
+        let watts = power(reading);
+        let main = match verbed {
+            Some(Flow::In) => format!("Supplying {watts}"),
+            Some(Flow::Out) => format!("Drawing {watts}"),
+            None => watts,
+        };
+        // Drawing on the watts already says what Powered would.
+        (main, (verbed != Some(Flow::Out)).then_some(role))
+    } else {
+        (role.to_owned(), None)
+    };
+    PortLine {
+        main,
+        name: None,
+        lead,
+        display: reading.video,
+    }
+}
+
+/// What a port's socket shows of it where the machine is drawn.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Socket {
+    Off,
+    /// Where [`port_line`]'s main line reads that nothing is attached.
+    Empty,
+    InUse(Option<Flow>),
+}
+
+#[must_use]
+pub fn socket(port: &PortState) -> Socket {
+    match holding(port) {
+        Holding::Off => Socket::Off,
+        Holding::Empty => Socket::Empty,
+        Holding::Attached(reading) => Socket::InUse(flow(reading)),
+    }
+}
+
+/// Where the machine is powered from, through the port at `index`.
+#[must_use]
+pub fn powered_from(placement: Placement, index: u8) -> String {
+    format!("Powered from {}", port::place(placement, index))
 }
 
 fn power(port: &PortReading) -> String {
@@ -155,12 +255,6 @@ pub fn supply_summary(ports: &[PortState], placement: Placement) -> String {
     })
 }
 
-/// None where the port is not the one powering the machine.
-#[must_use]
-pub fn powering_label(port: &PortReading) -> Option<&'static str> {
-    port.charging.then_some(yes_no(true))
-}
-
 /// `DisplayPort` alternate mode, and None where the port is not in it.
 #[must_use]
 pub fn display_port_label(port: &PortReading) -> Option<&'static str> {
@@ -179,8 +273,8 @@ pub fn contract_label(contract: bool) -> &'static str {
 }
 
 /// What the far end does with power, read off the machine's own role, the
-/// two ends of a link being opposites. None where [`partner_label`] already
-/// says it.
+/// two ends of a link being opposites. None where the partner's kind already
+/// gives it.
 #[must_use]
 pub fn power_role_label(partner: PortPartner, role: PowerRole) -> Option<&'static str> {
     if matches!(
@@ -264,7 +358,7 @@ pub fn power_limited_label(contract: &PdContract, partner: PortPartner) -> Optio
 /// None for a passive cable, the kind nearly every cable is.
 #[must_use]
 pub fn cable_type_label(active: bool) -> Option<&'static str> {
-    active.then_some("Active")
+    active.then_some("Active cable")
 }
 
 /// Extended power range, and None where the port does not offer it — a
@@ -278,10 +372,27 @@ pub fn epr_label(epr: Epr) -> Option<&'static str> {
     }
 }
 
+/// The cable as one line: its rate, its rating and its length, each left
+/// out where the e-marker did not report it, and None where it reported none.
+#[must_use]
+pub fn cable_label(cable: &Cable) -> Option<String> {
+    let parts: Vec<String> = [
+        cable.speed.map(|speed| cable_speed_label(speed).to_owned()),
+        cable_rating_label(*cable),
+        cable
+            .latency
+            .map(|latency| cable_length_label(latency).to_owned()),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    (!parts.is_empty()).then(|| parts.join(" · "))
+}
+
 /// The rate a cable is certified for: per lane through USB 3.2, whose links
 /// use one, and over both lanes for USB4, whose links use two.
 #[must_use]
-pub fn cable_speed_label(speed: CableSpeed) -> &'static str {
+fn cable_speed_label(speed: CableSpeed) -> &'static str {
     match speed {
         CableSpeed::Usb2 => "480 Mbps",
         CableSpeed::Gen1 => "5 Gbps",
@@ -291,26 +402,22 @@ pub fn cable_speed_label(speed: CableSpeed) -> &'static str {
     }
 }
 
-/// The current a cable is rated for and the watts it is sold by, and None
-/// where the e-marker left the current at a reserved code.
+/// The watts a cable is sold by, and None where the e-marker left the
+/// current at a reserved code.
 ///
 /// The watts are what a contract can reach over the cable, 48 V under
 /// extended power range and 20 V otherwise: a cable's voltage rating alone
 /// does not let a charger enter extended power range, its EPR bit does.
 #[must_use]
-pub fn cable_rating_label(cable: &Cable) -> Option<String> {
+fn cable_rating_label(cable: Cable) -> Option<String> {
     let milliamps = u32::from(cable.milliamps?);
     let contract_millivolts = if cable.epr { 48_000 } else { 20_000 };
-    Some(format!(
-        "{} ({})",
-        amps(milliamps, Kind::Static),
-        watts(contract_millivolts, milliamps, Kind::Static)
-    ))
+    Some(watts(contract_millivolts, milliamps, Kind::Static))
 }
 
 /// The length the PD specification ties to each latency class.
 #[must_use]
-pub fn cable_length_label(latency: CableLatency) -> &'static str {
+fn cable_length_label(latency: CableLatency) -> &'static str {
     match latency {
         CableLatency::Under10Ns => "About 1 m",
         CableLatency::Under20Ns => "About 2 m",
@@ -326,16 +433,18 @@ pub fn cable_length_label(latency: CableLatency) -> &'static str {
 #[cfg(test)]
 mod tests {
     use frameguin_contract::{
-        Cable, CableLatency, CableSpeed, DataRole, PdContract, PeakCurrent, PortMask, PortPartner,
-        PortReading, PortState, PowerRole, SupplyKind,
+        Cable, CableLatency, CableSpeed, DataRole, PdContract, PeakCurrent, Platform, PortMask,
+        PortPartner, PortReading, PortState, PowerRole, SupplyKind,
     };
     use frameguin_model::port::Placement;
 
+    use frameguin_model::control::ports::Flow;
+
     use super::{
-        cable_length_label, cable_rating_label, cable_speed_label, carried, data_role_label,
-        display_port_label, measured_label, mismatch_label, partner_label, peak_label,
-        port_summary, power_limited_label, power_role_label, powering_label, supply_kind_label,
-        supply_label, supply_summary,
+        NOTHING_ATTACHED, PortLine, Socket, cable_label, cable_length_label, cable_rating_label,
+        cable_speed_label, carried, data_role_label, display_port_label, line, measured_label,
+        mismatch_label, peak_label, port_line, power_limited_label, power_role_label, powered_from,
+        socket, spoken, supply_kind_label, supply_label, supply_summary,
     };
     use frameguin_model::fixtures::{port, reading};
 
@@ -408,30 +517,123 @@ mod tests {
         assert_eq!(supply_summary(&[], Placement::default()), "Not connected");
     }
 
-    #[test]
-    fn an_empty_port_is_worded_as_absence_rather_than_a_partner() {
-        assert_eq!(partner_label(PortPartner::Nothing), None);
-        assert_eq!(partner_label(PortPartner::Source), Some("Supplying power"));
+    fn worded(main: &str, lead: Option<&'static str>) -> PortLine {
+        PortLine {
+            main: main.to_owned(),
+            name: None,
+            lead,
+            display: false,
+        }
     }
 
     #[test]
-    fn a_port_line_names_the_partner_and_the_watts_of_its_contract() {
+    fn a_charger_the_machine_is_not_drawing_from_is_available() {
         let second_charger = on(PortReading {
             charging: false,
             ..reading(0)
         });
         assert_eq!(
-            port_summary(&second_charger, None),
-            "Supplying power · ↑ 100 W"
+            line(&second_charger, true),
+            worded("100 W", Some("Available"))
         );
-        assert_eq!(port_summary(&port(1), None), "Nothing attached");
+        assert_eq!(socket(&second_charger), Socket::InUse(None));
+    }
+
+    #[test]
+    fn a_port_the_ec_charges_from_powers_the_machine_before_its_watts_arrive() {
+        let negotiating = on(PortReading {
+            millivolts: 0,
+            milliamps: 0,
+            ..reading(0)
+        });
+        assert_eq!(socket(&negotiating), Socket::InUse(Some(Flow::In)));
+        assert_eq!(line(&negotiating, true), worded("Powering", None));
+    }
+
+    #[test]
+    fn a_port_is_spoken_by_place_then_its_lines() {
+        let measured = Placement::of(Platform::Laptop13ProUltra3);
+        assert_eq!(
+            spoken(measured, &port(0)),
+            "Right front, Supplying 100 W, Powering"
+        );
+        let monitor = PortState {
+            index: 1,
+            mask: PortMask::On(
+                PortReading {
+                    partner: PortPartner::Sink,
+                    charging: false,
+                    video: true,
+                    millivolts: 5_000,
+                    milliamps: 400,
+                    ..reading(1)
+                },
+                None,
+            ),
+        };
+        assert_eq!(
+            spoken(measured, &monitor),
+            "Right rear, Drawing 2 W, DisplayPort"
+        );
+    }
+
+    #[test]
+    fn a_port_driving_a_display_says_so_beside_its_words() {
+        let monitor = on(PortReading {
+            partner: PortPartner::Sink,
+            charging: false,
+            video: true,
+            millivolts: 5_000,
+            milliamps: 400,
+            ..reading(0)
+        });
+        assert_eq!(
+            line(&monitor, true),
+            PortLine {
+                display: true,
+                ..worded("2 W", Some("Powered"))
+            }
+        );
+        assert!(!line(&port(0), true).display);
+    }
+
+    #[test]
+    fn a_partner_is_named_where_the_watts_carry_no_verb() {
+        let sink = on(PortReading {
+            partner: PortPartner::Sink,
+            charging: false,
+            millivolts: 5_000,
+            milliamps: 1_500,
+            ..reading(0)
+        });
+        assert_eq!(line(&sink, true), worded("7.5 W", Some("Powered")));
+        assert_eq!(line(&sink, false), worded("Drawing 7.5 W", None));
+        assert_eq!(line(&port(1), false), worded("Empty", None));
+    }
+
+    #[test]
+    fn an_arrow_at_the_socket_leaves_the_watts_bare() {
+        assert_eq!(line(&port(0), true), worded("100 W", Some("Powering")));
+    }
+
+    #[test]
+    fn a_port_with_no_drawn_socket_is_named_in_its_caption() {
+        let sided = Placement::of(Platform::Laptop13AmdAi300);
+        let listed = port_line(sided, &port(0), false);
+        assert_eq!(listed.caption(), "Right, port 0 · Powering");
+        assert_eq!(listed.main, "Supplying 100 W");
+        let empty = port_line(sided, &port(1), false);
+        assert_eq!(empty.main, NOTHING_ATTACHED);
+        assert_eq!(empty.caption(), "Right, port 1");
+        let measured = Placement::of(Platform::Laptop13ProUltra3);
+        assert_eq!(port_line(measured, &port(0), true).caption(), "Powering");
     }
 
     #[test]
     fn the_port_the_machine_draws_from_is_named_for_that_among_chargers() {
         assert_eq!(
-            port_summary(&port(0), None),
-            "Powering the machine · ↑ 100 W"
+            line(&port(0), false),
+            worded("Supplying 100 W", Some("Powering"))
         );
     }
 
@@ -441,64 +643,16 @@ mod tests {
             partner: PortPartner::Audio,
             ..reading(1)
         });
-        assert_eq!(port_summary(&accessory, None), "Audio accessory");
+        assert_eq!(line(&accessory, false), worded("Audio accessory", None));
     }
 
     #[test]
-    fn a_device_in_the_slot_leads_its_ports_summary() {
-        let card = on(PortReading {
-            partner: PortPartner::Sink,
-            charging: false,
-            millivolts: 5_000,
-            milliamps: 680,
-            ..reading(0)
-        });
-        assert_eq!(
-            port_summary(&card, Some("HDMI Expansion Card")),
-            "HDMI Expansion Card · ↓ 3.4 W"
-        );
-    }
-
-    #[test]
-    fn powering_the_machine_outranks_the_device_in_the_slot() {
-        assert_eq!(
-            port_summary(&port(0), Some("USB-C Hub")),
-            "Powering the machine · ↑ 100 W"
-        );
-    }
-
-    #[test]
-    fn a_port_turned_off_says_so_over_the_device_in_its_slot() {
+    fn a_port_turned_off_says_only_that() {
         let off = PortState {
             index: 0,
             mask: PortMask::Off,
         };
-        assert_eq!(port_summary(&off, Some("USB-C Hub")), "Turned off");
-    }
-
-    #[test]
-    fn an_empty_port_with_no_device_is_still_nothing_attached() {
-        assert_eq!(port_summary(&port(1), None), "Nothing attached");
-    }
-
-    #[test]
-    fn powering_the_machine_outranks_a_device_even_when_the_partner_is_nothing() {
-        let charger = on(PortReading {
-            partner: PortPartner::Nothing,
-            ..reading(0)
-        });
-        assert_eq!(
-            port_summary(&charger, Some("HDMI Expansion Card")),
-            "Powering the machine · 100 W"
-        );
-    }
-
-    #[test]
-    fn a_device_with_no_partner_and_no_contract_is_named_alone() {
-        assert_eq!(
-            port_summary(&port(1), Some("HDMI Expansion Card")),
-            "HDMI Expansion Card"
-        );
+        assert_eq!(line(&off, false), worded("Turned off", None));
     }
 
     #[test]
@@ -535,12 +689,6 @@ mod tests {
     }
 
     #[test]
-    fn only_the_port_powering_the_machine_says_so() {
-        assert_eq!(powering_label(&reading(0)), Some("Yes"));
-        assert_eq!(powering_label(&reading(1)), None);
-    }
-
-    #[test]
     fn only_a_port_in_display_port_mode_says_so() {
         let video = PortReading {
             video: true,
@@ -567,26 +715,42 @@ mod tests {
             epr: true,
             ..five_amp
         };
-        assert_eq!(cable_rating_label(&standard).as_deref(), Some("3 A (60 W)"));
-        assert_eq!(
-            cable_rating_label(&five_amp).as_deref(),
-            Some("5 A (100 W)")
-        );
-        assert_eq!(
-            cable_rating_label(&extended).as_deref(),
-            Some("5 A (240 W)")
-        );
+        assert_eq!(cable_rating_label(standard).as_deref(), Some("60 W"));
+        assert_eq!(cable_rating_label(five_amp).as_deref(), Some("100 W"));
+        assert_eq!(cable_rating_label(extended).as_deref(), Some("240 W"));
     }
 
     #[test]
     fn a_current_the_e_marker_left_reserved_has_no_rating() {
-        assert_eq!(cable_rating_label(&marked(None)), None);
+        assert_eq!(cable_rating_label(marked(None)), None);
     }
 
     #[test]
     fn a_cables_length_is_worded_as_the_approximation_it_is() {
         assert_eq!(cable_length_label(CableLatency::Under30Ns), "About 3 m");
         assert_eq!(cable_length_label(CableLatency::Over70Ns), "Over 7 m");
+    }
+
+    #[test]
+    fn a_cable_reads_as_one_line_of_what_its_e_marker_reported() {
+        let extended = Cable {
+            epr: true,
+            ..marked(Some(5000))
+        };
+        assert_eq!(
+            cable_label(&extended).as_deref(),
+            Some("480 Mbps · 240 W · About 1 m")
+        );
+        assert_eq!(
+            cable_label(&marked(None)).as_deref(),
+            Some("480 Mbps · About 1 m")
+        );
+        let reserved = Cable {
+            speed: None,
+            latency: None,
+            ..marked(None)
+        };
+        assert_eq!(cable_label(&reserved), None);
     }
 
     fn marked(milliamps: Option<u16>) -> Cable {
@@ -642,5 +806,41 @@ mod tests {
             ..fixed()
         };
         assert_eq!(mismatch_label(&short), Some("Yes"));
+    }
+
+    #[test]
+    fn a_socket_shows_what_its_port_holds() {
+        let accessory = PortState {
+            index: 2,
+            mask: PortMask::On(
+                PortReading {
+                    partner: PortPartner::Audio,
+                    ..reading(2)
+                },
+                None,
+            ),
+        };
+        let off = PortState {
+            index: 3,
+            mask: PortMask::Off,
+        };
+        let ports = [port(0), port(1), accessory, off];
+        assert_eq!(socket(&ports[0]), Socket::InUse(Some(Flow::In)));
+        assert_eq!(socket(&ports[1]), Socket::Empty);
+        assert_eq!(socket(&ports[2]), Socket::InUse(None));
+        assert_eq!(socket(&ports[3]), Socket::Off);
+    }
+
+    #[test]
+    fn the_ports_row_names_where_the_power_comes_in() {
+        let summary = |platform| powered_from(Placement::of(platform), 0);
+        assert_eq!(
+            summary(Platform::Laptop13ProUltra3),
+            "Powered from right front"
+        );
+        assert_eq!(
+            summary(Platform::Laptop13AmdAi300),
+            "Powered from port 0 on the right"
+        );
     }
 }

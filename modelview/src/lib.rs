@@ -11,6 +11,7 @@ pub mod date;
 pub mod extender;
 pub mod part;
 pub mod port;
+pub mod port_map;
 pub mod ports;
 pub mod power_led;
 pub mod privacy_switches;

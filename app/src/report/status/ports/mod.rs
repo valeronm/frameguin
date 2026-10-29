@@ -1,18 +1,22 @@
-//! The USB-C ports: a row per port carrying what is plugged into it,
-//! and a page per port with the rest of what the EC's copy of its
-//! controller's state says and what the controller's own registers add,
-//! headed by a switch where the controller can turn the port off.
+//! The USB-C ports: one row carrying where the machine is powered from, and
+//! a page picking one port among them, with the rest of what the EC's copy
+//! of that port's controller's state says and what the controller's own
+//! registers add, headed by a switch where the controller can turn the port
+//! off.
 //!
-//! A page is laid out as titled rows before any widget is built and redrawn
-//! whole only when the titles change, its rows coming and going with what is
-//! attached; a reading that keeps them sets the values in place. It keeps
-//! the last registers it read while the same kind of partner stays attached,
-//! for a reading that did not ask for them or failed to read them.
+//! The picked port's groups are laid out as titled rows before any widget is
+//! built and redrawn whole only when the titles change, its rows coming and
+//! going with what is attached; a reading that keeps them sets the values in
+//! place. A port keeps the last registers it read while the same kind of
+//! partner stays attached, for a reading that did not ask for them or failed
+//! to read them.
 //!
 //! What each value is *called* is `frameguin_modelview::ports`'s. Where a
 //! socket is on the machine is `frameguin_model::port`'s, which answers only
 //! for the boards it has been measured on; what that place is called is
 //! `frameguin_modelview::port`'s.
+
+mod picker;
 
 use std::cell::{Cell, RefCell};
 use std::rc::{Rc, Weak};
@@ -25,50 +29,58 @@ use frameguin_model::port::Placement;
 use frameguin_model::reading::Request;
 use frameguin_modelview::port;
 use frameguin_modelview::ports::{
-    NOTHING_ATTACHED, POWERING_THE_MACHINE, TURNED_OFF, cable_length_label, cable_rating_label,
-    cable_speed_label, cable_type_label, carried, contract_label, data_role_label,
-    display_port_label, epr_label, measured_label, mismatch_label, partner_label, peak_label,
-    port_line, power_limited_label, power_role_label, powering_label, refusal_label,
-    supply_kind_label, vconn_label,
+    DISPLAY_PORT, cable_label, cable_type_label, carried, contract_label, data_role_label,
+    display_port_label, epr_label, measured_label, mismatch_label, peak_label, power_limited_label,
+    power_role_label, powered_from, refusal_label, supply_kind_label, vconn_label,
 };
 use frameguin_modelview::usb::{capacity_label, device_name, network_label, speed_label};
 use frameguin_wire::Bus;
 use gtk4 as gtk;
 use gtk4::glib;
 
+use self::picker::Picker;
 use super::{Sidebar, Target, Writes};
 use crate::reading::{Feed, show_while_mapped};
 use crate::report::{described_value, value};
 use crate::synced::{Guard, connect_switch, show_switch};
 
-const STAYS_OFF: &str = "A port stays off through restarts until it is switched back on";
+const PORTS: &str = "Ports";
+
+const STAYS_OFF: &str = "Stays off across restarts until turned back on";
 
 const PARTNER_DETECTED: Duration = Duration::from_millis(500);
 
-/// The section's rows, one per port the last reading carried.
 struct Section {
-    list: gtk::ListBox,
-    ports: RefCell<Vec<Port>>,
+    heading: super::Section,
+    /// None until a reading carries a port.
+    shown: RefCell<Option<Shown>>,
     control: Rc<Ports<Bus>>,
     writes: Rc<Writes>,
 }
 
-struct Port {
-    index: u8,
+struct Shown {
     row: adw::ActionRow,
-    charging: Cell<bool>,
+    page: Rc<PortsPage>,
+    /// In the order `Placement::order` puts them.
+    indices: Vec<u8>,
+    powering: Cell<Option<u8>>,
 }
 
-/// A port's page, fed only while it is on screen.
-struct PortPage {
-    index: u8,
+/// Fed only while it is on screen.
+struct PortsPage {
     /// Weak: the page's own subscription holds this.
     page: glib::WeakRef<adw::PreferencesPage>,
     placement: Placement,
-    /// Beside the first group's title, moved onto the new one on a redraw.
-    switch: Option<gtk::Switch>,
+    picker: Picker,
+    picked: Cell<u8>,
+    /// Beside the first group's title while its port is picked, moved onto
+    /// the new one on a redraw.
+    switches: Vec<(u8, gtk::Switch)>,
     guard: Guard,
     drawn: RefCell<Option<Drawn>>,
+    /// Weak: the feed holds the page's subscription, which holds this.
+    feed: Weak<Feed>,
+    request: Request,
 }
 
 struct Drawn {
@@ -120,8 +132,7 @@ impl Group {
     }
 }
 
-/// The rows arrive with the first reading, which is what says how many ports
-/// there are.
+/// The row arrives with the first reading that carries a port.
 pub(super) fn add(
     sidebar: &Rc<Sidebar>,
     feed: &Rc<Feed>,
@@ -130,14 +141,17 @@ pub(super) fn add(
     writes: &Rc<Writes>,
 ) {
     let placement = control.placement();
-    let request = Request {
+    let summary = Request {
         ports: true,
-        usb: usb && placement.wired(),
         ..Request::default()
     };
+    let page = Request {
+        usb: usb && placement.wired(),
+        ..summary
+    };
     let section = Rc::new(Section {
-        list: sidebar.section("USB-C Ports"),
-        ports: RefCell::default(),
+        heading: sidebar.section("USB-C Ports"),
+        shown: RefCell::default(),
         control: control.clone(),
         writes: writes.clone(),
     });
@@ -153,88 +167,108 @@ pub(super) fn add(
     let showing = sidebar.clone();
     // Weak: this closure is the feed's own subscription.
     let asking = Rc::downgrade(feed);
-    sidebar.follow(feed, request, move |reading| {
+    sidebar.follow(feed, summary, move |reading| {
         if let Some(ports) = &reading.ports {
-            let devices = reading.usb.as_deref().unwrap_or_default();
-            section.show(&showing, &asking, request, ports, devices);
+            section.show(&showing, &asking, page, ports);
         }
     });
 }
 
 impl Section {
-    /// The rows are rebuilt only where the set of ports changed, which on a
+    /// The page is rebuilt only where the set of ports changed, which on a
     /// board's fixed ports is the first reading alone.
-    fn show(
+    fn show(&self, sidebar: &Sidebar, feed: &Weak<Feed>, request: Request, ports: &[PortState]) {
+        let placement = self.control.placement();
+        let powering = powering(ports).map(|(index, _)| index);
+        let mut indices: Vec<u8> = ports.iter().map(|state| state.index).collect();
+        indices.sort_by_key(|&index| placement.order(index));
+        let same = self
+            .shown
+            .borrow()
+            .as_ref()
+            .map_or(indices.is_empty(), |shown| shown.indices == indices);
+        if !same {
+            let kept = self.shown.take().map(|shown| {
+                sidebar.remove(&shown.row);
+                shown.page.picked.get()
+            });
+            let picked = kept
+                .filter(|index| indices.contains(index))
+                .or_else(|| preferred(powering, &indices));
+            *self.shown.borrow_mut() =
+                picked.map(|picked| self.build(sidebar, feed, request, indices, picked));
+        }
+        if let Some(shown) = &*self.shown.borrow() {
+            shown.powering.set(powering);
+            let subtitle = powering.map(|index| powered_from(placement, index));
+            shown.row.set_subtitle(&subtitle.unwrap_or_default());
+        }
+        if !same {
+            sidebar.settle();
+        }
+    }
+
+    fn build(
         &self,
         sidebar: &Sidebar,
         feed: &Weak<Feed>,
         request: Request,
-        ports: &[PortState],
-        devices: &[Attached],
-    ) {
+        indices: Vec<u8>,
+        initial: u8,
+    ) -> Shown {
         let placement = self.control.placement();
-        let powering = powering(ports).map(|(index, _)| index);
-        let mut ports: Vec<&PortState> = ports.iter().collect();
-        ports.sort_by_key(|state| placement.order(state.index));
-        let same = self
-            .ports
-            .borrow()
+        let widget = adw::PreferencesPage::new();
+        let picker = Picker::new(placement, &indices);
+        widget.add(picker.group());
+        let switchable = self.control.switchable();
+        let switches = indices
             .iter()
-            .map(|port| port.index)
-            .eq(ports.iter().map(|state| state.index));
-        if !same {
-            let gone: Vec<Port> = self.ports.borrow_mut().drain(..).collect();
-            for port in gone {
-                sidebar.remove(&port.row);
+            .filter(|&&index| switchable.contains(index))
+            .map(|&index| {
+                let switch = gtk::Switch::builder()
+                    .valign(gtk::Align::Center)
+                    .sensitive(false)
+                    .build();
+                switch.update_property(&[gtk::accessible::Property::Label("Enabled")]);
+                self.connect(index, &switch, feed);
+                (index, switch)
+            })
+            .collect();
+        let page = Rc::new(PortsPage {
+            page: widget.downgrade(),
+            placement,
+            picker,
+            picked: Cell::new(initial),
+            switches,
+            guard: self.writes.guard.clone(),
+            drawn: RefCell::default(),
+            feed: feed.clone(),
+            request,
+        });
+        // Selected before the handler is connected, so nothing is drawn
+        // until the page is mapped.
+        page.picker.select(initial);
+        let picking = Rc::downgrade(&page);
+        page.picker.connect_picked(move |index| {
+            if let Some(page) = picking.upgrade() {
+                page.pick(index);
             }
-            let switchable = self.control.switchable();
-            let built = ports
-                .iter()
-                .map(|state| {
-                    let widget = adw::PreferencesPage::new();
-                    let switch = switchable.contains(state.index).then(|| {
-                        let switch = gtk::Switch::builder()
-                            .valign(gtk::Align::Center)
-                            .sensitive(false)
-                            .build();
-                        switch.update_property(&[gtk::accessible::Property::Label("Enabled")]);
-                        self.connect(state.index, &switch, feed);
-                        switch
-                    });
-                    let page = PortPage {
-                        index: state.index,
-                        page: widget.downgrade(),
-                        placement,
-                        switch,
-                        guard: self.writes.guard.clone(),
-                        drawn: RefCell::default(),
-                    };
-                    let row =
-                        sidebar.add(&self.list, &port::label(placement, state.index), &widget);
-                    row.set_use_markup(false);
-                    if let Some(feed) = &feed.upgrade() {
-                        show_while_mapped(feed, &widget, request, move |reading| {
-                            if let Some(ports) = &reading.ports {
-                                let devices = reading.usb.as_deref().unwrap_or_default();
-                                page.show(ports, devices);
-                            }
-                        });
-                    }
-                    Port {
-                        index: state.index,
-                        row,
-                        charging: Cell::default(),
-                    }
-                })
-                .collect();
-            *self.ports.borrow_mut() = built;
+        });
+        let row = sidebar.add(self.heading, PORTS, &widget);
+        if let Some(feed) = &feed.upgrade() {
+            let showing = page.clone();
+            show_while_mapped(feed, &widget, request, move |reading| {
+                if let Some(ports) = &reading.ports {
+                    let devices = reading.usb.as_deref().unwrap_or_default();
+                    showing.show(ports, devices);
+                }
+            });
         }
-        for (port, state) in self.ports.borrow().iter().zip(&ports) {
-            port.row.set_subtitle(&port_line(placement, state, devices));
-            port.charging.set(powering == Some(state.index));
-        }
-        if !same {
-            sidebar.settle();
+        Shown {
+            row,
+            page,
+            indices,
+            powering: Cell::default(),
         }
     }
 
@@ -284,62 +318,101 @@ impl Section {
         );
     }
 
+    /// Picks the port the target names on the page, as well as answering
+    /// with the row.
     fn charger(&self) -> Option<gtk::ListBoxRow> {
-        let ports = self.ports.borrow();
-        ports
-            .iter()
-            .find(|port| port.charging.get())
-            .or_else(|| ports.first())
-            .map(|port| port.row.clone().upcast())
+        let shown = self.shown.borrow();
+        let shown = shown.as_ref()?;
+        shown
+            .page
+            .picker
+            .select(preferred(shown.powering.get(), &shown.indices)?);
+        Some(shown.row.clone().upcast())
     }
 }
 
-impl PortPage {
+fn preferred(powering: Option<u8>, indices: &[u8]) -> Option<u8> {
+    powering.or_else(|| indices.first().copied())
+}
+
+impl PortsPage {
     fn show(&self, ports: &[PortState], devices: &[Attached]) {
+        self.picker.show(ports);
+        self.draw(ports, devices);
+    }
+
+    /// A pick between a write and the reading after it draws nothing until
+    /// that reading.
+    fn pick(&self, index: u8) {
+        self.picked.set(index);
+        self.clear();
+        let held = self.feed.upgrade().and_then(|feed| feed.held(self.request));
+        if let Some(reading) = held
+            && let Some(ports) = &reading.ports
+        {
+            self.draw(ports, reading.usb.as_deref().unwrap_or_default());
+        }
+    }
+
+    fn switch(&self) -> Option<&gtk::Switch> {
+        let picked = self.picked.get();
+        self.switches
+            .iter()
+            .find(|(index, _)| *index == picked)
+            .map(|(_, switch)| switch)
+    }
+
+    fn clear(&self) {
+        let Some(drawn) = self.drawn.take() else {
+            return;
+        };
+        if let Some(first) = drawn.groups.first() {
+            first.set_header_suffix(None::<&gtk::Widget>);
+        }
+        if let Some(page) = self.page.upgrade() {
+            for group in drawn.groups {
+                page.remove(&group);
+            }
+        }
+    }
+
+    fn draw(&self, ports: &[PortState], devices: &[Attached]) {
         let Some(page) = self.page.upgrade() else {
             return;
         };
-        let Some(state) = ports.iter().find(|state| state.index == self.index) else {
+        let index = self.picked.get();
+        let Some(state) = ports.iter().find(|state| state.index == index) else {
             return;
         };
         let layout = match &state.mask {
-            PortMask::Off => vec![off_group(self.placement, self.index)],
+            PortMask::Off => vec![off_group(self.placement, index)],
             PortMask::On(reading, _) | PortMask::Unchecked(reading, _) => {
-                let devices = self.placement.attached(self.index, devices);
-                let mut layout = vec![connection_group(self.placement, self.index, reading)];
-                layout.extend(cable_group(reading));
+                let devices = self.placement.attached(index, devices);
+                let mut layout = vec![connection_group(self.placement, index, reading)];
                 layout.extend(contract_group(reading));
                 layout.extend(devices.into_iter().map(device_group));
                 layout
             }
         };
-        let mut drawn = self.drawn.borrow_mut();
-        if let Some(shown) = drawn.as_mut()
-            && shown
+        if let Some(drawn) = self.drawn.borrow_mut().as_mut()
+            && drawn
                 .layout
                 .iter()
                 .map(Group::shape)
                 .eq(layout.iter().map(Group::shape))
         {
-            let old = shown.layout.iter().flat_map(|group| &group.values);
+            let old = drawn.layout.iter().flat_map(|group| &group.values);
             let fresh = layout.iter().flat_map(|group| &group.values);
-            for ((label, old), new) in shown.values.iter().zip(old).zip(fresh) {
+            for ((label, old), new) in drawn.values.iter().zip(old).zip(fresh) {
                 if old != new {
                     label.set_label(new);
                 }
             }
-            shown.layout = layout;
-            self.show_mask(state, &shown.groups);
+            drawn.layout = layout;
+            self.show_mask(state, &drawn.groups);
             return;
         }
-        if let Some(shown) = drawn.take() {
-            if let Some(first) = shown.groups.first() {
-                first.set_header_suffix(None::<&gtk::Widget>);
-            }
-            for group in shown.groups {
-                page.remove(&group);
-            }
-        }
+        self.clear();
         let mut groups = Vec::new();
         let mut values = Vec::new();
         for laid in &layout {
@@ -355,11 +428,11 @@ impl PortPage {
             page.add(&group);
             groups.push(group);
         }
-        if let (Some(switch), Some(first)) = (&self.switch, groups.first()) {
+        if let (Some(switch), Some(first)) = (self.switch(), groups.first()) {
             first.set_header_suffix(Some(switch));
         }
         self.show_mask(state, &groups);
-        *drawn = Some(Drawn {
+        *self.drawn.borrow_mut() = Some(Drawn {
             groups,
             values,
             layout,
@@ -369,7 +442,7 @@ impl PortPage {
     /// The first group's description is the switch's, since the switch has
     /// no row of its own to carry one.
     fn show_mask(&self, state: &PortState, groups: &[adw::PreferencesGroup]) {
-        let (Some(switch), Some(first)) = (&self.switch, groups.first()) else {
+        let (Some(switch), Some(first)) = (self.switch(), groups.first()) else {
             return;
         };
         let refusal = state.mask.refusal();
@@ -382,59 +455,35 @@ impl PortPage {
 }
 
 fn off_group(placement: Placement, index: u8) -> Group {
-    let mut group = Group::new(TURNED_OFF);
-    if let Some(number) = port::secondary(placement, index) {
-        group.row("Port", number);
-    }
-    group
+    Group::new(port::heading(placement, index))
 }
 
 fn connection_group(placement: Placement, index: u8, state: &PortReading) -> Group {
-    let mut group = Group::new(partner_label(state.partner).unwrap_or(NOTHING_ATTACHED));
-    if let Some(number) = port::secondary(placement, index) {
-        group.row("Port", number);
+    let mut group = Group::new(port::heading(placement, index));
+    if state.partner != PortPartner::Nothing {
+        if let Some(video) = display_port_label(state) {
+            group.row(DISPLAY_PORT, video);
+        }
+        if let Some(power) = power_role_label(state.partner, state.power_role) {
+            group.row("Power role", power);
+        }
+        if let Some(vconn) = vconn_label(state.vconn) {
+            group.described(
+                "VCONN",
+                "Power for the chips inside the cable or accessory",
+                vconn,
+            );
+        }
+        if let Some(data) = data_role_label(state.data_role) {
+            group.row("Data role", data);
+        }
     }
-    if state.partner == PortPartner::Nothing {
-        return group;
-    }
-    if let Some(powering) = powering_label(state) {
-        group.row(POWERING_THE_MACHINE, powering);
-    }
-    if let Some(video) = display_port_label(state) {
-        group.row("DisplayPort", video);
-    }
-    if let Some(power) = power_role_label(state.partner, state.power_role) {
-        group.row("Power role", power);
-    }
-    if let Some(vconn) = vconn_label(state.vconn) {
-        group.described(
-            "VCONN",
-            "Power for the chips inside the cable or accessory",
-            vconn,
-        );
-    }
-    if let Some(data) = data_role_label(state.data_role) {
-        group.row("Data role", data);
+    if let Some(cable) = state.registers.and_then(|registers| registers.cable)
+        && let Some(label) = cable_label(&cable)
+    {
+        group.push("Cable", cable_type_label(cable.active), label);
     }
     group
-}
-
-fn cable_group(state: &PortReading) -> Option<Group> {
-    let cable = state.registers?.cable?;
-    let mut group = Group::new("Cable");
-    if let Some(kind) = cable_type_label(cable.active) {
-        group.row("Type", kind);
-    }
-    if let Some(speed) = cable.speed {
-        group.row("Speed", cable_speed_label(speed));
-    }
-    if let Some(rating) = cable_rating_label(&cable) {
-        group.row("Rating", rating);
-    }
-    if let Some(latency) = cable.latency {
-        group.row("Length", cable_length_label(latency));
-    }
-    Some(group)
 }
 
 fn contract_group(state: &PortReading) -> Option<Group> {

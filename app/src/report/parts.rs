@@ -34,7 +34,7 @@ pub(super) fn action(daemon: Rc<Daemon>) -> gio::ActionEntry<adw::Application> {
 fn build(shell: Shell, window: &adw::Window, daemon: &Rc<Daemon>) -> adw::NavigationSplitView {
     let panes = panes();
     let split = panes.split.clone();
-    collapse_when_narrow(window, &split);
+    collapse_when_narrow(window, &split, 500.0);
     let daemon = daemon.clone();
     glib::spawn_future_local(async move {
         // A part sold as a kit per machine is named by the machine and not by

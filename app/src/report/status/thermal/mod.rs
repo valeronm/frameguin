@@ -18,7 +18,7 @@ use frameguin_wire::Bus;
 use gtk4 as gtk;
 
 use self::track::{TrackView, legend};
-use super::Sidebar;
+use super::{Section, Sidebar};
 use crate::reading::{Feed, show_while_mapped};
 use crate::report::{value_label, value_row};
 
@@ -93,7 +93,7 @@ impl SensorRow {
 
 pub(super) fn add(
     sidebar: &Rc<Sidebar>,
-    list: &gtk::ListBox,
+    section: Section,
     feed: &Rc<Feed>,
     thermal: &Thermal<Bus>,
     platform: Platform,
@@ -124,7 +124,7 @@ pub(super) fn add(
     if !fans.is_empty() {
         page.add(&fan_group);
     }
-    let row = sidebar.add(list, "Temperatures", &page);
+    let row = sidebar.add(section, "Temperatures", &page);
 
     let summary = Request {
         thermal: true,

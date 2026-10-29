@@ -10,13 +10,12 @@ use frameguin_model::reading::Request;
 use frameguin_modelview::extender::{
     description, first_stage_label, reset_words, stage_label, trigger_label,
 };
-use gtk4 as gtk;
 
-use super::Sidebar;
+use super::{Section, Sidebar};
 use crate::reading::Feed;
 use crate::report::{value, value_row};
 
-pub(super) fn add(sidebar: &Rc<Sidebar>, list: &gtk::ListBox, feed: &Rc<Feed>) {
+pub(super) fn add(sidebar: &Rc<Sidebar>, section: Section, feed: &Rc<Feed>) {
     let page = adw::PreferencesPage::new();
     let group = adw::PreferencesGroup::builder()
         .description(description())
@@ -25,7 +24,7 @@ pub(super) fn add(sidebar: &Rc<Sidebar>, list: &gtk::ListBox, feed: &Rc<Feed>) {
     let (first_stage_row, first_stage) = value_row(&group, "Starts in");
     let (reset_row, reset) = value_row(&group, "");
     page.add(&group);
-    let row = sidebar.add(list, "Extender", &page);
+    let row = sidebar.add(section, "Extender", &page);
 
     let request = Request {
         extender: true,

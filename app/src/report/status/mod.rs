@@ -32,6 +32,10 @@ pub(crate) const ACTION: &str = "status";
 
 const TITLE: &str = "Readings";
 
+const SIDEBAR_WIDTH: f64 = 260.0;
+/// The narrowest a USB-C port's switch description still fits on one line.
+const CONTENT_WIDTH: i32 = 420;
+
 /// Only the window holds the rows a target is settled against, so the
 /// application action forwards its target to this action on the window.
 const SELECT: &str = "select";
@@ -89,7 +93,8 @@ fn build(
     feed: &Rc<Feed>,
 ) -> adw::NavigationSplitView {
     let (sidebar, split) = Sidebar::new();
-    collapse_when_narrow(window, &split);
+    collapse_when_narrow(window, &split, SIDEBAR_WIDTH + f64::from(CONTENT_WIDTH));
+    window.set_width_request(CONTENT_WIDTH);
 
     let select = gio::SimpleAction::new(SELECT, Some(glib::VariantTy::STRING));
     let selecting = sidebar.clone();
@@ -135,29 +140,29 @@ async fn fill(
         return;
     };
     if let Some(control) = &controls.thermal {
-        let list = sidebar.section("Thermals");
-        thermal::add(sidebar, &list, feed, control, controls.board.platform());
+        let section = sidebar.section("Thermals");
+        thermal::add(sidebar, section, feed, control, controls.board.platform());
     }
     if let Some(control) = &controls.battery {
-        let list = sidebar.section("Battery");
-        battery::add(sidebar, &list, feed, control);
+        let section = sidebar.section("Battery");
+        battery::add(sidebar, section, feed, control);
         if control.has(BatteryFeature::Extender) {
-            battery_extender::add(sidebar, &list, feed);
+            battery_extender::add(sidebar, section, feed);
         }
     }
     if let Some(control) = &controls.ports {
         ports::add(sidebar, feed, controls.usb.is_some(), control, writes);
     }
     if controls.chassis.is_some() || controls.privacy_switches.is_some() {
-        let list = sidebar.section("Switches");
+        let section = sidebar.section("Switches");
         if let Some(control) = &controls.chassis {
-            chassis::add(sidebar, &list, feed, control);
+            chassis::add(sidebar, section, feed, control);
         }
         if controls.privacy_switches.is_some() {
-            privacy_switches::add(sidebar, &list, feed);
+            privacy_switches::add(sidebar, section, feed);
         }
     }
-    if sidebar.lists.borrow().is_empty() {
+    if sidebar.sections.borrow().is_empty() {
         sidebar.pages.add_child(
             &adw::StatusPage::builder()
                 .icon_name("dialog-information-symbolic")
@@ -192,17 +197,16 @@ impl Writes {
     }
 }
 
-fn pick(row: &gtk::ListBoxRow) {
-    if let Some(list) = row.parent().and_downcast::<gtk::ListBox>() {
-        list.select_row(Some(row));
-    }
-}
-
 struct SidebarRow {
     row: gtk::ListBoxRow,
     page: gtk::Widget,
     title: String,
+    section: Section,
 }
+
+/// A heading in the sidebar, which rows are added under.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+struct Section(usize);
 
 type Find = dyn Fn(Target) -> Option<gtk::ListBoxRow>;
 
@@ -210,8 +214,11 @@ type Find = dyn Fn(Target) -> Option<gtk::ListBoxRow>;
 /// holding this. Everything else here is a descendant of it.
 struct Sidebar {
     split: glib::WeakRef<adw::NavigationSplitView>,
-    sections: gtk::Box,
-    lists: RefCell<Vec<gtk::ListBox>>,
+    /// A list with no selected row hands its first row the selection along
+    /// with keyboard focus entering it.
+    list: gtk::ListBox,
+    /// Indexed by [`Section`], in the order the rows are listed.
+    sections: RefCell<Vec<String>>,
     pages: gtk::Stack,
     titled: adw::NavigationPage,
     heading: adw::WindowTitle,
@@ -226,11 +233,13 @@ struct Sidebar {
 
 impl Sidebar {
     fn new() -> (Rc<Self>, adw::NavigationSplitView) {
-        let sections = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        let list = gtk::ListBox::builder()
+            .css_classes(["navigation-sidebar"])
+            .build();
         let listed = headed(
             &gtk::ScrolledWindow::builder()
                 .hscrollbar_policy(gtk::PolicyType::Never)
-                .child(&sections)
+                .child(&list)
                 .build(),
         );
         let pages = gtk::Stack::new();
@@ -243,7 +252,9 @@ impl Sidebar {
         // subscribes to nothing the fill would read.
         pages.set_opacity(0.0);
         let heading = adw::WindowTitle::new(TITLE, "");
-        let content = adw::ToolbarView::new();
+        let content = adw::ToolbarView::builder()
+            .width_request(CONTENT_WIDTH)
+            .build();
         content.add_top_bar(&adw::HeaderBar::builder().title_widget(&heading).build());
         content.set_content(Some(&pages));
         let titled = adw::NavigationPage::builder()
@@ -254,17 +265,15 @@ impl Sidebar {
             .title(TITLE)
             .child(&listed)
             .build();
-        // Wide enough for a port's summary on one line, which at the default
-        // quarter of the window wraps its wattage.
         let split = adw::NavigationSplitView::builder()
             .sidebar(&sidebar)
             .content(&titled)
-            .min_sidebar_width(260.0)
+            .min_sidebar_width(SIDEBAR_WIDTH)
             .build();
         let this = Rc::new(Self {
             split: split.downgrade(),
-            sections,
-            lists: RefCell::default(),
+            list,
+            sections: RefCell::default(),
             pages,
             titled,
             heading,
@@ -273,37 +282,28 @@ impl Sidebar {
             pending: Cell::default(),
             filled: Cell::default(),
         });
-        (this, split)
-    }
-
-    /// A list under `heading`, both hidden until a row is added.
-    fn section(self: &Rc<Self>, heading: &str) -> gtk::ListBox {
-        let list = gtk::ListBox::new();
-        list.add_css_class("navigation-sidebar");
-        list.set_visible(false);
-        let label = gtk::Label::builder()
-            .label(heading)
-            .xalign(0.0)
-            .margin_start(12)
-            .margin_top(12)
-            .margin_bottom(6)
-            .css_classes(["heading"])
-            .build();
-        list.bind_property("visible", &label, "visible")
-            .sync_create()
-            .build();
-        self.sections.append(&label);
-        self.sections.append(&list);
         // Weak: the list is a descendant of what this holds.
-        let showing = Rc::downgrade(self);
-        let heading = heading.to_owned();
-        list.connect_row_selected(move |list, row| {
+        let heading = Rc::downgrade(&this);
+        this.list.set_header_func(move |row, before| {
+            let Some(sidebar) = heading.upgrade() else {
+                return;
+            };
+            let header = sidebar
+                .section_of(row)
+                .filter(|&section| {
+                    before.and_then(|before| sidebar.section_of(before)) != Some(section)
+                })
+                .map(|section| sidebar.header(section));
+            row.set_header(header.as_ref());
+        });
+        let showing = Rc::downgrade(&this);
+        this.list.connect_row_selected(move |_, row| {
             if let (Some(sidebar), Some(row)) = (showing.upgrade(), row) {
-                sidebar.show(list, &heading, row);
+                sidebar.show(row);
             }
         });
-        let revealing = Rc::downgrade(self);
-        list.connect_row_activated(move |_, _| {
+        let revealing = Rc::downgrade(&this);
+        this.list.connect_row_activated(move |_, _| {
             if let Some(sidebar) = revealing.upgrade() {
                 // A row the reader picked outranks a target still waiting on
                 // its reading.
@@ -311,43 +311,69 @@ impl Sidebar {
                 sidebar.reveal();
             }
         });
-        self.lists.borrow_mut().push(list.clone());
-        list
+        (this, split)
     }
 
-    fn add(
-        &self,
-        list: &gtk::ListBox,
-        title: &str,
-        page: &impl IsA<gtk::Widget>,
-    ) -> adw::ActionRow {
+    /// A heading listed after every one before it, shown once a row is added
+    /// under it.
+    fn section(&self, heading: &str) -> Section {
+        let mut sections = self.sections.borrow_mut();
+        sections.push(heading.to_owned());
+        Section(sections.len() - 1)
+    }
+
+    fn position(&self, row: &gtk::ListBoxRow) -> Option<usize> {
+        self.rows
+            .borrow()
+            .iter()
+            .position(|listed| listed.row == *row)
+    }
+
+    fn section_of(&self, row: &gtk::ListBoxRow) -> Option<Section> {
+        self.position(row)
+            .map(|index| self.rows.borrow()[index].section)
+    }
+
+    fn header(&self, section: Section) -> gtk::Label {
+        gtk::Label::builder()
+            .label(&self.sections.borrow()[section.0])
+            .xalign(0.0)
+            .margin_start(12)
+            .margin_top(12)
+            .margin_bottom(6)
+            .css_classes(["heading"])
+            .build()
+    }
+
+    fn add(&self, section: Section, title: &str, page: &impl IsA<gtk::Widget>) -> adw::ActionRow {
         let row = adw::ActionRow::builder().title(title).build();
-        list.append(&row);
-        list.set_visible(true);
         self.pages.add_child(page);
-        self.rows.borrow_mut().push(SidebarRow {
-            row: row.clone().upcast(),
-            page: page.clone().upcast(),
-            title: title.to_owned(),
-        });
+        let position = {
+            let mut rows = self.rows.borrow_mut();
+            let position = rows
+                .iter()
+                .filter(|listed| listed.section <= section)
+                .count();
+            rows.push(SidebarRow {
+                row: row.clone().upcast(),
+                page: page.clone().upcast(),
+                title: title.to_owned(),
+                section,
+            });
+            position
+        };
+        self.list
+            .insert(&row, i32::try_from(position).unwrap_or(-1));
         row
     }
 
     fn remove(&self, row: &impl IsA<gtk::ListBoxRow>) {
         let row = row.as_ref();
-        let Some(index) = self
-            .rows
-            .borrow()
-            .iter()
-            .position(|listed| listed.row == *row)
-        else {
+        let Some(index) = self.position(row) else {
             return;
         };
         let removed = self.rows.borrow_mut().remove(index);
-        if let Some(list) = row.parent().and_downcast::<gtk::ListBox>() {
-            list.remove(row);
-            list.set_visible(list.row_at_index(0).is_some());
-        }
+        self.list.remove(row);
         self.pages.remove(&removed.page);
     }
 
@@ -378,24 +404,12 @@ impl Sidebar {
         }
         if let Some(row) = self.pending.get().and_then(|target| self.find(target)) {
             self.pending.set(None);
-            pick(&row);
+            self.list.select_row(Some(&row));
             self.reveal();
             return;
         }
-        let selected = self
-            .rows
-            .borrow()
-            .iter()
-            .any(|listed| listed.row.is_selected());
-        if !selected {
-            let first = self
-                .lists
-                .borrow()
-                .iter()
-                .find_map(|list| list.row_at_index(0));
-            if let Some(first) = first {
-                pick(&first);
-            }
+        if self.list.selected_row().is_none() {
+            self.list.select_row(self.list.row_at_index(0).as_ref());
         }
     }
 
@@ -411,28 +425,18 @@ impl Sidebar {
         }
     }
 
-    fn show(&self, list: &gtk::ListBox, heading: &str, row: &gtk::ListBoxRow) {
-        let others: Vec<_> = self
-            .lists
-            .borrow()
-            .iter()
-            .filter(|other| *other != list)
-            .cloned()
-            .collect();
-        for other in others {
-            other.unselect_all();
-        }
-        let shown = self
-            .rows
-            .borrow()
-            .iter()
-            .find(|listed| listed.row == *row)
-            .map(|listed| (listed.page.clone(), listed.title.clone()));
-        if let Some((page, title)) = shown {
-            self.pages.set_visible_child(&page);
-            self.titled.set_title(&title);
-            self.heading.set_title(heading);
-            self.heading.set_subtitle(&title);
-        }
+    fn show(&self, row: &gtk::ListBoxRow) {
+        let Some(index) = self.position(row) else {
+            return;
+        };
+        let (page, title, section) = {
+            let rows = self.rows.borrow();
+            let listed = &rows[index];
+            (listed.page.clone(), listed.title.clone(), listed.section)
+        };
+        self.pages.set_visible_child(&page);
+        self.titled.set_title(&title);
+        self.heading.set_title(&self.sections.borrow()[section.0]);
+        self.heading.set_subtitle(&title);
     }
 }

@@ -14,10 +14,21 @@ pub fn label(placement: Placement, index: u8) -> String {
         .map_or_else(|| number(index), |position| position_label(position, index))
 }
 
+/// A port's position and its number together, for heading what is shown of
+/// it.
+#[must_use]
+pub fn heading(placement: Placement, index: u8) -> String {
+    let label = label(placement, index);
+    match secondary(placement, index) {
+        Some(number) => format!("{label} · {number}"),
+        None => label,
+    }
+}
+
 /// What to call a port inside a line already separating its parts with
 /// ` · `, where a side alone takes its number after a comma instead.
 #[must_use]
-pub fn inline(placement: Placement, index: u8) -> String {
+pub(crate) fn inline(placement: Placement, index: u8) -> String {
     match placement.position(index) {
         Some(Position::Side { side, depth: None }) => {
             format!("{}, port {index}", side_label(side))
@@ -26,12 +37,25 @@ pub fn inline(placement: Placement, index: u8) -> String {
     }
 }
 
-/// The port's number as a line of its own, for showing under a [`label`]
-/// that named a position instead — the number is still what a reader has to
-/// match against a tool that only counts. None where the label already
-/// carries the number.
+/// Where a port is, inside a sentence.
 #[must_use]
-pub fn secondary(placement: Placement, index: u8) -> Option<String> {
+pub(crate) fn place(placement: Placement, index: u8) -> String {
+    match placement.position(index) {
+        None => number(index).to_lowercase(),
+        Some(Position::Side { side, depth: None }) => format!(
+            "{} on the {}",
+            number(index).to_lowercase(),
+            side_label(side).to_lowercase()
+        ),
+        Some(Position::Side { depth: Some(_), .. }) => label(placement, index).to_lowercase(),
+        Some(Position::Back) => "the back".to_owned(),
+    }
+}
+
+/// The port's number where [`label`] named a position instead — the number
+/// is still what a reader has to match against a tool that only counts.
+/// None where the label already carries the number.
+fn secondary(placement: Placement, index: u8) -> Option<String> {
     match placement.position(index)? {
         Position::Side { depth: None, .. } => None,
         _ => Some(number(index)),
@@ -79,7 +103,7 @@ mod tests {
     use frameguin_contract::Platform::Laptop13ProUltra3 as MEASURED;
     use frameguin_model::port::Placement;
 
-    use super::{inline, label, secondary};
+    use super::{heading, inline, label, place, secondary};
 
     #[test]
     fn the_default_places_nothing() {
@@ -130,10 +154,32 @@ mod tests {
     }
 
     #[test]
+    fn a_heading_carries_the_position_and_the_number() {
+        assert_eq!(heading(Placement::of(MEASURED), 2), "Left rear · Port 2");
+        assert_eq!(heading(Placement::of(SIDED), 2), "Left · Port 2");
+        assert_eq!(
+            heading(Placement::of(Platform::Laptop16Amd7040), 4),
+            "Back · Port 4"
+        );
+        assert_eq!(heading(Placement::of(Platform::Unknown), 2), "Port 2");
+    }
+
+    #[test]
     fn inside_a_line_a_side_takes_its_number_after_a_comma() {
         assert_eq!(inline(Placement::of(SIDED), 2), "Left, port 2");
         assert_eq!(inline(Placement::of(MEASURED), 2), "Left rear");
         assert_eq!(inline(Placement::of(Platform::Unknown), 2), "Port 2");
+    }
+
+    #[test]
+    fn inside_a_sentence_a_place_is_lowercase() {
+        assert_eq!(place(Placement::of(MEASURED), 2), "left rear");
+        assert_eq!(place(Placement::of(SIDED), 2), "port 2 on the left");
+        assert_eq!(
+            place(Placement::of(Platform::Laptop16Amd7040), 4),
+            "the back"
+        );
+        assert_eq!(place(Placement::of(Platform::Unknown), 2), "port 2");
     }
 
     #[test]

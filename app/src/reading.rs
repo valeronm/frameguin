@@ -186,6 +186,16 @@ impl Feed {
         InFlight::enter(&self.writing)
     }
 
+    /// The last reading where it covers `request`, which is None from a write
+    /// until the next reading and once the last view has gone.
+    pub(crate) fn held(&self, request: Request) -> Option<Rc<Reading>> {
+        self.last
+            .borrow()
+            .as_ref()
+            .filter(|last| last.covers(request))
+            .map(|last| last.reading.clone())
+    }
+
     /// Registers a view, and starts the timer where this is the first.
     ///
     /// Takes no reading for the first view: its window subscribes and then
@@ -255,13 +265,7 @@ impl Feed {
         let feed = self.clone();
         glib::idle_add_local_once(move || {
             // A tick may have replaced the reading with a narrower one.
-            let Some(reading) = feed
-                .last
-                .borrow()
-                .as_ref()
-                .filter(|last| last.covers(request))
-                .map(|last| last.reading.clone())
-            else {
+            let Some(reading) = feed.held(request) else {
                 return;
             };
             let show = feed

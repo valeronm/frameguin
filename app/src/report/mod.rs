@@ -117,11 +117,11 @@ fn headed(content: &impl IsA<gtk::Widget>) -> adw::ToolbarView {
     view
 }
 
-/// Below this width a sidebar and its content do not both fit.
-fn collapse_when_narrow(window: &adw::Window, split: &adw::NavigationSplitView) {
+/// Below `width` a sidebar and its content do not both fit.
+fn collapse_when_narrow(window: &adw::Window, split: &adw::NavigationSplitView, width: f64) {
     let narrow = adw::Breakpoint::new(adw::BreakpointCondition::new_length(
         adw::BreakpointConditionLengthType::MaxWidth,
-        500.0,
+        width,
         adw::LengthUnit::Px,
     ));
     narrow.add_setter(split, "collapsed", Some(&true.to_value()));

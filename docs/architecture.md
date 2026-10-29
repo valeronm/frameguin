@@ -112,14 +112,14 @@ layer must not link lives in another row.
 A column need not reach every row: a USB-C port is switched off rarely and
 kept that way, so the ports have no tray item and no group of their own in
 the main window — a column stops where it runs out of things to be. Their
-switch sits on each port's Readings page, and they put one row in the
+switches sit on the ports' page in Readings, and they put one row in the
 Charging State group, that being the question it answers: what is coming
 in, beside what the pack is doing about it — which is why that group is
 named for the subject rather than for the battery whose control it otherwise
 holds. The chassis,
 the privacy switches, and the temperature sensors and fans put nothing in
 the main window at all; their columns end at the Readings window. The USB
-devices end at the Readings window too, and are placed in a port's page by
+devices end at the Readings window too, and are placed under their port by
 `model::port` rather than by the daemon, which knows the board's name but
 not where its sockets are. The battery extender is a feature of the
 battery's column rather than a column of its own, and still takes a Readings

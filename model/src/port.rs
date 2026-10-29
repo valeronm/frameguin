@@ -97,6 +97,9 @@ struct Layout {
     /// Each port's root ports, in the EC's port order, None for one nobody
     /// measured.
     wiring: &'static [Option<Wiring>],
+    /// Slots on the chassis that no PD controller drives, which no EC port
+    /// names.
+    undriven: &'static [Position],
 }
 
 const RIGHT: Option<Position> = Some(Position::Side {
@@ -128,6 +131,7 @@ const LAYOUTS: &[Layout] = &[
         ],
         positions: &[RIGHT, RIGHT, LEFT, LEFT],
         wiring: &[],
+        undriven: &[],
     },
     Layout {
         platforms: &[Platform::Laptop13ProUltra3],
@@ -143,6 +147,7 @@ const LAYOUTS: &[Layout] = &[
             Some(pro_ultra_3(2, 5)),
             Some(pro_ultra_3(1, 4)),
         ],
+        undriven: &[],
     },
     Layout {
         platforms: &[Platform::Laptop16Amd7040, Platform::Laptop16AmdAi300],
@@ -154,6 +159,10 @@ const LAYOUTS: &[Layout] = &[
             Some(Position::Back),
         ],
         wiring: &[],
+        undriven: &[
+            Position::at(Side::Left, Depth::Front),
+            Position::at(Side::Right, Depth::Front),
+        ],
     },
 ];
 
@@ -182,6 +191,12 @@ impl Placement {
             .get(usize::from(index))
             .copied()
             .flatten()
+    }
+
+    /// Empty for a board no layout names.
+    #[must_use]
+    pub fn undriven(self) -> &'static [Position] {
+        self.layout.map_or(&[], |layout| layout.undriven)
     }
 
     /// Whether any socket on the board has its root ports measured.
@@ -230,7 +245,7 @@ impl Placement {
 
 #[cfg(test)]
 mod tests {
-    use super::Placement;
+    use super::{Depth, Placement, Position};
 
     use frameguin_contract::Platform::Laptop13AmdAi300 as SIDED;
     use frameguin_contract::Platform::Laptop13ProUltra3 as MEASURED;
@@ -301,6 +316,21 @@ mod tests {
             network: Vec::new(),
             storage: Vec::new(),
         }
+    }
+
+    #[test]
+    fn a_laptop_16s_front_slots_are_undriven() {
+        let undriven = Placement::of(Platform::Laptop16AmdAi300).undriven();
+        assert_eq!(undriven.len(), 2);
+        assert!(undriven.iter().all(|slot| matches!(
+            slot,
+            Position::Side {
+                depth: Some(Depth::Front),
+                ..
+            }
+        )));
+        assert!(Placement::of(MEASURED).undriven().is_empty());
+        assert!(Placement::default().undriven().is_empty());
     }
 
     #[test]

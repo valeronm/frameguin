@@ -1,10 +1,11 @@
-//! The USB-C ports: one read, which port is powering the machine, and the
-//! switch each port is.
+//! The USB-C ports: one read, which way power crosses each and so which
+//! port is powering the machine, and the switch each port is.
 
 use std::rc::Rc;
 
 use frameguin_contract::{
-    DeviceResult as Result, Platform, PortMask, PortReading, PortSet, PortState, PortsControl,
+    DeviceResult as Result, Platform, PortMask, PortPartner, PortReading, PortSet, PortState,
+    PortsControl,
 };
 
 use super::present;
@@ -53,6 +54,32 @@ impl<C: PortsControl> Ports<C> {
     }
 }
 
+/// Which way power crosses a port, said of the machine.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Flow {
+    In,
+    Out,
+}
+
+/// None where no power crosses the port. Power comes in through the port
+/// the EC charges from, on its word alone, and goes out only to a partner
+/// drawing it.
+#[must_use]
+pub fn flow(reading: &PortReading) -> Option<Flow> {
+    if reading.charging {
+        Some(Flow::In)
+    } else if reading.partner == PortPartner::Sink && carries_power(reading) {
+        Some(Flow::Out)
+    } else {
+        None
+    }
+}
+
+#[must_use]
+pub fn carries_power(reading: &PortReading) -> bool {
+    reading.millivolts != 0 && reading.milliamps != 0
+}
+
 /// The port the machine is drawing its power through, by its index, and
 /// None where none is. At most one answers, the EC picking among those
 /// offering.
@@ -61,7 +88,7 @@ pub fn powering(ports: &[PortState]) -> Option<(u8, &PortReading)> {
     ports.iter().find_map(|port| match &port.mask {
         PortMask::Off => None,
         PortMask::On(reading, _) | PortMask::Unchecked(reading, _) => {
-            reading.charging.then_some((port.index, reading))
+            (flow(reading) == Some(Flow::In)).then_some((port.index, reading))
         }
     })
 }
@@ -71,10 +98,11 @@ mod tests {
     use std::rc::Rc;
 
     use frameguin_contract::{
-        DeviceError, DeviceResult as Result, Platform, PortMask, PortSet, PortState,
+        DeviceError, DeviceResult as Result, Platform, PortMask, PortPartner, PortReading, PortSet,
+        PortState,
     };
 
-    use super::{Ports, powering};
+    use super::{Flow, Ports, flow, powering};
     use crate::testing::{Machine, absent, port, reading, ready};
 
     fn detect(machine: &Rc<Machine>) -> Result<Option<Ports<Machine>>> {
@@ -122,6 +150,34 @@ mod tests {
             mask: PortMask::Unchecked(reading(0), None),
         };
         assert_eq!(powering(&[unchecked]).map(|(index, _)| index), Some(0));
+    }
+
+    #[test]
+    fn power_comes_in_on_the_ecs_word_and_goes_out_only_with_watts() {
+        let negotiating = PortReading {
+            millivolts: 0,
+            milliamps: 0,
+            ..reading(0)
+        };
+        assert_eq!(flow(&negotiating), Some(Flow::In));
+        let device = PortReading {
+            partner: PortPartner::Sink,
+            charging: false,
+            millivolts: 5_000,
+            milliamps: 400,
+            ..reading(1)
+        };
+        assert_eq!(flow(&device), Some(Flow::Out));
+        let idle = PortReading {
+            milliamps: 0,
+            ..device
+        };
+        assert_eq!(flow(&idle), None);
+        let spare = PortReading {
+            charging: false,
+            ..reading(0)
+        };
+        assert_eq!(flow(&spare), None);
     }
 
     #[test]
