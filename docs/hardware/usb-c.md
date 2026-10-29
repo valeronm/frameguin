@@ -514,6 +514,10 @@ Who writes it:
 | The EC, `cypd_reset_pd_chip` | `0` only | the start of a controller reset: up to 650 ms for the ports to discharge, interrupts cleared, 1 s, then a chip reset that restarts the controller's firmware with its ports enabled |
 
 - The EC never writes the mask back.
+- The charge manager takes a port's supply from `cypd_update_port_state`,
+  which runs on the controller's interrupts, and drops it otherwise only
+  when `cypd_update_chips_state` marks the whole controller
+  `CCG_STATE_NO_POWER`.
 - The EC defines `CCG_PDPORT_DISABLE` (`0x00`) and `CCG_PDPORT_ENABLE`
   (`0x01`) and uses neither.
 
@@ -529,6 +533,7 @@ Who writes it:
 | UCSI through each of those writes | the partner, and its `ucsi-source-psy` supply's status and current, unchanged from before the first |
 | Laptop 13 Pro, nothing attached, one port's bit cleared, the mask polled every 50 ms | still enabled 18 ms after the write returned, disabled by 85 ms |
 | The same port's bit set again | enabled on the first read, 19 ms after |
+| Laptop 13 Pro, a 100 W charger and a 90 W display supplying power on one controller's two ports, the machine charging from the charger, the charger's bit cleared | the machine stops charging and does not move to the display's supply |
 
 - Consequence: each bit switches its own connector, so a single port of a
   controller can be turned off.
@@ -537,6 +542,9 @@ Who writes it:
 - Consequence: a read straight after a write turning a port off can still
   find it enabled; the time an attached device takes to discharge is
   unmeasured.
+- Consequence: turning off the port the machine charges from leaves the
+  charge manager holding that port's supply, so the machine runs on battery
+  with another supply attached until the port is turned back on.
 
 ## Persistence
 
@@ -565,6 +573,8 @@ Who writes it:
 - Whether a controller keeps its supply through an EC restart on a board
   without the reset hook.
 - Every observation above on a CCG5 or CCG6 controller.
+- Two supplies on different controllers, the one charging turned off: the
+  source predicts the same stall, untested.
 
 ## Sources
 
