@@ -15,7 +15,8 @@ use crate::drm::Displays;
 /// known to be on. Every machine keeps a port carrying video on while no
 /// panel and at most one other output is lit, since no output is placed on a
 /// port and the one lit may be the port's own, and keeps on a port whose
-/// entry did not answer.
+/// entry did not answer. Displays that did not read refuse nothing, since the
+/// panel or a board's own outputs are left to fall back on.
 pub(super) fn off_refusal(
     platform: Platform,
     port: u8,
@@ -71,9 +72,6 @@ pub(super) fn error(refusal: OffRefusal) -> DeviceError {
         OffRefusal::LastDisplay => DeviceError::InvalidArgs(
             "the port driving the only display on can't be turned off".into(),
         ),
-        OffRefusal::DisplaysUnchecked => DeviceError::Failed(
-            "the displays can't be checked, so a port driving one can't be turned off".into(),
-        ),
     }
 }
 
@@ -84,10 +82,9 @@ fn last_display(
     match video() {
         None => Some(OffRefusal::Unchecked),
         Some(false) => None,
-        Some(true) => match displays() {
-            None => Some(OffRefusal::DisplaysUnchecked),
-            Some(lit) => (!lit.internal && lit.external <= 1).then_some(OffRefusal::LastDisplay),
-        },
+        Some(true) => displays()
+            .filter(|lit| !lit.internal && lit.external <= 1)
+            .map(|_| OffRefusal::LastDisplay),
     }
 }
 
@@ -199,11 +196,11 @@ mod tests {
     }
 
     #[test]
-    fn a_port_carrying_video_stays_on_while_the_displays_are_unknown() {
+    fn a_port_carrying_video_turns_off_while_the_displays_are_unknown() {
         let states = [(0, Some(true)), (1, Some(true))];
         assert_eq!(
             off_refusal(DESKTOP, 1, || Some(true), || None, states),
-            Some(OffRefusal::DisplaysUnchecked)
+            None
         );
     }
 }

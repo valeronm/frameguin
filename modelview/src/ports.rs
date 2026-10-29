@@ -79,7 +79,6 @@ pub fn refusal_label(refusal: OffRefusal) -> &'static str {
         OffRefusal::LastPort => "Can't be turned off to allow charging",
         OffRefusal::Unchecked => "Can't be turned off while a port can't be checked",
         OffRefusal::LastDisplay => "Can't be turned off while it drives the only display",
-        OffRefusal::DisplaysUnchecked => "Can't be turned off while the displays can't be checked",
     }
 }
 

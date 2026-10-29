@@ -603,14 +603,11 @@ mod tests {
     }
 
     #[test]
-    fn a_port_carrying_video_is_refused_while_the_displays_do_not_read() {
+    fn a_port_carrying_video_turns_off_while_the_displays_do_not_read() {
         let ec = video_on(0);
         let (ports, _) = with_screens(&ec, None);
-        assert!(matches!(
-            ready(ports.set_enabled(0, false)),
-            Err(DeviceError::Failed(_))
-        ));
-        assert!(ec.masks_written.lock().unwrap().is_empty());
+        ready(ports.set_enabled(0, false)).unwrap();
+        assert_eq!(ec.masks_written.lock().unwrap().len(), 1);
     }
 
     #[test]

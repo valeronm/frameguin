@@ -880,9 +880,6 @@ pub enum OffRefusal {
     Unchecked,
     /// The port carries video and no other display is lit.
     LastDisplay,
-    /// The port carries video and the displays could not be read, so whether
-    /// another would be left lit is unknown.
-    DisplaysUnchecked,
 }
 
 #[derive(Serialize, Deserialize, Type, Clone, PartialEq, Eq, Debug)]
