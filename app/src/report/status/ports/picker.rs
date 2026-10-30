@@ -15,9 +15,9 @@ use frameguin_contract::PortState;
 use frameguin_model::control::ports::Flow;
 use frameguin_model::port::Placement;
 use frameguin_modelview::port_map::{Edge, Map, Outline, Slot};
-use frameguin_modelview::ports::{DISPLAY_PORT, Socket, port_line, socket, spoken};
+use frameguin_modelview::ports::{DISPLAY_PORT, PortLine, Socket, port_line, socket, spoken};
 use gtk4 as gtk;
-use gtk4::{cairo, glib};
+use gtk4::cairo;
 
 use crate::report::status::layers;
 
@@ -79,6 +79,8 @@ struct Choice {
     main: gtk::Label,
     display: gtk::Image,
     caption: gtk::Label,
+    /// What the button last showed, None before the first reading.
+    shown: RefCell<Option<(PortLine, Socket)>>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -194,38 +196,33 @@ impl Picker {
                 continue;
             };
             let line = port_line(self.placement, state, self.drawn.contains(&choice.index));
-            let caption = line.caption();
-            if choice.main.label() != line.main
-                || choice.caption.label() != caption
-                || choice.display.is_visible() != line.display
-            {
-                choice.main.set_label(&line.main);
-                choice.display.set_visible(line.display);
-                choice.caption.set_label(&caption);
-                choice.caption.set_visible(!caption.is_empty());
-                choice
-                    .button
-                    .update_property(&[gtk::accessible::Property::Label(&spoken(
-                        self.placement,
-                        state,
-                    ))]);
-            }
             let look = socket(state);
+            looks.push((choice.index, look));
+            if choice
+                .shown
+                .borrow()
+                .as_ref()
+                .is_some_and(|(shown, was)| *shown == line && *was == look)
+            {
+                continue;
+            }
+            let caption = line.caption();
+            choice.main.set_label(&line.main);
             let class = match look {
                 Socket::InUse(Some(flow)) => Some(flow_class(flow)),
                 _ => None,
             };
-            let color = class.as_slice();
-            if choice
-                .main
-                .css_classes()
-                .iter()
-                .map(glib::GString::as_str)
-                .ne(color.iter().copied())
-            {
-                choice.main.set_css_classes(color);
-            }
-            looks.push((choice.index, look));
+            choice.main.set_css_classes(class.as_slice());
+            choice.display.set_visible(line.display);
+            choice.caption.set_label(&caption);
+            choice.caption.set_visible(!caption.is_empty());
+            choice
+                .button
+                .update_property(&[gtk::accessible::Property::Label(&spoken(
+                    self.placement,
+                    state,
+                ))]);
+            choice.shown.replace(Some((line, look)));
         }
         if *self.looks.borrow() != looks {
             self.looks.replace(looks);
@@ -338,6 +335,7 @@ fn button(choices: &mut Vec<Choice>, index: u8, halign: gtk::Align) -> gtk::Togg
         main,
         display,
         caption,
+        shown: RefCell::default(),
     });
     button
 }

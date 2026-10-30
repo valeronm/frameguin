@@ -201,8 +201,9 @@ impl Section {
             *self.shown.borrow_mut() =
                 picked.map(|picked| self.build(sidebar, feed, request, indices, picked));
         }
-        if let Some(shown) = &*self.shown.borrow() {
-            shown.powering.set(powering);
+        if let Some(shown) = &*self.shown.borrow()
+            && shown.powering.replace(powering) != powering
+        {
             let subtitle = powering.map(|index| powered_from(placement, index));
             shown.row.set_subtitle(&subtitle.unwrap_or_default());
         }

@@ -303,13 +303,20 @@ impl Sidebar {
             let Some(sidebar) = heading.upgrade() else {
                 return;
             };
-            let header = sidebar
-                .section_of(row)
-                .filter(|&section| {
-                    before.and_then(|before| sidebar.section_of(before)) != Some(section)
-                })
-                .map(|section| sidebar.header(section));
-            row.set_header(header.as_ref());
+            let opens = sidebar.section_of(row).filter(|&section| {
+                before.and_then(|before| sidebar.section_of(before)) != Some(section)
+            });
+            let Some(section) = opens else {
+                row.set_header(None::<&gtk::Widget>);
+                return;
+            };
+            let kept = row
+                .header()
+                .and_downcast::<gtk::Label>()
+                .is_some_and(|label| label.label() == sidebar.sections.borrow()[section.0]);
+            if !kept {
+                row.set_header(Some(&sidebar.header(section)));
+            }
         });
         let showing = Rc::downgrade(&this);
         this.list.connect_row_selected(move |_, row| {
