@@ -14,16 +14,22 @@ pub enum Kind {
 }
 
 fn spell(value: f64, decimals: usize, unit: &str, kind: Kind) -> String {
+    format!("{} {unit}", figure(value, decimals, kind))
+}
+
+fn figure(value: f64, decimals: usize, kind: Kind) -> String {
     let spelled = format!("{value:.decimals$}");
     match kind {
-        Kind::Static => format!("{} {unit}", trimmed(spelled)),
-        Kind::Dynamic => format!("{spelled} {unit}"),
+        Kind::Static => trimmed(spelled),
+        Kind::Dynamic => spelled,
     }
 }
 
+const VOLT_DECIMALS: usize = 2;
+
 #[must_use]
 pub fn volts(millivolts: u32, kind: Kind) -> String {
-    spell(f64::from(millivolts) / 1000.0, 2, "V", kind)
+    spell(f64::from(millivolts) / 1000.0, VOLT_DECIMALS, "V", kind)
 }
 
 /// A reading whose source resolves only a tenth of a volt, fixed to that
@@ -43,6 +49,14 @@ pub fn cell_volts(cell_millivolts: &[u32]) -> String {
             .map(|millivolts| format!("{:.3}", f64::from(*millivolts) / 1000.0)),
     );
     format!("{cells} V")
+}
+
+/// A static span, its unit written once.
+#[must_use]
+pub fn volt_span(low_millivolts: u32, high_millivolts: u32) -> String {
+    let number =
+        |millivolts: u32| figure(f64::from(millivolts) / 1000.0, VOLT_DECIMALS, Kind::Static);
+    format!("{}–{} V", number(low_millivolts), number(high_millivolts))
 }
 
 #[must_use]
@@ -80,8 +94,15 @@ pub fn watt_hours(milliamp_hours: u32, millivolts: u32) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        Kind, amps, cell_volts, milliamps, millivolts, tenth_volts, volts, watt_hours, watts,
+        Kind, amps, cell_volts, milliamps, millivolts, tenth_volts, volt_span, volts, watt_hours,
+        watts,
     };
+
+    #[test]
+    fn a_span_of_voltages_drops_trailing_zeros_under_one_unit() {
+        assert_eq!(volt_span(18_500, 21_000), "18.5–21 V");
+        assert_eq!(volt_span(4_750, 5_250), "4.75–5.25 V");
+    }
 
     #[test]
     fn a_static_voltage_drops_its_trailing_zeros() {

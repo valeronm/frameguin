@@ -4,11 +4,11 @@ use frameguin_contract::{
     Cable, CableLatency, CableSpeed, DataRole, Epr, OffRefusal, PdContract, PeakCurrent, PortMask,
     PortPartner, PortReading, PortState, PowerRole, SupplyKind,
 };
-use frameguin_model::control::ports::{Flow, attached, carries_power, flow, powering};
+use frameguin_model::control::ports::{BusVoltage, Flow, attached, carries_power, flow, powering};
 use frameguin_model::port::Placement;
 
 use crate::port;
-use crate::units::{Kind, tenth_volts, volts, watts};
+use crate::units::{Kind, tenth_volts, volt_span, volts, watts};
 use crate::words::{NO_SUPPLY, joined, yes_no};
 
 /// An empty port, worded as the absence it is rather than as a kind of
@@ -50,8 +50,8 @@ pub fn carried(port: &PortReading) -> Option<String> {
 }
 
 #[must_use]
-pub fn measured_label(millivolts: u16) -> String {
-    tenth_volts(millivolts.into())
+pub fn measured_label(voltage: BusVoltage) -> String {
+    tenth_volts(voltage.measured_millivolts().into())
 }
 
 /// The port the machine draws its power through, named as that rather than as
@@ -350,6 +350,24 @@ pub fn power_limited_label(contract: &PdContract, partner: PortPartner) -> Optio
     contract.power_limited.map(yes_no)
 }
 
+/// The bus voltages the contract allows, where a window applies.
+#[must_use]
+pub fn expected_label(voltage: BusVoltage) -> Option<String> {
+    voltage.window().map(|window| {
+        format!(
+            "Expected {}",
+            volt_span(window.low_millivolts(), window.high_millivolts())
+        )
+    })
+}
+
+/// None where the measured bus voltage is within its window or no window
+/// applies.
+#[must_use]
+pub fn out_of_range_label(voltage: BusVoltage) -> Option<&'static str> {
+    voltage.out_of_range().then_some("Out of range")
+}
+
 /// None for a passive cable, the kind nearly every cable is.
 #[must_use]
 pub fn cable_type_label(active: bool) -> Option<&'static str> {
@@ -431,15 +449,16 @@ mod tests {
     };
     use frameguin_model::port::Placement;
 
-    use frameguin_model::control::ports::Flow;
+    use frameguin_model::control::ports::{BusVoltage, Flow, bus_voltage};
 
     use super::{
         NOTHING_ATTACHED, PortLine, Socket, cable_label, cable_length_label, cable_rating_label,
-        cable_speed_label, carried, data_role_label, display_port_label, line, measured_label,
-        mismatch_label, peak_label, port_line, power_limited_label, power_role_label, powered_from,
-        socket, spoken, supply_kind_label, supply_label, supply_summary,
+        cable_speed_label, carried, data_role_label, display_port_label, expected_label, line,
+        measured_label, mismatch_label, out_of_range_label, peak_label, port_line,
+        power_limited_label, power_role_label, powered_from, socket, spoken, supply_kind_label,
+        supply_label, supply_summary,
     };
-    use frameguin_model::fixtures::{port, reading};
+    use frameguin_model::fixtures::{measured, offer, port, reading};
 
     fn on(reading: PortReading) -> PortState {
         PortState {
@@ -450,7 +469,7 @@ mod tests {
 
     #[test]
     fn a_measured_voltage_reads_to_a_tenth_of_a_volt() {
-        assert_eq!(measured_label(20_100), "20.1 V");
+        assert_eq!(measured_label(measuring(&reading(0), 20_100)), "20.1 V");
     }
 
     #[test]
@@ -478,6 +497,39 @@ mod tests {
             carried(&offered).as_deref(),
             Some("100 W · 20 V · EPR available")
         );
+    }
+
+    fn measuring(reading: &PortReading, millivolts: u16) -> BusVoltage {
+        bus_voltage(&measured(reading, Some(SupplyKind::Fixed), millivolts))
+            .expect("registers read")
+    }
+
+    #[test]
+    fn a_checked_bus_voltage_names_the_range_its_contract_allows() {
+        let within = measuring(&reading(0), 19_800);
+        assert_eq!(
+            expected_label(within).as_deref(),
+            Some("Expected 18.5–21 V")
+        );
+        assert_eq!(out_of_range_label(within), None);
+    }
+
+    #[test]
+    fn a_bus_voltage_outside_its_window_is_flagged() {
+        let low = measuring(&reading(0), 17_000);
+        assert_eq!(expected_label(low).as_deref(), Some("Expected 18.5–21 V"));
+        assert_eq!(out_of_range_label(low), Some("Out of range"));
+    }
+
+    #[test]
+    fn an_unchecked_bus_voltage_names_no_range() {
+        let unknown = PortReading {
+            power_role: PowerRole::Unknown,
+            ..reading(0)
+        };
+        let unchecked = measuring(&unknown, 9_000);
+        assert_eq!(expected_label(unchecked), None);
+        assert_eq!(out_of_range_label(unchecked), None);
     }
 
     #[test]
@@ -789,12 +841,7 @@ mod tests {
     }
 
     fn fixed() -> PdContract {
-        PdContract {
-            kind: SupplyKind::Fixed,
-            peak: None,
-            power_limited: None,
-            capability_mismatch: false,
-        }
+        offer(SupplyKind::Fixed)
     }
 
     #[test]

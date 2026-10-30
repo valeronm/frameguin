@@ -5,8 +5,8 @@ use std::num::NonZeroU32;
 
 use crate::control::battery::ChargeSpeeds;
 use frameguin_contract::{
-    BatteryState, CcPolarity, ChargeCurrentLimit, ChargeFlow, DataRole, Epr, PortMask, PortPartner,
-    PortReading, PortState, PowerRole,
+    BatteryState, CcPolarity, ChargeCurrentLimit, ChargeFlow, DataRole, Epr, PdContract, PortMask,
+    PortPartner, PortReading, PortRegisters, PortState, PowerRole, SupplyKind,
 };
 
 /// A 4640 mAh pack, the Laptop 13's.
@@ -46,6 +46,31 @@ pub fn port(index: u8) -> PortState {
     PortState {
         index,
         mask: PortMask::On(reading(index), None),
+    }
+}
+
+/// An offer of `kind` declaring nothing past its kind.
+#[must_use]
+pub fn offer(kind: SupplyKind) -> PdContract {
+    PdContract {
+        kind,
+        peak: None,
+        power_limited: None,
+        capability_mismatch: false,
+    }
+}
+
+/// `reading` with its controller's registers read: `millivolts` measured on
+/// the bus, under an offer of `kind` or none.
+#[must_use]
+pub fn measured(reading: &PortReading, kind: Option<SupplyKind>, millivolts: u16) -> PortReading {
+    PortReading {
+        registers: Some(PortRegisters {
+            cable: None,
+            pd: kind.map(offer),
+            measured_millivolts: millivolts,
+        }),
+        ..*reading
     }
 }
 

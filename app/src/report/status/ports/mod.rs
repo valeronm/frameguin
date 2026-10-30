@@ -7,9 +7,7 @@
 //! The picked port's groups are laid out as titled rows before any widget is
 //! built and redrawn whole only when the titles change, its rows coming and
 //! going with what is attached; a reading that keeps them sets the values in
-//! place. A port keeps the last registers it read while the same kind of
-//! partner stays attached, for a reading that did not ask for them or failed
-//! to read them.
+//! place.
 //!
 //! What each value is *called* is `frameguin_modelview::ports`'s. Where a
 //! socket is on the machine is `frameguin_model::port`'s, which answers only
@@ -24,14 +22,15 @@ use std::time::Duration;
 
 use adw::prelude::*;
 use frameguin_contract::{Attached, PortMask, PortReading, PortState, PowerRole};
-use frameguin_model::control::ports::{Ports, attached, powering};
+use frameguin_model::control::ports::{Ports, attached, bus_voltage, powering};
 use frameguin_model::port::Placement;
 use frameguin_model::reading::{Reading, Request};
 use frameguin_modelview::port;
 use frameguin_modelview::ports::{
     DISPLAY_PORT, cable_label, cable_type_label, carried, contract_label, data_role_label,
-    display_port_label, measured_label, mismatch_label, peak_label, power_limited_label,
-    power_role_label, powered_from, refusal_label, supply_kind_label, vconn_label,
+    display_port_label, expected_label, measured_label, mismatch_label, out_of_range_label,
+    peak_label, power_limited_label, power_role_label, powered_from, refusal_label,
+    supply_kind_label, vconn_label,
 };
 use frameguin_modelview::usb::{capacity_label, device_name, network_label, speed_label};
 use frameguin_wire::Bus;
@@ -41,7 +40,7 @@ use gtk4::glib;
 use self::picker::Picker;
 use super::{Answer, Sidebar, Target, Writes};
 use crate::reading::{Feed, show_while_mapped};
-use crate::report::{described_value, value};
+use crate::report::value_row;
 use crate::synced::{Guard, connect_switch, show_switch};
 
 const PORTS: &str = "Ports";
@@ -88,24 +87,33 @@ struct PortsPage {
 
 struct Drawn {
     groups: Vec<adw::PreferencesGroup>,
-    /// One per row, in the order `layout` lists them.
-    values: Vec<gtk::Label>,
+    /// In the order `layout` lists them.
+    rows: Vec<DrawnRow>,
     layout: Vec<Group>,
+}
+
+struct DrawnRow {
+    row: adw::ActionRow,
+    value: gtk::Label,
+    /// Hidden while the row's value carries no warning.
+    warning: gtk::Image,
 }
 
 /// A group as the page lays it out, before any widget is built: a reading
 /// that keeps every title moves only the values, which are set in place.
 struct Group {
     title: String,
-    rows: Vec<Row>,
+    rows: Vec<&'static str>,
     /// One per row.
-    values: Vec<String>,
+    values: Vec<Value>,
 }
 
-#[derive(PartialEq)]
-struct Row {
-    title: &'static str,
-    subtitle: Option<&'static str>,
+#[derive(Default)]
+struct Value {
+    text: String,
+    subtitle: Option<String>,
+    /// What the warning icon says, and None where it is hidden.
+    warning: Option<&'static str>,
 }
 
 impl Group {
@@ -117,20 +125,32 @@ impl Group {
         }
     }
 
-    fn row(&mut self, title: &'static str, value: impl Into<String>) {
-        self.push(title, None, value.into());
+    fn row(&mut self, title: &'static str, text: impl Into<String>) {
+        self.described(title, None, text);
     }
 
-    fn described(&mut self, title: &'static str, subtitle: &'static str, value: impl Into<String>) {
-        self.push(title, Some(subtitle), value.into());
+    fn described(
+        &mut self,
+        title: &'static str,
+        subtitle: impl Into<Option<&'static str>>,
+        text: impl Into<String>,
+    ) {
+        self.push(
+            title,
+            Value {
+                text: text.into(),
+                subtitle: subtitle.into().map(str::to_owned),
+                warning: None,
+            },
+        );
     }
 
-    fn push(&mut self, title: &'static str, subtitle: Option<&'static str>, value: String) {
-        self.rows.push(Row { title, subtitle });
+    fn push(&mut self, title: &'static str, value: Value) {
+        self.rows.push(title);
         self.values.push(value);
     }
 
-    fn shape(&self) -> (&str, &[Row]) {
+    fn shape(&self) -> (&str, &[&'static str]) {
         (&self.title, &self.rows)
     }
 }
@@ -414,10 +434,8 @@ impl PortsPage {
         {
             let old = drawn.layout.iter().flat_map(|group| &group.values);
             let fresh = layout.iter().flat_map(|group| &group.values);
-            for ((label, old), new) in drawn.values.iter().zip(old).zip(fresh) {
-                if old != new {
-                    label.set_label(new);
-                }
+            for ((row, old), new) in drawn.rows.iter().zip(old).zip(fresh) {
+                row.show(old, new);
             }
             drawn.layout = layout;
             self.show_mask(state, &drawn.groups);
@@ -425,16 +443,13 @@ impl PortsPage {
         }
         self.clear();
         let mut groups = Vec::new();
-        let mut values = Vec::new();
+        let mut rows = Vec::new();
         for laid in &layout {
             let group = adw::PreferencesGroup::builder().title(&laid.title).build();
-            for (row, text) in laid.rows.iter().zip(&laid.values) {
-                let label = match row.subtitle {
-                    Some(subtitle) => described_value(&group, row.title, subtitle),
-                    None => value(&group, row.title),
-                };
-                label.set_label(text);
-                values.push(label);
+            for (title, value) in laid.rows.iter().zip(&laid.values) {
+                let row = DrawnRow::new(&group, title);
+                row.show(&Value::default(), value);
+                rows.push(row);
             }
             page.add(&group);
             groups.push(group);
@@ -445,7 +460,7 @@ impl PortsPage {
         self.show_mask(state, &groups);
         *self.drawn.borrow_mut() = Some(Drawn {
             groups,
-            values,
+            rows,
             layout,
         });
     }
@@ -462,6 +477,46 @@ impl PortsPage {
             switch.set_active(!matches!(state.mask, PortMask::Off));
             switch.set_sensitive(refusal.is_none());
         });
+    }
+}
+
+impl DrawnRow {
+    /// Its widgets show the default [`Value`]: empty, the icon hidden.
+    fn new(group: &adw::PreferencesGroup, title: &str) -> Self {
+        let (row, value) = value_row(group, title);
+        let warning = gtk::Image::from_icon_name("dialog-warning-symbolic");
+        warning.add_css_class("warning");
+        warning.set_visible(false);
+        row.add_suffix(&warning);
+        Self {
+            row,
+            value,
+            warning,
+        }
+    }
+
+    /// An empty subtitle is one the row hides.
+    fn show(&self, old: &Value, new: &Value) {
+        if old.text != new.text {
+            self.value.set_label(&new.text);
+        }
+        if old.subtitle != new.subtitle {
+            self.row
+                .set_subtitle(new.subtitle.as_deref().unwrap_or_default());
+        }
+        if old.warning != new.warning {
+            self.show_warning(new.warning);
+        }
+    }
+
+    /// The tooltip is out of reach of touch and keyboard.
+    fn show_warning(&self, warning: Option<&str>) {
+        self.warning.set_visible(warning.is_some());
+        self.warning.set_tooltip_text(warning);
+        self.warning
+            .update_property(&[gtk::accessible::Property::Label(
+                warning.unwrap_or_default(),
+            )]);
     }
 }
 
@@ -492,7 +547,7 @@ fn connection_group(placement: Placement, index: u8, state: &PortReading) -> Gro
     if let Some(cable) = state.registers.and_then(|registers| registers.cable)
         && let Some(label) = cable_label(&cable)
     {
-        group.push("Cable", cable_type_label(cable.active), label);
+        group.described("Cable", cable_type_label(cable.active), label);
     }
     group
 }
@@ -505,8 +560,15 @@ fn contract_group(state: &PortReading) -> Option<Group> {
     if let Some(supply) = carried(state) {
         group.described("Contract", contract_ceiling(state.power_role), supply);
     }
-    if let Some(registers) = state.registers {
-        group.row("Measured", measured_label(registers.measured_millivolts));
+    if let Some(voltage) = bus_voltage(state) {
+        group.push(
+            "Measured",
+            Value {
+                text: measured_label(voltage),
+                subtitle: expected_label(voltage),
+                warning: out_of_range_label(voltage),
+            },
+        );
     }
     if let Some(pd) = state.registers.and_then(|registers| registers.pd) {
         if let Some(kind) = supply_kind_label(pd.kind) {

@@ -4,8 +4,8 @@
 use std::rc::Rc;
 
 use frameguin_contract::{
-    DeviceResult as Result, Platform, PortMask, PortPartner, PortReading, PortSet, PortState,
-    PortsControl,
+    DeviceResult as Result, PdContract, Platform, PortMask, PortPartner, PortReading, PortSet,
+    PortState, PortsControl, PowerRole, SupplyKind,
 };
 
 use super::present;
@@ -87,6 +87,107 @@ pub fn carries_power(reading: &PortReading) -> bool {
     reading.millivolts != 0 && reading.milliamps != 0
 }
 
+/// The bus voltages a port's contract allows where its controller measures,
+/// in millivolts, both ends included.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct VoltageWindow {
+    low: u32,
+    high: u32,
+}
+
+impl VoltageWindow {
+    #[must_use]
+    pub fn low_millivolts(self) -> u32 {
+        self.low
+    }
+
+    #[must_use]
+    pub fn high_millivolts(self) -> u32 {
+        self.high
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BusVoltage {
+    measured_millivolts: u16,
+    window: Option<VoltageWindow>,
+}
+
+impl BusVoltage {
+    #[must_use]
+    pub fn measured_millivolts(self) -> u16 {
+        self.measured_millivolts
+    }
+
+    /// None where no window applies: a port carrying no power, a contract on
+    /// a supply other than a fixed one or whose offer did not read, or a
+    /// power role the controller did not report.
+    #[must_use]
+    pub fn window(self) -> Option<VoltageWindow> {
+        self.window
+    }
+
+    /// False where no window applies.
+    #[must_use]
+    pub fn out_of_range(self) -> bool {
+        let measured = u32::from(self.measured_millivolts);
+        self.window
+            .is_some_and(|window| !(window.low..=window.high).contains(&measured))
+    }
+}
+
+/// USB PD's tolerance on a fixed supply's voltage at the source's connector.
+const FIXED_TOLERANCE_PERCENT: u32 = 5;
+
+/// The bus voltage Type-C allows at the source's connector with no power
+/// delivery contract, its vSafe5V.
+const TYPE_C_LOW_MILLIVOLTS: u32 = 4_750;
+const TYPE_C_HIGH_MILLIVOLTS: u32 = 5_500;
+
+/// The drop Type-C allows across a cable's power and ground wires together
+/// at its rated current.
+const CABLE_DROP_MILLIVOLTS: u32 = 500;
+
+/// None where the port's controller registers were not read.
+#[must_use]
+pub fn bus_voltage(reading: &PortReading) -> Option<BusVoltage> {
+    let registers = reading.registers?;
+    Some(BusVoltage {
+        measured_millivolts: registers.measured_millivolts,
+        window: voltage_window(reading, registers.pd),
+    })
+}
+
+/// The controller measures on the machine's side of the cable.
+fn voltage_window(reading: &PortReading, pd: Option<PdContract>) -> Option<VoltageWindow> {
+    if !carries_power(reading) {
+        return None;
+    }
+    let at_source = if reading.contract {
+        if pd?.kind != SupplyKind::Fixed {
+            return None;
+        }
+        let target = u32::from(reading.millivolts);
+        VoltageWindow {
+            low: target * (100 - FIXED_TOLERANCE_PERCENT) / 100,
+            high: target * (100 + FIXED_TOLERANCE_PERCENT) / 100,
+        }
+    } else {
+        VoltageWindow {
+            low: TYPE_C_LOW_MILLIVOLTS,
+            high: TYPE_C_HIGH_MILLIVOLTS,
+        }
+    };
+    match reading.power_role {
+        PowerRole::Source => Some(at_source),
+        PowerRole::Sink => Some(VoltageWindow {
+            low: at_source.low.saturating_sub(CABLE_DROP_MILLIVOLTS),
+            ..at_source
+        }),
+        PowerRole::Unknown => None,
+    }
+}
+
 /// The port the machine is drawing its power through, by its index, and
 /// None where none is. At most one answers, the EC picking among those
 /// offering.
@@ -106,10 +207,11 @@ mod tests {
 
     use frameguin_contract::{
         DeviceError, DeviceResult as Result, Platform, PortMask, PortPartner, PortReading, PortSet,
-        PortState,
+        PortState, PowerRole, SupplyKind,
     };
 
-    use super::{Flow, Ports, attached, flow, powering};
+    use super::{BusVoltage, Flow, Ports, VoltageWindow, attached, bus_voltage, flow, powering};
+    use crate::fixtures::measured;
     use crate::testing::{Machine, absent, port, reading, ready};
 
     fn detect(machine: &Rc<Machine>) -> Result<Option<Ports<Machine>>> {
@@ -205,5 +307,115 @@ mod tests {
     fn detection_carries_the_switchable_ports() {
         let ports = detect(&Machine::new()).unwrap().expect("ports answered");
         assert!(ports.switchable().contains(3));
+    }
+
+    fn supplying(contract: bool) -> PortReading {
+        PortReading {
+            contract,
+            power_role: PowerRole::Source,
+            millivolts: 5000,
+            ..reading(0)
+        }
+    }
+
+    fn voltage(reading: &PortReading) -> BusVoltage {
+        bus_voltage(reading).expect("registers read")
+    }
+
+    fn window(low: u32, high: u32) -> VoltageWindow {
+        VoltageWindow { low, high }
+    }
+
+    #[test]
+    fn a_fixed_contract_drawn_from_allows_its_tolerance_and_the_cables_drop() {
+        let drawn = measured(&reading(0), Some(SupplyKind::Fixed), 19_800);
+        assert_eq!(voltage(&drawn).window(), Some(window(18_500, 21_000)));
+    }
+
+    #[test]
+    fn a_measured_voltage_on_either_end_of_the_window_is_within_it() {
+        for (millivolts, out_of_range) in [
+            (18_500, false),
+            (21_000, false),
+            (18_400, true),
+            (21_100, true),
+        ] {
+            let drawn = measured(&reading(0), Some(SupplyKind::Fixed), millivolts);
+            assert_eq!(
+                voltage(&drawn).out_of_range(),
+                out_of_range,
+                "{millivolts} mV"
+            );
+        }
+    }
+
+    #[test]
+    fn type_c_power_drawn_from_allows_its_range_and_the_cables_drop() {
+        let type_c = PortReading {
+            contract: false,
+            millivolts: 5000,
+            ..reading(0)
+        };
+        let drawn = measured(&type_c, None, 5_000);
+        assert_eq!(voltage(&drawn).window(), Some(window(4_250, 5_500)));
+    }
+
+    #[test]
+    fn power_the_machine_supplies_is_measured_with_no_cable_between() {
+        let pd = measured(&supplying(true), Some(SupplyKind::Fixed), 5_000);
+        assert_eq!(voltage(&pd).window(), Some(window(4_750, 5_250)));
+        let type_c = measured(&supplying(false), None, 5_000);
+        assert_eq!(voltage(&type_c).window(), Some(window(4_750, 5_500)));
+    }
+
+    #[test]
+    fn a_supply_with_no_fixed_voltage_is_unchecked() {
+        for kind in [
+            SupplyKind::Pps,
+            SupplyKind::SprAvs,
+            SupplyKind::EprAvs,
+            SupplyKind::Variable,
+            SupplyKind::Battery,
+            SupplyKind::Reserved,
+        ] {
+            let drawn = measured(&reading(0), Some(kind), 9_000);
+            assert_eq!(voltage(&drawn).window(), None, "{kind:?}");
+        }
+    }
+
+    #[test]
+    fn a_contract_whose_offer_did_not_read_is_unchecked() {
+        let drawn = measured(&reading(0), None, 9_000);
+        assert_eq!(voltage(&drawn).window(), None);
+    }
+
+    #[test]
+    fn a_power_role_the_controller_did_not_report_is_unchecked() {
+        let unknown = PortReading {
+            power_role: PowerRole::Unknown,
+            ..reading(0)
+        };
+        let drawn = measured(&unknown, Some(SupplyKind::Fixed), 20_000);
+        assert_eq!(voltage(&drawn).window(), None);
+    }
+
+    #[test]
+    fn a_port_carrying_no_power_is_unchecked() {
+        let idle = measured(&reading(1), None, 0);
+        assert_eq!(voltage(&idle).window(), None);
+    }
+
+    #[test]
+    fn the_bus_voltage_carries_what_the_controller_measured() {
+        let drawn = measured(&reading(0), Some(SupplyKind::Fixed), 19_800);
+        assert_eq!(
+            bus_voltage(&drawn).map(BusVoltage::measured_millivolts),
+            Some(19_800)
+        );
+    }
+
+    #[test]
+    fn a_port_whose_registers_did_not_read_has_no_bus_voltage() {
+        assert_eq!(bus_voltage(&reading(0)), None);
     }
 }
