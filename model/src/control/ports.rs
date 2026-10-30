@@ -92,10 +92,17 @@ pub fn carries_power(reading: &PortReading) -> bool {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct VoltageWindow {
     low: u32,
+    target: u32,
     high: u32,
 }
 
 impl VoltageWindow {
+    /// The contract's voltage, and vSafe5V's where no contract stands.
+    #[must_use]
+    pub fn target_millivolts(self) -> u32 {
+        self.target
+    }
+
     #[must_use]
     pub fn low_millivolts(self) -> u32 {
         self.low
@@ -165,6 +172,7 @@ fn voltage_window(reading: &PortReading, pd: Option<PdContract>) -> Option<Volta
     }
     let vsafe5v = VoltageWindow {
         low: VSAFE5V_LOW_MILLIVOLTS,
+        target: VSAFE5V_MILLIVOLTS,
         high: VSAFE5V_HIGH_MILLIVOLTS,
     };
     let at_source = if reading.contract {
@@ -176,6 +184,7 @@ fn voltage_window(reading: &PortReading, pd: Option<PdContract>) -> Option<Volta
             VSAFE5V_MILLIVOLTS => vsafe5v,
             target => VoltageWindow {
                 low: target * (100 - FIXED_TOLERANCE_PERCENT) / 100,
+                target,
                 high: target * (100 + FIXED_TOLERANCE_PERCENT) / 100,
             },
         }
@@ -326,14 +335,17 @@ mod tests {
         bus_voltage(reading).expect("registers read")
     }
 
-    fn window(low: u32, high: u32) -> VoltageWindow {
-        VoltageWindow { low, high }
+    fn window(low: u32, target: u32, high: u32) -> VoltageWindow {
+        VoltageWindow { low, target, high }
     }
 
     #[test]
     fn a_fixed_contract_drawn_from_allows_its_tolerance_and_the_cables_drop() {
         let drawn = measured(&reading(0), Some(SupplyKind::Fixed), 19_800);
-        assert_eq!(voltage(&drawn).window(), Some(window(18_250, 21_000)));
+        assert_eq!(
+            voltage(&drawn).window(),
+            Some(window(18_250, 20_000, 21_000))
+        );
     }
 
     #[test]
@@ -361,7 +373,7 @@ mod tests {
             ..reading(0)
         };
         let drawn = measured(&type_c, None, 5_000);
-        assert_eq!(voltage(&drawn).window(), Some(window(4_000, 5_500)));
+        assert_eq!(voltage(&drawn).window(), Some(window(4_000, 5_000, 5_500)));
     }
 
     #[test]
@@ -371,9 +383,9 @@ mod tests {
             ..supplying(true)
         };
         let pd = measured(&nine_volts, Some(SupplyKind::Fixed), 9_000);
-        assert_eq!(voltage(&pd).window(), Some(window(8_550, 9_450)));
+        assert_eq!(voltage(&pd).window(), Some(window(8_550, 9_000, 9_450)));
         let type_c = measured(&supplying(false), None, 5_000);
-        assert_eq!(voltage(&type_c).window(), Some(window(4_750, 5_500)));
+        assert_eq!(voltage(&type_c).window(), Some(window(4_750, 5_000, 5_500)));
     }
 
     #[test]
@@ -383,9 +395,12 @@ mod tests {
             ..reading(0)
         };
         let drawn = measured(&five_volts, Some(SupplyKind::Fixed), 5_000);
-        assert_eq!(voltage(&drawn).window(), Some(window(4_000, 5_500)));
+        assert_eq!(voltage(&drawn).window(), Some(window(4_000, 5_000, 5_500)));
         let supplied = measured(&supplying(true), Some(SupplyKind::Fixed), 5_000);
-        assert_eq!(voltage(&supplied).window(), Some(window(4_750, 5_500)));
+        assert_eq!(
+            voltage(&supplied).window(),
+            Some(window(4_750, 5_000, 5_500))
+        );
     }
 
     #[test]

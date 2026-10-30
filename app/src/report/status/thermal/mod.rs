@@ -3,8 +3,6 @@
 //!
 //! What each value is *called* is `frameguin_modelview::thermal`'s.
 
-mod track;
-
 use std::rc::Rc;
 
 use adw::prelude::*;
@@ -12,68 +10,27 @@ use frameguin_contract::{Platform, Sensor, ThermalState, Thresholds};
 use frameguin_model::control::thermal::Thermal;
 use frameguin_model::reading::Request;
 use frameguin_modelview::thermal::{
-    NOT_PRESENT, Scale, fan_label, fan_name, sensor_name, temperature_label, thermal_summary,
+    FAN_RANGE, NOT_PRESENT, SHUTDOWN, Scale, THROTTLE, fan_label, fan_name, sensor_name,
+    temperature_label, thermal_summary,
 };
 use frameguin_wire::Bus;
 use gtk4 as gtk;
 
-use self::track::{TrackView, legend};
+use super::track::{TrackRow, legend};
 use super::{Section, Sidebar};
 use crate::reading::{Feed, show_while_mapped};
-use crate::report::{value_label, value_row};
+use crate::report::value_row;
 
-/// A `PreferencesRow` gives a child of its own none of an action row's
-/// padding or height.
-const ROW_PADDING: i32 = 12;
-const ROW_MARGIN: i32 = 10;
-const ROW_HEADER_HEIGHT: i32 = 30;
-
-/// A sensor's name and temperature over its track, which an action row has
-/// no place for.
 struct SensorRow {
     sensor: Sensor,
-    value: gtk::Label,
-    track: TrackView,
+    row: TrackRow,
 }
 
 impl SensorRow {
     fn new(group: &adw::PreferencesGroup, sensor: &Sensor) -> Self {
-        let title = sensor_name(sensor);
-        let name = gtk::Label::builder()
-            .label(&title)
-            .xalign(0.0)
-            .hexpand(true)
-            .ellipsize(gtk::pango::EllipsizeMode::End)
-            .build();
-        let value = value_label();
-        let header = gtk::Box::builder()
-            .orientation(gtk::Orientation::Horizontal)
-            .spacing(ROW_PADDING)
-            .height_request(ROW_HEADER_HEIGHT)
-            .build();
-        header.append(&name);
-        header.append(&value);
-        let track = TrackView::new();
-        let content = gtk::Box::builder()
-            .orientation(gtk::Orientation::Vertical)
-            .spacing(4)
-            .margin_top(ROW_MARGIN)
-            .margin_bottom(ROW_MARGIN)
-            .margin_start(ROW_PADDING)
-            .margin_end(ROW_PADDING)
-            .build();
-        content.append(&header);
-        content.append(track.widget());
-        let row = adw::PreferencesRow::builder()
-            .title(&title)
-            .activatable(false)
-            .child(&content)
-            .build();
-        group.add(&row);
         Self {
             sensor: sensor.clone(),
-            value,
-            track,
+            row: TrackRow::new(group, &sensor_name(sensor)),
         }
     }
 
@@ -83,10 +40,10 @@ impl SensorRow {
     fn show(&self, state: &ThermalState, thresholds: Option<(&[Thresholds], Scale)>) {
         let reading = state.sensors.iter().find(|s| s.index == self.sensor.index);
         let label = reading.map_or(NOT_PRESENT.to_owned(), |s| temperature_label(s.temperature));
-        self.value.set_label(&label);
+        self.row.value.set_label(&label);
         if let Some((all, scale)) = thresholds {
             let track = reading.and_then(|s| scale.track(&self.sensor, all, s.temperature));
-            self.track.show(track);
+            self.row.track.show(track);
         }
     }
 }
@@ -102,7 +59,7 @@ pub(super) fn add(
     let page = adw::PreferencesPage::new();
     let sensor_group = adw::PreferencesGroup::builder()
         .title("Sensors")
-        .header_suffix(&legend())
+        .header_suffix(&legend(FAN_RANGE, THROTTLE, SHUTDOWN))
         .build();
     let sensors: Vec<SensorRow> = layout
         .sensors

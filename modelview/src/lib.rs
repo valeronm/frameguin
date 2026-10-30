@@ -20,6 +20,7 @@ pub mod rows;
 pub mod thermal;
 pub mod touchpad;
 pub mod touchscreen;
+pub mod track;
 pub mod units;
 pub mod usb;
 pub(crate) mod words;

@@ -1,17 +1,24 @@
-//! A sensor's thresholds drawn as a line: the fan's ramp, the trip points and
-//! the temperature's place among them.
+//! A reading drawn on a line among the marks it is judged by, and a legend
+//! for those marks.
 //!
-//! Where each mark sits is `frameguin_modelview::thermal`'s.
+//! Where each mark sits is `frameguin_modelview`'s.
 
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use frameguin_modelview::thermal::{FAN_RANGE, SHUTDOWN, THROTTLE, Track};
+use adw::prelude::*;
+use frameguin_modelview::track::{Mark, Track};
 use gtk4 as gtk;
 use gtk4::cairo;
-use gtk4::prelude::*;
 
 use crate::report::status::layers;
+use crate::report::value_label;
+
+/// A `PreferencesRow` gives a child of its own none of an action row's
+/// padding or height.
+const ROW_PADDING: i32 = 12;
+const ROW_MARGIN: i32 = 10;
+const ROW_HEADER_HEIGHT: i32 = 30;
 
 const HEIGHT: i32 = 30;
 /// Room at each end for half the dot.
@@ -22,24 +29,90 @@ const LIMIT_HALF_HEIGHT: f64 = 6.0;
 const TICK_BASELINE: f64 = 28.0;
 const TICK_SIZE: f64 = 11.0;
 const TICK_SPACING: f64 = 4.0;
-const RAMP_WIDTH: f64 = 6.0;
+const BAND_WIDTH: f64 = 6.0;
 const LIMIT_WIDTH: f64 = 3.0;
 const SWATCH: i32 = 14;
 const LIMIT_SWATCH_WIDTH: i32 = 5;
 
-const RAMP_CLASS: &str = "accent";
-const CAUTION_CLASS: &str = "warning";
-const SHUTDOWN_CLASS: &str = "error";
+const BAND_CLASS: &str = "accent";
+
+const fn mark_class(mark: Mark) -> &'static str {
+    match mark {
+        Mark::Caution => "warning",
+        Mark::Shutdown => "error",
+        Mark::Target => "success",
+    }
+}
 
 type Paint = fn(&cairo::Context, &Track, f64) -> Result<(), cairo::Error>;
 
-const LAYERS: [(Option<&str>, Paint); 5] = [
+const LAYERS: [(Option<&str>, Paint); 6] = [
     (Some("dim-label"), paint_line),
-    (Some(RAMP_CLASS), paint_ramp),
-    (Some(CAUTION_CLASS), paint_cautions),
-    (Some(SHUTDOWN_CLASS), paint_shutdown),
+    (Some(BAND_CLASS), paint_band),
+    (Some(mark_class(Mark::Caution)), |cr, track, width| {
+        paint_marks(cr, track, Mark::Caution, width)
+    }),
+    (Some(mark_class(Mark::Shutdown)), |cr, track, width| {
+        paint_marks(cr, track, Mark::Shutdown, width)
+    }),
+    (Some(mark_class(Mark::Target)), |cr, track, width| {
+        paint_marks(cr, track, Mark::Target, width)
+    }),
     (None, paint_dot),
 ];
+
+/// A title and its value over a track, which an action row has no place for.
+pub(super) struct TrackRow {
+    header: gtk::Box,
+    pub(super) value: gtk::Label,
+    pub(super) track: TrackView,
+}
+
+impl TrackRow {
+    pub(super) fn new(group: &adw::PreferencesGroup, title: &str) -> Self {
+        let name = gtk::Label::builder()
+            .label(title)
+            .xalign(0.0)
+            .hexpand(true)
+            .ellipsize(gtk::pango::EllipsizeMode::End)
+            .build();
+        let value = value_label();
+        let header = gtk::Box::builder()
+            .orientation(gtk::Orientation::Horizontal)
+            .spacing(ROW_PADDING)
+            .height_request(ROW_HEADER_HEIGHT)
+            .build();
+        header.append(&name);
+        header.append(&value);
+        let track = TrackView::new();
+        let content = gtk::Box::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .spacing(4)
+            .margin_top(ROW_MARGIN)
+            .margin_bottom(ROW_MARGIN)
+            .margin_start(ROW_PADDING)
+            .margin_end(ROW_PADDING)
+            .build();
+        content.append(&header);
+        content.append(&track.root);
+        let row = adw::PreferencesRow::builder()
+            .title(title)
+            .activatable(false)
+            .child(&content)
+            .build();
+        group.add(&row);
+        Self {
+            header,
+            value,
+            track,
+        }
+    }
+
+    /// Placed after the value.
+    pub(super) fn add_suffix(&self, widget: &impl IsA<gtk::Widget>) {
+        self.header.append(widget);
+    }
+}
 
 pub(super) struct TrackView {
     root: gtk::Overlay,
@@ -48,7 +121,7 @@ pub(super) struct TrackView {
 }
 
 impl TrackView {
-    pub(super) fn new() -> Self {
+    fn new() -> Self {
         let root = gtk::Overlay::builder()
             .accessible_role(gtk::AccessibleRole::Img)
             .visible(false)
@@ -74,24 +147,31 @@ impl TrackView {
         }
     }
 
-    pub(super) fn widget(&self) -> &gtk::Overlay {
-        &self.root
-    }
-
     /// Hidden for None.
     pub(super) fn show(&self, track: Option<Track>) {
-        if *self.track.borrow() == track {
-            return;
+        {
+            let drawn = self.track.borrow();
+            if *drawn == track {
+                return;
+            }
+            if drawn.is_some() != track.is_some() {
+                self.root.set_visible(track.is_some());
+            }
+            let words = description(track.as_ref());
+            if description(drawn.as_ref()) != words {
+                self.root
+                    .update_property(&[gtk::accessible::Property::Description(words)]);
+            }
         }
-        self.root.set_visible(track.is_some());
-        let description = track.as_ref().map_or("", |track| &track.description);
-        self.root
-            .update_property(&[gtk::accessible::Property::Description(description)]);
         self.track.replace(track);
         for layer in &self.layers {
             layer.queue_draw();
         }
     }
+}
+
+fn description(track: Option<&Track>) -> &str {
+    track.map_or("", |track| track.description.as_str())
 }
 
 fn prepare(area: &gtk::DrawingArea, cr: &cairo::Context) {
@@ -106,8 +186,8 @@ fn prepare(area: &gtk::DrawingArea, cr: &cairo::Context) {
     cr.set_font_size(TICK_SIZE);
 }
 
-fn stroke_ramp(cr: &cairo::Context, from: f64, to: f64, y: f64) -> Result<(), cairo::Error> {
-    cr.set_line_width(RAMP_WIDTH);
+fn stroke_band(cr: &cairo::Context, from: f64, to: f64, y: f64) -> Result<(), cairo::Error> {
+    cr.set_line_width(BAND_WIDTH);
     cr.move_to(from, y);
     cr.line_to(to, y);
     cr.stroke()
@@ -122,25 +202,34 @@ fn stroke_limit(cr: &cairo::Context, x: f64, y: f64, half_height: f64) -> Result
 
 type Swatch = fn(&cairo::Context, f64, f64) -> Result<(), cairo::Error>;
 
-fn ramp_swatch(cr: &cairo::Context, width: f64, height: f64) -> Result<(), cairo::Error> {
-    stroke_ramp(cr, RAMP_WIDTH / 2.0, width - RAMP_WIDTH / 2.0, height / 2.0)
+fn band_swatch(cr: &cairo::Context, width: f64, height: f64) -> Result<(), cairo::Error> {
+    stroke_band(cr, BAND_WIDTH / 2.0, width - BAND_WIDTH / 2.0, height / 2.0)
 }
 
 fn limit_swatch(cr: &cairo::Context, width: f64, height: f64) -> Result<(), cairo::Error> {
     stroke_limit(cr, width / 2.0, height / 2.0, height / 2.0 - LIMIT_WIDTH)
 }
 
-/// No color is named in words: the accent is the user's to choose.
-pub(super) fn legend() -> gtk::Box {
+pub(super) fn legend(band: &str, caution: &str, shutdown: &str) -> gtk::Box {
     let legend = gtk::Box::builder()
         .orientation(gtk::Orientation::Horizontal)
         .spacing(12)
         .valign(gtk::Align::Center)
         .build();
     let entries: [(&str, i32, Swatch, &str); 3] = [
-        (RAMP_CLASS, SWATCH, ramp_swatch, FAN_RANGE),
-        (CAUTION_CLASS, LIMIT_SWATCH_WIDTH, limit_swatch, THROTTLE),
-        (SHUTDOWN_CLASS, LIMIT_SWATCH_WIDTH, limit_swatch, SHUTDOWN),
+        (BAND_CLASS, SWATCH, band_swatch, band),
+        (
+            mark_class(Mark::Caution),
+            LIMIT_SWATCH_WIDTH,
+            limit_swatch,
+            caution,
+        ),
+        (
+            mark_class(Mark::Shutdown),
+            LIMIT_SWATCH_WIDTH,
+            limit_swatch,
+            shutdown,
+        ),
     ];
     for (class, width, draw, words) in entries {
         let swatch = gtk::DrawingArea::builder()
@@ -210,24 +299,22 @@ fn paint_line(cr: &cairo::Context, track: &Track, width: f64) -> Result<(), cair
     Ok(())
 }
 
-fn paint_ramp(cr: &cairo::Context, track: &Track, width: f64) -> Result<(), cairo::Error> {
-    let Some((off, max)) = track.ramp else {
+fn paint_band(cr: &cairo::Context, track: &Track, width: f64) -> Result<(), cairo::Error> {
+    let Some((from, to)) = track.band else {
         return Ok(());
     };
-    stroke_ramp(cr, x(off, width), x(max, width), LINE_Y)
+    stroke_band(cr, x(from, width), x(to, width), LINE_Y)
 }
 
-fn stroke_limits(cr: &cairo::Context, at: &[u16], width: f64) -> Result<(), cairo::Error> {
-    at.iter()
-        .try_for_each(|at| stroke_limit(cr, x(*at, width), LINE_Y, LIMIT_HALF_HEIGHT))
-}
-
-fn paint_cautions(cr: &cairo::Context, track: &Track, width: f64) -> Result<(), cairo::Error> {
-    stroke_limits(cr, &track.cautions, width)
-}
-
-fn paint_shutdown(cr: &cairo::Context, track: &Track, width: f64) -> Result<(), cairo::Error> {
-    stroke_limits(cr, track.shutdown.as_slice(), width)
+fn paint_marks(
+    cr: &cairo::Context,
+    track: &Track,
+    mark: Mark,
+    width: f64,
+) -> Result<(), cairo::Error> {
+    track
+        .placed(mark)
+        .try_for_each(|at| stroke_limit(cr, x(at, width), LINE_Y, LIMIT_HALF_HEIGHT))
 }
 
 fn paint_dot(cr: &cairo::Context, track: &Track, width: f64) -> Result<(), cairo::Error> {

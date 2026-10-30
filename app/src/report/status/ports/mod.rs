@@ -27,17 +27,19 @@ use frameguin_model::port::Placement;
 use frameguin_model::reading::{Reading, Request};
 use frameguin_modelview::port;
 use frameguin_modelview::ports::{
-    DISPLAY_PORT, cable_label, cable_type_label, carried, contract_label, data_role_label,
-    display_port_label, expected_label, measured_label, mismatch_label, out_of_range_label,
+    DISPLAY_PORT, bus_track, cable_label, cable_type_label, carried, contract_label,
+    data_role_label, display_port_label, measured_label, mismatch_label, out_of_range_label,
     peak_label, power_limited_label, power_role_label, powered_from, refusal_label,
     supply_kind_label, vconn_label,
 };
+use frameguin_modelview::track::Track;
 use frameguin_modelview::usb::{capacity_label, device_name, network_label, speed_label};
 use frameguin_wire::Bus;
 use gtk4 as gtk;
 use gtk4::glib;
 
 use self::picker::Picker;
+use super::track::{TrackRow, TrackView};
 use super::{Answer, Sidebar, Target, Writes};
 use crate::reading::{Feed, show_while_mapped};
 use crate::report::value_row;
@@ -93,10 +95,16 @@ struct Drawn {
 }
 
 struct DrawnRow {
-    row: adw::ActionRow,
+    line: Line,
     value: gtk::Label,
     /// Hidden while the row's value carries no warning.
     warning: gtk::Image,
+}
+
+/// The widget that shows a row's [`Beneath`].
+enum Line {
+    Plain(adw::ActionRow),
+    Tracked(TrackView),
 }
 
 /// A group as the page lays it out, before any widget is built: a reading
@@ -109,9 +117,25 @@ struct Group {
 #[derive(Default)]
 struct Value {
     text: String,
-    subtitle: Option<String>,
     /// What the warning icon says, and None where it is hidden.
     warning: Option<&'static str>,
+    beneath: Beneath,
+}
+
+/// What sits under a row's title and value. A row with a track is a widget of
+/// another kind, holding the track whether or not this reading draws one.
+#[derive(Default, PartialEq)]
+enum Beneath {
+    #[default]
+    Nothing,
+    Subtitle(String),
+    Track(Option<Track>),
+}
+
+impl Value {
+    fn tracked(&self) -> bool {
+        matches!(self.beneath, Beneath::Track(_))
+    }
 }
 
 impl Group {
@@ -136,8 +160,10 @@ impl Group {
             title,
             Value {
                 text: text.into(),
-                subtitle: subtitle.into().map(str::to_owned),
-                warning: None,
+                beneath: subtitle.into().map_or(Beneath::Nothing, |subtitle| {
+                    Beneath::Subtitle(subtitle.to_owned())
+                }),
+                ..Value::default()
             },
         );
     }
@@ -150,24 +176,20 @@ impl Group {
         self.rows.iter().map(|(_, value)| value)
     }
 
-    fn same_titles(&self, other: &Self) -> bool {
-        self.title == other.title
-            && self
-                .rows
-                .iter()
-                .map(|(title, _)| title)
-                .eq(other.rows.iter().map(|(title, _)| title))
+    fn same_shape(&self, other: &Self) -> bool {
+        let shape = |(title, value): &(&'static str, Value)| (*title, value.tracked());
+        self.title == other.title && self.rows.iter().map(shape).eq(other.rows.iter().map(shape))
     }
 }
 
-/// Whether `fresh` keeps every group and row title of `drawn`, its values
-/// aside.
+/// Whether `fresh` keeps every group and row title of `drawn`, and which
+/// rows have a track, its values aside.
 fn same_layout(drawn: &[Group], fresh: &[Group]) -> bool {
     drawn.len() == fresh.len()
         && drawn
             .iter()
             .zip(fresh)
-            .all(|(drawn, fresh)| drawn.same_titles(fresh))
+            .all(|(drawn, fresh)| drawn.same_shape(fresh))
 }
 
 /// The row arrives with the first reading that carries a port.
@@ -458,7 +480,7 @@ impl PortsPage {
         for laid in &layout {
             let group = adw::PreferencesGroup::builder().title(&laid.title).build();
             for (title, value) in &laid.rows {
-                let row = DrawnRow::new(&group, title);
+                let row = DrawnRow::new(&group, title, value.tracked());
                 row.show(&Value::default(), value);
                 rows.push(row);
             }
@@ -492,15 +514,23 @@ impl PortsPage {
 }
 
 impl DrawnRow {
-    /// Its widgets show the default [`Value`]: empty, the icon hidden.
-    fn new(group: &adw::PreferencesGroup, title: &str) -> Self {
-        let (row, value) = value_row(group, title);
+    /// Its widgets show the default [`Value`]: empty, the icon and the track
+    /// hidden.
+    fn new(group: &adw::PreferencesGroup, title: &str, tracked: bool) -> Self {
         let warning = gtk::Image::from_icon_name("dialog-warning-symbolic");
         warning.add_css_class("warning");
         warning.set_visible(false);
-        row.add_suffix(&warning);
+        let (line, value) = if tracked {
+            let row = TrackRow::new(group, title);
+            row.add_suffix(&warning);
+            (Line::Tracked(row.track), row.value)
+        } else {
+            let (row, value) = value_row(group, title);
+            row.add_suffix(&warning);
+            (Line::Plain(row), value)
+        };
         Self {
-            row,
+            line,
             value,
             warning,
         }
@@ -511,12 +541,17 @@ impl DrawnRow {
         if old.text != new.text {
             self.value.set_label(&new.text);
         }
-        if old.subtitle != new.subtitle {
-            self.row
-                .set_subtitle(new.subtitle.as_deref().unwrap_or_default());
-        }
         if old.warning != new.warning {
             self.show_warning(new.warning);
+        }
+        if old.beneath == new.beneath {
+            return;
+        }
+        match (&self.line, &new.beneath) {
+            (Line::Plain(row), Beneath::Subtitle(subtitle)) => row.set_subtitle(subtitle),
+            (Line::Plain(row), _) => row.set_subtitle(""),
+            (Line::Tracked(view), Beneath::Track(track)) => view.show(track.clone()),
+            (Line::Tracked(view), _) => view.show(None),
         }
     }
 
@@ -576,8 +611,8 @@ fn contract_group(state: &PortReading) -> Option<Group> {
             "Measured",
             Value {
                 text: measured_label(voltage),
-                subtitle: expected_label(voltage),
                 warning: out_of_range_label(voltage),
+                beneath: Beneath::Track(bus_track(voltage)),
             },
         );
     }
@@ -635,7 +670,9 @@ fn device_group(device: &Attached) -> Group {
 
 #[cfg(test)]
 mod tests {
-    use super::{Group, same_layout};
+    use frameguin_modelview::track::{Mark, Track};
+
+    use super::{Beneath, Group, Value, same_layout};
 
     fn group(title: &str, rows: &[(&'static str, &str)]) -> Group {
         let mut group = Group::new(title);
@@ -671,6 +708,45 @@ mod tests {
         let drawn = [group("A", &[("One", "1"), ("Two", "2")]), group("B", &[])];
         let fresh = [group("A", &[("One", "1")]), group("B", &[("Two", "2")])];
         assert!(!same_layout(&drawn, &fresh));
+    }
+
+    #[test]
+    fn a_row_gaining_a_track_makes_a_new_layout() {
+        let drawn = [group("Port 1", &[("Measured", "19.9 V")])];
+        let mut fresh = Group::new("Port 1");
+        fresh.push(
+            "Measured",
+            Value {
+                text: "19.9 V".to_owned(),
+                beneath: Beneath::Track(None),
+                ..Value::default()
+            },
+        );
+        assert!(!same_layout(&drawn, &[fresh]));
+    }
+
+    #[test]
+    fn a_track_row_keeps_its_layout_whether_or_not_it_draws_a_track() {
+        let tracked = |track| {
+            let mut group = Group::new("Port 1");
+            group.push(
+                "Measured",
+                Value {
+                    text: "19.9 V".to_owned(),
+                    beneath: Beneath::Track(track),
+                    ..Value::default()
+                },
+            );
+            group
+        };
+        let track = Track {
+            band: Some((250, 750)),
+            marks: vec![(568, Mark::Target)],
+            dot: Some(550),
+            ticks: Vec::new(),
+            description: String::new(),
+        };
+        assert!(same_layout(&[tracked(None)], &[tracked(Some(track))]));
     }
 
     #[test]

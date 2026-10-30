@@ -51,15 +51,19 @@ pub fn cell_volts(cell_millivolts: &[u32]) -> String {
     format!("{cells} V")
 }
 
+/// A static voltage with no unit.
+#[must_use]
+pub fn volt_figure(millivolts: u32) -> String {
+    figure(f64::from(millivolts) / 1000.0, VOLT_DECIMALS, Kind::Static)
+}
+
 /// Both ends at a static voltage's precision.
 #[must_use]
 pub fn volt_span(low_millivolts: u32, high_millivolts: u32) -> String {
-    let low = figure(
-        f64::from(low_millivolts) / 1000.0,
-        VOLT_DECIMALS,
-        Kind::Static,
-    );
-    span(low, volts(high_millivolts, Kind::Static))
+    span(
+        volt_figure(low_millivolts),
+        volts(high_millivolts, Kind::Static),
+    )
 }
 
 #[must_use]

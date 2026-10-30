@@ -11,6 +11,7 @@ mod layers;
 mod ports;
 mod privacy_switches;
 mod thermal;
+mod track;
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;

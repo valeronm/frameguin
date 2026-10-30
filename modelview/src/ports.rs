@@ -4,11 +4,14 @@ use frameguin_contract::{
     Cable, CableLatency, CableSpeed, DataRole, Epr, OffRefusal, PdContract, PeakCurrent, PortMask,
     PortPartner, PortReading, PortState, PowerRole, SupplyKind,
 };
-use frameguin_model::control::ports::{BusVoltage, Flow, attached, carries_power, flow, powering};
+use frameguin_model::control::ports::{
+    BusVoltage, Flow, VoltageWindow, attached, carries_power, flow, powering,
+};
 use frameguin_model::port::Placement;
 
 use crate::port;
-use crate::units::{Kind, tenth_volts, volt_span, volts, watts};
+use crate::track::{Mark, Track, position};
+use crate::units::{Kind, tenth_volts, volt_figure, volt_span, volts, watts};
 use crate::words::{NO_SUPPLY, joined, yes_no};
 
 /// An empty port, worded as the absence it is rather than as a kind of
@@ -350,14 +353,35 @@ pub fn power_limited_label(contract: &PdContract, partner: PortPartner) -> Optio
     contract.power_limited.map(yes_no)
 }
 
-/// The bus voltages the contract allows, where a window applies.
+fn expected_label(window: VoltageWindow) -> String {
+    format!(
+        "Expected {}",
+        volt_span(window.low_millivolts(), window.high_millivolts())
+    )
+}
+
+/// None where no window applies. The scale runs half the window's width past
+/// each of its ends, and a reading past the scale sits at its end.
 #[must_use]
-pub fn expected_label(voltage: BusVoltage) -> Option<String> {
-    voltage.window().map(|window| {
-        format!(
-            "Expected {}",
-            volt_span(window.low_millivolts(), window.high_millivolts())
-        )
+pub fn bus_track(voltage: BusVoltage) -> Option<Track> {
+    let window = voltage.window()?;
+    let (low, target, high) = (
+        window.low_millivolts(),
+        window.target_millivolts(),
+        window.high_millivolts(),
+    );
+    let margin = (high - low) / 2;
+    let (start, end) = (low.saturating_sub(margin), high + margin);
+    let at = |millivolts: u32| position(millivolts, start, end);
+    Some(Track {
+        band: Some((at(low), at(high))),
+        marks: vec![(at(target), Mark::Target)],
+        dot: Some(at(voltage.measured_millivolts().into())),
+        ticks: [low, high, target]
+            .into_iter()
+            .map(|millivolts| (at(millivolts), volt_figure(millivolts)))
+            .collect(),
+        description: expected_label(window),
     })
 }
 
@@ -452,13 +476,15 @@ mod tests {
     use frameguin_model::control::ports::{BusVoltage, Flow, bus_voltage};
 
     use super::{
-        NOTHING_ATTACHED, PortLine, Socket, cable_label, cable_length_label, cable_rating_label,
-        cable_speed_label, carried, data_role_label, display_port_label, expected_label, line,
+        NOTHING_ATTACHED, PortLine, Socket, bus_track, cable_label, cable_length_label,
+        cable_rating_label, cable_speed_label, carried, data_role_label, display_port_label, line,
         measured_label, mismatch_label, out_of_range_label, peak_label, port_line,
         power_limited_label, power_role_label, powered_from, socket, spoken, supply_kind_label,
         supply_label, supply_summary,
     };
     use frameguin_model::fixtures::{measured, offer, port, reading};
+
+    use crate::track::Mark;
 
     fn on(reading: PortReading) -> PortState {
         PortState {
@@ -505,31 +531,57 @@ mod tests {
     }
 
     #[test]
-    fn a_checked_bus_voltage_names_the_range_its_contract_allows() {
-        let within = measuring(&reading(0), 19_800);
-        assert_eq!(
-            expected_label(within).as_deref(),
-            Some("Expected 18.25–21 V")
-        );
-        assert_eq!(out_of_range_label(within), None);
+    fn a_bus_voltage_within_its_window_is_not_flagged() {
+        assert_eq!(out_of_range_label(measuring(&reading(0), 19_800)), None);
     }
 
     #[test]
     fn a_bus_voltage_outside_its_window_is_flagged() {
         let low = measuring(&reading(0), 17_000);
-        assert_eq!(expected_label(low).as_deref(), Some("Expected 18.25–21 V"));
         assert_eq!(out_of_range_label(low), Some("Out of range"));
     }
 
     #[test]
-    fn an_unchecked_bus_voltage_names_no_range() {
+    fn an_unchecked_bus_voltage_is_not_flagged() {
         let unknown = PortReading {
             power_role: PowerRole::Unknown,
             ..reading(0)
         };
-        let unchecked = measuring(&unknown, 9_000);
-        assert_eq!(expected_label(unchecked), None);
-        assert_eq!(out_of_range_label(unchecked), None);
+        assert_eq!(out_of_range_label(measuring(&unknown, 9_000)), None);
+    }
+
+    #[test]
+    fn a_bus_voltage_is_drawn_on_a_scale_half_its_window_wider_each_side() {
+        let track = bus_track(measuring(&reading(0), 19_900)).expect("a window applies");
+        assert_eq!(track.band, Some((250, 750)));
+        assert_eq!(track.marks, [(568, Mark::Target)]);
+        assert_eq!(track.dot, Some(550));
+        assert_eq!(
+            track.ticks,
+            [
+                (250, "18.25".to_owned()),
+                (750, "21".to_owned()),
+                (568, "20".to_owned())
+            ]
+        );
+        assert_eq!(track.description, "Expected 18.25–21 V");
+    }
+
+    #[test]
+    fn a_bus_voltage_past_the_scale_sits_at_its_end() {
+        let below = bus_track(measuring(&reading(0), 15_000)).expect("a window applies");
+        assert_eq!(below.dot, Some(0));
+        let above = bus_track(measuring(&reading(0), 23_000)).expect("a window applies");
+        assert_eq!(above.dot, Some(1000));
+    }
+
+    #[test]
+    fn an_unchecked_bus_voltage_has_no_track() {
+        let unknown = PortReading {
+            power_role: PowerRole::Unknown,
+            ..reading(0)
+        };
+        assert_eq!(bus_track(measuring(&unknown, 9_000)), None);
     }
 
     #[test]

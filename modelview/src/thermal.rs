@@ -8,6 +8,7 @@ use frameguin_model::fan::FanPlacement;
 use frameguin_model::sensor::{SensorKind, ZERO_CELSIUS_KELVIN};
 
 use crate::battery::reading::percent_label;
+use crate::track::{Mark, Track, position};
 use crate::words::{joined, span};
 
 /// For a sensor or fan present at detection that the EC now reports absent.
@@ -110,22 +111,6 @@ pub const FAN_RANGE: &str = "Fan range";
 pub const THROTTLE: &str = "Throttle";
 pub const SHUTDOWN: &str = "Shutdown";
 
-/// One sensor's thresholds laid along a line, every position in thousandths
-/// of its length.
-#[derive(PartialEq, Eq, Debug)]
-pub struct Track {
-    pub ramp: Option<(u16, u16)>,
-    /// Where the EC asks for throttling or throttles.
-    pub cautions: Vec<u16>,
-    pub shutdown: Option<u16>,
-    pub dot: Option<u16>,
-    /// Most severe first and the scale's own ends last, the order a label
-    /// with no room gives way in.
-    pub ticks: Vec<(u16, String)>,
-    /// The thresholds drawn, in words.
-    pub description: String,
-}
-
 const TRACK_START_KELVIN: u16 = ZERO_CELSIUS_KELVIN + 20;
 const TRACK_END_KELVIN: u16 = ZERO_CELSIUS_KELVIN + 100;
 
@@ -187,9 +172,7 @@ impl Scale {
     }
 
     fn at(self, kelvin: u16) -> u16 {
-        let span = u32::from(self.end - TRACK_START_KELVIN);
-        let past = u32::from(kelvin.clamp(TRACK_START_KELVIN, self.end) - TRACK_START_KELVIN);
-        u16::try_from((past * 1000 + span / 2) / span).unwrap_or(1000)
+        position(kelvin.into(), TRACK_START_KELVIN.into(), self.end.into())
     }
 
     /// None for a sensor with nothing to mark.
@@ -221,6 +204,7 @@ impl Scale {
             return None;
         }
 
+        // Most severe first and the scale's own ends last.
         let mut ticks: Vec<(u16, String)> = Vec::new();
         for kelvin in marks.into_iter().chain([self.end, TRACK_START_KELVIN]) {
             let position = self.at(kelvin);
@@ -230,13 +214,14 @@ impl Scale {
         }
 
         Some(Track {
-            ramp: ramp.map(|(off, max)| (self.at(off), self.at(max))),
-            cautions: cautions
+            band: ramp.map(|(off, max)| (self.at(off), self.at(max))),
+            // A caution is where the EC asks for throttling or throttles.
+            marks: cautions
                 .into_iter()
                 .flatten()
-                .map(|kelvin| self.at(kelvin))
+                .map(|kelvin| (self.at(kelvin), Mark::Caution))
+                .chain(reached.halt.map(|kelvin| (self.at(kelvin), Mark::Shutdown)))
                 .collect(),
-            shutdown: reached.halt.map(|kelvin| self.at(kelvin)),
             dot: match temperature {
                 Temperature::Kelvin(kelvin) => Some(self.at(kelvin)),
                 _ => None,
@@ -275,7 +260,7 @@ mod tests {
     };
 
     use super::{
-        Scale, Track, celsius, fan_label, fan_name, sensor_name, temperature_label,
+        Mark, Scale, Track, celsius, fan_label, fan_name, sensor_name, temperature_label,
         thermal_summary, thresholds_label,
     };
 
@@ -373,9 +358,9 @@ mod tests {
     #[test]
     fn a_track_places_each_threshold_on_its_scale() {
         let track = lone_track(&thermistor(), thresholds(), AT_67).unwrap();
-        assert_eq!(track.ramp, Some((250, 688)));
-        assert_eq!(track.cautions, [850]);
-        assert_eq!(track.shutdown, Some(975));
+        assert_eq!(track.band, Some((250, 688)));
+        assert_eq!(track.placed(Mark::Caution).collect::<Vec<_>>(), [850]);
+        assert_eq!(track.placed(Mark::Shutdown).collect::<Vec<_>>(), [975]);
         assert_eq!(track.dot, Some(588));
         assert_eq!(ticks(&track), ["98", "88", "75", "40", "100", "20"]);
         assert_eq!(
@@ -424,7 +409,7 @@ mod tests {
             ..thresholds()
         };
         let track = lone_track(&thermistor(), warned, AT_67).unwrap();
-        assert_eq!(track.cautions, [813, 850]);
+        assert_eq!(track.placed(Mark::Caution).collect::<Vec<_>>(), [813, 850]);
     }
 
     #[test]
@@ -447,7 +432,7 @@ mod tests {
             ..thresholds()
         };
         let track = lone_track(&thermistor(), lone, AT_67).unwrap();
-        assert_eq!(track.ramp, None);
+        assert_eq!(track.band, None);
         assert_eq!(ticks(&track), ["98", "88", "100", "20"]);
     }
 
@@ -460,9 +445,8 @@ mod tests {
     #[test]
     fn thresholds_above_a_sensors_ceiling_are_neither_drawn_nor_described() {
         let track = lone_track(&die(), die_thresholds(), AT_67).unwrap();
-        assert_eq!(track.ramp, None);
-        assert_eq!(track.cautions, []);
-        assert_eq!(track.shutdown, None);
+        assert_eq!(track.band, None);
+        assert_eq!(track.marks, []);
         assert_eq!(track.dot, Some(588));
         assert_eq!(track.description, "");
     }
@@ -479,7 +463,7 @@ mod tests {
         let track = Scale::of(DIE_READS_TO_100, &[die(), mainboard()], &all)
             .track(&die(), &all, AT_67)
             .unwrap();
-        assert_eq!(track.ramp, Some((701, 748)));
+        assert_eq!(track.band, Some((701, 748)));
         assert_eq!(
             track.description,
             "Fan 95–105 °C · Throttles at 88 °C · Shuts down at 98 °C"
