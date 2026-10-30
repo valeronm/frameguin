@@ -149,9 +149,9 @@ pub(super) fn legend() -> gtk::Box {
             .valign(gtk::Align::Center)
             .css_classes([class])
             .build();
-        swatch.set_draw_func(move |area, cr, width, height| {
+        layers::draw_in_own_color(&swatch, move |area, cr, width, height| {
             prepare(area, cr);
-            let _ = draw(cr, f64::from(width), f64::from(height));
+            draw(cr, f64::from(width), f64::from(height))
         });
         let label = gtk::Label::builder()
             .label(words)
