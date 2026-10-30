@@ -124,12 +124,17 @@ struct Value {
 
 /// What sits under a row's title and value. A row with a track is a widget of
 /// another kind, holding the track whether or not this reading draws one.
-#[derive(Default, PartialEq)]
+#[derive(PartialEq)]
 enum Beneath {
-    #[default]
-    Nothing,
+    /// Hidden where empty.
     Subtitle(String),
     Track(Option<Track>),
+}
+
+impl Default for Beneath {
+    fn default() -> Self {
+        Self::Subtitle(String::new())
+    }
 }
 
 impl Value {
@@ -160,9 +165,7 @@ impl Group {
             title,
             Value {
                 text: text.into(),
-                beneath: subtitle.into().map_or(Beneath::Nothing, |subtitle| {
-                    Beneath::Subtitle(subtitle.to_owned())
-                }),
+                beneath: Beneath::Subtitle(subtitle.into().unwrap_or_default().to_owned()),
                 ..Value::default()
             },
         );
@@ -536,7 +539,6 @@ impl DrawnRow {
         }
     }
 
-    /// An empty subtitle is one the row hides.
     fn show(&self, old: &Value, new: &Value) {
         if old.text != new.text {
             self.value.set_label(&new.text);
@@ -544,14 +546,17 @@ impl DrawnRow {
         if old.warning != new.warning {
             self.show_warning(new.warning);
         }
+        // Spares the clone of a track that `TrackView::show` would only
+        // compare and drop.
         if old.beneath == new.beneath {
             return;
         }
         match (&self.line, &new.beneath) {
             (Line::Plain(row), Beneath::Subtitle(subtitle)) => row.set_subtitle(subtitle),
-            (Line::Plain(row), _) => row.set_subtitle(""),
             (Line::Tracked(view), Beneath::Track(track)) => view.show(track.clone()),
-            (Line::Tracked(view), _) => view.show(None),
+            (Line::Plain(_), Beneath::Track(_)) | (Line::Tracked(_), Beneath::Subtitle(_)) => {
+                unreachable!("a row is built for its layout's kind, which same_layout keeps")
+            }
         }
     }
 

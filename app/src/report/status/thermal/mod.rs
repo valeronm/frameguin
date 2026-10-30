@@ -13,6 +13,7 @@ use frameguin_modelview::thermal::{
     FAN_RANGE, NOT_PRESENT, SHUTDOWN, Scale, THROTTLE, fan_label, fan_name, sensor_name,
     temperature_label, thermal_summary,
 };
+use frameguin_modelview::track::Mark;
 use frameguin_wire::Bus;
 use gtk4 as gtk;
 
@@ -59,7 +60,10 @@ pub(super) fn add(
     let page = adw::PreferencesPage::new();
     let sensor_group = adw::PreferencesGroup::builder()
         .title("Sensors")
-        .header_suffix(&legend(FAN_RANGE, THROTTLE, SHUTDOWN))
+        .header_suffix(&legend(
+            FAN_RANGE,
+            &[(Mark::Caution, THROTTLE), (Mark::Shutdown, SHUTDOWN)],
+        ))
         .build();
     let sensors: Vec<SensorRow> = layout
         .sensors

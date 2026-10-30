@@ -44,21 +44,24 @@ const fn mark_class(mark: Mark) -> &'static str {
     }
 }
 
-type Paint = fn(&cairo::Context, &Track, f64) -> Result<(), cairo::Error>;
+#[derive(Clone, Copy)]
+enum Layer {
+    Line,
+    Band,
+    Marks(Mark),
+    Dot,
+}
 
-const LAYERS: [(Option<&str>, Paint); 6] = [
-    (Some("dim-label"), paint_line),
-    (Some(BAND_CLASS), paint_band),
-    (Some(mark_class(Mark::Caution)), |cr, track, width| {
-        paint_marks(cr, track, Mark::Caution, width)
-    }),
-    (Some(mark_class(Mark::Shutdown)), |cr, track, width| {
-        paint_marks(cr, track, Mark::Shutdown, width)
-    }),
-    (Some(mark_class(Mark::Target)), |cr, track, width| {
-        paint_marks(cr, track, Mark::Target, width)
-    }),
-    (None, paint_dot),
+const LAYERS: [(Option<&str>, Layer); 6] = [
+    (Some("dim-label"), Layer::Line),
+    (Some(BAND_CLASS), Layer::Band),
+    (Some(mark_class(Mark::Caution)), Layer::Marks(Mark::Caution)),
+    (
+        Some(mark_class(Mark::Shutdown)),
+        Layer::Marks(Mark::Shutdown),
+    ),
+    (Some(mark_class(Mark::Target)), Layer::Marks(Mark::Target)),
+    (None, Layer::Dot),
 ];
 
 /// A title and its value over a track, which an action row has no place for.
@@ -128,13 +131,19 @@ impl TrackView {
             .build();
         let track: Rc<RefCell<Option<Track>>> = Rc::default();
         let drawn = Rc::clone(&track);
-        let layers = layers::stack(&root, &LAYERS, move |area, cr, width, _, paint| {
+        let layers = layers::stack(&root, &LAYERS, move |area, cr, width, _, layer| {
             let drawn = drawn.borrow();
             let Some(track) = drawn.as_ref() else {
                 return Ok(());
             };
-            prepare(area, cr);
-            paint(cr, track, f64::from(width))
+            cr.set_line_cap(cairo::LineCap::Round);
+            let width = f64::from(width);
+            match layer {
+                Layer::Line => paint_line(area, cr, track, width),
+                Layer::Band => paint_band(cr, track, width),
+                Layer::Marks(mark) => paint_marks(cr, track, mark, width),
+                Layer::Dot => paint_dot(cr, track, width),
+            }
         });
         for layer in &layers {
             layer.set_content_height(HEIGHT);
@@ -149,20 +158,13 @@ impl TrackView {
 
     /// Hidden for None.
     pub(super) fn show(&self, track: Option<Track>) {
-        {
-            let drawn = self.track.borrow();
-            if *drawn == track {
-                return;
-            }
-            if drawn.is_some() != track.is_some() {
-                self.root.set_visible(track.is_some());
-            }
-            let words = description(track.as_ref());
-            if description(drawn.as_ref()) != words {
-                self.root
-                    .update_property(&[gtk::accessible::Property::Description(words)]);
-            }
+        if *self.track.borrow() == track {
+            return;
         }
+        self.root.set_visible(track.is_some());
+        let description = track.as_ref().map_or("", |track| &track.description);
+        self.root
+            .update_property(&[gtk::accessible::Property::Description(description)]);
         self.track.replace(track);
         for layer in &self.layers {
             layer.queue_draw();
@@ -170,12 +172,7 @@ impl TrackView {
     }
 }
 
-fn description(track: Option<&Track>) -> &str {
-    track.map_or("", |track| track.description.as_str())
-}
-
-fn prepare(area: &gtk::DrawingArea, cr: &cairo::Context) {
-    cr.set_line_cap(cairo::LineCap::Round);
+fn select_tick_font(area: &gtk::DrawingArea, cr: &cairo::Context) {
     let font = area.pango_context().font_description();
     let family = font.as_ref().and_then(gtk::pango::FontDescription::family);
     cr.select_font_face(
@@ -210,51 +207,46 @@ fn limit_swatch(cr: &cairo::Context, width: f64, height: f64) -> Result<(), cair
     stroke_limit(cr, width / 2.0, height / 2.0, height / 2.0 - LIMIT_WIDTH)
 }
 
-pub(super) fn legend(band: &str, caution: &str, shutdown: &str) -> gtk::Box {
+pub(super) fn legend(band: &str, marks: &[(Mark, &str)]) -> gtk::Box {
     let legend = gtk::Box::builder()
         .orientation(gtk::Orientation::Horizontal)
         .spacing(12)
         .valign(gtk::Align::Center)
         .build();
-    let entries: [(&str, i32, Swatch, &str); 3] = [
-        (BAND_CLASS, SWATCH, band_swatch, band),
-        (
-            mark_class(Mark::Caution),
+    legend.append(&legend_entry(BAND_CLASS, SWATCH, band_swatch, band));
+    for &(mark, words) in marks {
+        legend.append(&legend_entry(
+            mark_class(mark),
             LIMIT_SWATCH_WIDTH,
             limit_swatch,
-            caution,
-        ),
-        (
-            mark_class(Mark::Shutdown),
-            LIMIT_SWATCH_WIDTH,
-            limit_swatch,
-            shutdown,
-        ),
-    ];
-    for (class, width, draw, words) in entries {
-        let swatch = gtk::DrawingArea::builder()
-            .content_width(width)
-            .content_height(SWATCH)
-            .valign(gtk::Align::Center)
-            .css_classes([class])
-            .build();
-        layers::draw_in_own_color(&swatch, move |area, cr, width, height| {
-            prepare(area, cr);
-            draw(cr, f64::from(width), f64::from(height))
-        });
-        let label = gtk::Label::builder()
-            .label(words)
-            .css_classes(["caption", "dim-label"])
-            .build();
-        let entry = gtk::Box::builder()
-            .orientation(gtk::Orientation::Horizontal)
-            .spacing(4)
-            .build();
-        entry.append(&swatch);
-        entry.append(&label);
-        legend.append(&entry);
+            words,
+        ));
     }
     legend
+}
+
+fn legend_entry(class: &str, width: i32, draw: Swatch, words: &str) -> gtk::Box {
+    let swatch = gtk::DrawingArea::builder()
+        .content_width(width)
+        .content_height(SWATCH)
+        .valign(gtk::Align::Center)
+        .css_classes([class])
+        .build();
+    layers::draw_in_own_color(&swatch, move |_, cr, width, height| {
+        cr.set_line_cap(cairo::LineCap::Round);
+        draw(cr, f64::from(width), f64::from(height))
+    });
+    let label = gtk::Label::builder()
+        .label(words)
+        .css_classes(["caption", "dim-label"])
+        .build();
+    let entry = gtk::Box::builder()
+        .orientation(gtk::Orientation::Horizontal)
+        .spacing(4)
+        .build();
+    entry.append(&swatch);
+    entry.append(&label);
+    entry
 }
 
 fn x(position: u16, width: f64) -> f64 {
@@ -279,7 +271,13 @@ fn fitting(spans: &[(f64, f64)]) -> Vec<bool> {
         .collect()
 }
 
-fn paint_line(cr: &cairo::Context, track: &Track, width: f64) -> Result<(), cairo::Error> {
+fn paint_line(
+    area: &gtk::DrawingArea,
+    cr: &cairo::Context,
+    track: &Track,
+    width: f64,
+) -> Result<(), cairo::Error> {
+    select_tick_font(area, cr);
     cr.set_line_width(2.0);
     cr.move_to(x(0, width), LINE_Y);
     cr.line_to(x(1000, width), LINE_Y);
