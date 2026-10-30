@@ -4,7 +4,7 @@ use frameguin_contract::{
     Cable, CableLatency, CableSpeed, DataRole, Epr, OffRefusal, PdContract, PeakCurrent, PortMask,
     PortPartner, PortReading, PortState, PowerRole, SupplyKind,
 };
-use frameguin_model::control::ports::{Flow, carries_power, flow, powering};
+use frameguin_model::control::ports::{Flow, attached, carries_power, flow, powering};
 use frameguin_model::port::Placement;
 
 use crate::port;
@@ -18,7 +18,7 @@ const NOTHING_ATTACHED: &str = "Empty";
 /// What an attached partner is to the machine's power, and what it is where
 /// it takes no part in it.
 fn role(reading: &PortReading) -> &'static str {
-    if reading.charging {
+    if flow(reading) == Some(Flow::In) {
         return POWERING;
     }
     match reading.partner {
@@ -144,10 +144,10 @@ fn holding(port: &PortState) -> Holding<'_> {
     match &port.mask {
         PortMask::Off => Holding::Off,
         PortMask::On(reading, _) | PortMask::Unchecked(reading, _) => {
-            if reading.partner == PortPartner::Nothing {
-                Holding::Empty
-            } else {
+            if attached(reading) {
                 Holding::Attached(reading)
+            } else {
+                Holding::Empty
             }
         }
     }
@@ -548,6 +548,16 @@ mod tests {
         });
         assert_eq!(socket(&negotiating), Socket::InUse(Some(Flow::In)));
         assert_eq!(line(&negotiating, true), worded("Powering", None));
+    }
+
+    #[test]
+    fn a_port_the_ec_charges_from_is_attached_whatever_its_partner() {
+        let unnamed = on(PortReading {
+            partner: PortPartner::Nothing,
+            ..reading(0)
+        });
+        assert_eq!(socket(&unnamed), Socket::InUse(Some(Flow::In)));
+        assert_eq!(line(&unnamed, true), worded("100 W", Some("Powering")));
     }
 
     #[test]

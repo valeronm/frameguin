@@ -23,8 +23,8 @@ use std::rc::{Rc, Weak};
 use std::time::Duration;
 
 use adw::prelude::*;
-use frameguin_contract::{Attached, PortMask, PortPartner, PortReading, PortState, PowerRole};
-use frameguin_model::control::ports::{Ports, powering};
+use frameguin_contract::{Attached, PortMask, PortReading, PortState, PowerRole};
+use frameguin_model::control::ports::{Ports, attached, powering};
 use frameguin_model::port::Placement;
 use frameguin_model::reading::{Reading, Request};
 use frameguin_modelview::port;
@@ -470,7 +470,7 @@ fn off_group(placement: Placement, index: u8) -> Group {
 
 fn connection_group(placement: Placement, index: u8, state: &PortReading) -> Group {
     let mut group = Group::new(port::heading(placement, index));
-    if state.partner != PortPartner::Nothing {
+    if attached(state) {
         if let Some(video) = display_port_label(state) {
             group.row(DISPLAY_PORT, video);
         }
@@ -497,7 +497,7 @@ fn connection_group(placement: Placement, index: u8, state: &PortReading) -> Gro
 }
 
 fn contract_group(state: &PortReading) -> Option<Group> {
-    if state.partner == PortPartner::Nothing {
+    if !attached(state) {
         return None;
     }
     let mut group = Group::new(contract_label(state.contract));

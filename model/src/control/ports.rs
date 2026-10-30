@@ -75,6 +75,13 @@ pub fn flow(reading: &PortReading) -> Option<Flow> {
     }
 }
 
+/// Whether anything is attached: the partner the port reports, or the
+/// charger the EC draws from where the port's entry reports none.
+#[must_use]
+pub fn attached(reading: &PortReading) -> bool {
+    reading.partner != PortPartner::Nothing || flow(reading) == Some(Flow::In)
+}
+
 #[must_use]
 pub fn carries_power(reading: &PortReading) -> bool {
     reading.millivolts != 0 && reading.milliamps != 0
@@ -102,7 +109,7 @@ mod tests {
         PortState,
     };
 
-    use super::{Flow, Ports, flow, powering};
+    use super::{Flow, Ports, attached, flow, powering};
     use crate::testing::{Machine, absent, port, reading, ready};
 
     fn detect(machine: &Rc<Machine>) -> Result<Option<Ports<Machine>>> {
@@ -178,6 +185,20 @@ mod tests {
             ..reading(0)
         };
         assert_eq!(flow(&spare), None);
+    }
+
+    #[test]
+    fn a_charger_the_ec_draws_from_is_attached_with_no_partner_reported() {
+        let unnamed = PortReading {
+            partner: PortPartner::Nothing,
+            ..reading(0)
+        };
+        assert!(attached(&unnamed));
+        let empty = PortReading {
+            charging: false,
+            ..unnamed
+        };
+        assert!(!attached(&empty));
     }
 
     #[test]
