@@ -22,6 +22,7 @@ use gtk4 as gtk;
 use gtk4::gio;
 use gtk4::glib;
 
+use self::ports::CONTENT_WIDTH;
 use super::{Shell, collapse_when_narrow, headed};
 use crate::daemon::Daemon;
 use crate::failure;
@@ -34,8 +35,6 @@ pub(crate) const ACTION: &str = "status";
 const TITLE: &str = "Readings";
 
 const SIDEBAR_WIDTH: f64 = 260.0;
-/// The narrowest a USB-C port's switch description still fits on one line.
-const CONTENT_WIDTH: i32 = 420;
 
 /// Only the window holds the rows a target is settled against, so the
 /// application action forwards its target to this action on the window.

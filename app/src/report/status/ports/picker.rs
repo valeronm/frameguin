@@ -42,21 +42,26 @@ const DECK_ALPHA: f32 = 0.15;
 
 type Looks = Rc<RefCell<Vec<(u8, Socket)>>>;
 
-type Paint = fn(&cairo::Context, &Frame, &Outline, &[(u8, Socket)]) -> Result<(), cairo::Error>;
+type Paint = fn(&cairo::Context, &Frame, &[(u8, Socket)]) -> Result<(), cairo::Error>;
 
 const LAYERS: [(Option<&str>, Paint); 4] = [
     (None, paint_chassis),
     (Some("dim-label"), paint_unused),
-    (Some(FLOW_OUT_CLASS), |cr, frame, outline, looks| {
-        paint_flowing(cr, frame, outline, looks, |flow| flow == Some(Flow::Out))
+    (Some(flow_class(Flow::Out)), |cr, frame, looks| {
+        paint_flowing(cr, frame, looks, |flow| flow == Some(Flow::Out))
     }),
-    (Some(FLOW_IN_CLASS), |cr, frame, outline, looks| {
-        paint_flowing(cr, frame, outline, looks, |flow| flow == Some(Flow::In))
+    (Some(flow_class(Flow::In)), |cr, frame, looks| {
+        paint_flowing(cr, frame, looks, |flow| flow == Some(Flow::In))
     }),
 ];
 
-const FLOW_IN_CLASS: &str = "success";
-const FLOW_OUT_CLASS: &str = "accent";
+/// The style class a socket, its arrow and its watts are colored with.
+const fn flow_class(flow: Flow) -> &'static str {
+    match flow {
+        Flow::In => "success",
+        Flow::Out => "accent",
+    }
+}
 
 pub(super) struct Picker {
     group: adw::PreferencesGroup,
@@ -206,11 +211,11 @@ impl Picker {
                     ))]);
             }
             let look = socket(state);
-            let color: &[&str] = match look {
-                Socket::InUse(Some(Flow::In)) => &[FLOW_IN_CLASS],
-                Socket::InUse(Some(Flow::Out)) => &[FLOW_OUT_CLASS],
-                _ => &[],
+            let class = match look {
+                Socket::InUse(Some(flow)) => Some(flow_class(flow)),
+                _ => None,
             };
+            let color = class.as_slice();
             if choice
                 .main
                 .css_classes()
@@ -283,8 +288,7 @@ fn outline(
     let looks = Rc::clone(looks);
     let layers = layers::stack(&drawing, &LAYERS, move |area, cr, width, height, paint| {
         let frame = Frame::new(&outline, area.color(), f64::from(width), f64::from(height));
-        frame.ink(cr, 1.0);
-        paint(cr, &frame, &outline, &looks.borrow())
+        paint(cr, &frame, &looks.borrow())
     });
     grid.attach(&drawing, Column::Back as i32, top, 1, bands);
     (grid, layers)
@@ -340,7 +344,8 @@ fn button(choices: &mut Vec<Choice>, index: u8, halign: gtk::Align) -> gtk::Togg
 
 /// The chassis's edges within the area, inset for the half of each socket
 /// outside them and the arrow beyond it.
-struct Frame {
+struct Frame<'a> {
+    outline: &'a Outline,
     color: gtk::gdk::RGBA,
     left: f64,
     right: f64,
@@ -349,17 +354,20 @@ struct Frame {
     /// The area's, whose rows the buttons beside it share.
     area_height: f64,
     bands: f64,
+    /// Each socket's center and the edge it is on, with what it holds.
+    sockets: Vec<(f64, f64, Column, Slot)>,
 }
 
-impl Frame {
-    fn new(outline: &Outline, color: gtk::gdk::RGBA, width: f64, height: f64) -> Self {
+impl<'a> Frame<'a> {
+    fn new(outline: &'a Outline, color: gtk::gdk::RGBA, width: f64, height: f64) -> Self {
         let inset = SOCKET_SHORT / 2.0 + f64::from(ARROW_ROOM) + OUTLINE_WIDTH;
         let top = if outline.back.is_some() {
             inset
         } else {
             OUTLINE_WIDTH
         };
-        Self {
+        let mut frame = Self {
+            outline,
             color,
             left: inset,
             right: width - inset,
@@ -368,7 +376,10 @@ impl Frame {
             area_height: height,
             #[expect(clippy::cast_precision_loss, reason = "a board has a handful of bands")]
             bands: outline.bands as f64,
-        }
+            sockets: Vec::new(),
+        };
+        frame.sockets = frame.place_sockets();
+        frame
     }
 
     /// The area's own color at `alpha` of its opacity.
@@ -394,8 +405,8 @@ impl Frame {
         f64::midpoint(self.left, self.right)
     }
 
-    /// Each socket's center and the edge it is on, with what it holds.
-    fn sockets(&self, outline: &Outline) -> Vec<(f64, f64, Column, Slot)> {
+    fn place_sockets(&self) -> Vec<(f64, f64, Column, Slot)> {
+        let outline = self.outline;
         let mut sockets = Vec::new();
         if let Some(index) = outline.back {
             sockets.push((self.back_x(), self.top, Column::Back, Slot::Port(index)));
@@ -476,9 +487,9 @@ fn look(looks: &[(u8, Socket)], slot: Slot) -> Option<Socket> {
 fn paint_chassis(
     cr: &cairo::Context,
     frame: &Frame,
-    outline: &Outline,
     looks: &[(u8, Socket)],
 ) -> Result<(), cairo::Error> {
+    let outline = frame.outline;
     let (width, height) = (frame.width(), frame.height());
     frame.ink(cr, DECK_ALPHA);
     rounded(
@@ -516,38 +527,36 @@ fn paint_chassis(
         }
     }
 
-    let sockets = frame.sockets(outline);
     cr.save()?;
     cr.set_operator(cairo::Operator::Clear);
-    for &(x, y, column, _) in &sockets {
+    for &(x, y, column, _) in &frame.sockets {
         socket_path(cr, x, y, column);
     }
     cr.fill()?;
     cr.restore()?;
 
     cr.set_line_width(SOCKET_LINE_WIDTH);
-    for &(x, y, column, slot) in &sockets {
+    for &(x, y, column, slot) in &frame.sockets {
         if look(looks, slot) == Some(Socket::Empty) {
             socket_path(cr, x, y, column);
         }
     }
     cr.stroke()?;
 
-    paint_flowing(cr, frame, outline, looks, |flow| flow.is_none())
+    paint_flowing(cr, frame, looks, |flow| flow.is_none())
 }
 
 fn paint_unused(
     cr: &cairo::Context,
     frame: &Frame,
-    outline: &Outline,
     looks: &[(u8, Socket)],
 ) -> Result<(), cairo::Error> {
     cr.set_line_width(SOCKET_LINE_WIDTH);
-    for (x, y, column, slot) in frame.sockets(outline) {
-        let dashes: &[f64] = match slot {
-            Slot::Undriven => &[2.0, 2.0],
-            Slot::Port(_) if look(looks, slot) == Some(Socket::Off) => &[],
-            Slot::Port(_) => continue,
+    for &(x, y, column, slot) in &frame.sockets {
+        let dashes: &[f64] = match (slot, look(looks, slot)) {
+            (Slot::Undriven, _) => &[2.0, 2.0],
+            (Slot::Port(_), Some(Socket::Off)) => &[],
+            (Slot::Port(_), _) => continue,
         };
         cr.set_dash(dashes, 0.0);
         socket_path(cr, x, y, column);
@@ -560,11 +569,10 @@ fn paint_unused(
 fn paint_flowing(
     cr: &cairo::Context,
     frame: &Frame,
-    outline: &Outline,
     looks: &[(u8, Socket)],
     drawn: impl Fn(Option<Flow>) -> bool,
 ) -> Result<(), cairo::Error> {
-    for (x, y, column, slot) in frame.sockets(outline) {
+    for &(x, y, column, slot) in &frame.sockets {
         if let Some(Socket::InUse(flow)) = look(looks, slot)
             && drawn(flow)
         {

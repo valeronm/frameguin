@@ -26,7 +26,7 @@ use adw::prelude::*;
 use frameguin_contract::{Attached, PortMask, PortPartner, PortReading, PortState, PowerRole};
 use frameguin_model::control::ports::{Ports, powering};
 use frameguin_model::port::Placement;
-use frameguin_model::reading::Request;
+use frameguin_model::reading::{Reading, Request};
 use frameguin_modelview::port;
 use frameguin_modelview::ports::{
     DISPLAY_PORT, cable_label, cable_type_label, carried, contract_label, data_role_label,
@@ -47,6 +47,9 @@ use crate::synced::{Guard, connect_switch, show_switch};
 const PORTS: &str = "Ports";
 
 const STAYS_OFF: &str = "Stays off across restarts until turned back on";
+
+/// The narrowest the page keeps [`STAYS_OFF`] on one line.
+pub(super) const CONTENT_WIDTH: i32 = 420;
 
 const PARTNER_DETECTED: Duration = Duration::from_millis(500);
 
@@ -158,10 +161,10 @@ pub(super) fn add(
 
     let answering = Rc::downgrade(&section);
     sidebar.answer(move |target| {
-        (target == Target::Charger)
-            .then(|| answering.upgrade())
-            .flatten()
-            .and_then(|section| section.charger())
+        if target != Target::Charger {
+            return None;
+        }
+        answering.upgrade()?.charger()
     });
 
     let showing = sidebar.clone();
@@ -258,8 +261,7 @@ impl Section {
         if let Some(feed) = &feed.upgrade() {
             let showing = page.clone();
             show_while_mapped(feed, &widget, request, move |reading| {
-                if let Some(ports) = &reading.ports {
-                    let devices = reading.usb.as_deref().unwrap_or_default();
+                if let Some((ports, devices)) = read(reading) {
                     showing.show(ports, devices);
                 }
             });
@@ -332,6 +334,15 @@ impl Section {
     }
 }
 
+/// The ports a reading carries and the devices on them, and None where it
+/// carries no ports.
+fn read(reading: &Reading) -> Option<(&[PortState], &[Attached])> {
+    Some((
+        reading.ports.as_deref()?,
+        reading.usb.as_deref().unwrap_or_default(),
+    ))
+}
+
 fn preferred(powering: Option<u8>, indices: &[u8]) -> Option<u8> {
     powering.or_else(|| indices.first().copied())
 }
@@ -348,10 +359,8 @@ impl PortsPage {
         self.picked.set(index);
         self.clear();
         let held = self.feed.upgrade().and_then(|feed| feed.held(self.request));
-        if let Some(reading) = held
-            && let Some(ports) = &reading.ports
-        {
-            self.draw(ports, reading.usb.as_deref().unwrap_or_default());
+        if let Some((ports, devices)) = held.as_deref().and_then(read) {
+            self.draw(ports, devices);
         }
     }
 

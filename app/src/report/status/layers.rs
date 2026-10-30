@@ -7,9 +7,10 @@ use gtk4::cairo;
 use gtk4::prelude::*;
 
 /// Stacks one drawing area per entry of `layers` in `overlay`, the first as
-/// its child, each drawn by `draw` with that entry's painter. A drawing
-/// area's only themed color is its own CSS `color`, which the entry's
-/// libadwaita style class sets, and None leaves the foreground's.
+/// its child, each drawn by `draw` with that entry's painter and with the
+/// area's color as the source. A drawing area's only themed color is its own
+/// CSS `color`, which the entry's libadwaita style class sets, and None
+/// leaves the foreground's.
 pub(super) fn stack<P: Copy + 'static>(
     overlay: &gtk::Overlay,
     layers: &[(Option<&str>, P)],
@@ -25,6 +26,7 @@ pub(super) fn stack<P: Copy + 'static>(
             }
             let draw = Rc::clone(&draw);
             area.set_draw_func(move |area, cr, width, height| {
+                cr.set_source_color(&area.color());
                 // A cairo error stays on its context, and each draw is
                 // handed a new one.
                 let _ = draw(area, cr, width, height, paint);

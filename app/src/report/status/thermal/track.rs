@@ -95,7 +95,6 @@ impl TrackView {
 }
 
 fn prepare(area: &gtk::DrawingArea, cr: &cairo::Context) {
-    cr.set_source_color(&area.color());
     cr.set_line_cap(cairo::LineCap::Round);
     let font = area.pango_context().font_description();
     let family = font.as_ref().and_then(gtk::pango::FontDescription::family);
