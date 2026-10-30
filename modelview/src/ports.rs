@@ -8,7 +8,7 @@ use frameguin_model::control::ports::{Flow, attached, carries_power, flow, power
 use frameguin_model::port::Placement;
 
 use crate::port;
-use crate::units::{Kind, amps, tenth_volts, volts, watts};
+use crate::units::{Kind, tenth_volts, volts, watts};
 use crate::words::{NO_SUPPLY, joined, yes_no};
 
 /// An empty port, worded as the absence it is rather than as a kind of
@@ -33,21 +33,19 @@ fn role(reading: &PortReading) -> &'static str {
     }
 }
 
-/// What the link carries as a person reads it — volts, amps and the watts
-/// they come to. A port with no power delivery contract still carries what
+/// What the link carries as a person reads it — the watts and the volts
+/// they come at. A port with no power delivery contract still carries what
 /// Type-C's own resistors advertise. None where the port settled on
-/// nothing, a supply of zero being worth no row.
+/// nothing.
 #[must_use]
 pub fn carried(port: &PortReading) -> Option<String> {
     if !carries_power(port) {
         return None;
     }
-    Some(format!(
-        "{}, {} ({})",
-        volts(port.millivolts.into(), Kind::Static),
-        amps(port.milliamps.into(), Kind::Static),
+    Some(joined([
         power(port),
-    ))
+        volts(port.millivolts.into(), Kind::Static),
+    ]))
 }
 
 #[must_use]
@@ -458,8 +456,8 @@ mod tests {
     }
 
     #[test]
-    fn what_a_link_carries_reads_as_volts_amps_and_watts() {
-        assert_eq!(carried(&reading(0)).as_deref(), Some("20 V, 5 A (100 W)"));
+    fn what_a_link_carries_reads_as_watts_and_volts() {
+        assert_eq!(carried(&reading(0)).as_deref(), Some("100 W · 20 V"));
     }
 
     #[test]
@@ -469,7 +467,7 @@ mod tests {
             milliamps: 1_500,
             ..reading(0)
         };
-        assert_eq!(carried(&usb).as_deref(), Some("5 V, 1.5 A (7.5 W)"));
+        assert_eq!(carried(&usb).as_deref(), Some("7.5 W · 5 V"));
         assert_eq!(supply_label(&[on(usb)]), "7.5 W");
     }
 
