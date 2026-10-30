@@ -11,6 +11,8 @@ use gtk4 as gtk;
 use gtk4::cairo;
 use gtk4::prelude::*;
 
+use crate::report::status::layers;
+
 const HEIGHT: i32 = 30;
 /// Room at each end for half the dot.
 const INSET: f64 = 6.0;
@@ -31,8 +33,6 @@ const SHUTDOWN_CLASS: &str = "error";
 
 type Paint = fn(&cairo::Context, &Track, f64) -> Result<(), cairo::Error>;
 
-/// One layer per color: a drawing area's only themed color is its own CSS
-/// `color`, which a libadwaita style class sets.
 const LAYERS: [(Option<&str>, Paint); 5] = [
     (Some("dim-label"), paint_line),
     (Some(RAMP_CLASS), paint_ramp),
@@ -53,17 +53,19 @@ impl TrackView {
             .accessible_role(gtk::AccessibleRole::Img)
             .visible(false)
             .build();
-        let track = Rc::new(RefCell::new(None));
-        let layers: Vec<gtk::DrawingArea> = LAYERS
-            .iter()
-            .map(|(class, paint)| layer(*class, *paint, &track))
-            .collect();
-        for (index, layer) in layers.iter().enumerate() {
-            if index == 0 {
-                root.set_child(Some(layer));
-            } else {
-                root.add_overlay(layer);
-            }
+        let track: Rc<RefCell<Option<Track>>> = Rc::default();
+        let drawn = Rc::clone(&track);
+        let layers = layers::stack(&root, &LAYERS, move |area, cr, width, _, paint| {
+            let drawn = drawn.borrow();
+            let Some(track) = drawn.as_ref() else {
+                return Ok(());
+            };
+            prepare(area, cr);
+            paint(cr, track, f64::from(width))
+        });
+        for layer in &layers {
+            layer.set_content_height(HEIGHT);
+            layer.set_hexpand(true);
         }
         Self {
             root,
@@ -90,31 +92,6 @@ impl TrackView {
             layer.queue_draw();
         }
     }
-}
-
-fn layer(
-    class: Option<&str>,
-    paint: Paint,
-    track: &Rc<RefCell<Option<Track>>>,
-) -> gtk::DrawingArea {
-    let area = gtk::DrawingArea::builder()
-        .content_height(HEIGHT)
-        .hexpand(true)
-        .can_target(false)
-        .build();
-    if let Some(class) = class {
-        area.add_css_class(class);
-    }
-    let track = Rc::clone(track);
-    area.set_draw_func(move |area, cr, width, _| {
-        if let Some(track) = track.borrow().as_ref() {
-            prepare(area, cr);
-            // A cairo error stays on its context, and each draw is handed a
-            // new one.
-            let _ = paint(cr, track, f64::from(width));
-        }
-    });
-    area
 }
 
 fn prepare(area: &gtk::DrawingArea, cr: &cairo::Context) {

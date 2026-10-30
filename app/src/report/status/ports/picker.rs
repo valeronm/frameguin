@@ -19,6 +19,8 @@ use frameguin_modelview::ports::{DISPLAY_PORT, Socket, port_line, socket, spoken
 use gtk4 as gtk;
 use gtk4::{cairo, glib};
 
+use crate::report::status::layers;
+
 /// The height of a band, which the buttons beside it may stretch.
 const BAND: i32 = 56;
 const CHASSIS_BASE_WIDTH: i32 = 110;
@@ -42,8 +44,6 @@ type Looks = Rc<RefCell<Vec<(u8, Socket)>>>;
 
 type Paint = fn(&cairo::Context, &Frame, &Outline, &[(u8, Socket)]) -> Result<(), cairo::Error>;
 
-/// A drawing area's only themed color is its own CSS `color`, which a
-/// libadwaita style class sets.
 const LAYERS: [(Option<&str>, Paint); 4] = [
     (None, paint_chassis),
     (Some("dim-label"), paint_unused),
@@ -275,23 +275,17 @@ fn outline(
             }
         }
     }
-    let outline = Rc::new(outline);
     let drawing = gtk::Overlay::builder()
         .accessible_role(gtk::AccessibleRole::Presentation)
         .width_request(CHASSIS_BASE_WIDTH + CHASSIS_WIDTH_PER_BAND * bands + 2 * ARROW_ROOM)
         .height_request(BAND * bands)
         .build();
-    let layers: Vec<gtk::DrawingArea> = LAYERS
-        .iter()
-        .map(|(class, paint)| layer(*class, *paint, &outline, looks))
-        .collect();
-    for (index, layer) in layers.iter().enumerate() {
-        if index == 0 {
-            drawing.set_child(Some(layer));
-        } else {
-            drawing.add_overlay(layer);
-        }
-    }
+    let looks = Rc::clone(looks);
+    let layers = layers::stack(&drawing, &LAYERS, move |area, cr, width, height, paint| {
+        let frame = Frame::new(&outline, area.color(), f64::from(width), f64::from(height));
+        frame.ink(cr, 1.0);
+        paint(cr, &frame, &outline, &looks.borrow())
+    });
     grid.attach(&drawing, Column::Back as i32, top, 1, bands);
     (grid, layers)
 }
@@ -342,27 +336,6 @@ fn button(choices: &mut Vec<Choice>, index: u8, halign: gtk::Align) -> gtk::Togg
         caption,
     });
     button
-}
-
-fn layer(
-    class: Option<&str>,
-    paint: Paint,
-    outline: &Rc<Outline>,
-    looks: &Looks,
-) -> gtk::DrawingArea {
-    let area = gtk::DrawingArea::builder().can_target(false).build();
-    if let Some(class) = class {
-        area.add_css_class(class);
-    }
-    let (outline, looks) = (Rc::clone(outline), Rc::clone(looks));
-    area.set_draw_func(move |area, cr, width, height| {
-        let frame = Frame::new(&outline, area.color(), f64::from(width), f64::from(height));
-        frame.ink(cr, 1.0);
-        // A cairo error stays on its context, and each draw is handed a new
-        // one.
-        let _ = paint(cr, &frame, &outline, &looks.borrow());
-    });
-    area
 }
 
 /// The chassis's edges within the area, inset for the half of each socket

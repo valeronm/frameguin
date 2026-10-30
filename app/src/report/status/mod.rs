@@ -7,6 +7,7 @@
 mod battery;
 mod battery_extender;
 mod chassis;
+mod layers;
 mod ports;
 mod privacy_switches;
 mod thermal;
