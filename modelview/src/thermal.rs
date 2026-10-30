@@ -8,6 +8,7 @@ use frameguin_model::fan::FanPlacement;
 use frameguin_model::sensor::{SensorKind, ZERO_CELSIUS_KELVIN};
 
 use crate::battery::reading::percent_label;
+use crate::words::joined;
 
 /// For a sensor or fan present at detection that the EC now reports absent.
 pub const NOT_PRESENT: &str = "Not present";
@@ -102,7 +103,7 @@ fn thresholds_label(thresholds: &Thresholds) -> String {
     ]
     .into_iter()
     .filter_map(|(words, kelvin)| Some(format!("{words} {}", celsius(kelvin?))));
-    fan.into_iter().chain(trips).collect::<Vec<_>>().join(" · ")
+    joined(fan.into_iter().chain(trips))
 }
 
 pub const FAN_RANGE: &str = "Fan range";

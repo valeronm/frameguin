@@ -9,7 +9,7 @@ use frameguin_model::port::Placement;
 
 use crate::port;
 use crate::units::{Kind, amps, tenth_volts, volts, watts};
-use crate::words::{NO_SUPPLY, yes_no};
+use crate::words::{NO_SUPPLY, joined, yes_no};
 
 /// An empty port, worded as the absence it is rather than as a kind of
 /// partner.
@@ -87,11 +87,7 @@ impl PortLine {
     /// The line under the main one, empty where it has nothing to say.
     #[must_use]
     pub fn caption(&self) -> String {
-        [self.name.as_deref(), self.lead]
-            .into_iter()
-            .flatten()
-            .collect::<Vec<_>>()
-            .join(" · ")
+        joined([self.name.as_deref(), self.lead].into_iter().flatten())
     }
 }
 
@@ -376,17 +372,18 @@ pub fn epr_label(epr: Epr) -> Option<&'static str> {
 /// out where the e-marker did not report it, and None where it reported none.
 #[must_use]
 pub fn cable_label(cable: &Cable) -> Option<String> {
-    let parts: Vec<String> = [
-        cable.speed.map(|speed| cable_speed_label(speed).to_owned()),
-        cable_rating_label(*cable),
-        cable
-            .latency
-            .map(|latency| cable_length_label(latency).to_owned()),
-    ]
-    .into_iter()
-    .flatten()
-    .collect();
-    (!parts.is_empty()).then(|| parts.join(" · "))
+    let line = joined(
+        [
+            cable.speed.map(|speed| cable_speed_label(speed).to_owned()),
+            cable_rating_label(*cable),
+            cable
+                .latency
+                .map(|latency| cable_length_label(latency).to_owned()),
+        ]
+        .into_iter()
+        .flatten(),
+    );
+    (!line.is_empty()).then_some(line)
 }
 
 /// The rate a cable is certified for: per lane through USB 3.2, whose links

@@ -5,6 +5,17 @@
 /// of them owns.
 pub const NO_SUPPLY: &str = "Not connected";
 
+/// Parts read on one line, separated alike wherever a line lists them.
+#[must_use]
+pub fn joined<S: AsRef<str>>(parts: impl IntoIterator<Item = S>) -> String {
+    let parts: Vec<S> = parts.into_iter().collect();
+    parts
+        .iter()
+        .map(AsRef::as_ref)
+        .collect::<Vec<&str>>()
+        .join(" · ")
+}
+
 /// A two-state reading, worded alike by every control that shows one.
 #[must_use]
 pub fn yes_no(set: bool) -> &'static str {

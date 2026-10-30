@@ -1,7 +1,7 @@
 //! Volts, amps and watts as a reader sees them, one rule per unit and
 //! [`Kind`].
 
-use crate::words::trimmed;
+use crate::words::{joined, trimmed};
 
 /// How a figure moves, which decides its precision.
 #[derive(Clone, Copy)]
@@ -37,11 +37,12 @@ pub fn tenth_volts(millivolts: u32) -> String {
 /// decimals would round away.
 #[must_use]
 pub fn cell_volts(cell_millivolts: &[u32]) -> String {
-    let cells: Vec<String> = cell_millivolts
-        .iter()
-        .map(|millivolts| format!("{:.3}", f64::from(*millivolts) / 1000.0))
-        .collect();
-    format!("{} V", cells.join(" · "))
+    let cells = joined(
+        cell_millivolts
+            .iter()
+            .map(|millivolts| format!("{:.3}", f64::from(*millivolts) / 1000.0)),
+    );
+    format!("{cells} V")
 }
 
 #[must_use]

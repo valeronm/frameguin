@@ -5,6 +5,7 @@
 use frameguin_contract::{BatteryAlarm, BatteryState, ChargeFlow};
 
 use crate::units::{self, Kind, cell_volts, millivolts, volts, watt_hours, watts};
+use crate::words::joined;
 
 /// What a row says where the pack answered with nothing. One spelling for
 /// every such row, so a value the EC left blank and a figure with no
@@ -166,11 +167,7 @@ fn alarm_label(alarm: BatteryAlarm) -> &'static str {
 /// announcing that nothing is wrong.
 #[must_use]
 pub fn alarms_label(alarms: &[BatteryAlarm]) -> String {
-    alarms
-        .iter()
-        .map(|alarm| alarm_label(*alarm))
-        .collect::<Vec<_>>()
-        .join(" · ")
+    joined(alarms.iter().map(|alarm| alarm_label(*alarm)))
 }
 
 /// The whole state on one line, for the tray, which has no second line to
