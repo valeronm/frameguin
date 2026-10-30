@@ -4,6 +4,7 @@ use frameguin_contract::{ExtenderStage, ExtenderState};
 use frameguin_model::control::battery::extender::stage_window;
 
 use crate::battery::reading::percent_label;
+use crate::words::span;
 
 const SECONDS_PER_MINUTE: u32 = 60;
 const SECONDS_PER_HOUR: u32 = 60 * SECONDS_PER_MINUTE;
@@ -29,7 +30,7 @@ pub fn stage_label(state: ExtenderState, charge_limit: Option<u8>) -> String {
                 percent_label(limit)
             )
         }
-        _ => format!("{name} · {lower}–{upper}%"),
+        _ => format!("{name} · {}", span(lower, percent_label(upper))),
     }
 }
 
@@ -37,7 +38,7 @@ pub fn stage_label(state: ExtenderState, charge_limit: Option<u8>) -> String {
 pub fn description() -> String {
     let window = |stage| {
         let (lower, upper) = stage_window(stage).unwrap_or_default();
-        format!("{lower}–{upper}%")
+        span(lower, percent_label(upper))
     };
     format!(
         "Keeps the battery less full after days on the charger, to slow its wear: \

@@ -8,7 +8,7 @@ use frameguin_model::fan::FanPlacement;
 use frameguin_model::sensor::{SensorKind, ZERO_CELSIUS_KELVIN};
 
 use crate::battery::reading::percent_label;
-use crate::words::joined;
+use crate::words::{joined, span};
 
 /// For a sensor or fan present at detection that the EC now reports absent.
 pub const NOT_PRESENT: &str = "Not present";
@@ -91,7 +91,7 @@ pub fn fan_name(platform: Platform, index: u8, fans: usize) -> String {
 /// Empty where the EC holds none.
 fn thresholds_label(thresholds: &Thresholds) -> String {
     let fan = match (thresholds.fan_off, thresholds.fan_max) {
-        (Some(off), Some(max)) => Some(format!("Fan {}–{}", degrees(off), celsius(max))),
+        (Some(off), Some(max)) => Some(format!("Fan {}", span(degrees(off), celsius(max)))),
         (Some(off), None) => Some(format!("Fan from {}", celsius(off))),
         (None, Some(max)) => Some(format!("Fan full at {}", celsius(max))),
         (None, None) => None,

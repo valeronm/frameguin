@@ -10,7 +10,7 @@ use frameguin_contract::{Detail, FirmwareKind, Identity, PartKind, Platform, Ser
 use crate::battery::reading::capacity;
 use crate::date;
 use crate::units::{Kind, volts};
-use crate::words::trimmed;
+use crate::words::{span, trimmed};
 
 #[must_use]
 pub fn kind_label(kind: PartKind) -> &'static str {
@@ -450,7 +450,7 @@ fn detail_row(detail: &Detail) -> (&'static str, String) {
             ("Refresh rate", format!("{fastest} Hz"))
         }
         Detail::RefreshRate { slowest, fastest } => {
-            ("Refresh rate", format!("{slowest}–{fastest} Hz"))
+            ("Refresh rate", span(slowest, format!("{fastest} Hz")))
         }
         Detail::ManufactureYear(year) => ("Manufactured", year.to_string()),
         Detail::ModelYear(year) => ("Model year", year.to_string()),

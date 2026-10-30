@@ -1,7 +1,7 @@
 //! Volts, amps and watts as a reader sees them, one rule per unit and
 //! [`Kind`].
 
-use crate::words::{joined, trimmed};
+use crate::words::{joined, span, trimmed};
 
 /// How a figure moves, which decides its precision.
 #[derive(Clone, Copy)]
@@ -51,12 +51,15 @@ pub fn cell_volts(cell_millivolts: &[u32]) -> String {
     format!("{cells} V")
 }
 
-/// A static span, its unit written once.
+/// Both ends at a static voltage's precision.
 #[must_use]
 pub fn volt_span(low_millivolts: u32, high_millivolts: u32) -> String {
-    let number =
-        |millivolts: u32| figure(f64::from(millivolts) / 1000.0, VOLT_DECIMALS, Kind::Static);
-    format!("{}–{} V", number(low_millivolts), number(high_millivolts))
+    let low = figure(
+        f64::from(low_millivolts) / 1000.0,
+        VOLT_DECIMALS,
+        Kind::Static,
+    );
+    span(low, volts(high_millivolts, Kind::Static))
 }
 
 #[must_use]
