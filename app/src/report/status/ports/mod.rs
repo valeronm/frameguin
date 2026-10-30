@@ -39,7 +39,7 @@ use gtk4 as gtk;
 use gtk4::glib;
 
 use self::picker::Picker;
-use super::{Sidebar, Target, Writes};
+use super::{Answer, Sidebar, Target, Writes};
 use crate::reading::{Feed, show_while_mapped};
 use crate::report::{described_value, value};
 use crate::synced::{Guard, connect_switch, show_switch};
@@ -318,16 +318,17 @@ impl Section {
         );
     }
 
-    /// Picks the port the target names on the page, as well as answering
-    /// with the row.
-    fn charger(&self) -> Option<gtk::ListBoxRow> {
+    /// The row, with the port the machine is powered through picked on its
+    /// page.
+    fn charger(&self) -> Option<Answer> {
         let shown = self.shown.borrow();
         let shown = shown.as_ref()?;
-        shown
-            .page
-            .picker
-            .select(preferred(shown.powering.get(), &shown.indices)?);
-        Some(shown.row.clone().upcast())
+        let index = preferred(shown.powering.get(), &shown.indices)?;
+        let page = shown.page.clone();
+        Some(Answer {
+            row: shown.row.clone().upcast(),
+            then: Some(Box::new(move || page.picker.select(index))),
+        })
     }
 }
 

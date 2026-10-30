@@ -18,7 +18,7 @@ use frameguin_modelview::battery::reading::{
 use frameguin_wire::Bus;
 use gtk4 as gtk;
 
-use super::{Section, Sidebar, Target};
+use super::{Answer, Section, Sidebar, Target};
 use crate::reading::{Feed, show_while_mapped};
 use crate::report::{described_value, value, value_row};
 
@@ -116,8 +116,8 @@ pub(super) fn add(
     let report = build_rows(&page);
     let row = sidebar.add(section, "Pack", &page);
 
-    let answering: gtk::ListBoxRow = row.clone().upcast();
-    sidebar.answer(move |target| (target == Target::Battery).then(|| answering.clone()));
+    let answering = row.clone();
+    sidebar.answer(move |target| (target == Target::Battery).then(|| Answer::row(&answering)));
 
     let summary = Request {
         battery: true,

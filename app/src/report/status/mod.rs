@@ -208,7 +208,22 @@ struct SidebarRow {
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 struct Section(usize);
 
-type Find = dyn Fn(Target) -> Option<gtk::ListBoxRow>;
+/// The row a target opens, and what its page does once that row is selected.
+struct Answer {
+    row: gtk::ListBoxRow,
+    then: Option<Box<dyn FnOnce()>>,
+}
+
+impl Answer {
+    fn row(row: &impl IsA<gtk::ListBoxRow>) -> Self {
+        Self {
+            row: row.clone().upcast(),
+            then: None,
+        }
+    }
+}
+
+type Find = dyn Fn(Target) -> Option<Answer>;
 
 /// Holds the split view weakly, the rows' subscriptions hanging on it and
 /// holding this. Everything else here is a descendant of it.
@@ -377,7 +392,7 @@ impl Sidebar {
         self.pages.remove(&removed.page);
     }
 
-    fn answer(&self, find: impl Fn(Target) -> Option<gtk::ListBoxRow> + 'static) {
+    fn answer(&self, find: impl Fn(Target) -> Option<Answer> + 'static) {
         self.finds.borrow_mut().push(Box::new(find));
     }
 
@@ -402,9 +417,12 @@ impl Sidebar {
         if !self.filled.get() {
             return;
         }
-        if let Some(row) = self.pending.get().and_then(|target| self.find(target)) {
+        if let Some(answer) = self.pending.get().and_then(|target| self.find(target)) {
             self.pending.set(None);
-            self.list.select_row(Some(&row));
+            self.list.select_row(Some(&answer.row));
+            if let Some(then) = answer.then {
+                then();
+            }
             self.reveal();
             return;
         }
@@ -413,7 +431,7 @@ impl Sidebar {
         }
     }
 
-    fn find(&self, target: Target) -> Option<gtk::ListBoxRow> {
+    fn find(&self, target: Target) -> Option<Answer> {
         self.finds.borrow().iter().find_map(|find| find(target))
     }
 
