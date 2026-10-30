@@ -189,7 +189,8 @@ impl ControllerRead {
 }
 
 /// The state as `cypd_update_port_state` derives the EC's entry from these
-/// registers.
+/// registers, a programmable contract apart: the EC's entry holds the top of
+/// its offer.
 pub(crate) fn read(span: &[u8; SPAN]) -> ControllerRead {
     let typec = span[usize::from(TYPE_C_STATUS - PD_STATUS)];
     let contract = span[1] & CONTRACT != 0;
@@ -209,7 +210,7 @@ pub(crate) fn read(span: &[u8; SPAN]) -> ControllerRead {
         (millivolts, milliamps) = if sourcing {
             (TYPE_C_MILLIVOLTS, rdo_operating_ma(word(span, CURRENT_RDO)))
         } else {
-            pdo_offer(word(span, CURRENT_PDO))
+            drawn(word(span, CURRENT_PDO), word(span, CURRENT_RDO))
         };
     }
     ControllerRead {
@@ -238,10 +239,12 @@ pub(crate) fn read(span: &[u8; SPAN]) -> ControllerRead {
     }
 }
 
-/// The voltage and the current of the offer a sink's contract stands on, as
-/// the EC takes them: a battery supply's power over its highest voltage, and
-/// the top of a variable or programmable range.
-fn pdo_offer(pdo: u32) -> (u16, u16) {
+/// The voltage and the current of a contract the machine draws. A
+/// programmable one's are the sink's request, by the PD specification's PPS
+/// and AVS request data objects; any other's are the offer's as the EC takes
+/// them, a battery supply's power over its highest voltage and the top of a
+/// variable range.
+fn drawn(pdo: u32, rdo: u32) -> (u16, u16) {
     let (millivolts, milliamps) = match supply(pdo).0 {
         SupplyKind::Fixed => (field(pdo, 10, 10) * 50, field(pdo, 0, 10) * 10),
         SupplyKind::Battery => {
@@ -255,9 +258,9 @@ fn pdo_offer(pdo: u32) -> (u16, u16) {
             )
         }
         SupplyKind::Variable => (field(pdo, 20, 10) * 50, field(pdo, 0, 10) * 10),
-        SupplyKind::Pps | SupplyKind::SprAvs | SupplyKind::EprAvs | SupplyKind::Reserved => {
-            (field(pdo, 17, 8) * 100, field(pdo, 0, 7) * 50)
-        }
+        SupplyKind::Pps => (field(rdo, 9, 12) * 20, field(rdo, 0, 7) * 50),
+        SupplyKind::SprAvs | SupplyKind::EprAvs => (field(rdo, 9, 12) * 25, field(rdo, 0, 7) * 50),
+        SupplyKind::Reserved => (field(pdo, 17, 8) * 100, field(pdo, 0, 7) * 50),
     };
     (
         u16::try_from(millivolts).unwrap_or(u16::MAX),
@@ -533,6 +536,34 @@ mod tests {
         let read = read(&TYPE_C_ONLY_SPAN);
         assert!(!read.contract);
         assert_eq!((read.millivolts, read.milliamps), (5000, 1500));
+    }
+
+    fn charging_on(pdo: u32, rdo: u32) -> [u8; SPAN] {
+        let mut span = CHARGER_SPAN;
+        let at = |register: u16| usize::from(register - super::PD_STATUS);
+        span[at(super::CURRENT_PDO)..at(super::CURRENT_PDO) + 4]
+            .copy_from_slice(&pdo.to_le_bytes());
+        span[at(super::CURRENT_RDO)..at(super::CURRENT_RDO) + 4]
+            .copy_from_slice(&rdo.to_le_bytes());
+        span
+    }
+
+    #[test]
+    fn a_programmable_contract_carries_the_voltage_and_current_requested() {
+        let pdo = (0b11 << 30) | ((21_000 / 100) << 17) | ((3_300 / 100) << 8) | (3_000 / 50);
+        let rdo = (4 << 28) | ((9_000 / 20) << 9) | (2_000 / 50);
+        let read = read(&charging_on(pdo, rdo));
+        assert_eq!((read.millivolts, read.milliamps), (9_000, 2_000));
+    }
+
+    #[test]
+    fn an_adjustable_contract_carries_the_voltage_and_current_requested() {
+        let rdo = (4 << 28) | ((15_000 / 25) << 9) | (2_500 / 50);
+        let standard = read(&charging_on((0b11 << 30) | (0b10 << 28), rdo));
+        assert_eq!((standard.millivolts, standard.milliamps), (15_000, 2_500));
+        let rdo = (4 << 28) | ((28_000 / 25) << 9) | (5_000 / 50);
+        let extended = read(&charging_on((0b11 << 30) | (0b01 << 28), rdo));
+        assert_eq!((extended.millivolts, extended.milliamps), (28_000, 5_000));
     }
 
     #[test]
