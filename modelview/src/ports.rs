@@ -509,7 +509,7 @@ mod tests {
         let within = measuring(&reading(0), 19_800);
         assert_eq!(
             expected_label(within).as_deref(),
-            Some("Expected 18.5–21 V")
+            Some("Expected 18.25–21 V")
         );
         assert_eq!(out_of_range_label(within), None);
     }
@@ -517,7 +517,7 @@ mod tests {
     #[test]
     fn a_bus_voltage_outside_its_window_is_flagged() {
         let low = measuring(&reading(0), 17_000);
-        assert_eq!(expected_label(low).as_deref(), Some("Expected 18.5–21 V"));
+        assert_eq!(expected_label(low).as_deref(), Some("Expected 18.25–21 V"));
         assert_eq!(out_of_range_label(low), Some("Out of range"));
     }
 

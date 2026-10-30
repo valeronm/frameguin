@@ -136,17 +136,17 @@ impl BusVoltage {
     }
 }
 
-/// USB PD's tolerance on a fixed supply's voltage at the source's connector.
+/// USB PD's vSrcNew for a fixed supply, at the source's connector.
 const FIXED_TOLERANCE_PERCENT: u32 = 5;
 
-/// The bus voltage Type-C allows at the source's connector with no power
-/// delivery contract, its vSafe5V.
-const TYPE_C_LOW_MILLIVOLTS: u32 = 4_750;
-const TYPE_C_HIGH_MILLIVOLTS: u32 = 5_500;
+/// Type-C's vSafe5V, at the source's connector.
+const VSAFE5V_MILLIVOLTS: u32 = 5_000;
+const VSAFE5V_LOW_MILLIVOLTS: u32 = 4_750;
+const VSAFE5V_HIGH_MILLIVOLTS: u32 = 5_500;
 
-/// The drop Type-C allows across a cable's power and ground wires together
-/// at its rated current.
-const CABLE_DROP_MILLIVOLTS: u32 = 500;
+/// Type-C's cable IR drop limit at a cable's rated current (section 4.4.1):
+/// 500 mV on VBUS and 250 mV on ground.
+const CABLE_DROP_MILLIVOLTS: u32 = 500 + 250;
 
 /// None where the port's controller registers were not read.
 #[must_use]
@@ -163,20 +163,24 @@ fn voltage_window(reading: &PortReading, pd: Option<PdContract>) -> Option<Volta
     if !carries_power(reading) {
         return None;
     }
+    let vsafe5v = VoltageWindow {
+        low: VSAFE5V_LOW_MILLIVOLTS,
+        high: VSAFE5V_HIGH_MILLIVOLTS,
+    };
     let at_source = if reading.contract {
         if pd?.kind != SupplyKind::Fixed {
             return None;
         }
-        let target = u32::from(reading.millivolts);
-        VoltageWindow {
-            low: target * (100 - FIXED_TOLERANCE_PERCENT) / 100,
-            high: target * (100 + FIXED_TOLERANCE_PERCENT) / 100,
+        match u32::from(reading.millivolts) {
+            // USB PD's vSrcNew does not apply at vSafe5V.
+            VSAFE5V_MILLIVOLTS => vsafe5v,
+            target => VoltageWindow {
+                low: target * (100 - FIXED_TOLERANCE_PERCENT) / 100,
+                high: target * (100 + FIXED_TOLERANCE_PERCENT) / 100,
+            },
         }
     } else {
-        VoltageWindow {
-            low: TYPE_C_LOW_MILLIVOLTS,
-            high: TYPE_C_HIGH_MILLIVOLTS,
-        }
+        vsafe5v
     };
     match reading.power_role {
         PowerRole::Source => Some(at_source),
@@ -329,15 +333,15 @@ mod tests {
     #[test]
     fn a_fixed_contract_drawn_from_allows_its_tolerance_and_the_cables_drop() {
         let drawn = measured(&reading(0), Some(SupplyKind::Fixed), 19_800);
-        assert_eq!(voltage(&drawn).window(), Some(window(18_500, 21_000)));
+        assert_eq!(voltage(&drawn).window(), Some(window(18_250, 21_000)));
     }
 
     #[test]
     fn a_measured_voltage_on_either_end_of_the_window_is_within_it() {
         for (millivolts, out_of_range) in [
-            (18_500, false),
+            (18_250, false),
             (21_000, false),
-            (18_400, true),
+            (18_200, true),
             (21_100, true),
         ] {
             let drawn = measured(&reading(0), Some(SupplyKind::Fixed), millivolts);
@@ -357,15 +361,31 @@ mod tests {
             ..reading(0)
         };
         let drawn = measured(&type_c, None, 5_000);
-        assert_eq!(voltage(&drawn).window(), Some(window(4_250, 5_500)));
+        assert_eq!(voltage(&drawn).window(), Some(window(4_000, 5_500)));
     }
 
     #[test]
     fn power_the_machine_supplies_is_measured_with_no_cable_between() {
-        let pd = measured(&supplying(true), Some(SupplyKind::Fixed), 5_000);
-        assert_eq!(voltage(&pd).window(), Some(window(4_750, 5_250)));
+        let nine_volts = PortReading {
+            millivolts: 9_000,
+            ..supplying(true)
+        };
+        let pd = measured(&nine_volts, Some(SupplyKind::Fixed), 9_000);
+        assert_eq!(voltage(&pd).window(), Some(window(8_550, 9_450)));
         let type_c = measured(&supplying(false), None, 5_000);
         assert_eq!(voltage(&type_c).window(), Some(window(4_750, 5_500)));
+    }
+
+    #[test]
+    fn a_fixed_contract_at_five_volts_is_held_to_vsafe5v() {
+        let five_volts = PortReading {
+            millivolts: 5_000,
+            ..reading(0)
+        };
+        let drawn = measured(&five_volts, Some(SupplyKind::Fixed), 5_000);
+        assert_eq!(voltage(&drawn).window(), Some(window(4_000, 5_500)));
+        let supplied = measured(&supplying(true), Some(SupplyKind::Fixed), 5_000);
+        assert_eq!(voltage(&supplied).window(), Some(window(4_750, 5_500)));
     }
 
     #[test]
