@@ -30,7 +30,7 @@ use frameguin_model::reading::{Reading, Request};
 use frameguin_modelview::port;
 use frameguin_modelview::ports::{
     DISPLAY_PORT, cable_label, cable_type_label, carried, contract_label, data_role_label,
-    display_port_label, epr_label, measured_label, mismatch_label, peak_label, power_limited_label,
+    display_port_label, measured_label, mismatch_label, peak_label, power_limited_label,
     power_role_label, powered_from, refusal_label, supply_kind_label, vconn_label,
 };
 use frameguin_modelview::usb::{capacity_label, device_name, network_label, speed_label};
@@ -525,9 +525,6 @@ fn contract_group(state: &PortReading) -> Option<Group> {
         if let Some(limited) = power_limited_label(&pd, state.partner) {
             group.row("Power limited", limited);
         }
-    }
-    if let Some(epr) = epr_label(state.epr) {
-        group.row("Extended power range", epr);
     }
     (!group.rows.is_empty()).then_some(group)
 }

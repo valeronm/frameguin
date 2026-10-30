@@ -33,19 +33,20 @@ fn role(reading: &PortReading) -> &'static str {
     }
 }
 
-/// What the link carries as a person reads it — the watts and the volts
-/// they come at. A port with no power delivery contract still carries what
-/// Type-C's own resistors advertise. None where the port settled on
-/// nothing.
+/// What the link carries as a person reads it — the watts, the volts they
+/// come at and whether extended power range is in play. A port with no
+/// power delivery contract still carries what Type-C's own resistors
+/// advertise. None where the port settled on nothing.
 #[must_use]
 pub fn carried(port: &PortReading) -> Option<String> {
     if !carries_power(port) {
         return None;
     }
-    Some(joined([
-        power(port),
-        volts(port.millivolts.into(), Kind::Static),
-    ]))
+    Some(joined(
+        [power(port), volts(port.millivolts.into(), Kind::Static)]
+            .into_iter()
+            .chain(epr_label(port.epr).map(str::to_owned)),
+    ))
 }
 
 #[must_use]
@@ -355,14 +356,11 @@ pub fn cable_type_label(active: bool) -> Option<&'static str> {
     active.then_some("Active cable")
 }
 
-/// Extended power range, and None where the port does not offer it — a
-/// capability nothing on this machine can use is not worth a row.
-#[must_use]
-pub fn epr_label(epr: Epr) -> Option<&'static str> {
+fn epr_label(epr: Epr) -> Option<&'static str> {
     match epr {
         Epr::Unsupported => None,
-        Epr::Supported => Some("Supported"),
-        Epr::Active => Some("Active"),
+        Epr::Supported => Some("EPR available"),
+        Epr::Active => Some("EPR"),
     }
 }
 
@@ -428,8 +426,8 @@ fn cable_length_label(latency: CableLatency) -> &'static str {
 #[cfg(test)]
 mod tests {
     use frameguin_contract::{
-        Cable, CableLatency, CableSpeed, DataRole, PdContract, PeakCurrent, Platform, PortMask,
-        PortPartner, PortReading, PortState, PowerRole, SupplyKind,
+        Cable, CableLatency, CableSpeed, DataRole, Epr, PdContract, PeakCurrent, Platform,
+        PortMask, PortPartner, PortReading, PortState, PowerRole, SupplyKind,
     };
     use frameguin_model::port::Placement;
 
@@ -458,6 +456,28 @@ mod tests {
     #[test]
     fn what_a_link_carries_reads_as_watts_and_volts() {
         assert_eq!(carried(&reading(0)).as_deref(), Some("100 W · 20 V"));
+    }
+
+    #[test]
+    fn a_link_in_extended_power_range_says_so_after_the_volts() {
+        let epr = PortReading {
+            millivolts: 28_000,
+            epr: Epr::Active,
+            ..reading(0)
+        };
+        assert_eq!(carried(&epr).as_deref(), Some("140 W · 28 V · EPR"));
+    }
+
+    #[test]
+    fn a_charger_offering_extended_power_range_shows_it_available() {
+        let offered = PortReading {
+            epr: Epr::Supported,
+            ..reading(0)
+        };
+        assert_eq!(
+            carried(&offered).as_deref(),
+            Some("100 W · 20 V · EPR available")
+        );
     }
 
     #[test]
