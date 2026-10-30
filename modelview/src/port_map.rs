@@ -55,9 +55,7 @@ impl Map {
             unplaced,
         }
     }
-}
 
-impl Map {
     /// A port listed along its side, its order there unmeasured, has no
     /// socket drawn.
     #[must_use]
@@ -98,12 +96,7 @@ impl Outline {
             if on_side.iter().any(|(_, depth)| depth.is_none()) {
                 return Edge::Listed(on_side.iter().map(|(index, _)| *index).collect());
             }
-            let undriven_at = |depth: Depth| {
-                undriven.contains(&Position::Side {
-                    side,
-                    depth: Some(depth),
-                })
-            };
+            let undriven_at = |depth: Depth| undriven.contains(&Position::at(side, depth));
             Edge::Placed(
                 depths
                     .iter()

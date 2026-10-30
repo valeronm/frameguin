@@ -77,8 +77,8 @@ const TURNED_OFF: &str = "Turned off";
 pub struct PortLine {
     pub main: String,
     /// Where the port is, where no drawn socket shows it.
-    pub name: Option<String>,
-    pub lead: Option<&'static str>,
+    name: Option<String>,
+    lead: Option<&'static str>,
     /// Where the port is in `DisplayPort` alternate mode.
     pub display: bool,
 }
@@ -109,7 +109,7 @@ pub fn port_line(placement: Placement, port: &PortState, arrowed: bool) -> PortL
 /// way power goes worded on the watts since no arrow is heard.
 #[must_use]
 pub fn spoken(placement: Placement, port: &PortState) -> String {
-    let line = port_line(placement, port, false);
+    let line = line(port, false);
     let label = port::label(placement, port.index);
     [
         Some(label.as_str()),

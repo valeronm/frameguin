@@ -47,7 +47,8 @@ pub enum Position {
 }
 
 impl Position {
-    const fn at(side: Side, depth: Depth) -> Self {
+    #[must_use]
+    pub const fn at(side: Side, depth: Depth) -> Self {
         Self::Side {
             side,
             depth: Some(depth),
