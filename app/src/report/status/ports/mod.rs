@@ -103,9 +103,7 @@ struct DrawnRow {
 /// that keeps every title moves only the values, which are set in place.
 struct Group {
     title: String,
-    rows: Vec<&'static str>,
-    /// One per row.
-    values: Vec<Value>,
+    rows: Vec<(&'static str, Value)>,
 }
 
 #[derive(Default)]
@@ -121,7 +119,6 @@ impl Group {
         Self {
             title: title.into(),
             rows: Vec::new(),
-            values: Vec::new(),
         }
     }
 
@@ -146,13 +143,31 @@ impl Group {
     }
 
     fn push(&mut self, title: &'static str, value: Value) {
-        self.rows.push(title);
-        self.values.push(value);
+        self.rows.push((title, value));
     }
 
-    fn shape(&self) -> (&str, &[&'static str]) {
-        (&self.title, &self.rows)
+    fn values(&self) -> impl Iterator<Item = &Value> {
+        self.rows.iter().map(|(_, value)| value)
     }
+
+    fn same_titles(&self, other: &Self) -> bool {
+        self.title == other.title
+            && self
+                .rows
+                .iter()
+                .map(|(title, _)| title)
+                .eq(other.rows.iter().map(|(title, _)| title))
+    }
+}
+
+/// Whether `fresh` keeps every group and row title of `drawn`, its values
+/// aside.
+fn same_layout(drawn: &[Group], fresh: &[Group]) -> bool {
+    drawn.len() == fresh.len()
+        && drawn
+            .iter()
+            .zip(fresh)
+            .all(|(drawn, fresh)| drawn.same_titles(fresh))
 }
 
 /// The row arrives with the first reading that carries a port.
@@ -426,14 +441,10 @@ impl PortsPage {
             }
         };
         if let Some(drawn) = self.drawn.borrow_mut().as_mut()
-            && drawn
-                .layout
-                .iter()
-                .map(Group::shape)
-                .eq(layout.iter().map(Group::shape))
+            && same_layout(&drawn.layout, &layout)
         {
-            let old = drawn.layout.iter().flat_map(|group| &group.values);
-            let fresh = layout.iter().flat_map(|group| &group.values);
+            let old = drawn.layout.iter().flat_map(Group::values);
+            let fresh = layout.iter().flat_map(Group::values);
             for ((row, old), new) in drawn.rows.iter().zip(old).zip(fresh) {
                 row.show(old, new);
             }
@@ -446,7 +457,7 @@ impl PortsPage {
         let mut rows = Vec::new();
         for laid in &layout {
             let group = adw::PreferencesGroup::builder().title(&laid.title).build();
-            for (title, value) in laid.rows.iter().zip(&laid.values) {
+            for (title, value) in &laid.rows {
                 let row = DrawnRow::new(&group, title);
                 row.show(&Value::default(), value);
                 rows.push(row);
@@ -620,4 +631,52 @@ fn device_group(device: &Attached) -> Group {
         group.row("Firmware", device.firmware.as_str());
     }
     group
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Group, same_layout};
+
+    fn group(title: &str, rows: &[(&'static str, &str)]) -> Group {
+        let mut group = Group::new(title);
+        for (row, text) in rows {
+            group.row(row, *text);
+        }
+        group
+    }
+
+    #[test]
+    fn a_layout_keeping_every_title_is_the_same_whatever_its_values() {
+        let drawn = [group("Port 1", &[("Contract", "100 W · 20 V")])];
+        let fresh = [group("Port 1", &[("Contract", "60 W · 20 V")])];
+        assert!(same_layout(&drawn, &fresh));
+    }
+
+    #[test]
+    fn a_row_title_that_changes_makes_a_new_layout() {
+        let drawn = [group("Port 1", &[("Contract", "100 W · 20 V")])];
+        let fresh = [group("Port 1", &[("Measured", "20.1 V")])];
+        assert!(!same_layout(&drawn, &fresh));
+    }
+
+    #[test]
+    fn a_group_title_that_changes_makes_a_new_layout() {
+        let drawn = [group("Power delivery", &[("Contract", "100 W · 20 V")])];
+        let fresh = [group("Type-C only", &[("Contract", "100 W · 20 V")])];
+        assert!(!same_layout(&drawn, &fresh));
+    }
+
+    #[test]
+    fn rows_split_differently_between_groups_make_a_new_layout() {
+        let drawn = [group("A", &[("One", "1"), ("Two", "2")]), group("B", &[])];
+        let fresh = [group("A", &[("One", "1")]), group("B", &[("Two", "2")])];
+        assert!(!same_layout(&drawn, &fresh));
+    }
+
+    #[test]
+    fn a_group_added_makes_a_new_layout() {
+        let drawn = [group("A", &[("One", "1")])];
+        let fresh = [group("A", &[("One", "1")]), group("B", &[("Two", "2")])];
+        assert!(!same_layout(&drawn, &fresh));
+    }
 }
