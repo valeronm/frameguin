@@ -19,6 +19,8 @@ mod touchpad;
 pub(crate) mod touchscreen;
 mod widgets;
 
+pub(crate) use widgets::add_css;
+
 use std::cell::Cell;
 use std::rc::Rc;
 

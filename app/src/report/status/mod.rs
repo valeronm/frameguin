@@ -23,6 +23,7 @@ use gtk4 as gtk;
 use gtk4::gio;
 use gtk4::glib;
 
+pub(crate) use self::layers::style;
 use self::ports::CONTENT_WIDTH;
 use super::{Shell, collapse_when_narrow, headed};
 use crate::daemon::Daemon;

@@ -34,7 +34,7 @@ const LIMIT_WIDTH: f64 = 3.0;
 const SWATCH: i32 = 14;
 const LIMIT_SWATCH_WIDTH: i32 = 5;
 
-const BAND_CLASS: &str = "accent";
+const BAND_CLASS: &str = layers::BLUE_CLASS;
 
 const fn mark_class(mark: Mark) -> &'static str {
     match mark {

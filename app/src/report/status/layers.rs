@@ -6,6 +6,31 @@ use gtk4 as gtk;
 use gtk4::cairo;
 use gtk4::prelude::*;
 
+use crate::window::add_css;
+
+/// libadwaita's blue, for one of several colors drawn together: the user may
+/// set the accent to any of the others.
+pub(super) const BLUE_CLASS: &str = "frameguin-blue";
+
+/// libadwaita 1.5's default accent as a foreground, on a light and on a dark
+/// background.
+const LIGHT_BLUE: &str = "#1c71d8";
+const DARK_BLUE: &str = "#78aeed";
+
+/// Registers [`BLUE_CLASS`]'s color for the display, and swaps its shade
+/// whenever libadwaita switches between light and dark. Each call adds a
+/// provider and a handler of its own.
+pub(crate) fn style() {
+    let styles = adw::StyleManager::default();
+    let css = add_css(&blue_rule(styles.is_dark()));
+    styles.connect_dark_notify(move |styles| css.load_from_data(&blue_rule(styles.is_dark())));
+}
+
+fn blue_rule(dark: bool) -> String {
+    let blue = if dark { DARK_BLUE } else { LIGHT_BLUE };
+    format!(".{BLUE_CLASS} {{ color: {blue}; }}")
+}
+
 /// Draws `area` with its own color as the source. A drawing area's only
 /// themed color is its own CSS `color`, which a libadwaita style class on it
 /// sets.

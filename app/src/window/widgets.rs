@@ -27,8 +27,10 @@ pub(super) fn scale_percent(value: f64) -> u8 {
 }
 
 /// Style rules above the theme's, for the whole display: a rule not scoped
-/// to a class the app sets restyles every matching widget in the app.
-pub(super) fn add_css(rules: &str) {
+/// to a class the app sets restyles every matching widget in the app. The
+/// returned provider takes new rules in place of these through
+/// `load_from_data`.
+pub(crate) fn add_css(rules: &str) -> gtk::CssProvider {
     let css = gtk::CssProvider::new();
     css.load_from_data(rules);
     if let Some(display) = gdk::Display::default() {
@@ -38,6 +40,7 @@ pub(super) fn add_css(rules: &str) {
             gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
         );
     }
+    css
 }
 
 /// The chrome every slider shares, so a change to how one reads doesn't have

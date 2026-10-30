@@ -224,7 +224,10 @@ fn main() -> glib::ExitCode {
     // brings up only the tray; the first Show or plain launch builds the
     // window.
     let startup_state = state.clone();
-    app.connect_startup(move |app| setup_tray(app, startup_state.clone()));
+    app.connect_startup(move |app| {
+        report::status::style();
+        setup_tray(app, startup_state.clone());
+    });
     app.connect_activate(move |app| state.window_for(app).0.present());
     app.run()
 }

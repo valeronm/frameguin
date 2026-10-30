@@ -636,6 +636,11 @@ the product it was read from.
   on the main window's battery row, so Title Case there would mean a
   second spelling in `modelview` — and so do the tray's items, which name
   the window rows they move, and the empty pages' titles. Nothing checks it.
+- The accent highlights one thing in one color. A drawing in several colors
+  takes each from a fixed class — libadwaita's `success`, `warning` and
+  `error`, and `layers::BLUE_CLASS` for a blue — since the user may set the
+  accent to any of them, and two parts would then look alike. Nothing checks
+  it.
 - History is public, so it moves by normal commits; pushed commits are not
   amended.
 - "Framework" is Framework Computer Inc.'s trademark. The project name avoids

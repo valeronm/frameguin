@@ -59,7 +59,7 @@ const LAYERS: [(Option<&str>, Paint); 4] = [
 const fn flow_class(flow: Flow) -> &'static str {
     match flow {
         Flow::In => "success",
-        Flow::Out => "accent",
+        Flow::Out => layers::BLUE_CLASS,
     }
 }
 
