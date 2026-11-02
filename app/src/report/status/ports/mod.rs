@@ -667,10 +667,10 @@ fn device_group(device: &Attached) -> Group {
 #[cfg(test)]
 mod tests {
     use frameguin_contract::{
-        Cable, CableLatency, CableSpeed, DataRole, PdContract, PeakCurrent, PortMask, PortReading,
-        PortRegisters, PortState, PowerRole, SupplyKind,
+        Cable, CableLatency, CableSpeed, DataRole, PdContract, PeakCurrent, PortReading,
+        PortRegisters, PowerRole, SupplyKind,
     };
-    use frameguin_model::fixtures::{offer, reading};
+    use frameguin_model::fixtures::{offer, on, reading};
     use frameguin_model::port::Placement;
     use frameguin_modelview::track::{Mark, Track};
 
@@ -687,16 +687,10 @@ mod tests {
     #[test]
     fn the_contract_row_sits_in_the_ports_group_naming_how_it_was_settled() {
         for (contract, settled) in [(true, "Power delivery"), (false, "Type-C only")] {
-            let state = PortState {
-                index: 0,
-                mask: PortMask::On(
-                    PortReading {
-                        contract,
-                        ..reading(0)
-                    },
-                    None,
-                ),
-            };
+            let state = on(PortReading {
+                contract,
+                ..reading(0)
+            });
             let layout = layout(Placement::default(), &state, &[]);
             let titles: Vec<_> = layout.iter().map(|group| group.title.as_str()).collect();
             assert_eq!(titles, ["Port 0"]);
@@ -774,10 +768,7 @@ mod tests {
                 }),
                 ..reading(0)
             };
-            let state = PortState {
-                index: 0,
-                mask: PortMask::On(every_row, None),
-            };
+            let state = on(every_row);
             let layout = layout(Placement::default(), &state, &[]);
             let titles: Vec<_> = layout[0].rows.iter().map(|(title, _)| *title).collect();
             assert_eq!(titles, rows);

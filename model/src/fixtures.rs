@@ -40,12 +40,19 @@ pub fn state(flow: ChargeFlow, milliamps: u32) -> BatteryState {
     }
 }
 
-/// Port `index`, enabled in its controller's mask.
 #[must_use]
 pub fn port(index: u8) -> PortState {
     PortState {
         index,
-        mask: PortMask::On(reading(index), None),
+        ..on(reading(index))
+    }
+}
+
+#[must_use]
+pub fn on(reading: PortReading) -> PortState {
+    PortState {
+        index: 0,
+        mask: PortMask::On(reading, None),
     }
 }
 

@@ -486,16 +486,9 @@ mod tests {
         power_limited_label, power_role_label, powered_from, socket, spoken, supply_kind_label,
         supply_label, supply_summary,
     };
-    use frameguin_model::fixtures::{measured, offer, port, reading};
+    use frameguin_model::fixtures::{measured, offer, on, port, reading};
 
     use crate::track::Mark;
-
-    fn on(reading: PortReading) -> PortState {
-        PortState {
-            index: 0,
-            mask: PortMask::On(reading, None),
-        }
-    }
 
     #[test]
     fn a_measured_voltage_reads_to_a_tenth_of_a_volt() {
@@ -692,17 +685,14 @@ mod tests {
         );
         let monitor = PortState {
             index: 1,
-            mask: PortMask::On(
-                PortReading {
-                    partner: PortPartner::Sink,
-                    charging: false,
-                    video: true,
-                    millivolts: 5_000,
-                    milliamps: 400,
-                    ..reading(1)
-                },
-                None,
-            ),
+            ..on(PortReading {
+                partner: PortPartner::Sink,
+                charging: false,
+                video: true,
+                millivolts: 5_000,
+                milliamps: 400,
+                ..reading(1)
+            })
         };
         assert_eq!(
             spoken(measured, &monitor),
@@ -940,13 +930,10 @@ mod tests {
     fn a_socket_shows_what_its_port_holds() {
         let accessory = PortState {
             index: 2,
-            mask: PortMask::On(
-                PortReading {
-                    partner: PortPartner::Audio,
-                    ..reading(2)
-                },
-                None,
-            ),
+            ..on(PortReading {
+                partner: PortPartner::Audio,
+                ..reading(2)
+            })
         };
         let off = PortState {
             index: 3,
