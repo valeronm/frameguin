@@ -21,13 +21,13 @@ use std::rc::{Rc, Weak};
 use std::time::Duration;
 
 use adw::prelude::*;
-use frameguin_contract::{Attached, PortMask, PortReading, PortState, PowerRole};
+use frameguin_contract::{Attached, PortMask, PortReading, PortState};
 use frameguin_model::control::ports::{Ports, attached, bus_voltage, powering};
 use frameguin_model::port::Placement;
 use frameguin_model::reading::{Reading, Request};
 use frameguin_modelview::port;
 use frameguin_modelview::ports::{
-    DISPLAY_PORT, bus_track, cable_label, cable_type_label, carried, contract_label,
+    DISPLAY_PORT, bus_track, cable_label, cable_type_label, carried, contract_type_label,
     data_role_label, display_port_label, measured_label, mismatch_label, out_of_range_label,
     peak_label, power_limited_label, power_role_label, powered_from, refusal_label,
     supply_kind_label, vconn_label,
@@ -455,16 +455,7 @@ impl PortsPage {
         let Some(state) = ports.iter().find(|state| state.index == index) else {
             return;
         };
-        let layout = match &state.mask {
-            PortMask::Off => vec![off_group(self.placement, index)],
-            PortMask::On(reading, _) | PortMask::Unchecked(reading, _) => {
-                let devices = self.placement.attached(index, devices);
-                let mut layout = vec![connection_group(self.placement, index, reading)];
-                layout.extend(contract_group(reading));
-                layout.extend(devices.into_iter().map(device_group));
-                layout
-            }
-        };
+        let layout = layout(self.placement, state, devices);
         if let Some(drawn) = self.drawn.borrow_mut().as_mut()
             && same_layout(&drawn.layout, &layout)
         {
@@ -571,84 +562,84 @@ impl DrawnRow {
     }
 }
 
+fn layout(placement: Placement, state: &PortState, devices: &[Attached]) -> Vec<Group> {
+    let index = state.index;
+    match &state.mask {
+        PortMask::Off => vec![off_group(placement, index)],
+        PortMask::On(reading, _) | PortMask::Unchecked(reading, _) => {
+            let devices = placement.attached(index, devices);
+            let mut layout = vec![port_group(placement, index, reading)];
+            layout.extend(devices.into_iter().map(device_group));
+            layout
+        }
+    }
+}
+
 fn off_group(placement: Placement, index: u8) -> Group {
     Group::new(port::heading(placement, index))
 }
 
-fn connection_group(placement: Placement, index: u8, state: &PortReading) -> Group {
+fn port_group(placement: Placement, index: u8, reading: &PortReading) -> Group {
     let mut group = Group::new(port::heading(placement, index));
-    if attached(state) {
-        if let Some(video) = display_port_label(state) {
-            group.row(DISPLAY_PORT, video);
-        }
-        if let Some(power) = power_role_label(state.partner, state.power_role) {
+    let pd = reading.registers.and_then(|registers| registers.pd);
+    if attached(reading) {
+        if let Some(power) = power_role_label(reading.partner, reading.power_role) {
             group.row("Power role", power);
         }
-        if let Some(vconn) = vconn_label(state.vconn) {
-            group.described(
-                "VCONN",
-                "Power for the chips inside the cable or accessory",
-                vconn,
+        if let Some(supply) = carried(reading) {
+            group.described("Contract", contract_type_label(reading.contract), supply);
+        }
+        if let Some(voltage) = bus_voltage(reading) {
+            group.push(
+                "Measured",
+                Value {
+                    text: measured_label(voltage),
+                    warning: out_of_range_label(voltage),
+                    beneath: Beneath::Track(bus_track(voltage)),
+                },
             );
         }
-        if let Some(data) = data_role_label(state.data_role) {
-            group.row("Data role", data);
-        }
-    }
-    if let Some(cable) = state.registers.and_then(|registers| registers.cable)
-        && let Some(label) = cable_label(&cable)
-    {
-        group.described("Cable", cable_type_label(cable.active), label);
-    }
-    group
-}
-
-fn contract_group(state: &PortReading) -> Option<Group> {
-    if !attached(state) {
-        return None;
-    }
-    let mut group = Group::new(contract_label(state.contract));
-    if let Some(supply) = carried(state) {
-        group.described("Contract", contract_ceiling(state.power_role), supply);
-    }
-    if let Some(voltage) = bus_voltage(state) {
-        group.push(
-            "Measured",
-            Value {
-                text: measured_label(voltage),
-                warning: out_of_range_label(voltage),
-                beneath: Beneath::Track(bus_track(voltage)),
-            },
-        );
-    }
-    if let Some(pd) = state.registers.and_then(|registers| registers.pd) {
-        if let Some(kind) = supply_kind_label(pd.kind) {
-            group.row("Supply type", kind);
-        }
-        if let Some(mismatch) = mismatch_label(&pd) {
+        if let Some(mismatch) = pd.as_ref().and_then(mismatch_label) {
             group.described(
                 "Capability mismatch",
                 "The end drawing power wanted more than any offer",
                 mismatch,
             );
         }
-        if let Some(peak) = peak_label(&pd, state.partner) {
-            group.row("Peak current", peak);
+    }
+    if let Some(cable) = reading.registers.and_then(|registers| registers.cable)
+        && let Some(label) = cable_label(&cable)
+    {
+        group.described("Cable", cable_type_label(cable.active), label);
+    }
+    if attached(reading) {
+        if let Some(video) = display_port_label(reading) {
+            group.row(DISPLAY_PORT, video);
         }
-        if let Some(limited) = power_limited_label(&pd, state.partner) {
-            group.row("Power limited", limited);
+        // Detail a reader rarely acts on, after the rows they do.
+        if let Some(pd) = pd {
+            if let Some(kind) = supply_kind_label(pd.kind) {
+                group.row("Supply type", kind);
+            }
+            if let Some(peak) = peak_label(&pd, reading.partner) {
+                group.row("Peak current", peak);
+            }
+            if let Some(limited) = power_limited_label(&pd, reading.partner) {
+                group.row("Power limited", limited);
+            }
+        }
+        if let Some(vconn) = vconn_label(reading.vconn) {
+            group.described(
+                "VCONN",
+                "Power for the chips inside the cable or accessory",
+                vconn,
+            );
+        }
+        if let Some(data) = data_role_label(reading.data_role) {
+            group.row("Data role", data);
         }
     }
-    (!group.rows.is_empty()).then_some(group)
-}
-
-/// The power role is the machine's.
-fn contract_ceiling(role: PowerRole) -> &'static str {
-    match role {
-        PowerRole::Sink => "The most the device can supply",
-        PowerRole::Source => "The most the device can draw",
-        PowerRole::Unknown => "The most the port can carry",
-    }
+    group
 }
 
 fn device_group(device: &Attached) -> Group {
@@ -675,9 +666,15 @@ fn device_group(device: &Attached) -> Group {
 
 #[cfg(test)]
 mod tests {
+    use frameguin_contract::{
+        Cable, CableLatency, CableSpeed, DataRole, PdContract, PeakCurrent, PortMask, PortReading,
+        PortRegisters, PortState, PowerRole, SupplyKind,
+    };
+    use frameguin_model::fixtures::{offer, reading};
+    use frameguin_model::port::Placement;
     use frameguin_modelview::track::{Mark, Track};
 
-    use super::{Beneath, Group, Value, same_layout};
+    use super::{Beneath, Group, Value, layout, same_layout};
 
     fn group(title: &str, rows: &[(&'static str, &str)]) -> Group {
         let mut group = Group::new(title);
@@ -685,6 +682,106 @@ mod tests {
             group.row(row, *text);
         }
         group
+    }
+
+    #[test]
+    fn the_contract_row_sits_in_the_ports_group_naming_how_it_was_settled() {
+        for (contract, settled) in [(true, "Power delivery"), (false, "Type-C only")] {
+            let state = PortState {
+                index: 0,
+                mask: PortMask::On(
+                    PortReading {
+                        contract,
+                        ..reading(0)
+                    },
+                    None,
+                ),
+            };
+            let layout = layout(Placement::default(), &state, &[]);
+            let titles: Vec<_> = layout.iter().map(|group| group.title.as_str()).collect();
+            assert_eq!(titles, ["Port 0"]);
+            let (_, value) = layout[0]
+                .rows
+                .iter()
+                .find(|(title, _)| *title == "Contract")
+                .expect("a Contract row");
+            let Beneath::Subtitle(subtitle) = &value.beneath else {
+                panic!("the Contract row carries a track");
+            };
+            assert_eq!(subtitle, settled);
+        }
+    }
+
+    #[test]
+    fn the_ports_rows_lead_with_what_a_reader_acts_on() {
+        let adjustable = PdContract {
+            peak: Some(PeakCurrent::Overload150),
+            capability_mismatch: true,
+            ..offer(SupplyKind::EprAvs)
+        };
+        let programmable = PdContract {
+            power_limited: Some(true),
+            capability_mismatch: true,
+            ..offer(SupplyKind::Pps)
+        };
+        let cases: [(PdContract, &[&str]); 2] = [
+            (
+                adjustable,
+                &[
+                    "Power role",
+                    "Contract",
+                    "Measured",
+                    "Capability mismatch",
+                    "Cable",
+                    "DisplayPort",
+                    "Supply type",
+                    "Peak current",
+                    "VCONN",
+                    "Data role",
+                ],
+            ),
+            (
+                programmable,
+                &[
+                    "Power role",
+                    "Contract",
+                    "Measured",
+                    "Capability mismatch",
+                    "Cable",
+                    "DisplayPort",
+                    "Supply type",
+                    "Power limited",
+                    "VCONN",
+                    "Data role",
+                ],
+            ),
+        ];
+        for (pd, rows) in cases {
+            let every_row = PortReading {
+                power_role: PowerRole::Unknown,
+                data_role: DataRole::UpstreamFacing,
+                video: true,
+                registers: Some(PortRegisters {
+                    cable: Some(Cable {
+                        speed: Some(CableSpeed::Gen2),
+                        milliamps: Some(5000),
+                        epr: false,
+                        latency: Some(CableLatency::Under10Ns),
+                        active: false,
+                    }),
+                    pd: Some(pd),
+                    measured_millivolts: 20_000,
+                }),
+                ..reading(0)
+            };
+            let state = PortState {
+                index: 0,
+                mask: PortMask::On(every_row, None),
+            };
+            let layout = layout(Placement::default(), &state, &[]);
+            let titles: Vec<_> = layout[0].rows.iter().map(|(title, _)| *title).collect();
+            assert_eq!(titles, rows);
+        }
     }
 
     #[test]
@@ -703,8 +800,8 @@ mod tests {
 
     #[test]
     fn a_group_title_that_changes_makes_a_new_layout() {
-        let drawn = [group("Power delivery", &[("Contract", "100 W · 20 V")])];
-        let fresh = [group("Type-C only", &[("Contract", "100 W · 20 V")])];
+        let drawn = [group("Port 1", &[("Contract", "100 W · 20 V")])];
+        let fresh = [group("Port 2", &[("Contract", "100 W · 20 V")])];
         assert!(!same_layout(&drawn, &fresh));
     }
 

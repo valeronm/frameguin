@@ -11,7 +11,7 @@ workspace = true
 # crate on ksni's own thread, and a control is exercised in tests against a
 # stub of its trait.
 [features]
-# The stub figures modelview's tests share.
+# The stub figures the tests of the crates above this one share.
 testing = []
 
 [dependencies]

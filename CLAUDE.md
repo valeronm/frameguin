@@ -161,10 +161,13 @@ it and the non-obvious constraints.
   EC answers for the machine — its power role, its data role — is inverted
   before it is worded: the page carries the attached device's
   own readings beside them, and one screen with two subjects reads as a
-  contradiction rather than as two facts. Its groups are the connection,
-  headed by where the port is, and what the contract adds, headed by the
-  contract type, because the volts and amps read alike whether power
-  delivery settled them or Type-C's own resistors advertised them. Where a
+  contradiction rather than as two facts. Its groups divide by where a
+  reading comes from: the port's own, headed by where the port is, holds
+  what the EC and the port's controller report of the link, and each USB
+  device behind the port has one for what it announces over USB. A
+  contract is worded with its type, because the volts and amps read alike
+  whether power delivery settled them or Type-C's own resistors advertised
+  them. Where a
   socket is on the machine is `model::port`'s, curated per board and
   answering nothing for a port nobody placed: the EC's port number says
   which controller drives a port and not where it is, and a wrong position

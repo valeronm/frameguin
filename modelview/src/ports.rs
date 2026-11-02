@@ -36,19 +36,23 @@ fn role(reading: &PortReading) -> &'static str {
     }
 }
 
-/// What the link carries as a person reads it — the watts, the volts they
-/// come at and whether extended power range is in play. A port with no
-/// power delivery contract still carries what Type-C's own resistors
-/// advertise. None where the port settled on nothing.
+/// What the link may carry as a person reads it — the watts as a ceiling
+/// rather than the power flowing now, the volts they come at and whether
+/// extended power range is in play. A port with no power delivery contract
+/// still carries what Type-C's own resistors advertise. None where the
+/// port settled on nothing.
 #[must_use]
 pub fn carried(port: &PortReading) -> Option<String> {
     if !carries_power(port) {
         return None;
     }
     Some(joined(
-        [power(port), volts(port.millivolts.into(), Kind::Static)]
-            .into_iter()
-            .chain(epr_label(port.epr).map(str::to_owned)),
+        [
+            format!("{} max", power(port)),
+            volts(port.millivolts.into(), Kind::Static),
+        ]
+        .into_iter()
+        .chain(epr_label(port.epr).map(str::to_owned)),
     ))
 }
 
@@ -262,7 +266,7 @@ pub fn display_port_label(port: &PortReading) -> Option<&'static str> {
 /// Whether the link negotiated power delivery or is carrying power on
 /// Type-C's own terms.
 #[must_use]
-pub fn contract_label(contract: bool) -> &'static str {
+pub fn contract_type_label(contract: bool) -> &'static str {
     if contract {
         "Power delivery"
     } else {
@@ -499,8 +503,8 @@ mod tests {
     }
 
     #[test]
-    fn what_a_link_carries_reads_as_watts_and_volts() {
-        assert_eq!(carried(&reading(0)).as_deref(), Some("100 W · 20 V"));
+    fn what_a_link_may_carry_reads_as_a_ceiling_in_watts_and_volts() {
+        assert_eq!(carried(&reading(0)).as_deref(), Some("100 W max · 20 V"));
     }
 
     #[test]
@@ -510,7 +514,7 @@ mod tests {
             epr: Epr::Active,
             ..reading(0)
         };
-        assert_eq!(carried(&epr).as_deref(), Some("140 W · 28 V · EPR"));
+        assert_eq!(carried(&epr).as_deref(), Some("140 W max · 28 V · EPR"));
     }
 
     #[test]
@@ -521,7 +525,7 @@ mod tests {
         };
         assert_eq!(
             carried(&offered).as_deref(),
-            Some("100 W · 20 V · EPR available")
+            Some("100 W max · 20 V · EPR available")
         );
     }
 
@@ -591,7 +595,7 @@ mod tests {
             milliamps: 1_500,
             ..reading(0)
         };
-        assert_eq!(carried(&usb).as_deref(), Some("7.5 W · 5 V"));
+        assert_eq!(carried(&usb).as_deref(), Some("7.5 W max · 5 V"));
         assert_eq!(supply_label(&[on(usb)]), "7.5 W");
     }
 
