@@ -170,17 +170,21 @@ impl Picker {
         &self.group
     }
 
-    /// `picked` runs with a port's index each time that port becomes the
-    /// picked one, by a click or by [`Self::select`].
-    pub(super) fn connect_picked(&self, picked: impl Fn(u8) + Clone + 'static) {
-        for choice in &self.choices {
-            let (index, picked) = (choice.index, picked.clone());
-            choice.button.connect_toggled(move |button| {
-                if button.is_active() {
-                    picked(index);
-                }
-            });
+    pub(super) fn show_while_picked(&self, index: u8, widget: &impl IsA<gtk::Widget>) {
+        if let Some(choice) = self.choices.iter().find(|choice| choice.index == index) {
+            choice
+                .button
+                .bind_property("active", widget, "visible")
+                .sync_create()
+                .build();
         }
+    }
+
+    pub(super) fn picked(&self) -> Option<u8> {
+        self.choices
+            .iter()
+            .find(|choice| choice.button.is_active())
+            .map(|choice| choice.index)
     }
 
     pub(super) fn select(&self, index: u8) {

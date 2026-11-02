@@ -4,10 +4,9 @@
 //! registers add, headed by a switch where the controller can turn the port
 //! off.
 //!
-//! The picked port's groups are laid out as titled rows before any widget is
-//! built and redrawn whole only when the titles change, its rows coming and
-//! going with what is attached; a reading that keeps them sets the values in
-//! place.
+//! Each port's groups are laid out as titled rows before any widget is built
+//! and redrawn whole only when the titles change, its rows coming and going
+//! with what is attached; a reading that keeps them sets the values in place.
 //!
 //! What each value is *called* is `frameguin_modelview::ports`'s. Where a
 //! socket is on the machine is `frameguin_model::port`'s, which answers only
@@ -74,17 +73,18 @@ struct Shown {
 struct PortsPage {
     /// Weak: the page's own subscription holds this.
     page: glib::WeakRef<adw::PreferencesPage>,
-    placement: Placement,
     picker: Picker,
-    picked: Cell<u8>,
-    /// Beside the first group's title while its port is picked, moved onto
-    /// the new one on a redraw.
-    switches: Vec<(u8, gtk::Switch)>,
+    details: Vec<PortDetails>,
+}
+
+/// Drawn from every reading, whether or not its port is picked.
+struct PortDetails {
+    index: u8,
+    placement: Placement,
+    /// Beside the first group's title, moved onto the new one on a redraw.
+    switch: Option<gtk::Switch>,
     guard: Guard,
     drawn: RefCell<Option<Drawn>>,
-    /// Weak: the feed holds the page's subscription, which holds this.
-    feed: Weak<Feed>,
-    request: Request,
 }
 
 struct Drawn {
@@ -251,9 +251,9 @@ impl Section {
             .as_ref()
             .map_or(indices.is_empty(), |shown| shown.indices == indices);
         if !same {
-            let kept = self.shown.take().map(|shown| {
+            let kept = self.shown.take().and_then(|shown| {
                 sidebar.remove(&shown.row);
-                shown.page.picked.get()
+                shown.page.picker.picked()
             });
             let picked = kept
                 .filter(|index| indices.contains(index))
@@ -285,38 +285,21 @@ impl Section {
         let picker = Picker::new(placement, &indices);
         widget.add(picker.group());
         let switchable = self.control.switchable();
-        let switches = indices
+        let details = indices
             .iter()
-            .filter(|&&index| switchable.contains(index))
-            .map(|&index| {
-                let switch = gtk::Switch::builder()
-                    .valign(gtk::Align::Center)
-                    .sensitive(false)
-                    .build();
-                switch.update_property(&[gtk::accessible::Property::Label("Enabled")]);
-                self.connect(index, &switch, feed);
-                (index, switch)
+            .map(|&index| PortDetails {
+                index,
+                placement,
+                switch: switchable.contains(index).then(|| self.switch(index, feed)),
+                guard: self.writes.guard.clone(),
+                drawn: RefCell::default(),
             })
             .collect();
+        picker.select(initial);
         let page = Rc::new(PortsPage {
             page: widget.downgrade(),
-            placement,
             picker,
-            picked: Cell::new(initial),
-            switches,
-            guard: self.writes.guard.clone(),
-            drawn: RefCell::default(),
-            feed: feed.clone(),
-            request,
-        });
-        // Selected before the handler is connected, so nothing is drawn
-        // until the page is mapped.
-        page.picker.select(initial);
-        let picking = Rc::downgrade(&page);
-        page.picker.connect_picked(move |index| {
-            if let Some(page) = picking.upgrade() {
-                page.pick(index);
-            }
+            details,
         });
         let row = sidebar.add(self.heading, PORTS, &widget);
         if let Some(feed) = &feed.upgrade() {
@@ -339,13 +322,18 @@ impl Section {
     /// not in is one someone plugs into or leaves alone on its word. Every
     /// write is followed by a reading, since the lock moves with the port
     /// switched.
-    fn connect(&self, index: u8, switch: &gtk::Switch, feed: &Weak<Feed>) {
+    fn switch(&self, index: u8, feed: &Weak<Feed>) -> gtk::Switch {
+        let switch = gtk::Switch::builder()
+            .valign(gtk::Align::Center)
+            .sensitive(false)
+            .build();
+        switch.update_property(&[gtk::accessible::Property::Label("Enabled")]);
         let (switched, feed) = (switch.downgrade(), feed.clone());
         connect_switch(
             &self.writes.guard,
             &self.writes,
             &self.control,
-            switch,
+            &switch,
             move |writes, control, enabled| {
                 let (switched, feed) = (switched.clone(), feed.clone());
                 async move {
@@ -379,6 +367,7 @@ impl Section {
                 }
             },
         );
+        switch
     }
 
     /// The row, with the port the machine is powered through picked on its
@@ -411,48 +400,24 @@ fn preferred(powering: Option<u8>, indices: &[u8]) -> Option<u8> {
 impl PortsPage {
     fn show(&self, ports: &[PortState], devices: &[Attached]) {
         self.picker.show(ports);
-        self.draw(ports, devices);
-    }
-
-    /// A pick between a write and the reading after it draws nothing until
-    /// that reading.
-    fn pick(&self, index: u8) {
-        self.picked.set(index);
-        self.clear();
-        let held = self.feed.upgrade().and_then(|feed| feed.held(self.request));
-        if let Some((ports, devices)) = held.as_deref().and_then(read) {
-            self.draw(ports, devices);
-        }
-    }
-
-    fn switch(&self) -> Option<&gtk::Switch> {
-        let picked = self.picked.get();
-        self.switches
-            .iter()
-            .find(|(index, _)| *index == picked)
-            .map(|(_, switch)| switch)
-    }
-
-    fn clear(&self) {
-        let Some(drawn) = self.drawn.take() else {
-            return;
-        };
-        if let Some(first) = drawn.groups.first() {
-            first.set_header_suffix(None::<&gtk::Widget>);
-        }
-        if let Some(page) = self.page.upgrade() {
-            for group in drawn.groups {
-                page.remove(&group);
-            }
-        }
-    }
-
-    fn draw(&self, ports: &[PortState], devices: &[Attached]) {
         let Some(page) = self.page.upgrade() else {
             return;
         };
-        let index = self.picked.get();
-        let Some(state) = ports.iter().find(|state| state.index == index) else {
+        for details in &self.details {
+            details.draw(&page, &self.picker, ports, devices);
+        }
+    }
+}
+
+impl PortDetails {
+    fn draw(
+        &self,
+        page: &adw::PreferencesPage,
+        picker: &Picker,
+        ports: &[PortState],
+        devices: &[Attached],
+    ) {
+        let Some(state) = ports.iter().find(|state| state.index == self.index) else {
             return;
         };
         let layout = layout(self.placement, state, devices);
@@ -468,7 +433,14 @@ impl PortsPage {
             self.show_mask(state, &drawn.groups);
             return;
         }
-        self.clear();
+        if let Some(drawn) = self.drawn.take() {
+            if let Some(first) = drawn.groups.first() {
+                first.set_header_suffix(None::<&gtk::Widget>);
+            }
+            for group in drawn.groups {
+                page.remove(&group);
+            }
+        }
         let mut groups = Vec::new();
         let mut rows = Vec::new();
         for laid in &layout {
@@ -479,9 +451,10 @@ impl PortsPage {
                 rows.push(row);
             }
             page.add(&group);
+            picker.show_while_picked(self.index, &group);
             groups.push(group);
         }
-        if let (Some(switch), Some(first)) = (self.switch(), groups.first()) {
+        if let (Some(switch), Some(first)) = (&self.switch, groups.first()) {
             first.set_header_suffix(Some(switch));
         }
         self.show_mask(state, &groups);
@@ -495,7 +468,7 @@ impl PortsPage {
     /// The first group's description is the switch's, since the switch has
     /// no row of its own to carry one.
     fn show_mask(&self, state: &PortState, groups: &[adw::PreferencesGroup]) {
-        let (Some(switch), Some(first)) = (self.switch(), groups.first()) else {
+        let (Some(switch), Some(first)) = (&self.switch, groups.first()) else {
             return;
         };
         let refusal = state.mask.refusal();
