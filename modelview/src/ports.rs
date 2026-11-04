@@ -506,7 +506,7 @@ mod tests {
         port_line, power_limited_label, power_role_label, powered_from, socket, spoken,
         supply_kind_label, supply_label, supply_summary,
     };
-    use frameguin_model::fixtures::{cable, measured, offer, on, port, reading};
+    use frameguin_model::fixtures::{cable, measured, offer, on, passive, port, reading};
 
     use crate::track::Mark;
 
@@ -853,15 +853,15 @@ mod tests {
     #[test]
     fn a_cables_rating_reads_in_the_watts_it_is_sold_by() {
         assert_eq!(
-            cable_rating_label(cable(CableRating::ThreeAmps).kind).as_deref(),
+            cable_rating_label(passive(CableRating::ThreeAmps)).as_deref(),
             Some("60 W")
         );
         assert_eq!(
-            cable_rating_label(cable(CableRating::FiveAmps).kind).as_deref(),
+            cable_rating_label(passive(CableRating::FiveAmps)).as_deref(),
             Some("100 W")
         );
         assert_eq!(
-            cable_rating_label(cable(CableRating::FiveAmpsEpr).kind).as_deref(),
+            cable_rating_label(passive(CableRating::FiveAmpsEpr)).as_deref(),
             Some("240 W")
         );
     }
@@ -887,54 +887,44 @@ mod tests {
             }),
             Some("Over 7 m")
         );
-        assert_eq!(
-            cable_length_label(CableKind::Active {
-                latency: Some(ActiveLatency::About1000Ns),
-                vbus: None,
-            }),
-            Some("About 100 m")
-        );
+        assert_eq!(cable_length_label(active(None).kind), Some("About 100 m"));
         assert_eq!(cable_length_label(RESERVED_ACTIVE), None);
     }
 
     #[test]
     fn only_an_active_cable_is_named_for_its_kind() {
-        assert_eq!(cable_type_label(cable(CableRating::ThreeAmps).kind), None);
+        assert_eq!(cable_type_label(passive(CableRating::ThreeAmps)), None);
         assert_eq!(cable_type_label(RESERVED_ACTIVE), Some("Active cable"));
     }
 
     #[test]
     fn a_cable_reads_as_one_line_of_what_its_e_marker_reported() {
         assert_eq!(
-            cable_label(&cable(CableRating::FiveAmpsEpr)).as_deref(),
+            cable_label(&cable(passive(CableRating::FiveAmpsEpr))).as_deref(),
             Some("480 Mbps · 240 W · About 1 m")
         );
-        let unrated = usb2(CableKind::Active {
-            latency: Some(ActiveLatency::Within(CableLatency::Under10Ns)),
-            vbus: None,
-        });
         assert_eq!(
-            cable_label(&unrated).as_deref(),
-            Some("480 Mbps · About 1 m")
+            cable_label(&active(None)).as_deref(),
+            Some("480 Mbps · About 100 m")
         );
         let reserved = Cable {
             speed: None,
-            kind: RESERVED_ACTIVE,
+            ..cable(RESERVED_ACTIVE)
         };
         assert_eq!(cable_label(&reserved), None);
     }
 
-    fn active(vbus: ActiveVbus) -> Cable {
-        usb2(CableKind::Active {
+    fn active(vbus: Option<ActiveVbus>) -> Cable {
+        cable(CableKind::Active {
             latency: Some(ActiveLatency::About1000Ns),
-            vbus: Some(vbus),
+            vbus,
         })
     }
 
     #[test]
     fn an_active_cable_that_carries_no_vbus_is_rated_for_no_power() {
         assert_eq!(
-            cable_label(&active(ActiveVbus::NotCarried)).as_deref(),
+            cable_label(&active(Some(ActiveVbus::NotCarried))).as_deref(),
             Some("480 Mbps · No power · About 100 m")
         );
     }
@@ -942,7 +932,7 @@ mod tests {
     #[test]
     fn an_active_cable_at_the_default_current_is_rated_for_default_usb_power() {
         assert_eq!(
-            cable_label(&active(ActiveVbus::DefaultCurrent)).as_deref(),
+            cable_label(&active(Some(ActiveVbus::DefaultCurrent))).as_deref(),
             Some("480 Mbps · Default USB power · About 100 m")
         );
     }
@@ -950,7 +940,7 @@ mod tests {
     #[test]
     fn an_active_cable_carrying_a_rated_current_reads_in_watts() {
         assert_eq!(
-            cable_label(&active(ActiveVbus::Rated(CableRating::FiveAmpsEpr))).as_deref(),
+            cable_label(&active(Some(ActiveVbus::Rated(CableRating::FiveAmpsEpr)))).as_deref(),
             Some("480 Mbps · 240 W · About 100 m")
         );
     }
@@ -959,13 +949,6 @@ mod tests {
         latency: None,
         vbus: None,
     };
-
-    fn usb2(kind: CableKind) -> Cable {
-        Cable {
-            speed: Some(CableSpeed::Usb2),
-            kind,
-        }
-    }
 
     fn fixed() -> PdContract {
         offer(SupplyKind::Fixed)

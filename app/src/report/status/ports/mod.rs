@@ -643,7 +643,7 @@ mod tests {
         CableRating, DataRole, PdContract, PeakCurrent, PortReading, PortRegisters, PowerRole,
         SupplyKind,
     };
-    use frameguin_model::fixtures::{cable, offer, on, reading};
+    use frameguin_model::fixtures::{cable, offer, on, passive, reading};
     use frameguin_model::port::Placement;
     use frameguin_modelview::track::{Mark, Track};
 
@@ -729,7 +729,7 @@ mod tests {
                 data_role: DataRole::UpstreamFacing,
                 video: true,
                 registers: Some(PortRegisters {
-                    cable: Some(cable(CableRating::FiveAmps)),
+                    cable: Some(cable(passive(CableRating::FiveAmps))),
                     pd: Some(pd),
                     measured_millivolts: 20_000,
                 }),

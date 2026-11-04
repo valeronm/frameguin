@@ -57,15 +57,21 @@ pub fn on(reading: PortReading) -> PortState {
     }
 }
 
-/// A passive cable of about 1 m that carries USB 2.0.
+/// A cable of `kind` that carries USB 2.0.
 #[must_use]
-pub const fn cable(rating: CableRating) -> Cable {
+pub const fn cable(kind: CableKind) -> Cable {
     Cable {
         speed: Some(CableSpeed::Usb2),
-        kind: CableKind::Passive {
-            latency: Some(PassiveLatency::Within(CableLatency::Under10Ns)),
-            rating,
-        },
+        kind,
+    }
+}
+
+/// A passive cable of about 1 m.
+#[must_use]
+pub const fn passive(rating: CableRating) -> CableKind {
+    CableKind::Passive {
+        latency: Some(PassiveLatency::Within(CableLatency::Under10Ns)),
+        rating,
     }
 }
 

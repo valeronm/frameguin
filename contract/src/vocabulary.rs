@@ -758,7 +758,7 @@ pub enum ActiveVbus {
 
 /// Whether a cable carries its own signal electronics, by the controller's
 /// active-cable bit, with what that kind's VDO layout gives: an optional field
-/// is None for a code its table reserves.
+/// is None for a code its table reserves or marks invalid.
 ///
 /// A kind crosses the bus as its name, its latency class and what it carries
 /// on VBUS, each of the last two an empty array where None.
@@ -957,24 +957,28 @@ impl<'de> Deserialize<'de> for CableKind {
         let (construction, class, power) = Kind::deserialize(deserializer)?;
         Ok(match construction {
             Construction::Passive => Self::Passive {
-                latency: decoded(class, Nanoseconds::passive)?,
-                rating: power.and_then(Vbus::rated).ok_or_else(|| {
-                    <D::Error as serde::de::Error>::custom("a passive cable without a rating")
-                })?,
+                latency: latency(class, Nanoseconds::passive)?,
+                rating: power
+                    .and_then(Vbus::rated)
+                    .ok_or_else(|| serde::de::Error::custom("a passive cable without a rating"))?,
             },
             Construction::Active => Self::Active {
-                latency: decoded(class, Nanoseconds::active)?,
+                latency: latency(class, Nanoseconds::active)?,
                 vbus: power.map(Vbus::active),
             },
         })
     }
 }
 
-fn decoded<T, U, E: serde::de::Error>(
-    tag: Option<T>,
-    decode: fn(T) -> Option<U>,
-) -> Result<Option<U>, E> {
-    tag.map(|tag| decode(tag).ok_or_else(|| E::custom("a value this kind of cable cannot have")))
+fn latency<L, E: serde::de::Error>(
+    class: Option<Nanoseconds>,
+    decode: fn(Nanoseconds) -> Option<L>,
+) -> Result<Option<L>, E> {
+    class
+        .map(|class| {
+            decode(class)
+                .ok_or_else(|| E::custom("a latency class this kind of cable does not have"))
+        })
         .transpose()
 }
 

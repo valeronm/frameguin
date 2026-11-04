@@ -353,18 +353,15 @@ fn cable(status: [u8; 2], vdo: u32) -> Option<Cable> {
             4 => Some(CableSpeed::Gen4),
             _ => None,
         },
-        kind: {
-            let latency_code = field(vdo, 13, 4);
-            if status[1] & ACTIVE_CABLE == 0 {
-                CableKind::Passive {
-                    latency: passive_latency(latency_code),
-                    rating: passive_rating(vdo),
-                }
-            } else {
-                CableKind::Active {
-                    latency: active_latency(latency_code),
-                    vbus: active_vbus(vdo),
-                }
+        kind: if status[1] & ACTIVE_CABLE == 0 {
+            CableKind::Passive {
+                latency: passive_latency(vdo),
+                rating: passive_rating(vdo),
+            }
+        } else {
+            CableKind::Active {
+                latency: active_latency(vdo),
+                vbus: active_vbus(vdo),
             }
         },
     })
@@ -400,9 +397,9 @@ fn active_vbus(vdo: u32) -> Option<ActiveVbus> {
     }
 }
 
-/// The codes both cable VDOs' latency tables share.
-fn shared_latency(code: u32) -> Option<CableLatency> {
-    match code {
+/// The latency codes both cable VDOs' tables share.
+fn shared_latency(vdo: u32) -> Option<CableLatency> {
+    match field(vdo, 13, 4) {
         1 => Some(CableLatency::Under10Ns),
         2 => Some(CableLatency::Under20Ns),
         3 => Some(CableLatency::Under30Ns),
@@ -414,19 +411,19 @@ fn shared_latency(code: u32) -> Option<CableLatency> {
     }
 }
 
-fn passive_latency(code: u32) -> Option<PassiveLatency> {
-    match code {
+fn passive_latency(vdo: u32) -> Option<PassiveLatency> {
+    match field(vdo, 13, 4) {
         8 => Some(PassiveLatency::Over70Ns),
-        _ => shared_latency(code).map(PassiveLatency::Within),
+        _ => shared_latency(vdo).map(PassiveLatency::Within),
     }
 }
 
-fn active_latency(code: u32) -> Option<ActiveLatency> {
-    match code {
+fn active_latency(vdo: u32) -> Option<ActiveLatency> {
+    match field(vdo, 13, 4) {
         8 => Some(ActiveLatency::About1000Ns),
         9 => Some(ActiveLatency::About2000Ns),
         10 => Some(ActiveLatency::About3000Ns),
-        _ => shared_latency(code).map(ActiveLatency::Within),
+        _ => shared_latency(vdo).map(ActiveLatency::Within),
     }
 }
 
