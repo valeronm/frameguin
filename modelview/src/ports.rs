@@ -441,8 +441,8 @@ fn cable_speed_label(speed: CableSpeed) -> &'static str {
 }
 
 /// The watts a cable is sold by, or for an active cable with no rated
-/// current, what its VBUS does instead; None where the e-marker left the
-/// current at a reserved code.
+/// current, what its VBUS does instead; None where an active cable's
+/// e-marker left the current at an invalid code.
 ///
 /// The watts are what a contract can reach over the cable, 48 V under
 /// extended power range and 20 V otherwise: a cable's voltage rating alone
@@ -450,7 +450,7 @@ fn cable_speed_label(speed: CableSpeed) -> &'static str {
 #[must_use]
 fn cable_rating_label(cable: Cable) -> Option<String> {
     let current = match cable.kind {
-        CableKind::Passive { current, .. } => current?,
+        CableKind::Passive { current, .. } => current,
         CableKind::Active { vbus, .. } => match vbus? {
             ActiveVbus::Rated(current) => current,
             ActiveVbus::NotCarried => return Some("No power".to_owned()),
@@ -856,8 +856,8 @@ mod tests {
 
     #[test]
     fn a_cables_rating_reads_in_the_watts_it_is_sold_by() {
-        let standard = marked(Some(CableCurrent::ThreeAmps));
-        let five_amp = marked(Some(CableCurrent::FiveAmps));
+        let standard = marked(CableCurrent::ThreeAmps);
+        let five_amp = marked(CableCurrent::FiveAmps);
         let extended = Cable {
             epr: true,
             ..five_amp
@@ -868,8 +868,12 @@ mod tests {
     }
 
     #[test]
-    fn a_current_the_e_marker_left_reserved_has_no_rating() {
-        assert_eq!(cable_rating_label(marked(None)), None);
+    fn a_current_the_e_marker_left_invalid_has_no_rating() {
+        let invalid = Cable {
+            kind: RESERVED_ACTIVE,
+            ..marked(CableCurrent::ThreeAmps)
+        };
+        assert_eq!(cable_rating_label(invalid), None);
     }
 
     #[test]
@@ -877,14 +881,14 @@ mod tests {
         assert_eq!(
             cable_length_label(CableKind::Passive {
                 latency: Some(PassiveLatency::Within(CableLatency::Under30Ns)),
-                current: None,
+                current: CableCurrent::ThreeAmps,
             }),
             Some("About 3 m")
         );
         assert_eq!(
             cable_length_label(CableKind::Passive {
                 latency: Some(PassiveLatency::Over70Ns),
-                current: None,
+                current: CableCurrent::ThreeAmps,
             }),
             Some("Over 7 m")
         );
@@ -900,7 +904,7 @@ mod tests {
 
     #[test]
     fn only_an_active_cable_is_named_for_its_kind() {
-        assert_eq!(cable_type_label(RESERVED_PASSIVE), None);
+        assert_eq!(cable_type_label(marked(CableCurrent::ThreeAmps).kind), None);
         assert_eq!(cable_type_label(RESERVED_ACTIVE), Some("Active cable"));
     }
 
@@ -908,20 +912,27 @@ mod tests {
     fn a_cable_reads_as_one_line_of_what_its_e_marker_reported() {
         let extended = Cable {
             epr: true,
-            ..marked(Some(CableCurrent::FiveAmps))
+            ..marked(CableCurrent::FiveAmps)
         };
         assert_eq!(
             cable_label(&extended).as_deref(),
             Some("480 Mbps · 240 W · About 1 m")
         );
+        let unrated = Cable {
+            kind: CableKind::Active {
+                latency: Some(ActiveLatency::Within(CableLatency::Under10Ns)),
+                vbus: None,
+            },
+            ..marked(CableCurrent::ThreeAmps)
+        };
         assert_eq!(
-            cable_label(&marked(None)).as_deref(),
+            cable_label(&unrated).as_deref(),
             Some("480 Mbps · About 1 m")
         );
         let reserved = Cable {
             speed: None,
-            kind: RESERVED_PASSIVE,
-            ..marked(None)
+            kind: RESERVED_ACTIVE,
+            ..marked(CableCurrent::ThreeAmps)
         };
         assert_eq!(cable_label(&reserved), None);
     }
@@ -933,7 +944,7 @@ mod tests {
                 latency: Some(ActiveLatency::About1000Ns),
                 vbus: Some(vbus),
             },
-            ..marked(None)
+            ..marked(CableCurrent::ThreeAmps)
         }
     }
 
@@ -961,16 +972,12 @@ mod tests {
         );
     }
 
-    const RESERVED_PASSIVE: CableKind = CableKind::Passive {
-        latency: None,
-        current: None,
-    };
     const RESERVED_ACTIVE: CableKind = CableKind::Active {
         latency: None,
         vbus: None,
     };
 
-    fn marked(current: Option<CableCurrent>) -> Cable {
+    fn marked(current: CableCurrent) -> Cable {
         Cable {
             speed: Some(CableSpeed::Usb2),
             epr: false,

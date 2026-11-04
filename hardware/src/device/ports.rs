@@ -378,7 +378,7 @@ mod tests {
             epr: true,
             kind: CableKind::Passive {
                 latency: Some(PassiveLatency::Within(CableLatency::Under30Ns)),
-                current: Some(CableCurrent::FiveAmps),
+                current: CableCurrent::FiveAmps,
             },
         }
     }

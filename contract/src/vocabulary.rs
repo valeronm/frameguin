@@ -765,8 +765,8 @@ pub enum ActiveVbus {
 }
 
 /// Whether a cable carries its own signal electronics, by the controller's
-/// active-cable bit, with what that kind's VDO layout gives: a field is None
-/// for a code its table reserves.
+/// active-cable bit, with what that kind's VDO layout gives: an optional field
+/// is None for a code its table reserves.
 ///
 /// A kind crosses the bus as its name, its latency class and what it carries
 /// on VBUS, each of the last two an empty array where None.
@@ -774,7 +774,7 @@ pub enum ActiveVbus {
 pub enum CableKind {
     Passive {
         latency: Option<PassiveLatency>,
-        current: Option<CableCurrent>,
+        current: CableCurrent,
     },
     Active {
         latency: Option<ActiveLatency>,
@@ -945,7 +945,7 @@ impl Serialize for CableKind {
             Self::Passive { latency, current } => (
                 Construction::Passive,
                 latency.map(Nanoseconds::from),
-                current.map(Vbus::from),
+                Some(Vbus::from(current)),
             ),
             Self::Active { latency, vbus } => (
                 Construction::Active,
@@ -963,7 +963,9 @@ impl<'de> Deserialize<'de> for CableKind {
         Ok(match construction {
             Construction::Passive => Self::Passive {
                 latency: decoded(class, Nanoseconds::passive)?,
-                current: decoded(power, Vbus::rated)?,
+                current: decoded(power, Vbus::rated)?.ok_or_else(|| {
+                    <D::Error as serde::de::Error>::custom("a passive cable without a current")
+                })?,
             },
             Construction::Active => Self::Active {
                 latency: decoded(class, Nanoseconds::active)?,
@@ -1658,11 +1660,7 @@ mod tests {
         ]
         .into_iter()
         .chain(shared.map(|latency| Some(ActiveLatency::Within(latency))));
-        let currents = [
-            None,
-            Some(CableCurrent::ThreeAmps),
-            Some(CableCurrent::FiveAmps),
-        ];
+        let currents = [CableCurrent::ThreeAmps, CableCurrent::FiveAmps];
         let vbuses = [
             None,
             Some(ActiveVbus::NotCarried),
@@ -1696,12 +1694,12 @@ mod tests {
                 vbus: None
             })
         );
-        assert_eq!(cable_kind("passive", &["about1000"], &[]), None);
+        assert_eq!(cable_kind("passive", &["about1000"], &["three-amps"]), None);
         assert_eq!(
-            cable_kind("passive", &["over70"], &[]),
+            cable_kind("passive", &["over70"], &["three-amps"]),
             Some(CableKind::Passive {
                 latency: Some(PassiveLatency::Over70Ns),
-                current: None
+                current: CableCurrent::ThreeAmps
             })
         );
         assert_eq!(cable_kind("active", &["over70"], &[]), None);
@@ -1722,9 +1720,14 @@ mod tests {
             cable_kind("passive", &[], &["five-amps"]),
             Some(CableKind::Passive {
                 latency: None,
-                current: Some(CableCurrent::FiveAmps)
+                current: CableCurrent::FiveAmps
             })
         );
+    }
+
+    #[test]
+    fn a_passive_cable_without_a_current_does_not_decode() {
+        assert_eq!(cable_kind("passive", &["over70"], &[]), None);
     }
 
     #[test]
