@@ -1,8 +1,8 @@
 //! The USB-C ports: the words a reader needs for one.
 
 use frameguin_contract::{
-    ActiveLatency, ActiveVbus, Cable, CableKind, CableLatency, CableSpeed, DataRole, Epr,
-    OffRefusal, PassiveLatency, PdContract, PeakCurrent, PortMask, PortPartner, PortReading,
+    ActiveLatency, ActiveVbus, Cable, CableKind, CableLatency, CableRating, CableSpeed, DataRole,
+    Epr, OffRefusal, PassiveLatency, PdContract, PeakCurrent, PortMask, PortPartner, PortReading,
     PortState, PowerRole, SupplyKind,
 };
 use frameguin_model::control::ports::{
@@ -418,7 +418,7 @@ pub fn cable_label(cable: &Cable) -> Option<String> {
     let line = joined(
         [
             cable.speed.map(|speed| cable_speed_label(speed).to_owned()),
-            cable_rating_label(*cable),
+            cable_rating_label(cable.kind),
             cable_length_label(cable.kind).map(str::to_owned),
         ]
         .into_iter()
@@ -440,29 +440,25 @@ fn cable_speed_label(speed: CableSpeed) -> &'static str {
     }
 }
 
-/// The watts a cable is sold by, or for an active cable with no rated
-/// current, what its VBUS does instead; None where an active cable's
-/// e-marker left the current at an invalid code.
-///
-/// The watts are what a contract can reach over the cable, 48 V under
-/// extended power range and 20 V otherwise: a cable's voltage rating alone
-/// does not let a charger enter extended power range, its EPR bit does.
+/// The watts a cable is sold by, or for an active cable with no rating,
+/// what its VBUS does instead; None where an active cable's e-marker left the
+/// current at an invalid code.
 #[must_use]
-fn cable_rating_label(cable: Cable) -> Option<String> {
-    let current = match cable.kind {
-        CableKind::Passive { current, .. } => current,
+fn cable_rating_label(kind: CableKind) -> Option<String> {
+    let rating = match kind {
+        CableKind::Passive { rating, .. } => rating,
         CableKind::Active { vbus, .. } => match vbus? {
-            ActiveVbus::Rated(current) => current,
+            ActiveVbus::Rated(rating) => rating,
             ActiveVbus::NotCarried => return Some("No power".to_owned()),
             ActiveVbus::DefaultCurrent => return Some("Default USB power".to_owned()),
         },
     };
-    let contract_millivolts = if cable.epr { 48_000 } else { 20_000 };
-    Some(watts(
-        contract_millivolts,
-        current.milliamps(),
-        Kind::Static,
-    ))
+    let (millivolts, milliamps) = match rating {
+        CableRating::ThreeAmps => (20_000, 3000),
+        CableRating::FiveAmps => (20_000, 5000),
+        CableRating::FiveAmpsEpr => (48_000, 5000),
+    };
+    Some(watts(millivolts, milliamps, Kind::Static))
 }
 
 /// The length the PD specification ties to each latency class, and None
@@ -495,7 +491,7 @@ fn cable_length_label(kind: CableKind) -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
     use frameguin_contract::{
-        ActiveLatency, ActiveVbus, Cable, CableCurrent, CableKind, CableLatency, CableSpeed,
+        ActiveLatency, ActiveVbus, Cable, CableKind, CableLatency, CableRating, CableSpeed,
         DataRole, Epr, PassiveLatency, PdContract, PeakCurrent, Platform, PortMask, PortPartner,
         PortReading, PortState, PowerRole, SupplyKind,
     };
@@ -856,24 +852,23 @@ mod tests {
 
     #[test]
     fn a_cables_rating_reads_in_the_watts_it_is_sold_by() {
-        let standard = marked(CableCurrent::ThreeAmps);
-        let five_amp = marked(CableCurrent::FiveAmps);
-        let extended = Cable {
-            epr: true,
-            ..five_amp
-        };
-        assert_eq!(cable_rating_label(standard).as_deref(), Some("60 W"));
-        assert_eq!(cable_rating_label(five_amp).as_deref(), Some("100 W"));
-        assert_eq!(cable_rating_label(extended).as_deref(), Some("240 W"));
+        assert_eq!(
+            cable_rating_label(marked(CableRating::ThreeAmps).kind).as_deref(),
+            Some("60 W")
+        );
+        assert_eq!(
+            cable_rating_label(marked(CableRating::FiveAmps).kind).as_deref(),
+            Some("100 W")
+        );
+        assert_eq!(
+            cable_rating_label(marked(CableRating::FiveAmpsEpr).kind).as_deref(),
+            Some("240 W")
+        );
     }
 
     #[test]
     fn a_current_the_e_marker_left_invalid_has_no_rating() {
-        let invalid = Cable {
-            kind: RESERVED_ACTIVE,
-            ..marked(CableCurrent::ThreeAmps)
-        };
-        assert_eq!(cable_rating_label(invalid), None);
+        assert_eq!(cable_rating_label(RESERVED_ACTIVE), None);
     }
 
     #[test]
@@ -881,14 +876,14 @@ mod tests {
         assert_eq!(
             cable_length_label(CableKind::Passive {
                 latency: Some(PassiveLatency::Within(CableLatency::Under30Ns)),
-                current: CableCurrent::ThreeAmps,
+                rating: CableRating::ThreeAmps,
             }),
             Some("About 3 m")
         );
         assert_eq!(
             cable_length_label(CableKind::Passive {
                 latency: Some(PassiveLatency::Over70Ns),
-                current: CableCurrent::ThreeAmps,
+                rating: CableRating::ThreeAmps,
             }),
             Some("Over 7 m")
         );
@@ -904,27 +899,20 @@ mod tests {
 
     #[test]
     fn only_an_active_cable_is_named_for_its_kind() {
-        assert_eq!(cable_type_label(marked(CableCurrent::ThreeAmps).kind), None);
+        assert_eq!(cable_type_label(marked(CableRating::ThreeAmps).kind), None);
         assert_eq!(cable_type_label(RESERVED_ACTIVE), Some("Active cable"));
     }
 
     #[test]
     fn a_cable_reads_as_one_line_of_what_its_e_marker_reported() {
-        let extended = Cable {
-            epr: true,
-            ..marked(CableCurrent::FiveAmps)
-        };
         assert_eq!(
-            cable_label(&extended).as_deref(),
+            cable_label(&marked(CableRating::FiveAmpsEpr)).as_deref(),
             Some("480 Mbps · 240 W · About 1 m")
         );
-        let unrated = Cable {
-            kind: CableKind::Active {
-                latency: Some(ActiveLatency::Within(CableLatency::Under10Ns)),
-                vbus: None,
-            },
-            ..marked(CableCurrent::ThreeAmps)
-        };
+        let unrated = usb2(CableKind::Active {
+            latency: Some(ActiveLatency::Within(CableLatency::Under10Ns)),
+            vbus: None,
+        });
         assert_eq!(
             cable_label(&unrated).as_deref(),
             Some("480 Mbps · About 1 m")
@@ -932,20 +920,15 @@ mod tests {
         let reserved = Cable {
             speed: None,
             kind: RESERVED_ACTIVE,
-            ..marked(CableCurrent::ThreeAmps)
         };
         assert_eq!(cable_label(&reserved), None);
     }
 
     fn active(vbus: ActiveVbus) -> Cable {
-        Cable {
-            epr: true,
-            kind: CableKind::Active {
-                latency: Some(ActiveLatency::About1000Ns),
-                vbus: Some(vbus),
-            },
-            ..marked(CableCurrent::ThreeAmps)
-        }
+        usb2(CableKind::Active {
+            latency: Some(ActiveLatency::About1000Ns),
+            vbus: Some(vbus),
+        })
     }
 
     #[test]
@@ -967,7 +950,7 @@ mod tests {
     #[test]
     fn an_active_cable_carrying_a_rated_current_reads_in_watts() {
         assert_eq!(
-            cable_label(&active(ActiveVbus::Rated(CableCurrent::FiveAmps))).as_deref(),
+            cable_label(&active(ActiveVbus::Rated(CableRating::FiveAmpsEpr))).as_deref(),
             Some("480 Mbps · 240 W · About 100 m")
         );
     }
@@ -977,14 +960,17 @@ mod tests {
         vbus: None,
     };
 
-    fn marked(current: CableCurrent) -> Cable {
+    fn marked(rating: CableRating) -> Cable {
+        usb2(CableKind::Passive {
+            latency: Some(PassiveLatency::Within(CableLatency::Under10Ns)),
+            rating,
+        })
+    }
+
+    fn usb2(kind: CableKind) -> Cable {
         Cable {
             speed: Some(CableSpeed::Usb2),
-            epr: false,
-            kind: CableKind::Passive {
-                latency: Some(PassiveLatency::Within(CableLatency::Under10Ns)),
-                current,
-            },
+            kind,
         }
     }
 

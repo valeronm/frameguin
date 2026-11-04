@@ -7,9 +7,9 @@
 //! `CCGx` controllers on every Framework board.
 
 use frameguin_contract::{
-    ActiveLatency, ActiveVbus, Cable, CableCurrent, CableKind, CableLatency, CableSpeed,
-    CcPolarity, DataRole, Epr, PassiveLatency, PdContract, PeakCurrent, Platform, PortPartner,
-    PortReading, PortRegisters, PowerRole, SupplyKind,
+    ActiveLatency, ActiveVbus, Cable, CableKind, CableLatency, CableRating, CableSpeed, CcPolarity,
+    DataRole, Epr, PassiveLatency, PdContract, PeakCurrent, Platform, PortPartner, PortReading,
+    PortRegisters, PowerRole, SupplyKind,
 };
 
 use crate::bay;
@@ -353,49 +353,50 @@ fn cable(status: [u8; 2], vdo: u32) -> Option<Cable> {
             4 => Some(CableSpeed::Gen4),
             _ => None,
         },
-        epr: bit(vdo, 17),
         kind: {
             let latency_code = field(vdo, 13, 4);
-            let current_code = field(vdo, 5, 2);
             if status[1] & ACTIVE_CABLE == 0 {
                 CableKind::Passive {
                     latency: passive_latency(latency_code),
-                    current: passive_current(current_code),
+                    rating: passive_rating(vdo),
                 }
             } else {
                 CableKind::Active {
                     latency: active_latency(latency_code),
-                    vbus: active_vbus(bit(vdo, 4), current_code),
+                    vbus: active_vbus(vdo),
                 }
             }
         },
     })
 }
 
-/// The codes both cable VDOs' current tables share.
-fn shared_current(code: u32) -> Option<CableCurrent> {
-    match code {
-        1 => Some(CableCurrent::ThreeAmps),
-        2 => Some(CableCurrent::FiveAmps),
+/// The current codes both cable VDOs' tables share.
+fn shared_rating(vdo: u32) -> Option<CableRating> {
+    match field(vdo, 5, 2) {
+        1 => Some(CableRating::ThreeAmps),
+        // A source enters extended power range only over a cable declaring
+        // 5 A, a 50 V maximum and the EPR bit.
+        2 if bit(vdo, 17) && field(vdo, 9, 2) == 0b11 => Some(CableRating::FiveAmpsEpr),
+        2 => Some(CableRating::FiveAmps),
         _ => None,
     }
 }
 
-/// PD 3.2 has a receiver assume 3 A for a code the passive table marks
-/// invalid.
-fn passive_current(code: u32) -> CableCurrent {
-    shared_current(code).unwrap_or(CableCurrent::ThreeAmps)
+/// PD 3.2 has a receiver assume 3 A for a current code the passive table
+/// marks invalid.
+fn passive_rating(vdo: u32) -> CableRating {
+    shared_rating(vdo).unwrap_or(CableRating::ThreeAmps)
 }
 
 /// The active cable VDO ignores the current code where VBUS is not carried
 /// through.
-fn active_vbus(through: bool, code: u32) -> Option<ActiveVbus> {
-    if !through {
+fn active_vbus(vdo: u32) -> Option<ActiveVbus> {
+    if !bit(vdo, 4) {
         return Some(ActiveVbus::NotCarried);
     }
-    match code {
+    match field(vdo, 5, 2) {
         0 => Some(ActiveVbus::DefaultCurrent),
-        _ => shared_current(code).map(ActiveVbus::Rated),
+        _ => shared_rating(vdo).map(ActiveVbus::Rated),
     }
 }
 
@@ -432,7 +433,7 @@ fn active_latency(code: u32) -> Option<ActiveLatency> {
 #[cfg(test)]
 mod tests {
     use frameguin_contract::{
-        ActiveLatency, ActiveVbus, CableCurrent, CableKind, CableLatency, CableSpeed,
+        ActiveLatency, ActiveVbus, CableKind, CableLatency, CableRating, CableSpeed,
         PassiveLatency, PdContract, PeakCurrent, Platform, SupplyKind,
     };
 
@@ -448,12 +449,11 @@ mod tests {
     fn a_measured_cable_vdo_decodes_to_its_rating() {
         let cable = cable(CHARGING_CABLE_STATUS, CHARGING_CABLE_VDO).expect("marked");
         assert_eq!(cable.speed, Some(CableSpeed::Usb2));
-        assert!(cable.epr);
         assert_eq!(
             cable.kind,
             CableKind::Passive {
                 latency: Some(PassiveLatency::Within(CableLatency::Under30Ns)),
-                current: CableCurrent::FiveAmps,
+                rating: CableRating::FiveAmpsEpr,
             }
         );
     }
@@ -483,29 +483,52 @@ mod tests {
         CHARGING_CABLE_VDO & !(0b1111 << 13) | code << 13
     }
 
+    const EPR_CAPABLE: u32 = 1 << 17;
+    const STANDARD_POWER_VDO: u32 = CHARGING_CABLE_VDO & !EPR_CAPABLE;
+
     const fn with_current(code: u32) -> u32 {
-        CHARGING_CABLE_VDO & !(0b11 << 5) | code << 5
+        STANDARD_POWER_VDO & !(0b11 << 5) | code << 5
     }
 
-    fn passive(vdo: u32) -> (Option<PassiveLatency>, CableCurrent) {
-        let CableKind::Passive { latency, current } =
+    fn passive(vdo: u32) -> (Option<PassiveLatency>, CableRating) {
+        let CableKind::Passive { latency, rating } =
             cable(CHARGING_CABLE_STATUS, vdo).expect("marked").kind
         else {
             panic!("a passive cable");
         };
-        (latency, current)
+        (latency, rating)
     }
 
     #[test]
     fn a_passive_cable_reads_its_current_code_by_the_passive_table() {
-        for (code, current) in [
-            (0b00, CableCurrent::ThreeAmps),
-            (0b01, CableCurrent::ThreeAmps),
-            (0b10, CableCurrent::FiveAmps),
-            (0b11, CableCurrent::ThreeAmps),
+        for (code, rating) in [
+            (0b00, CableRating::ThreeAmps),
+            (0b01, CableRating::ThreeAmps),
+            (0b10, CableRating::FiveAmps),
+            (0b11, CableRating::ThreeAmps),
         ] {
             let (_, read) = passive(with_current(code));
-            assert_eq!(read, current, "{code:#04b}");
+            assert_eq!(read, rating, "{code:#04b}");
+        }
+    }
+
+    const fn with_max_voltage(code: u32) -> u32 {
+        CHARGING_CABLE_VDO & !(0b11 << 9) | code << 9
+    }
+
+    #[test]
+    fn an_epr_bit_beside_3_a_is_not_read_as_extended_power() {
+        for code in [0b00, 0b01, 0b11] {
+            let (_, rating) = passive(with_current(code) | EPR_CAPABLE);
+            assert_eq!(rating, CableRating::ThreeAmps, "{code:#04b}");
+        }
+    }
+
+    #[test]
+    fn an_epr_bit_below_a_50_v_maximum_is_not_read_as_extended_power() {
+        for code in 0b00..=0b10 {
+            let (_, rating) = passive(with_max_voltage(code));
+            assert_eq!(rating, CableRating::FiveAmps, "{code:#04b}");
         }
     }
 
@@ -580,13 +603,19 @@ mod tests {
     fn an_active_cable_carrying_vbus_reads_its_current_code_by_the_active_table() {
         for (code, vbus) in [
             (0b00, Some(ActiveVbus::DefaultCurrent)),
-            (0b01, Some(ActiveVbus::Rated(CableCurrent::ThreeAmps))),
-            (0b10, Some(ActiveVbus::Rated(CableCurrent::FiveAmps))),
+            (0b01, Some(ActiveVbus::Rated(CableRating::ThreeAmps))),
+            (0b10, Some(ActiveVbus::Rated(CableRating::FiveAmps))),
             (0b11, None),
         ] {
             let (_, read) = active(with_current(code) | VBUS_THROUGH);
             assert_eq!(read, vbus, "{code:#04b}");
         }
+    }
+
+    #[test]
+    fn an_active_cable_carrying_vbus_reads_extended_power_as_a_passive_one_does() {
+        let (_, vbus) = active(CHARGING_CABLE_VDO | VBUS_THROUGH);
+        assert_eq!(vbus, Some(ActiveVbus::Rated(CableRating::FiveAmpsEpr)));
     }
 
     #[test]

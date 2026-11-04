@@ -260,7 +260,7 @@ mod tests {
     use std::sync::Arc;
 
     use frameguin_contract::{
-        Cable, CableCurrent, CableKind, CableLatency, CableSpeed, DeviceError, OffRefusal,
+        Cable, CableKind, CableLatency, CableRating, CableSpeed, DeviceError, OffRefusal,
         PassiveLatency, PdContract, Platform, PortMask, PortPartner, PortReading, PortRegisters,
         PortState, PortsControl, SupplyKind,
     };
@@ -375,10 +375,9 @@ mod tests {
     fn marked() -> Cable {
         Cable {
             speed: Some(CableSpeed::Usb2),
-            epr: true,
             kind: CableKind::Passive {
                 latency: Some(PassiveLatency::Within(CableLatency::Under30Ns)),
-                current: CableCurrent::FiveAmps,
+                rating: CableRating::FiveAmpsEpr,
             },
         }
     }

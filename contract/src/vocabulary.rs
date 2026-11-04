@@ -736,32 +736,24 @@ pub enum ActiveLatency {
     About3000Ns,
 }
 
-/// A VBUS current a cable is rated for, of the ones both kinds of cable can
-/// declare.
+/// What a cable is rated to carry on VBUS, of the ratings both kinds of
+/// cable can declare: 3 A or 5 A within standard power range, or 5 A under
+/// extended power range.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum CableCurrent {
+pub enum CableRating {
     ThreeAmps,
     FiveAmps,
+    FiveAmpsEpr,
 }
 
-impl CableCurrent {
-    #[must_use]
-    pub const fn milliamps(self) -> u32 {
-        match self {
-            Self::ThreeAmps => 3000,
-            Self::FiveAmps => 5000,
-        }
-    }
-}
-
-/// Whether an active cable carries VBUS through, and at what current.
+/// Whether an active cable carries VBUS through, and at what rating.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ActiveVbus {
     NotCarried,
     /// The USB Type-C default current, which depends on the USB version of
     /// the link; PD 3.0 defines it for an active cable and PD 3.2 does not.
     DefaultCurrent,
-    Rated(CableCurrent),
+    Rated(CableRating),
 }
 
 /// Whether a cable carries its own signal electronics, by the controller's
@@ -774,7 +766,7 @@ pub enum ActiveVbus {
 pub enum CableKind {
     Passive {
         latency: Option<PassiveLatency>,
-        current: CableCurrent,
+        rating: CableRating,
     },
     Active {
         latency: Option<ActiveLatency>,
@@ -798,13 +790,15 @@ enum Vbus {
     DefaultCurrent,
     ThreeAmps,
     FiveAmps,
+    FiveAmpsEpr,
 }
 
-impl From<CableCurrent> for Vbus {
-    fn from(current: CableCurrent) -> Self {
-        match current {
-            CableCurrent::ThreeAmps => Self::ThreeAmps,
-            CableCurrent::FiveAmps => Self::FiveAmps,
+impl From<CableRating> for Vbus {
+    fn from(rating: CableRating) -> Self {
+        match rating {
+            CableRating::ThreeAmps => Self::ThreeAmps,
+            CableRating::FiveAmps => Self::FiveAmps,
+            CableRating::FiveAmpsEpr => Self::FiveAmpsEpr,
         }
     }
 }
@@ -814,7 +808,7 @@ impl From<ActiveVbus> for Vbus {
         match vbus {
             ActiveVbus::NotCarried => Self::NotCarried,
             ActiveVbus::DefaultCurrent => Self::DefaultCurrent,
-            ActiveVbus::Rated(current) => current.into(),
+            ActiveVbus::Rated(rating) => rating.into(),
         }
     }
 }
@@ -824,14 +818,15 @@ impl Vbus {
         match self {
             Self::NotCarried => ActiveVbus::NotCarried,
             Self::DefaultCurrent => ActiveVbus::DefaultCurrent,
-            Self::ThreeAmps => ActiveVbus::Rated(CableCurrent::ThreeAmps),
-            Self::FiveAmps => ActiveVbus::Rated(CableCurrent::FiveAmps),
+            Self::ThreeAmps => ActiveVbus::Rated(CableRating::ThreeAmps),
+            Self::FiveAmps => ActiveVbus::Rated(CableRating::FiveAmps),
+            Self::FiveAmpsEpr => ActiveVbus::Rated(CableRating::FiveAmpsEpr),
         }
     }
 
-    fn rated(self) -> Option<CableCurrent> {
+    fn rated(self) -> Option<CableRating> {
         match self.active() {
-            ActiveVbus::Rated(current) => Some(current),
+            ActiveVbus::Rated(rating) => Some(rating),
             ActiveVbus::NotCarried | ActiveVbus::DefaultCurrent => None,
         }
     }
@@ -942,10 +937,10 @@ impl Type for CableKind {
 impl Serialize for CableKind {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         match *self {
-            Self::Passive { latency, current } => (
+            Self::Passive { latency, rating } => (
                 Construction::Passive,
                 latency.map(Nanoseconds::from),
-                Some(Vbus::from(current)),
+                Some(Vbus::from(rating)),
             ),
             Self::Active { latency, vbus } => (
                 Construction::Active,
@@ -963,8 +958,8 @@ impl<'de> Deserialize<'de> for CableKind {
         Ok(match construction {
             Construction::Passive => Self::Passive {
                 latency: decoded(class, Nanoseconds::passive)?,
-                current: decoded(power, Vbus::rated)?.ok_or_else(|| {
-                    <D::Error as serde::de::Error>::custom("a passive cable without a current")
+                rating: power.and_then(Vbus::rated).ok_or_else(|| {
+                    <D::Error as serde::de::Error>::custom("a passive cable without a rating")
                 })?,
             },
             Construction::Active => Self::Active {
@@ -988,8 +983,6 @@ fn decoded<T, U, E: serde::de::Error>(
 pub struct Cable {
     /// None for a code the PD specification reserves.
     pub speed: Option<CableSpeed>,
-    /// Whether it is rated for extended power range.
-    pub epr: bool,
     pub kind: CableKind,
 }
 
@@ -1569,7 +1562,7 @@ mod tests {
     use std::num::NonZeroU32;
 
     use super::{
-        ActiveLatency, ActiveVbus, Attached, CableCurrent, CableKind, CableLatency,
+        ActiveLatency, ActiveVbus, Attached, CableKind, CableLatency, CableRating,
         ChargeCurrentLimit, Detail, FirmwareKind, LinkState, NetworkLink, PassiveLatency, Platform,
         Series, UsbSpeed,
     };
@@ -1660,16 +1653,21 @@ mod tests {
         ]
         .into_iter()
         .chain(shared.map(|latency| Some(ActiveLatency::Within(latency))));
-        let currents = [CableCurrent::ThreeAmps, CableCurrent::FiveAmps];
+        let ratings = [
+            CableRating::ThreeAmps,
+            CableRating::FiveAmps,
+            CableRating::FiveAmpsEpr,
+        ];
         let vbuses = [
             None,
             Some(ActiveVbus::NotCarried),
             Some(ActiveVbus::DefaultCurrent),
-            Some(ActiveVbus::Rated(CableCurrent::ThreeAmps)),
-            Some(ActiveVbus::Rated(CableCurrent::FiveAmps)),
+            Some(ActiveVbus::Rated(CableRating::ThreeAmps)),
+            Some(ActiveVbus::Rated(CableRating::FiveAmps)),
+            Some(ActiveVbus::Rated(CableRating::FiveAmpsEpr)),
         ];
         let kinds: Vec<CableKind> = passive_latencies
-            .flat_map(|latency| currents.map(|current| CableKind::Passive { latency, current }))
+            .flat_map(|latency| ratings.map(|rating| CableKind::Passive { latency, rating }))
             .chain(
                 active_latencies
                     .flat_map(|latency| vbuses.map(|vbus| CableKind::Active { latency, vbus })),
@@ -1699,7 +1697,7 @@ mod tests {
             cable_kind("passive", &["over70"], &["three-amps"]),
             Some(CableKind::Passive {
                 latency: Some(PassiveLatency::Over70Ns),
-                current: CableCurrent::ThreeAmps
+                rating: CableRating::ThreeAmps
             })
         );
         assert_eq!(cable_kind("active", &["over70"], &[]), None);
@@ -1720,13 +1718,13 @@ mod tests {
             cable_kind("passive", &[], &["five-amps"]),
             Some(CableKind::Passive {
                 latency: None,
-                current: CableCurrent::FiveAmps
+                rating: CableRating::FiveAmps
             })
         );
     }
 
     #[test]
-    fn a_passive_cable_without_a_current_does_not_decode() {
+    fn a_passive_cable_without_a_rating_does_not_decode() {
         assert_eq!(cable_kind("passive", &["over70"], &[]), None);
     }
 
