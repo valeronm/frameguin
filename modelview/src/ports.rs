@@ -1,9 +1,9 @@
 //! The USB-C ports: the words a reader needs for one.
 
 use frameguin_contract::{
-    ActiveLatency, Cable, CableKind, CableLatency, CableSpeed, DataRole, Epr, OffRefusal,
-    PassiveLatency, PdContract, PeakCurrent, PortMask, PortPartner, PortReading, PortState,
-    PowerRole, SupplyKind,
+    ActiveLatency, ActiveVbus, Cable, CableKind, CableLatency, CableSpeed, DataRole, Epr,
+    OffRefusal, PassiveLatency, PdContract, PeakCurrent, PortMask, PortPartner, PortReading,
+    PortState, PowerRole, SupplyKind,
 };
 use frameguin_model::control::ports::{
     BusVoltage, Flow, VoltageWindow, attached, carries_power, flow, powering,
@@ -400,7 +400,7 @@ pub fn out_of_range_label(voltage: BusVoltage) -> Option<&'static str> {
 /// None for a passive cable, the kind nearly every cable is.
 #[must_use]
 pub fn cable_type_label(kind: CableKind) -> Option<&'static str> {
-    matches!(kind, CableKind::Active(_)).then_some("Active cable")
+    matches!(kind, CableKind::Active { .. }).then_some("Active cable")
 }
 
 fn epr_label(epr: Epr) -> Option<&'static str> {
@@ -440,7 +440,8 @@ fn cable_speed_label(speed: CableSpeed) -> &'static str {
     }
 }
 
-/// The watts a cable is sold by, and None where the e-marker left the
+/// The watts a cable is sold by, or for an active cable with no rated
+/// current, what its VBUS does instead; None where the e-marker left the
 /// current at a reserved code.
 ///
 /// The watts are what a contract can reach over the cable, 48 V under
@@ -448,41 +449,55 @@ fn cable_speed_label(speed: CableSpeed) -> &'static str {
 /// does not let a charger enter extended power range, its EPR bit does.
 #[must_use]
 fn cable_rating_label(cable: Cable) -> Option<String> {
-    let milliamps = u32::from(cable.milliamps?);
+    let current = match cable.kind {
+        CableKind::Passive { current, .. } => current?,
+        CableKind::Active { vbus, .. } => match vbus? {
+            ActiveVbus::Rated(current) => current,
+            ActiveVbus::NotCarried => return Some("No power".to_owned()),
+            ActiveVbus::DefaultCurrent => return Some("Default USB power".to_owned()),
+        },
+    };
     let contract_millivolts = if cable.epr { 48_000 } else { 20_000 };
-    Some(watts(contract_millivolts, milliamps, Kind::Static))
+    Some(watts(
+        contract_millivolts,
+        current.milliamps(),
+        Kind::Static,
+    ))
 }
 
 /// The length the PD specification ties to each latency class, and None
 /// where the e-marker gave a code it reserves.
 #[must_use]
 fn cable_length_label(kind: CableKind) -> Option<&'static str> {
-    let label = match kind {
-        CableKind::Passive(Some(PassiveLatency::Within(latency)))
-        | CableKind::Active(Some(ActiveLatency::Within(latency))) => match latency {
-            CableLatency::Under10Ns => "About 1 m",
-            CableLatency::Under20Ns => "About 2 m",
-            CableLatency::Under30Ns => "About 3 m",
-            CableLatency::Under40Ns => "About 4 m",
-            CableLatency::Under50Ns => "About 5 m",
-            CableLatency::Under60Ns => "About 6 m",
-            CableLatency::Under70Ns => "About 7 m",
+    let latency = match kind {
+        CableKind::Passive { latency, .. } => match latency? {
+            PassiveLatency::Within(latency) => latency,
+            PassiveLatency::Over70Ns => return Some("Over 7 m"),
         },
-        CableKind::Passive(Some(PassiveLatency::Over70Ns)) => "Over 7 m",
-        CableKind::Active(Some(ActiveLatency::About1000Ns)) => "About 100 m",
-        CableKind::Active(Some(ActiveLatency::About2000Ns)) => "About 200 m",
-        CableKind::Active(Some(ActiveLatency::About3000Ns)) => "About 300 m",
-        CableKind::Passive(None) | CableKind::Active(None) => return None,
+        CableKind::Active { latency, .. } => match latency? {
+            ActiveLatency::Within(latency) => latency,
+            ActiveLatency::About1000Ns => return Some("About 100 m"),
+            ActiveLatency::About2000Ns => return Some("About 200 m"),
+            ActiveLatency::About3000Ns => return Some("About 300 m"),
+        },
     };
-    Some(label)
+    Some(match latency {
+        CableLatency::Under10Ns => "About 1 m",
+        CableLatency::Under20Ns => "About 2 m",
+        CableLatency::Under30Ns => "About 3 m",
+        CableLatency::Under40Ns => "About 4 m",
+        CableLatency::Under50Ns => "About 5 m",
+        CableLatency::Under60Ns => "About 6 m",
+        CableLatency::Under70Ns => "About 7 m",
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use frameguin_contract::{
-        ActiveLatency, Cable, CableKind, CableLatency, CableSpeed, DataRole, Epr, PassiveLatency,
-        PdContract, PeakCurrent, Platform, PortMask, PortPartner, PortReading, PortState,
-        PowerRole, SupplyKind,
+        ActiveLatency, ActiveVbus, Cable, CableCurrent, CableKind, CableLatency, CableSpeed,
+        DataRole, Epr, PassiveLatency, PdContract, PeakCurrent, Platform, PortMask, PortPartner,
+        PortReading, PortState, PowerRole, SupplyKind,
     };
     use frameguin_model::port::Placement;
 
@@ -841,8 +856,8 @@ mod tests {
 
     #[test]
     fn a_cables_rating_reads_in_the_watts_it_is_sold_by() {
-        let standard = marked(Some(3000));
-        let five_amp = marked(Some(5000));
+        let standard = marked(Some(CableCurrent::ThreeAmps));
+        let five_amp = marked(Some(CableCurrent::FiveAmps));
         let extended = Cable {
             epr: true,
             ..five_amp
@@ -860,36 +875,40 @@ mod tests {
     #[test]
     fn a_cables_length_is_worded_as_the_approximation_it_is() {
         assert_eq!(
-            cable_length_label(CableKind::Passive(Some(PassiveLatency::Within(
-                CableLatency::Under30Ns
-            )))),
+            cable_length_label(CableKind::Passive {
+                latency: Some(PassiveLatency::Within(CableLatency::Under30Ns)),
+                current: None,
+            }),
             Some("About 3 m")
         );
         assert_eq!(
-            cable_length_label(CableKind::Passive(Some(PassiveLatency::Over70Ns))),
+            cable_length_label(CableKind::Passive {
+                latency: Some(PassiveLatency::Over70Ns),
+                current: None,
+            }),
             Some("Over 7 m")
         );
         assert_eq!(
-            cable_length_label(CableKind::Active(Some(ActiveLatency::About1000Ns))),
+            cable_length_label(CableKind::Active {
+                latency: Some(ActiveLatency::About1000Ns),
+                vbus: None,
+            }),
             Some("About 100 m")
         );
-        assert_eq!(cable_length_label(CableKind::Active(None)), None);
+        assert_eq!(cable_length_label(RESERVED_ACTIVE), None);
     }
 
     #[test]
     fn only_an_active_cable_is_named_for_its_kind() {
-        assert_eq!(cable_type_label(CableKind::Passive(None)), None);
-        assert_eq!(
-            cable_type_label(CableKind::Active(None)),
-            Some("Active cable")
-        );
+        assert_eq!(cable_type_label(RESERVED_PASSIVE), None);
+        assert_eq!(cable_type_label(RESERVED_ACTIVE), Some("Active cable"));
     }
 
     #[test]
     fn a_cable_reads_as_one_line_of_what_its_e_marker_reported() {
         let extended = Cable {
             epr: true,
-            ..marked(Some(5000))
+            ..marked(Some(CableCurrent::FiveAmps))
         };
         assert_eq!(
             cable_label(&extended).as_deref(),
@@ -901,18 +920,64 @@ mod tests {
         );
         let reserved = Cable {
             speed: None,
-            kind: CableKind::Passive(None),
+            kind: RESERVED_PASSIVE,
             ..marked(None)
         };
         assert_eq!(cable_label(&reserved), None);
     }
 
-    fn marked(milliamps: Option<u16>) -> Cable {
+    fn active(vbus: ActiveVbus) -> Cable {
+        Cable {
+            epr: true,
+            kind: CableKind::Active {
+                latency: Some(ActiveLatency::About1000Ns),
+                vbus: Some(vbus),
+            },
+            ..marked(None)
+        }
+    }
+
+    #[test]
+    fn an_active_cable_that_carries_no_vbus_is_rated_for_no_power() {
+        assert_eq!(
+            cable_label(&active(ActiveVbus::NotCarried)).as_deref(),
+            Some("480 Mbps · No power · About 100 m")
+        );
+    }
+
+    #[test]
+    fn an_active_cable_at_the_default_current_is_rated_for_default_usb_power() {
+        assert_eq!(
+            cable_label(&active(ActiveVbus::DefaultCurrent)).as_deref(),
+            Some("480 Mbps · Default USB power · About 100 m")
+        );
+    }
+
+    #[test]
+    fn an_active_cable_carrying_a_rated_current_reads_in_watts() {
+        assert_eq!(
+            cable_label(&active(ActiveVbus::Rated(CableCurrent::FiveAmps))).as_deref(),
+            Some("480 Mbps · 240 W · About 100 m")
+        );
+    }
+
+    const RESERVED_PASSIVE: CableKind = CableKind::Passive {
+        latency: None,
+        current: None,
+    };
+    const RESERVED_ACTIVE: CableKind = CableKind::Active {
+        latency: None,
+        vbus: None,
+    };
+
+    fn marked(current: Option<CableCurrent>) -> Cable {
         Cable {
             speed: Some(CableSpeed::Usb2),
-            milliamps,
             epr: false,
-            kind: CableKind::Passive(Some(PassiveLatency::Within(CableLatency::Under10Ns))),
+            kind: CableKind::Passive {
+                latency: Some(PassiveLatency::Within(CableLatency::Under10Ns)),
+                current,
+            },
         }
     }
 

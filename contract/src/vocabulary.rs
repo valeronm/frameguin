@@ -736,15 +736,50 @@ pub enum ActiveLatency {
     About3000Ns,
 }
 
+/// A VBUS current a cable is rated for, of the ones both kinds of cable can
+/// declare.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum CableCurrent {
+    ThreeAmps,
+    FiveAmps,
+}
+
+impl CableCurrent {
+    #[must_use]
+    pub const fn milliamps(self) -> u32 {
+        match self {
+            Self::ThreeAmps => 3000,
+            Self::FiveAmps => 5000,
+        }
+    }
+}
+
+/// Whether an active cable carries VBUS through, and at what current.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ActiveVbus {
+    NotCarried,
+    /// The USB Type-C default current, which depends on the USB version of
+    /// the link; PD 3.0 defines it for an active cable and PD 3.2 does not.
+    DefaultCurrent,
+    Rated(CableCurrent),
+}
+
 /// Whether a cable carries its own signal electronics, by the controller's
-/// active-cable bit, with the latency class that kind's table gives: None
-/// for a code the table reserves.
+/// active-cable bit, with what that kind's VDO layout gives: a field is None
+/// for a code its table reserves.
 ///
-/// A kind crosses the bus as its name and its class's, or no class.
+/// A kind crosses the bus as its name, its latency class and what it carries
+/// on VBUS, each of the last two an empty array where None.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum CableKind {
-    Passive(Option<PassiveLatency>),
-    Active(Option<ActiveLatency>),
+    Passive {
+        latency: Option<PassiveLatency>,
+        current: Option<CableCurrent>,
+    },
+    Active {
+        latency: Option<ActiveLatency>,
+        vbus: Option<ActiveVbus>,
+    },
 }
 
 #[derive(Serialize, Deserialize, Type)]
@@ -753,6 +788,53 @@ pub enum CableKind {
 enum Construction {
     Passive,
     Active,
+}
+
+#[derive(Serialize, Deserialize, Type, Clone, Copy)]
+#[serde(rename_all = "kebab-case")]
+#[zvariant(signature = "s")]
+enum Vbus {
+    NotCarried,
+    DefaultCurrent,
+    ThreeAmps,
+    FiveAmps,
+}
+
+impl From<CableCurrent> for Vbus {
+    fn from(current: CableCurrent) -> Self {
+        match current {
+            CableCurrent::ThreeAmps => Self::ThreeAmps,
+            CableCurrent::FiveAmps => Self::FiveAmps,
+        }
+    }
+}
+
+impl From<ActiveVbus> for Vbus {
+    fn from(vbus: ActiveVbus) -> Self {
+        match vbus {
+            ActiveVbus::NotCarried => Self::NotCarried,
+            ActiveVbus::DefaultCurrent => Self::DefaultCurrent,
+            ActiveVbus::Rated(current) => current.into(),
+        }
+    }
+}
+
+impl Vbus {
+    fn active(self) -> ActiveVbus {
+        match self {
+            Self::NotCarried => ActiveVbus::NotCarried,
+            Self::DefaultCurrent => ActiveVbus::DefaultCurrent,
+            Self::ThreeAmps => ActiveVbus::Rated(CableCurrent::ThreeAmps),
+            Self::FiveAmps => ActiveVbus::Rated(CableCurrent::FiveAmps),
+        }
+    }
+
+    fn rated(self) -> Option<CableCurrent> {
+        match self.active() {
+            ActiveVbus::Rated(current) => Some(current),
+            ActiveVbus::NotCarried | ActiveVbus::DefaultCurrent => None,
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Type, Clone, Copy)]
@@ -851,7 +933,7 @@ impl Nanoseconds {
     }
 }
 
-type Kind = (Construction, Option<Nanoseconds>);
+type Kind = (Construction, Option<Nanoseconds>, Option<Vbus>);
 
 impl Type for CableKind {
     const SIGNATURE: &'static zvariant::Signature = <Kind>::SIGNATURE;
@@ -860,8 +942,16 @@ impl Type for CableKind {
 impl Serialize for CableKind {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         match *self {
-            Self::Passive(latency) => (Construction::Passive, latency.map(Nanoseconds::from)),
-            Self::Active(latency) => (Construction::Active, latency.map(Nanoseconds::from)),
+            Self::Passive { latency, current } => (
+                Construction::Passive,
+                latency.map(Nanoseconds::from),
+                current.map(Vbus::from),
+            ),
+            Self::Active { latency, vbus } => (
+                Construction::Active,
+                latency.map(Nanoseconds::from),
+                vbus.map(Vbus::from),
+            ),
         }
         .serialize(serializer)
     }
@@ -869,21 +959,26 @@ impl Serialize for CableKind {
 
 impl<'de> Deserialize<'de> for CableKind {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let (construction, class) = Kind::deserialize(deserializer)?;
-        let kind = match construction {
-            Construction::Passive => class
-                .map(|class| class.passive().ok_or(()))
-                .transpose()
-                .map(Self::Passive),
-            Construction::Active => class
-                .map(|class| class.active().ok_or(()))
-                .transpose()
-                .map(Self::Active),
-        };
-        kind.map_err(|()| {
-            serde::de::Error::custom("a latency class this kind of cable does not have")
+        let (construction, class, power) = Kind::deserialize(deserializer)?;
+        Ok(match construction {
+            Construction::Passive => Self::Passive {
+                latency: decoded(class, Nanoseconds::passive)?,
+                current: decoded(power, Vbus::rated)?,
+            },
+            Construction::Active => Self::Active {
+                latency: decoded(class, Nanoseconds::active)?,
+                vbus: power.map(Vbus::active),
+            },
         })
     }
+}
+
+fn decoded<T, U, E: serde::de::Error>(
+    tag: Option<T>,
+    decode: fn(T) -> Option<U>,
+) -> Result<Option<U>, E> {
+    tag.map(|tag| decode(tag).ok_or_else(|| E::custom("a value this kind of cable cannot have")))
+        .transpose()
 }
 
 /// What a port's cable reported of itself through its e-marker.
@@ -891,9 +986,6 @@ impl<'de> Deserialize<'de> for CableKind {
 pub struct Cable {
     /// None for a code the PD specification reserves.
     pub speed: Option<CableSpeed>,
-    /// The VBUS current it is rated for: 3000 or 5000 mA, the two the
-    /// specification defines, and None for the codes it reserves.
-    pub milliamps: Option<u16>,
     /// Whether it is rated for extended power range.
     pub epr: bool,
     pub kind: CableKind,
@@ -1475,8 +1567,9 @@ mod tests {
     use std::num::NonZeroU32;
 
     use super::{
-        ActiveLatency, Attached, CableKind, CableLatency, ChargeCurrentLimit, Detail, FirmwareKind,
-        LinkState, NetworkLink, PassiveLatency, Platform, Series, UsbSpeed,
+        ActiveLatency, ActiveVbus, Attached, CableCurrent, CableKind, CableLatency,
+        ChargeCurrentLimit, Detail, FirmwareKind, LinkState, NetworkLink, PassiveLatency, Platform,
+        Series, UsbSpeed,
     };
 
     #[test]
@@ -1554,44 +1647,84 @@ mod tests {
             CableLatency::Under60Ns,
             CableLatency::Under70Ns,
         ];
-        let kinds: Vec<CableKind> = [
-            CableKind::Passive(None),
-            CableKind::Passive(Some(PassiveLatency::Over70Ns)),
-            CableKind::Active(None),
-            CableKind::Active(Some(ActiveLatency::About1000Ns)),
-            CableKind::Active(Some(ActiveLatency::About2000Ns)),
-            CableKind::Active(Some(ActiveLatency::About3000Ns)),
+        let passive_latencies = [None, Some(PassiveLatency::Over70Ns)]
+            .into_iter()
+            .chain(shared.map(|latency| Some(PassiveLatency::Within(latency))));
+        let active_latencies = [
+            None,
+            Some(ActiveLatency::About1000Ns),
+            Some(ActiveLatency::About2000Ns),
+            Some(ActiveLatency::About3000Ns),
         ]
         .into_iter()
-        .chain(shared.into_iter().flat_map(|latency| {
-            [
-                CableKind::Passive(Some(PassiveLatency::Within(latency))),
-                CableKind::Active(Some(ActiveLatency::Within(latency))),
-            ]
-        }))
-        .collect();
+        .chain(shared.map(|latency| Some(ActiveLatency::Within(latency))));
+        let currents = [
+            None,
+            Some(CableCurrent::ThreeAmps),
+            Some(CableCurrent::FiveAmps),
+        ];
+        let vbuses = [
+            None,
+            Some(ActiveVbus::NotCarried),
+            Some(ActiveVbus::DefaultCurrent),
+            Some(ActiveVbus::Rated(CableCurrent::ThreeAmps)),
+            Some(ActiveVbus::Rated(CableCurrent::FiveAmps)),
+        ];
+        let kinds: Vec<CableKind> = passive_latencies
+            .flat_map(|latency| currents.map(|current| CableKind::Passive { latency, current }))
+            .chain(
+                active_latencies
+                    .flat_map(|latency| vbuses.map(|vbus| CableKind::Active { latency, vbus })),
+            )
+            .collect();
         let encoded = to_bytes(Context::new_dbus(LE, 0), &kinds).unwrap();
         let decoded: Vec<CableKind> = encoded.deserialize().unwrap().0;
         assert_eq!(decoded, kinds);
     }
 
-    fn cable_kind(construction: &str, class: &str) -> Option<CableKind> {
-        let encoded = to_bytes(Context::new_dbus(LE, 0), &(construction, vec![class])).unwrap();
+    fn cable_kind(construction: &str, class: &[&str], power: &[&str]) -> Option<CableKind> {
+        let encoded = to_bytes(Context::new_dbus(LE, 0), &(construction, class, power)).unwrap();
         encoded.deserialize().ok().map(|(kind, _)| kind)
     }
 
     #[test]
     fn a_latency_class_only_the_other_kind_of_cable_has_does_not_decode() {
         assert_eq!(
-            cable_kind("active", "about1000"),
-            Some(CableKind::Active(Some(ActiveLatency::About1000Ns)))
+            cable_kind("active", &["about1000"], &[]),
+            Some(CableKind::Active {
+                latency: Some(ActiveLatency::About1000Ns),
+                vbus: None
+            })
         );
-        assert_eq!(cable_kind("passive", "about1000"), None);
+        assert_eq!(cable_kind("passive", &["about1000"], &[]), None);
         assert_eq!(
-            cable_kind("passive", "over70"),
-            Some(CableKind::Passive(Some(PassiveLatency::Over70Ns)))
+            cable_kind("passive", &["over70"], &[]),
+            Some(CableKind::Passive {
+                latency: Some(PassiveLatency::Over70Ns),
+                current: None
+            })
         );
-        assert_eq!(cable_kind("active", "over70"), None);
+        assert_eq!(cable_kind("active", &["over70"], &[]), None);
+    }
+
+    #[test]
+    fn a_vbus_state_only_an_active_cable_has_does_not_decode() {
+        assert_eq!(
+            cable_kind("active", &[], &["not-carried"]),
+            Some(CableKind::Active {
+                latency: None,
+                vbus: Some(ActiveVbus::NotCarried)
+            })
+        );
+        assert_eq!(cable_kind("passive", &[], &["not-carried"]), None);
+        assert_eq!(cable_kind("passive", &[], &["default-current"]), None);
+        assert_eq!(
+            cable_kind("passive", &[], &["five-amps"]),
+            Some(CableKind::Passive {
+                latency: None,
+                current: Some(CableCurrent::FiveAmps)
+            })
+        );
     }
 
     #[test]
