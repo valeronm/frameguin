@@ -17,7 +17,7 @@ Computer Inc. Licensed under the [MIT License](LICENSE).
 <p align="center">
   <img src="docs/screenshots/power.png" alt="The Frameguin window on its Power tab: the charger and battery, and the charge limit and charge speed" width="30%">
   <img src="docs/screenshots/input.png" alt="The Input tab: the touchpad's haptic intensity and click force, and the touchscreen switch" width="30%">
-  <img src="docs/screenshots/lights.png" alt="The Lights tab: the power button LED's level and brightness, and the charging LED" width="30%">
+  <img src="docs/screenshots/lights.png" alt="The Lights tab: the power button LED's level, and the charging LED's lit side and switch" width="30%">
 </p>
 
 ## What it does
@@ -43,7 +43,7 @@ The other windows report on the machine:
   firmware.
 
 <p align="center">
-  <img src="docs/screenshots/port.png" alt="The Readings window on a USB-C port: the attached charger, the cable's speed, rating and length, and the negotiated power" width="40%">
+  <img src="docs/screenshots/port.png" alt="The Readings window's USB-C ports page: an outline of the machine with what each port carries, and the charging port's contract, measured voltage and cable" width="40%">
   <img src="docs/screenshots/hardware.png" alt="The Hardware window on the mainboard: its part number, BIOS and EC versions" width="48%">
 </p>
 
