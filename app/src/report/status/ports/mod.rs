@@ -261,11 +261,11 @@ impl Section {
             *self.shown.borrow_mut() =
                 picked.map(|picked| self.build(sidebar, feed, request, indices, picked));
         }
-        if let Some(shown) = &*self.shown.borrow()
-            && shown.powering.replace(powering) != powering
-        {
-            let subtitle = powering.map(|index| powered_from(placement, index));
-            shown.row.set_subtitle(&subtitle.unwrap_or_default());
+        if let Some(shown) = &*self.shown.borrow() {
+            shown.powering.set(powering);
+            shown
+                .row
+                .set_subtitle(&powered_from(ports, placement).unwrap_or_default());
         }
         if !same {
             sidebar.settle();

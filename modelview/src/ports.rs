@@ -211,12 +211,6 @@ pub fn socket(port: &PortState) -> Socket {
     }
 }
 
-/// Where the machine is powered from, through the port at `index`.
-#[must_use]
-pub fn powered_from(placement: Placement, index: u8) -> String {
-    format!("Powered from {}", port::place(placement, index))
-}
-
 fn power(port: &PortReading) -> String {
     watts(port.millivolts.into(), port.milliamps.into(), Kind::Static)
 }
@@ -244,18 +238,21 @@ pub fn supply_port(ports: &[PortState], placement: Placement) -> Option<String> 
 }
 
 /// The supply and where it comes in, joined for a caller with one line to
-/// put both on. Just the supply where nothing is supplying, there being no
-/// port to name then — an unmeasured board still joins, its port named by
-/// number.
+/// put both on, and None where nothing is supplying — an unmeasured board
+/// still joins, its port named by number.
 ///
 /// The words only; what the line is *about* is the caller's to say, as a row
 /// title is everywhere else.
 #[must_use]
+pub fn powered_from(ports: &[PortState], placement: Placement) -> Option<String> {
+    powering(ports)
+        .map(|(index, port)| format!("{} · {}", power(port), port::inline(placement, index)))
+}
+
+/// [`powered_from`], with the absence named where nothing is supplying.
+#[must_use]
 pub fn supply_summary(ports: &[PortState], placement: Placement) -> String {
-    let supply = supply_label(ports);
-    powering(ports).map_or(supply.clone(), |(index, _)| {
-        format!("{supply} · {}", port::inline(placement, index))
-    })
+    powered_from(ports, placement).unwrap_or_else(|| NO_SUPPLY.to_owned())
 }
 
 /// `DisplayPort` alternate mode, and None where the port is not in it.
@@ -633,19 +630,22 @@ mod tests {
     #[test]
     fn the_joined_line_carries_the_supply_and_its_port() {
         let ports: Vec<_> = (0..4).map(port).collect();
-        let summary = |platform| supply_summary(&ports, Placement::of(platform));
+        let line = |platform| powered_from(&ports, Placement::of(platform));
         assert_eq!(
-            summary(frameguin_contract::Platform::Laptop13ProUltra3),
-            "100 W · Right front"
+            line(Platform::Laptop13ProUltra3).as_deref(),
+            Some("100 W · Right front")
         );
+        assert_eq!(line(Platform::Unknown).as_deref(), Some("100 W · Port 0"));
         assert_eq!(
-            summary(frameguin_contract::Platform::Unknown),
-            "100 W · Port 0"
+            line(Platform::Laptop13AmdAi300).as_deref(),
+            Some("100 W · Right, port 0")
         );
-        assert_eq!(
-            summary(frameguin_contract::Platform::Laptop13AmdAi300),
-            "100 W · Right, port 0"
-        );
+    }
+
+    #[test]
+    fn nothing_supplying_leaves_no_joined_line() {
+        let ports: Vec<_> = (1..4).map(port).collect();
+        assert_eq!(powered_from(&ports, Placement::default()), None);
     }
 
     #[test]
@@ -1008,18 +1008,5 @@ mod tests {
         assert_eq!(socket(&ports[1]), Socket::Empty);
         assert_eq!(socket(&ports[2]), Socket::InUse(None));
         assert_eq!(socket(&ports[3]), Socket::Off);
-    }
-
-    #[test]
-    fn the_ports_row_names_where_the_power_comes_in() {
-        let summary = |platform| powered_from(Placement::of(platform), 0);
-        assert_eq!(
-            summary(Platform::Laptop13ProUltra3),
-            "Powered from right front"
-        );
-        assert_eq!(
-            summary(Platform::Laptop13AmdAi300),
-            "Powered from port 0 on the right"
-        );
     }
 }

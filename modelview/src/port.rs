@@ -9,29 +9,7 @@ enum Place {
     /// A side with no depth, which two sockets can share, so the port's
     /// number goes beside it.
     Shared(Side),
-    Own(Socket),
-}
-
-#[derive(Clone, Copy)]
-enum Socket {
-    At(Side, Depth),
-    Back,
-}
-
-impl Socket {
-    fn heading(self) -> String {
-        match self {
-            Self::At(side, depth) => format!("{} {}", side_label(side), depth_label(depth)),
-            Self::Back => "Back".to_owned(),
-        }
-    }
-
-    fn sentence(self) -> String {
-        match self {
-            Self::At(..) => self.heading().to_lowercase(),
-            Self::Back => "the back".to_owned(),
-        }
-    }
+    Own(String),
 }
 
 fn place_of(placement: Placement, index: u8) -> Place {
@@ -41,8 +19,8 @@ fn place_of(placement: Placement, index: u8) -> Place {
         Some(Position::Side {
             side,
             depth: Some(depth),
-        }) => Place::Own(Socket::At(side, depth)),
-        Some(Position::Back) => Place::Own(Socket::Back),
+        }) => Place::Own(format!("{} {}", side_label(side), depth_label(depth))),
+        Some(Position::Back) => Place::Own("Back".to_owned()),
     }
 }
 
@@ -55,7 +33,7 @@ pub(crate) fn label(placement: Placement, index: u8) -> String {
     match place_of(placement, index) {
         Place::Unplaced => number(index),
         Place::Shared(side) => format!("{} · {}", side_label(side), number(index)),
-        Place::Own(socket) => socket.heading(),
+        Place::Own(name) => name,
     }
 }
 
@@ -65,7 +43,7 @@ pub(crate) fn label(placement: Placement, index: u8) -> String {
 #[must_use]
 pub fn heading(placement: Placement, index: u8) -> String {
     match place_of(placement, index) {
-        Place::Own(socket) => format!("{} · {}", socket.heading(), number(index)),
+        Place::Own(name) => format!("{name} · {}", number(index)),
         _ => label(placement, index),
     }
 }
@@ -77,20 +55,6 @@ pub(crate) fn inline(placement: Placement, index: u8) -> String {
     match place_of(placement, index) {
         Place::Shared(side) => format!("{}, {}", side_label(side), number(index).to_lowercase()),
         _ => label(placement, index),
-    }
-}
-
-/// Where a port is, inside a sentence.
-#[must_use]
-pub(crate) fn place(placement: Placement, index: u8) -> String {
-    match place_of(placement, index) {
-        Place::Unplaced => number(index).to_lowercase(),
-        Place::Shared(side) => format!(
-            "{} on the {}",
-            number(index).to_lowercase(),
-            side_label(side).to_lowercase()
-        ),
-        Place::Own(socket) => socket.sentence(),
     }
 }
 
@@ -120,7 +84,7 @@ mod tests {
     use frameguin_contract::Platform::Laptop13ProUltra3 as MEASURED;
     use frameguin_model::port::Placement;
 
-    use super::{heading, inline, label, place};
+    use super::{heading, inline, label};
 
     #[test]
     fn the_default_places_nothing() {
@@ -183,17 +147,6 @@ mod tests {
         assert_eq!(inline(Placement::of(SIDED), 2), "Left, port 2");
         assert_eq!(inline(Placement::of(MEASURED), 2), "Left rear");
         assert_eq!(inline(Placement::of(Platform::Unknown), 2), "Port 2");
-    }
-
-    #[test]
-    fn inside_a_sentence_a_place_is_lowercase() {
-        assert_eq!(place(Placement::of(MEASURED), 2), "left rear");
-        assert_eq!(place(Placement::of(SIDED), 2), "port 2 on the left");
-        assert_eq!(
-            place(Placement::of(Platform::Laptop16Amd7040), 4),
-            "the back"
-        );
-        assert_eq!(place(Placement::of(Platform::Unknown), 2), "port 2");
     }
 
     #[test]
