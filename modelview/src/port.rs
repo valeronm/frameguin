@@ -34,7 +34,7 @@ fn place_of(placement: Placement, index: u8) -> Place {
 pub(crate) fn label(placement: Placement, index: u8) -> String {
     match place_of(placement, index) {
         Place::Unplaced => number(index),
-        Place::Shared(side) => joined([side_label(side), number(index).as_str()]),
+        Place::Shared(side) => format!("{}, {}", side_label(side), number(index).to_lowercase()),
         Place::Own(name) => name,
     }
 }
@@ -46,16 +46,6 @@ pub(crate) fn label(placement: Placement, index: u8) -> String {
 pub fn heading(placement: Placement, index: u8) -> String {
     match place_of(placement, index) {
         Place::Own(name) => joined([name, number(index)]),
-        _ => label(placement, index),
-    }
-}
-
-/// What to call a port inside a line already separating its parts with
-/// ` · `, where a side alone takes its number after a comma instead.
-#[must_use]
-pub(crate) fn inline(placement: Placement, index: u8) -> String {
-    match place_of(placement, index) {
-        Place::Shared(side) => format!("{}, {}", side_label(side), number(index).to_lowercase()),
         _ => label(placement, index),
     }
 }
@@ -86,7 +76,7 @@ mod tests {
     use frameguin_contract::Platform::Laptop13ProUltra3 as MEASURED;
     use frameguin_model::port::Placement;
 
-    use super::{heading, inline, label};
+    use super::{heading, label};
 
     #[test]
     fn the_default_places_nothing() {
@@ -124,31 +114,24 @@ mod tests {
         assert_eq!(
             names,
             [
-                "Right · Port 0",
-                "Right · Port 1",
-                "Left · Port 2",
-                "Left · Port 3"
+                "Right, port 0",
+                "Right, port 1",
+                "Left, port 2",
+                "Left, port 3"
             ]
         );
-        assert_eq!(heading(Placement::of(SIDED), 2), "Left · Port 2");
+        assert_eq!(heading(Placement::of(SIDED), 2), "Left, port 2");
     }
 
     #[test]
     fn a_heading_carries_the_position_and_the_number() {
         assert_eq!(heading(Placement::of(MEASURED), 2), "Left rear · Port 2");
-        assert_eq!(heading(Placement::of(SIDED), 2), "Left · Port 2");
+        assert_eq!(heading(Placement::of(SIDED), 2), "Left, port 2");
         assert_eq!(
             heading(Placement::of(Platform::Laptop16Amd7040), 4),
             "Back · Port 4"
         );
         assert_eq!(heading(Placement::of(Platform::Unknown), 2), "Port 2");
-    }
-
-    #[test]
-    fn inside_a_line_a_side_takes_its_number_after_a_comma() {
-        assert_eq!(inline(Placement::of(SIDED), 2), "Left, port 2");
-        assert_eq!(inline(Placement::of(MEASURED), 2), "Left rear");
-        assert_eq!(inline(Placement::of(Platform::Unknown), 2), "Port 2");
     }
 
     #[test]

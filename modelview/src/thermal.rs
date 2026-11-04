@@ -64,7 +64,7 @@ pub fn fan_label(fan: &Fan, duties: &[FanDuty]) -> String {
     let speed = rpm_label(fan.rpm);
     match duties.iter().find(|duty| duty.index == fan.index) {
         Some(duty) if fan.rpm > 0 || duty.percent > 0 => {
-            joined([&speed, &percent_label(duty.percent)])
+            joined([speed, percent_label(duty.percent)])
         }
         _ => speed,
     }
