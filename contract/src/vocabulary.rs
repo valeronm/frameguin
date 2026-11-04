@@ -706,11 +706,9 @@ pub enum CableSpeed {
     Gen4,
 }
 
-/// A cable's signal latency class, which the PD specification ties to its
-/// length.
-#[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug)]
-#[zvariant(signature = "s")]
-#[serde(rename_all = "kebab-case")]
+/// A signal latency class both kinds of cable share, which the PD
+/// specification ties to a length of up to 7 m.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum CableLatency {
     Under10Ns,
     Under20Ns,
@@ -719,7 +717,173 @@ pub enum CableLatency {
     Under50Ns,
     Under60Ns,
     Under70Ns,
+}
+
+/// A passive cable's latency class, by the passive cable VDO's table.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum PassiveLatency {
+    Within(CableLatency),
     Over70Ns,
+}
+
+/// An active cable's latency class, its electronics included, by the active
+/// cable VDO's table.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ActiveLatency {
+    Within(CableLatency),
+    About1000Ns,
+    About2000Ns,
+    About3000Ns,
+}
+
+/// Whether a cable carries its own signal electronics, by the controller's
+/// active-cable bit, with the latency class that kind's table gives: None
+/// for a code the table reserves.
+///
+/// A kind crosses the bus as its name and its class's, or no class.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum CableKind {
+    Passive(Option<PassiveLatency>),
+    Active(Option<ActiveLatency>),
+}
+
+#[derive(Serialize, Deserialize, Type)]
+#[serde(rename_all = "kebab-case")]
+#[zvariant(signature = "s")]
+enum Construction {
+    Passive,
+    Active,
+}
+
+#[derive(Serialize, Deserialize, Type, Clone, Copy)]
+#[serde(rename_all = "kebab-case")]
+#[zvariant(signature = "s")]
+enum Nanoseconds {
+    Under10,
+    Under20,
+    Under30,
+    Under40,
+    Under50,
+    Under60,
+    Under70,
+    Over70,
+    About1000,
+    About2000,
+    About3000,
+}
+
+impl From<CableLatency> for Nanoseconds {
+    fn from(latency: CableLatency) -> Self {
+        match latency {
+            CableLatency::Under10Ns => Self::Under10,
+            CableLatency::Under20Ns => Self::Under20,
+            CableLatency::Under30Ns => Self::Under30,
+            CableLatency::Under40Ns => Self::Under40,
+            CableLatency::Under50Ns => Self::Under50,
+            CableLatency::Under60Ns => Self::Under60,
+            CableLatency::Under70Ns => Self::Under70,
+        }
+    }
+}
+
+impl From<PassiveLatency> for Nanoseconds {
+    fn from(latency: PassiveLatency) -> Self {
+        match latency {
+            PassiveLatency::Within(latency) => latency.into(),
+            PassiveLatency::Over70Ns => Self::Over70,
+        }
+    }
+}
+
+impl From<ActiveLatency> for Nanoseconds {
+    fn from(latency: ActiveLatency) -> Self {
+        match latency {
+            ActiveLatency::Within(latency) => latency.into(),
+            ActiveLatency::About1000Ns => Self::About1000,
+            ActiveLatency::About2000Ns => Self::About2000,
+            ActiveLatency::About3000Ns => Self::About3000,
+        }
+    }
+}
+
+impl Nanoseconds {
+    fn shared(self) -> Option<CableLatency> {
+        match self {
+            Self::Under10 => Some(CableLatency::Under10Ns),
+            Self::Under20 => Some(CableLatency::Under20Ns),
+            Self::Under30 => Some(CableLatency::Under30Ns),
+            Self::Under40 => Some(CableLatency::Under40Ns),
+            Self::Under50 => Some(CableLatency::Under50Ns),
+            Self::Under60 => Some(CableLatency::Under60Ns),
+            Self::Under70 => Some(CableLatency::Under70Ns),
+            Self::Over70 | Self::About1000 | Self::About2000 | Self::About3000 => None,
+        }
+    }
+
+    fn passive(self) -> Option<PassiveLatency> {
+        match self {
+            Self::Over70 => Some(PassiveLatency::Over70Ns),
+            Self::About1000 | Self::About2000 | Self::About3000 => None,
+            Self::Under10
+            | Self::Under20
+            | Self::Under30
+            | Self::Under40
+            | Self::Under50
+            | Self::Under60
+            | Self::Under70 => self.shared().map(PassiveLatency::Within),
+        }
+    }
+
+    fn active(self) -> Option<ActiveLatency> {
+        match self {
+            Self::About1000 => Some(ActiveLatency::About1000Ns),
+            Self::About2000 => Some(ActiveLatency::About2000Ns),
+            Self::About3000 => Some(ActiveLatency::About3000Ns),
+            Self::Over70 => None,
+            Self::Under10
+            | Self::Under20
+            | Self::Under30
+            | Self::Under40
+            | Self::Under50
+            | Self::Under60
+            | Self::Under70 => self.shared().map(ActiveLatency::Within),
+        }
+    }
+}
+
+type Kind = (Construction, Option<Nanoseconds>);
+
+impl Type for CableKind {
+    const SIGNATURE: &'static zvariant::Signature = <Kind>::SIGNATURE;
+}
+
+impl Serialize for CableKind {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match *self {
+            Self::Passive(latency) => (Construction::Passive, latency.map(Nanoseconds::from)),
+            Self::Active(latency) => (Construction::Active, latency.map(Nanoseconds::from)),
+        }
+        .serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for CableKind {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let (construction, class) = Kind::deserialize(deserializer)?;
+        let kind = match construction {
+            Construction::Passive => class
+                .map(|class| class.passive().ok_or(()))
+                .transpose()
+                .map(Self::Passive),
+            Construction::Active => class
+                .map(|class| class.active().ok_or(()))
+                .transpose()
+                .map(Self::Active),
+        };
+        kind.map_err(|()| {
+            serde::de::Error::custom("a latency class this kind of cable does not have")
+        })
+    }
 }
 
 /// What a port's cable reported of itself through its e-marker.
@@ -732,12 +896,7 @@ pub struct Cable {
     pub milliamps: Option<u16>,
     /// Whether it is rated for extended power range.
     pub epr: bool,
-    /// None for a reserved class, and for an active cable's, which runs past
-    /// the range the specification ties to a length.
-    pub latency: Option<CableLatency>,
-    /// Whether it carries its own signal electronics, by the controller's
-    /// active-cable bit.
-    pub active: bool,
+    pub kind: CableKind,
 }
 
 /// Which kind of supply a power delivery offer is, by its PDO's type bits.
@@ -1316,8 +1475,8 @@ mod tests {
     use std::num::NonZeroU32;
 
     use super::{
-        Attached, ChargeCurrentLimit, Detail, FirmwareKind, LinkState, NetworkLink, Platform,
-        Series, UsbSpeed,
+        ActiveLatency, Attached, CableKind, CableLatency, ChargeCurrentLimit, Detail, FirmwareKind,
+        LinkState, NetworkLink, PassiveLatency, Platform, Series, UsbSpeed,
     };
 
     #[test]
@@ -1382,6 +1541,57 @@ mod tests {
     fn a_zero_charge_current_limit_does_not_decode() {
         let encoded = to_bytes(Context::new_dbus(LE, 0), &vec![0_u32]).unwrap();
         assert!(encoded.deserialize::<ChargeCurrentLimit>().is_err());
+    }
+
+    #[test]
+    fn every_cable_kind_crosses_the_bus_as_itself() {
+        let shared = [
+            CableLatency::Under10Ns,
+            CableLatency::Under20Ns,
+            CableLatency::Under30Ns,
+            CableLatency::Under40Ns,
+            CableLatency::Under50Ns,
+            CableLatency::Under60Ns,
+            CableLatency::Under70Ns,
+        ];
+        let kinds: Vec<CableKind> = [
+            CableKind::Passive(None),
+            CableKind::Passive(Some(PassiveLatency::Over70Ns)),
+            CableKind::Active(None),
+            CableKind::Active(Some(ActiveLatency::About1000Ns)),
+            CableKind::Active(Some(ActiveLatency::About2000Ns)),
+            CableKind::Active(Some(ActiveLatency::About3000Ns)),
+        ]
+        .into_iter()
+        .chain(shared.into_iter().flat_map(|latency| {
+            [
+                CableKind::Passive(Some(PassiveLatency::Within(latency))),
+                CableKind::Active(Some(ActiveLatency::Within(latency))),
+            ]
+        }))
+        .collect();
+        let encoded = to_bytes(Context::new_dbus(LE, 0), &kinds).unwrap();
+        let decoded: Vec<CableKind> = encoded.deserialize().unwrap().0;
+        assert_eq!(decoded, kinds);
+    }
+
+    fn cable_kind(construction: &str, class: &str) -> Option<CableKind> {
+        let encoded = to_bytes(Context::new_dbus(LE, 0), &(construction, vec![class])).unwrap();
+        encoded.deserialize().ok().map(|(kind, _)| kind)
+    }
+
+    #[test]
+    fn a_latency_class_only_the_other_kind_of_cable_has_does_not_decode() {
+        assert_eq!(
+            cable_kind("active", "about1000"),
+            Some(CableKind::Active(Some(ActiveLatency::About1000Ns)))
+        );
+        assert_eq!(cable_kind("passive", "about1000"), None);
+        assert_eq!(
+            cable_kind("passive", "over70"),
+            Some(CableKind::Passive(Some(PassiveLatency::Over70Ns)))
+        );
+        assert_eq!(cable_kind("active", "over70"), None);
     }
 
     #[test]

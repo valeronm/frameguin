@@ -1,8 +1,9 @@
 //! The USB-C ports: the words a reader needs for one.
 
 use frameguin_contract::{
-    Cable, CableLatency, CableSpeed, DataRole, Epr, OffRefusal, PdContract, PeakCurrent, PortMask,
-    PortPartner, PortReading, PortState, PowerRole, SupplyKind,
+    ActiveLatency, Cable, CableKind, CableLatency, CableSpeed, DataRole, Epr, OffRefusal,
+    PassiveLatency, PdContract, PeakCurrent, PortMask, PortPartner, PortReading, PortState,
+    PowerRole, SupplyKind,
 };
 use frameguin_model::control::ports::{
     BusVoltage, Flow, VoltageWindow, attached, carries_power, flow, powering,
@@ -398,8 +399,8 @@ pub fn out_of_range_label(voltage: BusVoltage) -> Option<&'static str> {
 
 /// None for a passive cable, the kind nearly every cable is.
 #[must_use]
-pub fn cable_type_label(active: bool) -> Option<&'static str> {
-    active.then_some("Active cable")
+pub fn cable_type_label(kind: CableKind) -> Option<&'static str> {
+    matches!(kind, CableKind::Active(_)).then_some("Active cable")
 }
 
 fn epr_label(epr: Epr) -> Option<&'static str> {
@@ -418,9 +419,7 @@ pub fn cable_label(cable: &Cable) -> Option<String> {
         [
             cable.speed.map(|speed| cable_speed_label(speed).to_owned()),
             cable_rating_label(*cable),
-            cable
-                .latency
-                .map(|latency| cable_length_label(latency).to_owned()),
+            cable_length_label(cable.kind).map(str::to_owned),
         ]
         .into_iter()
         .flatten(),
@@ -454,26 +453,36 @@ fn cable_rating_label(cable: Cable) -> Option<String> {
     Some(watts(contract_millivolts, milliamps, Kind::Static))
 }
 
-/// The length the PD specification ties to each latency class.
+/// The length the PD specification ties to each latency class, and None
+/// where the e-marker gave a code it reserves.
 #[must_use]
-fn cable_length_label(latency: CableLatency) -> &'static str {
-    match latency {
-        CableLatency::Under10Ns => "About 1 m",
-        CableLatency::Under20Ns => "About 2 m",
-        CableLatency::Under30Ns => "About 3 m",
-        CableLatency::Under40Ns => "About 4 m",
-        CableLatency::Under50Ns => "About 5 m",
-        CableLatency::Under60Ns => "About 6 m",
-        CableLatency::Under70Ns => "About 7 m",
-        CableLatency::Over70Ns => "Over 7 m",
-    }
+fn cable_length_label(kind: CableKind) -> Option<&'static str> {
+    let label = match kind {
+        CableKind::Passive(Some(PassiveLatency::Within(latency)))
+        | CableKind::Active(Some(ActiveLatency::Within(latency))) => match latency {
+            CableLatency::Under10Ns => "About 1 m",
+            CableLatency::Under20Ns => "About 2 m",
+            CableLatency::Under30Ns => "About 3 m",
+            CableLatency::Under40Ns => "About 4 m",
+            CableLatency::Under50Ns => "About 5 m",
+            CableLatency::Under60Ns => "About 6 m",
+            CableLatency::Under70Ns => "About 7 m",
+        },
+        CableKind::Passive(Some(PassiveLatency::Over70Ns)) => "Over 7 m",
+        CableKind::Active(Some(ActiveLatency::About1000Ns)) => "About 100 m",
+        CableKind::Active(Some(ActiveLatency::About2000Ns)) => "About 200 m",
+        CableKind::Active(Some(ActiveLatency::About3000Ns)) => "About 300 m",
+        CableKind::Passive(None) | CableKind::Active(None) => return None,
+    };
+    Some(label)
 }
 
 #[cfg(test)]
 mod tests {
     use frameguin_contract::{
-        Cable, CableLatency, CableSpeed, DataRole, Epr, PdContract, PeakCurrent, Platform,
-        PortMask, PortPartner, PortReading, PortState, PowerRole, SupplyKind,
+        ActiveLatency, Cable, CableKind, CableLatency, CableSpeed, DataRole, Epr, PassiveLatency,
+        PdContract, PeakCurrent, Platform, PortMask, PortPartner, PortReading, PortState,
+        PowerRole, SupplyKind,
     };
     use frameguin_model::port::Placement;
 
@@ -481,10 +490,10 @@ mod tests {
 
     use super::{
         NOTHING_ATTACHED, PortLine, Socket, bus_track, cable_label, cable_length_label,
-        cable_rating_label, cable_speed_label, carried, data_role_label, display_port_label, line,
-        measured_label, mismatch_label, out_of_range_label, peak_label, port_line,
-        power_limited_label, power_role_label, powered_from, socket, spoken, supply_kind_label,
-        supply_label, supply_summary,
+        cable_rating_label, cable_speed_label, cable_type_label, carried, data_role_label,
+        display_port_label, line, measured_label, mismatch_label, out_of_range_label, peak_label,
+        port_line, power_limited_label, power_role_label, powered_from, socket, spoken,
+        supply_kind_label, supply_label, supply_summary,
     };
     use frameguin_model::fixtures::{measured, offer, on, port, reading};
 
@@ -850,8 +859,30 @@ mod tests {
 
     #[test]
     fn a_cables_length_is_worded_as_the_approximation_it_is() {
-        assert_eq!(cable_length_label(CableLatency::Under30Ns), "About 3 m");
-        assert_eq!(cable_length_label(CableLatency::Over70Ns), "Over 7 m");
+        assert_eq!(
+            cable_length_label(CableKind::Passive(Some(PassiveLatency::Within(
+                CableLatency::Under30Ns
+            )))),
+            Some("About 3 m")
+        );
+        assert_eq!(
+            cable_length_label(CableKind::Passive(Some(PassiveLatency::Over70Ns))),
+            Some("Over 7 m")
+        );
+        assert_eq!(
+            cable_length_label(CableKind::Active(Some(ActiveLatency::About1000Ns))),
+            Some("About 100 m")
+        );
+        assert_eq!(cable_length_label(CableKind::Active(None)), None);
+    }
+
+    #[test]
+    fn only_an_active_cable_is_named_for_its_kind() {
+        assert_eq!(cable_type_label(CableKind::Passive(None)), None);
+        assert_eq!(
+            cable_type_label(CableKind::Active(None)),
+            Some("Active cable")
+        );
     }
 
     #[test]
@@ -870,7 +901,7 @@ mod tests {
         );
         let reserved = Cable {
             speed: None,
-            latency: None,
+            kind: CableKind::Passive(None),
             ..marked(None)
         };
         assert_eq!(cable_label(&reserved), None);
@@ -881,8 +912,7 @@ mod tests {
             speed: Some(CableSpeed::Usb2),
             milliamps,
             epr: false,
-            latency: Some(CableLatency::Under10Ns),
-            active: false,
+            kind: CableKind::Passive(Some(PassiveLatency::Within(CableLatency::Under10Ns))),
         }
     }
 

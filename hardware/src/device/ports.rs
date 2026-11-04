@@ -260,8 +260,9 @@ mod tests {
     use std::sync::Arc;
 
     use frameguin_contract::{
-        Cable, CableLatency, CableSpeed, DeviceError, OffRefusal, PdContract, Platform, PortMask,
-        PortPartner, PortReading, PortRegisters, PortState, PortsControl, SupplyKind,
+        Cable, CableKind, CableLatency, CableSpeed, DeviceError, OffRefusal, PassiveLatency,
+        PdContract, Platform, PortMask, PortPartner, PortReading, PortRegisters, PortState,
+        PortsControl, SupplyKind,
     };
 
     use super::Ports;
@@ -376,8 +377,7 @@ mod tests {
             speed: Some(CableSpeed::Usb2),
             milliamps: Some(5000),
             epr: true,
-            latency: Some(CableLatency::Under30Ns),
-            active: false,
+            kind: CableKind::Passive(Some(PassiveLatency::Within(CableLatency::Under30Ns))),
         }
     }
 

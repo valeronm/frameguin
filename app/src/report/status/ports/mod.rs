@@ -583,7 +583,7 @@ fn port_group(placement: Placement, index: u8, reading: &PortReading) -> Group {
     if let Some(cable) = reading.registers.and_then(|registers| registers.cable)
         && let Some(label) = cable_label(&cable)
     {
-        group.described("Cable", cable_type_label(cable.active), label);
+        group.described("Cable", cable_type_label(cable.kind), label);
     }
     if attached(reading) {
         if let Some(video) = display_port_label(reading) {
@@ -640,8 +640,8 @@ fn device_group(device: &Attached) -> Group {
 #[cfg(test)]
 mod tests {
     use frameguin_contract::{
-        Cable, CableLatency, CableSpeed, DataRole, PdContract, PeakCurrent, PortReading,
-        PortRegisters, PowerRole, SupplyKind,
+        Cable, CableKind, CableLatency, CableSpeed, DataRole, PassiveLatency, PdContract,
+        PeakCurrent, PortReading, PortRegisters, PowerRole, SupplyKind,
     };
     use frameguin_model::fixtures::{offer, on, reading};
     use frameguin_model::port::Placement;
@@ -733,8 +733,9 @@ mod tests {
                         speed: Some(CableSpeed::Gen2),
                         milliamps: Some(5000),
                         epr: false,
-                        latency: Some(CableLatency::Under10Ns),
-                        active: false,
+                        kind: CableKind::Passive(Some(PassiveLatency::Within(
+                            CableLatency::Under10Ns,
+                        ))),
                     }),
                     pd: Some(pd),
                     measured_millivolts: 20_000,

@@ -7,8 +7,9 @@
 //! `CCGx` controllers on every Framework board.
 
 use frameguin_contract::{
-    Cable, CableLatency, CableSpeed, CcPolarity, DataRole, Epr, PdContract, PeakCurrent, Platform,
-    PortPartner, PortReading, PortRegisters, PowerRole, SupplyKind,
+    ActiveLatency, Cable, CableKind, CableLatency, CableSpeed, CcPolarity, DataRole, Epr,
+    PassiveLatency, PdContract, PeakCurrent, Platform, PortPartner, PortReading, PortRegisters,
+    PowerRole, SupplyKind,
 };
 
 use crate::bay;
@@ -358,25 +359,52 @@ fn cable(status: [u8; 2], vdo: u32) -> Option<Cable> {
             _ => None,
         },
         epr: bit(vdo, 17),
-        latency: match field(vdo, 13, 4) {
-            1 => Some(CableLatency::Under10Ns),
-            2 => Some(CableLatency::Under20Ns),
-            3 => Some(CableLatency::Under30Ns),
-            4 => Some(CableLatency::Under40Ns),
-            5 => Some(CableLatency::Under50Ns),
-            6 => Some(CableLatency::Under60Ns),
-            7 => Some(CableLatency::Under70Ns),
-            8 => Some(CableLatency::Over70Ns),
-            _ => None,
+        kind: {
+            let code = field(vdo, 13, 4);
+            if status[1] & ACTIVE_CABLE == 0 {
+                CableKind::Passive(passive_latency(code))
+            } else {
+                CableKind::Active(active_latency(code))
+            }
         },
-        active: status[1] & ACTIVE_CABLE != 0,
     })
+}
+
+/// The codes both cable VDOs' latency tables share.
+fn shared_latency(code: u32) -> Option<CableLatency> {
+    match code {
+        1 => Some(CableLatency::Under10Ns),
+        2 => Some(CableLatency::Under20Ns),
+        3 => Some(CableLatency::Under30Ns),
+        4 => Some(CableLatency::Under40Ns),
+        5 => Some(CableLatency::Under50Ns),
+        6 => Some(CableLatency::Under60Ns),
+        7 => Some(CableLatency::Under70Ns),
+        _ => None,
+    }
+}
+
+fn passive_latency(code: u32) -> Option<PassiveLatency> {
+    match code {
+        8 => Some(PassiveLatency::Over70Ns),
+        _ => shared_latency(code).map(PassiveLatency::Within),
+    }
+}
+
+fn active_latency(code: u32) -> Option<ActiveLatency> {
+    match code {
+        8 => Some(ActiveLatency::About1000Ns),
+        9 => Some(ActiveLatency::About2000Ns),
+        10 => Some(ActiveLatency::About3000Ns),
+        _ => shared_latency(code).map(ActiveLatency::Within),
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use frameguin_contract::{
-        CableLatency, CableSpeed, PdContract, PeakCurrent, Platform, SupplyKind,
+        ActiveLatency, CableKind, CableLatency, CableSpeed, PassiveLatency, PdContract,
+        PeakCurrent, Platform, SupplyKind,
     };
 
     use frameguin_contract::{CcPolarity, DataRole, PortPartner, PowerRole};
@@ -393,7 +421,10 @@ mod tests {
         assert_eq!(cable.speed, Some(CableSpeed::Usb2));
         assert_eq!(cable.milliamps, Some(5000));
         assert!(cable.epr);
-        assert_eq!(cable.latency, Some(CableLatency::Under30Ns));
+        assert_eq!(
+            cable.kind,
+            CableKind::Passive(Some(PassiveLatency::Within(CableLatency::Under30Ns)))
+        );
     }
 
     #[test]
@@ -414,7 +445,62 @@ mod tests {
             cable(CHARGING_CABLE_STATUS, RESERVED_SPEED | RESERVED_CURRENT).expect("marked");
         assert_eq!(cable.speed, None);
         assert_eq!(cable.milliamps, None);
-        assert_eq!(cable.latency, None);
+        assert_eq!(cable.kind, CableKind::Passive(None));
+    }
+
+    const fn latency_code(code: u32) -> u32 {
+        code << 13
+    }
+
+    #[test]
+    fn a_passive_cable_past_7_m_reads_as_over_70_ns() {
+        let cable = cable(CHARGING_CABLE_STATUS, latency_code(0b1000)).expect("marked");
+        assert_eq!(
+            cable.kind,
+            CableKind::Passive(Some(PassiveLatency::Over70Ns))
+        );
+    }
+
+    #[test]
+    fn a_passive_cable_reserves_every_latency_code_past_over_70_ns() {
+        for code in 0b1001..=0b1111 {
+            let cable = cable(CHARGING_CABLE_STATUS, latency_code(code)).expect("marked");
+            assert_eq!(cable.kind, CableKind::Passive(None), "{code:#06b}");
+        }
+    }
+
+    const ACTIVE_CABLE_STATUS: [u8; 2] = [
+        CHARGING_CABLE_STATUS[0],
+        CHARGING_CABLE_STATUS[1] | super::ACTIVE_CABLE,
+    ];
+
+    #[test]
+    fn an_active_cable_reads_the_classes_up_to_70_ns_as_a_passive_one_does() {
+        let cable = cable(ACTIVE_CABLE_STATUS, latency_code(0b0011)).expect("marked");
+        assert_eq!(
+            cable.kind,
+            CableKind::Active(Some(ActiveLatency::Within(CableLatency::Under30Ns)))
+        );
+    }
+
+    #[test]
+    fn an_active_cable_reads_its_long_codes_by_the_active_table() {
+        for (code, latency) in [
+            (0b1000, ActiveLatency::About1000Ns),
+            (0b1001, ActiveLatency::About2000Ns),
+            (0b1010, ActiveLatency::About3000Ns),
+        ] {
+            let cable = cable(ACTIVE_CABLE_STATUS, latency_code(code)).expect("marked");
+            assert_eq!(cable.kind, CableKind::Active(Some(latency)), "{code:#06b}");
+        }
+    }
+
+    #[test]
+    fn an_active_cable_reserves_every_latency_code_past_about_3000_ns() {
+        for code in 0b1011..=0b1111 {
+            let cable = cable(ACTIVE_CABLE_STATUS, latency_code(code)).expect("marked");
+            assert_eq!(cable.kind, CableKind::Active(None), "{code:#06b}");
+        }
     }
 
     #[test]
@@ -466,9 +552,15 @@ mod tests {
     #[test]
     fn a_marked_cables_active_bit_is_carried() {
         let mut span = TYPE_C_ONLY_SPAN;
-        assert!(!decode(&span).cable.expect("marked").active);
+        assert!(matches!(
+            decode(&span).cable.expect("marked").kind,
+            CableKind::Passive(_)
+        ));
         span[2] |= super::ACTIVE_CABLE;
-        assert!(decode(&span).cable.expect("marked").active);
+        assert!(matches!(
+            decode(&span).cable.expect("marked").kind,
+            CableKind::Active(_)
+        ));
     }
 
     #[test]
