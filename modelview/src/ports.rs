@@ -506,7 +506,7 @@ mod tests {
         port_line, power_limited_label, power_role_label, powered_from, socket, spoken,
         supply_kind_label, supply_label, supply_summary,
     };
-    use frameguin_model::fixtures::{measured, offer, on, port, reading};
+    use frameguin_model::fixtures::{cable, measured, offer, on, port, reading};
 
     use crate::track::Mark;
 
@@ -853,15 +853,15 @@ mod tests {
     #[test]
     fn a_cables_rating_reads_in_the_watts_it_is_sold_by() {
         assert_eq!(
-            cable_rating_label(marked(CableRating::ThreeAmps).kind).as_deref(),
+            cable_rating_label(cable(CableRating::ThreeAmps).kind).as_deref(),
             Some("60 W")
         );
         assert_eq!(
-            cable_rating_label(marked(CableRating::FiveAmps).kind).as_deref(),
+            cable_rating_label(cable(CableRating::FiveAmps).kind).as_deref(),
             Some("100 W")
         );
         assert_eq!(
-            cable_rating_label(marked(CableRating::FiveAmpsEpr).kind).as_deref(),
+            cable_rating_label(cable(CableRating::FiveAmpsEpr).kind).as_deref(),
             Some("240 W")
         );
     }
@@ -899,14 +899,14 @@ mod tests {
 
     #[test]
     fn only_an_active_cable_is_named_for_its_kind() {
-        assert_eq!(cable_type_label(marked(CableRating::ThreeAmps).kind), None);
+        assert_eq!(cable_type_label(cable(CableRating::ThreeAmps).kind), None);
         assert_eq!(cable_type_label(RESERVED_ACTIVE), Some("Active cable"));
     }
 
     #[test]
     fn a_cable_reads_as_one_line_of_what_its_e_marker_reported() {
         assert_eq!(
-            cable_label(&marked(CableRating::FiveAmpsEpr)).as_deref(),
+            cable_label(&cable(CableRating::FiveAmpsEpr)).as_deref(),
             Some("480 Mbps · 240 W · About 1 m")
         );
         let unrated = usb2(CableKind::Active {
@@ -959,13 +959,6 @@ mod tests {
         latency: None,
         vbus: None,
     };
-
-    fn marked(rating: CableRating) -> Cable {
-        usb2(CableKind::Passive {
-            latency: Some(PassiveLatency::Within(CableLatency::Under10Ns)),
-            rating,
-        })
-    }
 
     fn usb2(kind: CableKind) -> Cable {
         Cable {

@@ -5,7 +5,8 @@ use std::num::NonZeroU32;
 
 use crate::control::battery::ChargeSpeeds;
 use frameguin_contract::{
-    BatteryState, CcPolarity, ChargeCurrentLimit, ChargeFlow, DataRole, Epr, PdContract, PortMask,
+    BatteryState, Cable, CableKind, CableLatency, CableRating, CableSpeed, CcPolarity,
+    ChargeCurrentLimit, ChargeFlow, DataRole, Epr, PassiveLatency, PdContract, PortMask,
     PortPartner, PortReading, PortRegisters, PortState, PowerRole, SupplyKind,
 };
 
@@ -53,6 +54,18 @@ pub fn on(reading: PortReading) -> PortState {
     PortState {
         index: 0,
         mask: PortMask::On(reading, None),
+    }
+}
+
+/// A passive cable of about 1 m that carries USB 2.0.
+#[must_use]
+pub const fn cable(rating: CableRating) -> Cable {
+    Cable {
+        speed: Some(CableSpeed::Usb2),
+        kind: CableKind::Passive {
+            latency: Some(PassiveLatency::Within(CableLatency::Under10Ns)),
+            rating,
+        },
     }
 }
 

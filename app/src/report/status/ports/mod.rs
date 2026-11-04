@@ -640,10 +640,10 @@ fn device_group(device: &Attached) -> Group {
 #[cfg(test)]
 mod tests {
     use frameguin_contract::{
-        Cable, CableKind, CableLatency, CableRating, CableSpeed, DataRole, PassiveLatency,
-        PdContract, PeakCurrent, PortReading, PortRegisters, PowerRole, SupplyKind,
+        CableRating, DataRole, PdContract, PeakCurrent, PortReading, PortRegisters, PowerRole,
+        SupplyKind,
     };
-    use frameguin_model::fixtures::{offer, on, reading};
+    use frameguin_model::fixtures::{cable, offer, on, reading};
     use frameguin_model::port::Placement;
     use frameguin_modelview::track::{Mark, Track};
 
@@ -729,13 +729,7 @@ mod tests {
                 data_role: DataRole::UpstreamFacing,
                 video: true,
                 registers: Some(PortRegisters {
-                    cable: Some(Cable {
-                        speed: Some(CableSpeed::Gen2),
-                        kind: CableKind::Passive {
-                            latency: Some(PassiveLatency::Within(CableLatency::Under10Ns)),
-                            rating: CableRating::FiveAmps,
-                        },
-                    }),
+                    cable: Some(cable(CableRating::FiveAmps)),
                     pd: Some(pd),
                     measured_millivolts: 20_000,
                 }),
