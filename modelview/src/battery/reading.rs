@@ -174,21 +174,16 @@ pub fn alarms_label(alarms: &[BatteryAlarm]) -> String {
 /// put the charge on.
 #[must_use]
 pub fn battery_summary(state: BatteryState) -> String {
-    format!(
-        "{} · {}",
-        percent_label(state.percent),
-        charge_flow_label(state)
-    )
+    joined([percent_label(state.percent), charge_flow_label(state)])
 }
 
 /// The charge and which way it is moving, without the rate.
 #[must_use]
 pub fn charge_brief(state: BatteryState) -> String {
-    format!(
-        "{} · {}",
-        percent_label(state.percent),
-        charge_direction(state)
-    )
+    joined([
+        percent_label(state.percent).as_str(),
+        charge_direction(state),
+    ])
 }
 
 #[cfg(test)]

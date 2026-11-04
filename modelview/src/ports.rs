@@ -245,8 +245,7 @@ pub fn supply_port(ports: &[PortState], placement: Placement) -> Option<String> 
 /// title is everywhere else.
 #[must_use]
 pub fn powered_from(ports: &[PortState], placement: Placement) -> Option<String> {
-    powering(ports)
-        .map(|(index, port)| format!("{} · {}", power(port), port::inline(placement, index)))
+    powering(ports).map(|(index, port)| joined([power(port), port::inline(placement, index)]))
 }
 
 /// [`powered_from`], with the absence named where nothing is supplying.

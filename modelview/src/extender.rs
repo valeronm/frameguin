@@ -4,7 +4,7 @@ use frameguin_contract::{ExtenderStage, ExtenderState};
 use frameguin_model::control::battery::extender::stage_window;
 
 use crate::battery::reading::percent_label;
-use crate::words::span;
+use crate::words::{joined, span};
 
 const SECONDS_PER_MINUTE: u32 = 60;
 const SECONDS_PER_HOUR: u32 = 60 * SECONDS_PER_MINUTE;
@@ -24,13 +24,11 @@ pub fn stage_label(state: ExtenderState, charge_limit: Option<u8>) -> String {
         (ExtenderStage::Inactive, _) | (_, None) => return "Waiting".to_owned(),
     };
     match charge_limit {
-        Some(limit) if limit <= upper => {
-            format!(
-                "{name} · no effect below the {} limit",
-                percent_label(limit)
-            )
-        }
-        _ => format!("{name} · {}", span(lower, percent_label(upper))),
+        Some(limit) if limit <= upper => joined([
+            name,
+            format!("no effect below the {} limit", percent_label(limit)).as_str(),
+        ]),
+        _ => joined([name, span(lower, percent_label(upper)).as_str()]),
     }
 }
 

@@ -2,7 +2,7 @@
 
 use frameguin_contract::DeckState;
 
-use crate::words::yes_no;
+use crate::words::{joined, yes_no};
 
 #[must_use]
 pub fn deck_label(state: DeckState) -> &'static str {
@@ -25,9 +25,10 @@ fn state_label(open: bool) -> &'static str {
 #[must_use]
 pub fn chassis_summary(open: bool, deck: Option<DeckState>) -> String {
     match deck {
-        Some(deck) if deck != DeckState::On => {
-            format!("{} · Input deck {}", state_label(open), deck_inline(deck))
-        }
+        Some(deck) if deck != DeckState::On => joined([
+            state_label(open),
+            format!("Input deck {}", deck_inline(deck)).as_str(),
+        ]),
         _ => state_label(open).to_owned(),
     }
 }

@@ -3,6 +3,8 @@
 
 use frameguin_model::port::{Depth, Placement, Position, Side};
 
+use crate::words::joined;
+
 /// Where a port is, as the forms below spell it.
 enum Place {
     Unplaced,
@@ -32,7 +34,7 @@ fn place_of(placement: Placement, index: u8) -> Place {
 pub(crate) fn label(placement: Placement, index: u8) -> String {
     match place_of(placement, index) {
         Place::Unplaced => number(index),
-        Place::Shared(side) => format!("{} · {}", side_label(side), number(index)),
+        Place::Shared(side) => joined([side_label(side), number(index).as_str()]),
         Place::Own(name) => name,
     }
 }
@@ -43,7 +45,7 @@ pub(crate) fn label(placement: Placement, index: u8) -> String {
 #[must_use]
 pub fn heading(placement: Placement, index: u8) -> String {
     match place_of(placement, index) {
-        Place::Own(name) => format!("{name} · {}", number(index)),
+        Place::Own(name) => joined([name, number(index)]),
         _ => label(placement, index),
     }
 }

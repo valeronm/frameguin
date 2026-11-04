@@ -64,7 +64,7 @@ pub fn fan_label(fan: &Fan, duties: &[FanDuty]) -> String {
     let speed = rpm_label(fan.rpm);
     match duties.iter().find(|duty| duty.index == fan.index) {
         Some(duty) if fan.rpm > 0 || duty.percent > 0 => {
-            format!("{speed} · {}", percent_label(duty.percent))
+            joined([&speed, &percent_label(duty.percent)])
         }
         _ => speed,
     }
@@ -247,7 +247,7 @@ pub fn thermal_summary(layout: &ThermalLayout, state: &ThermalState) -> String {
         return String::new();
     };
     match layout.sensors.iter().find(|sensor| sensor.index == index) {
-        Some(sensor) => format!("{} · {}", sensor_name(sensor), celsius(kelvin)),
+        Some(sensor) => joined([sensor_name(sensor), celsius(kelvin)]),
         None => celsius(kelvin),
     }
 }

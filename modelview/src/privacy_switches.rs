@@ -2,6 +2,8 @@
 
 use frameguin_contract::PrivacyState;
 
+use crate::words::joined;
+
 /// Framework's own words for the two positions of a slider.
 #[must_use]
 pub fn switch_label(connected: bool) -> &'static str {
@@ -15,11 +17,10 @@ pub fn switch_label(connected: bool) -> &'static str {
 #[must_use]
 pub fn switches_summary(switches: PrivacyState) -> String {
     let on = |connected| if connected { "on" } else { "off" };
-    format!(
-        "Camera {} · Microphone {}",
-        on(switches.camera),
-        on(switches.microphone)
-    )
+    joined([
+        format!("Camera {}", on(switches.camera)),
+        format!("Microphone {}", on(switches.microphone)),
+    ])
 }
 
 #[cfg(test)]
