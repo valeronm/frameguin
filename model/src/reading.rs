@@ -360,6 +360,102 @@ mod tests {
     }
 
     #[test]
+    fn merging_requests_preserves_each_extra_independently() {
+        let empty = Request::default();
+        let requests = [
+            Request {
+                battery: true,
+                ..empty
+            },
+            Request {
+                condition: true,
+                ..empty
+            },
+            Request {
+                ports: true,
+                ..empty
+            },
+            Request {
+                chassis: true,
+                ..empty
+            },
+            Request {
+                deck: true,
+                ..empty
+            },
+            Request {
+                privacy_switches: true,
+                ..empty
+            },
+            Request {
+                extender: true,
+                ..empty
+            },
+            Request { usb: true, ..empty },
+            Request {
+                charging_led_side: true,
+                ..empty
+            },
+            Request {
+                thermal: true,
+                ..empty
+            },
+            Request {
+                thresholds: true,
+                ..empty
+            },
+            Request {
+                fan_duty: true,
+                ..empty
+            },
+        ];
+        assert_eq!(empty.with(empty), empty);
+        for request in requests {
+            assert_eq!(empty.with(request), request);
+            assert_eq!(request.with(empty), request);
+            assert_eq!(request.with(request), request);
+        }
+    }
+
+    #[test]
+    fn merging_requests_keeps_the_extras_from_both_views() {
+        let left = Request {
+            battery: true,
+            ports: true,
+            deck: true,
+            extender: true,
+            charging_led_side: true,
+            thresholds: true,
+            ..Request::default()
+        };
+        let right = Request {
+            condition: true,
+            chassis: true,
+            privacy_switches: true,
+            usb: true,
+            thermal: true,
+            fan_duty: true,
+            ..Request::default()
+        };
+        let both = Request {
+            battery: true,
+            condition: true,
+            ports: true,
+            chassis: true,
+            deck: true,
+            privacy_switches: true,
+            extender: true,
+            usb: true,
+            charging_led_side: true,
+            thermal: true,
+            thresholds: true,
+            fan_duty: true,
+        };
+        assert_eq!(left.with(right), both);
+        assert_eq!(right.with(left), both);
+    }
+
+    #[test]
     fn nothing_requested_reads_nothing() {
         let (_, controls) = detected();
         let (reading, failures) = ready(read(&controls, Request::default()));

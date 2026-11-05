@@ -835,6 +835,99 @@ mod tests {
     }
 
     #[test]
+    fn each_mainboard_has_its_own_catalog_listing() {
+        let listings = [
+            (
+                Platform::Laptop13Gen11,
+                "Laptop 13 Mainboard",
+                "11th Gen Intel Core",
+                None,
+            ),
+            (
+                Platform::Laptop13Gen12,
+                "Laptop 13 Mainboard",
+                "12th Gen Intel Core",
+                None,
+            ),
+            (
+                Platform::Laptop13Gen13,
+                "Laptop 13 Mainboard",
+                "13th Gen Intel Core",
+                None,
+            ),
+            (
+                Platform::Laptop13Ultra1,
+                "Laptop 13 Mainboard",
+                "Intel Core Ultra Series 1",
+                Some("https://frame.work/products/mainboard-ultra-1-intel-core"),
+            ),
+            (
+                Platform::Laptop13Amd7040,
+                "Laptop 13 Mainboard",
+                "AMD Ryzen 7040 Series",
+                Some("https://frame.work/products/mainboard-amd-ryzen-7040-series"),
+            ),
+            (
+                Platform::Laptop13AmdAi300,
+                "Laptop 13 Mainboard",
+                "AMD Ryzen AI 300 Series",
+                Some("https://frame.work/products/mainboard-amd-ai300"),
+            ),
+            (
+                Platform::Laptop13ProUltra3,
+                "Laptop 13 Pro Mainboard",
+                "Intel Core Ultra Series 3",
+                Some("https://frame.work/products/laptop13pro-mainboard-intel-ultra-3"),
+            ),
+            (
+                Platform::Laptop12Gen13,
+                "Laptop 12 Mainboard",
+                "13th Gen Intel Core",
+                Some("https://frame.work/products/laptop12-mainboard-13th-gen-intel-core"),
+            ),
+            (
+                Platform::Laptop12Core3,
+                "Laptop 12 Mainboard",
+                "Intel Core Series 3",
+                Some("https://frame.work/products/laptop12-mainboard-series3"),
+            ),
+            (
+                Platform::Laptop16Amd7040,
+                "Laptop 16 Mainboard",
+                "AMD Ryzen 7040 Series",
+                Some("https://frame.work/products/16-mainboard-amd-ryzen-7040-series"),
+            ),
+            (
+                Platform::Laptop16AmdAi300,
+                "Laptop 16 Mainboard",
+                "AMD Ryzen AI 300 Series",
+                Some("https://frame.work/products/laptop16-mainboard-amd-ai300"),
+            ),
+            (
+                Platform::DesktopAmdAiMax300,
+                "Desktop Mainboard",
+                "AMD Ryzen AI Max 300 Series",
+                Some(
+                    "https://frame.work/products/framework-desktop-mainboard-amd-ryzen-ai-max-300-series",
+                ),
+            ),
+        ];
+        for (platform, model, variant, url) in listings {
+            let sold = catalog(&board(), &[], platform).unwrap();
+            assert_eq!(
+                sold,
+                super::Catalog {
+                    model,
+                    variant: Some(variant),
+                    url
+                },
+                "{platform:?}"
+            );
+            assert_eq!(mainboard_name(platform), model, "{platform:?}");
+        }
+    }
+
+    #[test]
     fn a_board_framework_no_longer_sells_is_named_without_a_link() {
         let sold = catalog(&board(), &[], Platform::Laptop13Gen12).unwrap();
         assert_eq!(sold.model, "Laptop 13 Mainboard");
