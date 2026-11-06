@@ -139,7 +139,12 @@ which calls `\_SB.SGOV` on pad `0x001A1012`, whose low byte is 18:
 |---|---|---|
 | `_Q01`, the EC's lid-close query | 0 | lid close |
 | `_Q02`, the EC's lid-open query | 1, after a 250 ms settle | lid open |
-| the platform's screen-on notification | 1 | not an ordinary blank; see below |
+| `\_SB.PEPD._DSM`, Intel low-power S0 function 4 | 1, no delay | screen-on notification while `TSST` is set |
+
+The Intel low-power S0 UUID is `c4eb40a0-6cd2-11e2-bcfd-0800200c9a66`.
+`TSST`, at `FWNV` offset `0x501`, also gates `TPNL._STA`. Linux sends the
+screen-on notification during s2idle resume rather than ordinary display
+wake.
 
 ### Observed
 
@@ -213,5 +218,8 @@ which calls `\_SB.SGOV` on pad `0x001A1012`, whose low byte is 18:
   enable pad was first named; the pairing here was confirmed on the machine
   rather than taken from it.
 - The machine's ACPI tables, `STSP`, `\_SB.SGOV`, `_Q01`, `_Q02` and the
-  touch controller's `_CRS`, and Intel's `pinctrl-intel` driver's debugfs
-  pin dump.
+  touch controller's `_CRS`, `\_SB.PEPD._DSM`, `TSST` and `TPNL._STA`, and
+  Intel's `pinctrl-intel` driver's debugfs pin dump.
+- [Linux's ACPI s2idle support](https://github.com/torvalds/linux/blob/master/drivers/acpi/x86/s2idle.c)
+  — `ACPI_LPS0_DSM_UUID`, `ACPI_LPS0_SCREEN_ON` and
+  `acpi_s2idle_restore_early_lps0` for the screen-on notification.
