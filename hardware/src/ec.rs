@@ -677,28 +677,9 @@ pub(crate) const fn follows_power_led_auto(platform: Platform) -> bool {
     }
 }
 
-/// The EC I2C port a board's pack is on, as the passthrough numbers it.
-const fn battery_i2c_port(platform: Platform) -> u8 {
+/// The `hx20` and `hx30` EC tree predates Zephyr.
+const fn pre_zephyr(platform: Platform) -> bool {
     match platform {
-        // The old EC's `I2C_PORT_BATTERY` is `MCHP_I2C_PORT1`.
-        Platform::Laptop13Gen11 | Platform::Laptop13Gen12 | Platform::Laptop13Gen13 => 1,
-        Platform::Laptop13Ultra1
-        | Platform::Laptop13Amd7040
-        | Platform::Laptop13AmdAi300
-        | Platform::Laptop13ProUltra3
-        | Platform::Laptop12Gen13
-        | Platform::Laptop12Core3
-        | Platform::Laptop16Amd7040
-        | Platform::Laptop16AmdAi300
-        | Platform::DesktopAmdAiMax300
-        | Platform::Unknown => 3,
-    }
-}
-
-pub(crate) const fn lifts_current_limit_on_sleep(platform: Platform) -> bool {
-    match platform {
-        // The old EC's `reset_current_limit` runs at every chipset suspend
-        // and shutdown.
         Platform::Laptop13Gen11 | Platform::Laptop13Gen12 | Platform::Laptop13Gen13 => true,
         Platform::Laptop13Ultra1
         | Platform::Laptop13Amd7040
@@ -711,6 +692,18 @@ pub(crate) const fn lifts_current_limit_on_sleep(platform: Platform) -> bool {
         | Platform::DesktopAmdAiMax300
         | Platform::Unknown => false,
     }
+}
+
+/// The EC I2C port a board's pack is on, as the passthrough numbers it.
+const fn battery_i2c_port(platform: Platform) -> u8 {
+    // `I2C_PORT_BATTERY` is `MCHP_I2C_PORT1` in the pre-Zephyr `board.h`.
+    if pre_zephyr(platform) { 1 } else { 3 }
+}
+
+/// The pre-Zephyr EC's `reset_current_limit` runs at every chipset suspend
+/// and shutdown.
+pub(crate) const fn lifts_current_limit_on_sleep(platform: Platform) -> bool {
+    pre_zephyr(platform)
 }
 
 fn unix_now() -> u64 {
