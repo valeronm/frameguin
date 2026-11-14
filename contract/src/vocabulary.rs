@@ -485,6 +485,32 @@ pub enum DeckState {
     NoDetection,
 }
 
+impl DeckState {
+    /// None for a state no mode puts the deck in.
+    #[must_use]
+    pub const fn mode(self) -> Option<DeckMode> {
+        match self {
+            Self::Off | Self::Disconnected | Self::TurningOn | Self::On => {
+                Some(DeckMode::Automatic)
+            }
+            Self::ForceOn => Some(DeckMode::ForceOn),
+            Self::ForceOff => Some(DeckMode::ForceOff),
+            Self::NoDetection => None,
+        }
+    }
+}
+
+/// How the EC decides whether the input deck is powered.
+#[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug)]
+#[zvariant(signature = "s")]
+#[serde(rename_all = "kebab-case")]
+pub enum DeckMode {
+    /// Powered while the EC detects the deck.
+    Automatic,
+    ForceOn,
+    ForceOff,
+}
+
 /// What a charging LED offers past its switch.
 #[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug)]
 #[zvariant(signature = "s")]

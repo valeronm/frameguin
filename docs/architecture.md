@@ -125,7 +125,8 @@ not where its sockets are. The battery extender is a feature of the
 battery's column rather than a column of its own, and still takes a Readings
 page beside the pack's: a page is drawn for what a reader looks for, not
 for the column behind it. By the same measure the input deck, a feature of
-the chassis, is a row on the Chassis page.
+the chassis, is a group on the Chassis page, its mode and its reset
+included.
 
 | Layer | Crate | Links | Owns | Must not know | Tested against |
 |---|---|---|---|---|---|

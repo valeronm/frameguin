@@ -9,8 +9,8 @@ use frameguin_modelview::touchpad::{
 };
 use frameguin_wire::Bus;
 
+use crate::synced::{combo_selection, connect_combo, string_list};
 use crate::window::Ui;
-use crate::window::widgets::{combo_selection, connect_combo, string_list};
 
 pub(crate) type Touchpad = touchpad::Touchpad<Bus>;
 
@@ -76,6 +76,7 @@ impl Group {
     /// stale row here outlives nothing worse than the next reload.
     pub(crate) fn connect(&self, ui: &Rc<Ui>, control: &Rc<Touchpad>) {
         connect_combo(
+            &ui.guard,
             ui,
             control,
             &self.haptic_combo,
@@ -88,6 +89,7 @@ impl Group {
         );
 
         connect_combo(
+            &ui.guard,
             ui,
             control,
             &self.force_combo,

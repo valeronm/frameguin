@@ -86,3 +86,69 @@ pub(crate) fn connect_switch<O: 'static, C: 'static, Fut: Future<Output = ()> + 
         glib::spawn_future_local(write(owner.clone(), control.clone(), switch.is_active()));
     });
 }
+
+/// `StringList::new` takes borrowed strs, where labels arrive as owned
+/// strings.
+pub(crate) fn string_list(labels: &[String]) -> gtk::StringList {
+    let labels: Vec<&str> = labels.iter().map(String::as_str).collect();
+    gtk::StringList::new(&labels)
+}
+
+/// Positions index fixed arrays, so the fallback is never taken.
+fn combo_index(position: usize) -> u32 {
+    u32::try_from(position).unwrap_or(gtk::INVALID_LIST_POSITION)
+}
+
+/// The row to select, where the hardware may be sitting on none of them —
+/// GTK spells "nothing selected" as a sentinel position rather than as an
+/// absent one.
+pub(crate) fn combo_selection(position: Option<usize>) -> u32 {
+    position.map_or(gtk::INVALID_LIST_POSITION, combo_index)
+}
+
+/// The inverse of [`combo_selection`]: the row a combo reports, and None for
+/// the sentinel GTK uses where it sits on none.
+pub(crate) fn combo_position(selected: u32) -> Option<usize> {
+    (selected != gtk::INVALID_LIST_POSITION).then_some(selected as usize)
+}
+
+/// A row a sync moved the combo to must not be written back, and a combo
+/// wired here cannot forget that.
+pub(crate) fn connect_combo<O: 'static, C: 'static, T, Fut: Future<Output = ()> + 'static>(
+    guard: &Guard,
+    owner: &Rc<O>,
+    control: &Rc<C>,
+    combo: &adw::ComboRow,
+    at: impl Fn(usize) -> Option<T> + 'static,
+    write: impl Fn(Rc<O>, Rc<C>, T) -> Fut + 'static,
+) {
+    let (guard, owner, control) = (guard.clone(), owner.clone(), control.clone());
+    combo.connect_selected_notify(move |row| {
+        if guard.syncing() {
+            return;
+        }
+        if let Some(value) = combo_position(row.selected()).and_then(&at) {
+            glib::spawn_future_local(write(owner.clone(), control.clone(), value));
+        }
+    });
+}
+
+/// The button takes no second press while the write it started is in flight.
+pub(crate) fn connect_button<O: 'static, C: 'static, Fut: Future<Output = ()> + 'static>(
+    owner: &Rc<O>,
+    control: &Rc<C>,
+    button: &gtk::Button,
+    write: impl Fn(Rc<O>, Rc<C>) -> Fut + 'static,
+) {
+    let (owner, control) = (owner.clone(), control.clone());
+    button.connect_clicked(move |button| {
+        button.set_sensitive(false);
+        let (pressed, write) = (button.downgrade(), write(owner.clone(), control.clone()));
+        glib::spawn_future_local(async move {
+            write.await;
+            if let Some(button) = pressed.upgrade() {
+                button.set_sensitive(true);
+            }
+        });
+    });
+}

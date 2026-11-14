@@ -3,8 +3,8 @@
 
 use frameguin_contract::{
     Attached, BatteryCondition, BatteryFeature, BatteryInfo, Board, ChargeCurrentLimit,
-    ChargingLedFeature, ChargingLedSide, ChassisFeature, ChassisState, ClickForce, DeckState,
-    ExtenderState, FanDuty, Identity, PortSet, PortState, PowerLedLevel, PrivacyState,
+    ChargingLedFeature, ChargingLedSide, ChassisFeature, ChassisState, ClickForce, DeckMode,
+    DeckState, ExtenderState, FanDuty, Identity, PortSet, PortState, PowerLedLevel, PrivacyState,
     ThermalFeature, ThermalLayout, ThermalState, Thresholds,
 };
 
@@ -136,6 +136,8 @@ pub trait Chassis {
     async fn get_state(&self) -> zbus::Result<ChassisState>;
     async fn get_features(&self) -> zbus::Result<Vec<ChassisFeature>>;
     async fn get_deck_state(&self) -> zbus::Result<DeckState>;
+    async fn set_deck_mode(&self, mode: DeckMode) -> zbus::Result<()>;
+    async fn reset_deck(&self) -> zbus::Result<()>;
 }
 
 /// Absent from the bus where the EC does not answer for the privacy switches.

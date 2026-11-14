@@ -43,6 +43,7 @@ links to carries why.
 | [Charging LED side](led.md#charging-led-sides) | Tested | Expected | Expected | Expected | Expected | Expected | Expected | Expected | -- | -- |
 | [Touchscreen off](touchscreen.md) | Tested | -- | -- | -- | Expected | Expected | -- | -- | -- | -- |
 | [USB-C port off](usb-c.md#port-enable) | Tested | Expected | -- | Expected | Expected | Expected | Expected | Expected | -- | Expected |
+| [Input deck mode and reset](chassis.md#the-input-deck) | Expected | -- | -- | -- | -- | -- | Expected | Expected | -- | -- |
 
 - The haptic touchpad is found by its own USB ids on any board, so its
   controls follow the pad rather than the mainboard.

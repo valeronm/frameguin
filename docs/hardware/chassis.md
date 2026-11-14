@@ -17,6 +17,7 @@ Every heading in the file appears here.
 - [The intrusion record](#the-intrusion-record)
 - [The privacy switches](#the-privacy-switches)
 - [The input deck](#the-input-deck)
+- [Persistence](#persistence)
 - [Open](#open)
 - [Sources](#sources)
 
@@ -116,9 +117,23 @@ takes a mode:
 | Mode | Effect |
 |---|---|
 | 0 | read only |
-| 1 | return to detection, `DECK_DISCONNECTED` |
+| 1 | return to detection: cuts the deck's power and sets `DECK_DISCONNECTED`, from which the poll powers a detected deck again two ticks later |
 | 2 | force on, `DECK_FORCE_ON` |
 | 4 | force off, `DECK_FORCE_OFF`; cuts the deck's power on a running machine |
+
+- The handler acts only on a mode other than the last one it took, and
+  that mode has no readback: the response carries the state and the
+  touchpad's board ID.
+- Consequence: a mode sent twice does nothing the second time, so a power
+  cycle that works whatever came before is mode 4 and then mode 1, which
+  is what `framework_tool --inputdeck-mode reset` sends, 100 ms apart.
+- Consequence: the mode is recoverable from the state wherever the host
+  set it — `DECK_FORCE_ON` and `DECK_FORCE_OFF` are reached only by modes
+  2 and 4, and every other state the host can see is detection running.
+  `DECK_NO_DETECTION` is set from the EC console alone.
+- What the rail powers is Framework's own account in `framework-system`'s
+  `EXAMPLES.md`: the touchpad on a Laptop 13 and a Laptop 12, whose
+  keyboard is switches wired to the EC, and the whole deck on a Laptop 16.
 
 | State | Value | `wire::DeckState` |
 |---|---|---|
@@ -130,10 +145,9 @@ takes a mode:
 | `DECK_FORCE_ON` | 5 | `ForceOn` |
 | `DECK_NO_DETECTION` | 6 | `NoDetection`; powered with the host, no presence check |
 
-- The mode is saved to flash, `FLASH_FLAGS_INPUT_MODULE_POWER` in
-  `board_function.c`, and read back at init, so a forced deck stays forced
-  across an EC restart, and a deck forced on stays powered whether or not it
-  is detected.
+- A deck forced on stays powered whether or not it is detected, and a
+  forced deck stays forced through the host's shutdown and startup, which
+  move every other state.
 - Every Zephyr Framework branch carries the command; `hx20` and `hx30` do
   not.
 - `framework_lib`'s `InputDeckState` conversion panics on a value it does
@@ -146,8 +160,23 @@ takes a mode:
 | Touchpad board ID, deck powered | 12; the audio board's reads 11 beside it |
 | Deck state on a usable machine | on |
 
+## Persistence
+
+The input deck's mode, on the `fwk-sakura` branch.
+
+| Event | Mode | Source |
+|---|---|---|
+| Suspend | stands | `input_module_13.c` hooks only the chipset's startup and shutdown |
+| Reboot | stands | both hooks leave `DECK_FORCE_ON` and `DECK_FORCE_OFF` alone, and the mode is in the EC's RAM |
+| EC restart, Laptop 13 | back to detection | `board_function.c` saves and reads `FLASH_FLAGS_INPUT_MODULE_POWER` only under `CONFIG_PLATFORM_EC_FRAMEWORK_LAPTOP_16` |
+| EC restart, Laptop 16 | stands once saved | the flag is written by `bios_function_detect`, which runs when the host reports its ACPI driver ready, and read back at init |
+
+- Untested: every row is from the source.
+
 ## Open
 
+- Whether a Laptop 16's own branch saves the mode as the `fwk-sakura`
+  branch's Laptop 16 build does.
 - Which boards, if any, carry the camera slider on the camera pin rather
   than the camera's power.
 
@@ -159,8 +188,9 @@ takes a mode:
   `SHORT_HIBERNATE_TIMER` and `sunflower/gpio.dtsi` for the switch as
   the C cover opening, `src/board_host_command.c` for the
   privacy switches, `src/input_module_13.c` and `include/input_module_13.h`
-  for the deck's detection, states and command, `src/board_function.c` for
-  the flash flag, and `include/board_host_command.h` for the command ids.
+  for the deck's detection, states and command, `src/board_function.c` and
+  `src/board_host_command.c` for the flash flag and when it is written, and `include/board_host_command.h` for the command ids.
 - [FrameworkComputer/framework-system](https://github.com/FrameworkComputer/framework-system)
   — `framework_lib/src/chromium_ec/mod.rs` for the coin-cell comparison and
-  `chromium_ec/input_deck.rs` for the panicking conversion.
+  `chromium_ec/input_deck.rs` for the panicking conversion, and
+  `EXAMPLES.md` for the reset sequence and what the deck's rail powers.

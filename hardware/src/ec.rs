@@ -97,6 +97,8 @@ pub trait PdPorts: Send + Sync {
 pub trait ChassisEc: Send + Sync {
     fn chassis(&self) -> DeviceResult<contract::ChassisState>;
     fn deck_state(&self) -> DeviceResult<contract::DeckState>;
+    /// The EC ignores a mode equal to the last one it was sent.
+    fn set_deck_mode(&self, mode: contract::DeckMode) -> DeviceResult<()>;
 }
 
 pub trait PrivacyEc: Send + Sync {
@@ -464,6 +466,18 @@ impl ChassisEc for Ec {
         contract_deck_state(raw.deck_state).ok_or_else(|| {
             DeviceError::Failed(format!("the EC answered deck state {}", raw.deck_state))
         })
+    }
+
+    fn set_deck_mode(&self, mode: contract::DeckMode) -> DeviceResult<()> {
+        let request = EcRequestDeckState {
+            mode: match mode {
+                contract::DeckMode::Automatic => DeckStateMode::Required,
+                contract::DeckMode::ForceOn => DeckStateMode::ForceOn,
+                contract::DeckMode::ForceOff => DeckStateMode::ForceOff,
+            },
+        };
+        request.send_command(&self.ec()).map_err(device_error)?;
+        Ok(())
     }
 }
 

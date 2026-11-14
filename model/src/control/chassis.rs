@@ -1,9 +1,10 @@
-//! The chassis open switch and the input deck: their reads.
+//! The chassis open switch and the input deck: their reads, and the deck's
+//! writes.
 
 use std::rc::Rc;
 
 use frameguin_contract::{
-    ChassisControl, ChassisFeature, ChassisState, DeckState, DeviceResult as Result,
+    ChassisControl, ChassisFeature, ChassisState, DeckMode, DeckState, DeviceResult as Result,
 };
 
 use super::present;
@@ -32,6 +33,14 @@ impl<C: ChassisControl> Chassis<C> {
 
     pub async fn deck_state(&self) -> Result<DeckState> {
         self.control.deck_state().await
+    }
+
+    pub async fn set_deck_mode(&self, mode: DeckMode) -> Result<()> {
+        self.control.set_deck_mode(mode).await
+    }
+
+    pub async fn reset_deck(&self) -> Result<()> {
+        self.control.reset_deck().await
     }
 }
 

@@ -15,9 +15,10 @@ mod track;
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
+use std::time::Duration;
 
 use adw::prelude::*;
-use frameguin_contract::{BatteryFeature, DeviceError};
+use frameguin_contract::{BatteryFeature, DeviceError, DeviceResult};
 use frameguin_model::reading::{Reading, Request};
 use gtk4 as gtk;
 use gtk4::gio;
@@ -158,7 +159,14 @@ async fn fill(
     if controls.chassis.is_some() || controls.privacy_switches.is_some() {
         let section = sidebar.section("Switches");
         if let Some(control) = &controls.chassis {
-            chassis::add(sidebar, section, feed, control);
+            chassis::add(
+                sidebar,
+                section,
+                feed,
+                control,
+                controls.board.platform(),
+                writes,
+            );
         }
         if controls.privacy_switches.is_some() {
             privacy_switches::add(sidebar, section, feed);
@@ -197,6 +205,28 @@ impl Writes {
             toasts.add_toast(failure::toast(attempt, error));
         }
     }
+}
+
+/// Every write to something a page shows is followed by a reading, the
+/// widget having moved before the hardware took anything; a failed reading
+/// is the next tick's to report. A write that went through is read again
+/// `settled` later, where what it started is not readable at once.
+async fn written<Fut: Future<Output = DeviceResult<()>>>(
+    feed: &Feed,
+    widget: &impl IsA<gtk::Widget>,
+    settled: Option<Duration>,
+    write: impl FnOnce() -> Fut,
+) -> DeviceResult<()> {
+    let written = {
+        let _writing = feed.writing();
+        write().await
+    };
+    let _ = feed.fill(widget).await;
+    if let (Ok(()), Some(settled)) = (&written, settled) {
+        glib::timeout_future(settled).await;
+        let _ = feed.fill(widget).await;
+    }
+    written
 }
 
 struct SidebarRow {

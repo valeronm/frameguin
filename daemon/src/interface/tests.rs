@@ -8,8 +8,8 @@ use std::time::Duration;
 use async_io::Async;
 use frameguin_contract::{
     BatteryFeature, Board, ChargeCurrentLimit, ChargingLedFeature, ChargingLedSide, ChassisFeature,
-    ClickForce, DeckState, DeviceError, OffRefusal, Platform, PortMask, PortPartner, PowerLedLevel,
-    Temperature, ThermalFeature, VENDOR,
+    ClickForce, DeckMode, DeckState, DeviceError, OffRefusal, Platform, PortMask, PortPartner,
+    PowerLedLevel, Temperature, ThermalFeature, VENDOR,
 };
 use frameguin_hardware::device::Devices;
 use frameguin_hardware::device::battery::Battery;
@@ -360,6 +360,13 @@ fn every_setter_writes_when_polkit_allows() {
         p.ports.set_enabled(3, false).await.unwrap();
         let ports = p.ports.get_ports().await.unwrap();
         assert_eq!(ports[3].mask, PortMask::Off);
+        p.chassis.set_deck_mode(DeckMode::ForceOn).await.unwrap();
+        assert_eq!(
+            p.chassis.get_deck_state().await.unwrap(),
+            DeckState::ForceOn
+        );
+        p.chassis.reset_deck().await.unwrap();
+        assert_eq!(p.chassis.get_deck_state().await.unwrap(), DeckState::On);
     });
 }
 
@@ -395,6 +402,9 @@ fn a_refused_write_leaves_the_device_untouched() {
         assert!(denied(p.ports.set_enabled(3, false).await));
         let ports = p.ports.get_ports().await.unwrap();
         assert!(matches!(ports[3].mask, PortMask::On(..)));
+        assert!(denied(p.chassis.set_deck_mode(DeckMode::ForceOff).await));
+        assert!(denied(p.chassis.reset_deck().await));
+        assert_eq!(p.chassis.get_deck_state().await.unwrap(), DeckState::On);
     });
 }
 
@@ -416,6 +426,7 @@ fn a_bad_argument_and_a_write_in_place_are_refused_where_polkit_refuses() {
         assert!(denied(p.charging_led.set_enabled(true).await));
         assert!(denied(p.ports.set_enabled(9, false).await));
         assert!(denied(p.ports.set_enabled(0, true).await));
+        assert!(denied(p.chassis.set_deck_mode(DeckMode::Automatic).await));
     });
 }
 

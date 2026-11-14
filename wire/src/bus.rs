@@ -5,8 +5,8 @@
 use frameguin_contract::{
     Attached, BatteryCondition, BatteryControl, BatteryFeature, BatteryInfo, Board, BoardControl,
     ChargeCurrentLimit, ChargingLedControl, ChargingLedFeature, ChargingLedSide, ChassisControl,
-    ChassisFeature, ChassisState, ClickForce, DeckState, DeviceResult, ExtenderState, FanDuty,
-    PortSet, PortState, PortsControl, PowerLedControl, PowerLedLevel, PrivacyState,
+    ChassisFeature, ChassisState, ClickForce, DeckMode, DeckState, DeviceResult, ExtenderState,
+    FanDuty, PortSet, PortState, PortsControl, PowerLedControl, PowerLedLevel, PrivacyState,
     PrivacySwitchesControl, ThermalControl, ThermalFeature, ThermalLayout, ThermalState,
     Thresholds, TouchpadControl, TouchscreenControl, UsbControl,
 };
@@ -151,6 +151,14 @@ impl ChassisControl for Bus {
 
     async fn deck_state(&self) -> DeviceResult<DeckState> {
         call(self.devices.chassis.get_deck_state()).await
+    }
+
+    async fn set_deck_mode(&self, mode: DeckMode) -> DeviceResult<()> {
+        call(self.devices.chassis.set_deck_mode(mode)).await
+    }
+
+    async fn reset_deck(&self) -> DeviceResult<()> {
+        call(self.devices.chassis.reset_deck()).await
     }
 }
 

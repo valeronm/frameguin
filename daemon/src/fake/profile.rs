@@ -228,7 +228,7 @@ fn machine(shape: &Shape, refusing: bool) -> Detected {
             shape.platform,
         ),
         chassis: Chassis::new(Arc::new(Cover {
-            deck: shape.input_deck.then_some(DeckState::On),
+            deck: Mutex::new(shape.input_deck.then_some(DeckState::On)),
             ..Cover::default()
         })),
         privacy_switches: PrivacySwitches::new(Arc::new(Sliders::default())),

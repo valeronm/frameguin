@@ -5,11 +5,11 @@ use std::task::{Context, Poll, Waker};
 use frameguin_contract::{
     Attached, BatteryCondition, BatteryControl, BatteryFeature, BatteryInfo, Board, BoardControl,
     ChargeCurrentLimit, ChargeFlow, ChargingLedControl, ChargingLedFeature, ChargingLedSide,
-    ChassisControl, ChassisFeature, ChassisState, ClickForce, DeckState, DeviceError, DeviceResult,
-    ExtenderStage, ExtenderState, Fan, FanDuty, PortSet, PortState, PortsControl, PowerLedControl,
-    PowerLedLevel, PrivacyState, PrivacySwitchesControl, Sensor, SensorReading, Temperature,
-    ThermalControl, ThermalFeature, ThermalLayout, ThermalState, Thresholds, TouchpadControl,
-    TouchscreenControl, UsbControl, UsbSpeed,
+    ChassisControl, ChassisFeature, ChassisState, ClickForce, DeckMode, DeckState, DeviceError,
+    DeviceResult, ExtenderStage, ExtenderState, Fan, FanDuty, PortSet, PortState, PortsControl,
+    PowerLedControl, PowerLedLevel, PrivacyState, PrivacySwitchesControl, Sensor, SensorReading,
+    Temperature, ThermalControl, ThermalFeature, ThermalLayout, ThermalState, Thresholds,
+    TouchpadControl, TouchscreenControl, UsbControl, UsbSpeed,
 };
 
 pub(crate) use crate::fixtures::{CAPACITY, NOMINAL_MILLIVOLTS, cap, port, reading, state};
@@ -280,6 +280,14 @@ impl ChassisControl for Machine {
 
     async fn deck_state(&self) -> DeviceResult<DeckState> {
         self.chassis.read(DeckState::On)
+    }
+
+    async fn set_deck_mode(&self, _mode: DeckMode) -> DeviceResult<()> {
+        self.chassis.write()
+    }
+
+    async fn reset_deck(&self) -> DeviceResult<()> {
+        self.chassis.write()
     }
 }
 

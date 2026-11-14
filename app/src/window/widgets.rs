@@ -13,6 +13,7 @@ use gtk4::glib;
 
 use super::Ui;
 use crate::mapped::Once;
+use crate::synced::{combo_position, combo_selection};
 
 /// GTK carries adjustment values as f64. The cast alone saturates at 255, so
 /// the clamp is what holds the result inside the range the daemon accepts;
@@ -60,33 +61,6 @@ pub(super) fn build_scale(
     scale
 }
 
-/// A `StringList` from owned labels, which every combo builds from a
-/// `Vec<String>` that GTK will only take as borrowed strs.
-pub(super) fn string_list(labels: &[String]) -> gtk::StringList {
-    let labels: Vec<&str> = labels.iter().map(String::as_str).collect();
-    gtk::StringList::new(&labels)
-}
-
-/// Names a combo row for GTK, which addresses rows by u32. Positions come
-/// from fixed arrays of a handful of entries, so the fallback is unreachable
-/// — it is what keeps the conversion total without a cast.
-fn combo_index(position: usize) -> u32 {
-    u32::try_from(position).unwrap_or(gtk::INVALID_LIST_POSITION)
-}
-
-/// The row to select, where the hardware may be sitting on none of them —
-/// GTK spells "nothing selected" as a sentinel position rather than as an
-/// absent one.
-pub(super) fn combo_selection(position: Option<usize>) -> u32 {
-    position.map_or(gtk::INVALID_LIST_POSITION, combo_index)
-}
-
-/// The inverse of [`combo_selection`]: the row a combo reports, and None for
-/// the sentinel GTK uses where it sits on none.
-fn combo_position(selected: u32) -> Option<usize> {
-    (selected != gtk::INVALID_LIST_POSITION).then_some(selected as usize)
-}
-
 /// Moves a combo to the row `row_for` names. `modelview`'s answer weighs where
 /// the combo sits against what moved it, so the read has to happen before the
 /// move — which is why both ends are here rather than at each call site.
@@ -96,26 +70,6 @@ pub(super) fn select_row(
 ) {
     let row = row_for(combo_position(combo.selected()));
     combo.set_selected(combo_selection(row));
-}
-
-/// A row a sync moved the combo to must not be written back, and a combo
-/// wired here cannot forget that.
-pub(super) fn connect_combo<C: 'static, T, Fut: Future<Output = ()> + 'static>(
-    ui: &Rc<Ui>,
-    control: &Rc<C>,
-    combo: &adw::ComboRow,
-    at: impl Fn(usize) -> Option<T> + 'static,
-    write: impl Fn(Rc<Ui>, Rc<C>, T) -> Fut + 'static,
-) {
-    let (ui, control) = (ui.clone(), control.clone());
-    combo.connect_selected_notify(move |row| {
-        if ui.guard.syncing() {
-            return;
-        }
-        if let Some(value) = combo_position(row.selected()).and_then(&at) {
-            glib::spawn_future_local(write(ui.clone(), control.clone(), value));
-        }
-    });
 }
 
 /// Shows `row` exactly while `combo` sits at `index`, so a slider a combo

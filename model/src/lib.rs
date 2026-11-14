@@ -12,6 +12,7 @@
 )]
 
 pub mod control;
+pub mod deck;
 pub mod fan;
 pub mod port;
 pub mod reading;

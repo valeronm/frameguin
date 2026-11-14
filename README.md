@@ -37,7 +37,8 @@ The other windows report on the machine:
 - **Readings** — what the machine is doing now: the battery's charge, flow
   and health, what each USB-C port has attached and the power it negotiated,
   and a switch to turn the port off,
-  the battery extender, the chassis, the privacy switches, and the
+  the battery extender, the chassis with the input deck's mode and a reset
+  for it, the privacy switches, and the
   temperatures and fans.
 - **Hardware** — every part the daemon found, with its identity and
   firmware.

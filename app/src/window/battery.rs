@@ -35,10 +35,10 @@ use gtk4 as gtk;
 
 use crate::reading::show_while_mapped;
 use crate::report::status::{self, Target};
+use crate::synced::{combo_selection, connect_combo, string_list};
 use crate::tray::TrayValues;
 use crate::window::widgets::{
-    SliderWrites, build_scale, combo_selection, connect_combo, connect_slider_writes, reveal_under,
-    scale_percent, select_row, string_list,
+    SliderWrites, build_scale, connect_slider_writes, reveal_under, scale_percent, select_row,
 };
 use crate::window::{Sink, Ui};
 
@@ -275,6 +275,7 @@ impl Group {
 
     pub(crate) fn connect(&self, ui: &Rc<Ui>, control: &Rc<Battery>) {
         connect_combo(
+            &ui.guard,
             ui,
             control,
             &self.limit_combo,
@@ -298,6 +299,7 @@ impl Group {
 
         let at_ui = ui.clone();
         connect_combo(
+            &ui.guard,
             ui,
             control,
             &self.speed_combo,

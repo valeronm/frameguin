@@ -136,7 +136,8 @@ it and the non-obvious constraints.
   is somehow unmapped when its tab shows is filled when it maps, or a tick
   later, rather than failing;
   `window/widgets.rs` is the chrome no one group owns, and `synced.rs` the
-  sync guard and the switch helpers every writing window shares. `report/`
+  sync guard and the switch, combo and button helpers every writing window
+  shares. `report/`
   holds the windows that report on the machine, and the shell they share in
   its `mod.rs` — found by name or built, destroyed on close — so the single-instance rule is one private
   function rather than one copy per window, and nothing outside the tree can
@@ -236,7 +237,8 @@ it and the non-obvious constraints.
   rather than a window of its own or a row in the main window. A control
   rarely needed is the exception to the first: it sits on its part's page in
   Readings, beside what it acts on, so the main window holds only what is
-  set often enough to earn a place — a USB-C port's switch is the case.
+  set often enough to earn a place — a USB-C port's switch and the input
+  deck's mode and reset are the cases.
 - The main window and the reports are reached differently, and which way is
   decided by whether the window survives being closed. The main window hides rather than closing
   wherever there is a tray to hide to, so its slot in `AppState` outlives it —
@@ -325,10 +327,12 @@ it and the non-obvious constraints.
   match. Both the window's handler and the tray item call it; neither writes
   around it. The `Sink` it reports into decides the report's form: a toast
   where a window is built, a desktop notification for a refusal where none
-  is. Controls the tray cannot set (the touchpad, the USB-C ports) write inline
+  is. Controls the tray cannot set (the touchpad, the USB-C ports, the input
+  deck) write inline
   in their handler — one caller needs no shared function, and giving it one
   would be ceremony. Either way a handler answers `window/widgets.rs`, or
-  `synced.rs` for a switch, with its write as a future: the helper owns the sync guard and the spawn, and a
+  `synced.rs` for a widget a report window writes from too, with its write
+  as a future: the helper owns the sync guard and the spawn, and a
   handler spawning for itself is caught by nothing but the `glib` import it
   would need. Writing *by* moving the widget, which the tray used to
   do, makes state the command channel: a widget already showing the requested
@@ -349,7 +353,10 @@ it and the non-obvious constraints.
   the power LED back for reads as Off, a charging LED the kernel took half
   a handover for is lit on neither account, and "lit" is a claim of the
   same kind — so each re-reads after every write rather than capturing
-  anything. Everything
+  anything. The input deck's mode re-reads too: its combo is set from the
+  deck's state, and "always off" is a claim about whether the touchpad
+  works. Forcing the deck off asks first, since on a Laptop 16 it takes
+  the keyboard that would undo it. Everything
   else here would have to capture a value before the write or re-read after
   it, for a stale row that outlives nothing worse than the next reload.
 - The tray holds what gets changed on the move or several times a day — the

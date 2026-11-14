@@ -12,9 +12,10 @@ use std::task::{Context, Poll, Waker};
 
 use frameguin_contract::{
     Attached, BatteryCondition, BatteryInfo, BatteryState, CcPolarity, ChargeCurrentLimit,
-    ChargeFlow, ChassisState, ClickForce, DataRole, DeckState, Detail, DeviceError, DeviceResult,
-    Epr, ExtenderStage, ExtenderState, Identity, LinkState, NetworkLink, PartKind, Platform,
-    PortPartner, PortReading, PortRegisters, PowerLedLevel, PowerRole, PrivacyState, UsbSpeed,
+    ChargeFlow, ChassisState, ClickForce, DataRole, DeckMode, DeckState, Detail, DeviceError,
+    DeviceResult, Epr, ExtenderStage, ExtenderState, Identity, LinkState, NetworkLink, PartKind,
+    Platform, PortPartner, PortReading, PortRegisters, PowerLedLevel, PowerRole, PrivacyState,
+    UsbSpeed,
 };
 
 use crate::bay;
@@ -775,7 +776,10 @@ pub struct Cover {
     /// Firmware without the chassis commands.
     pub refusing: bool,
     /// None for firmware without the deck state command.
-    pub deck: Option<DeckState>,
+    pub deck: Mutex<Option<DeckState>>,
+    pub modes_written: Mutex<Vec<DeckMode>>,
+    /// How many of the next writes of [`DeckMode::Automatic`] are refused.
+    pub refusing_automatic: Mutex<u32>,
 }
 
 impl Default for Cover {
@@ -787,7 +791,9 @@ impl Default for Cover {
                 found_open: 1,
             },
             refusing: false,
-            deck: Some(DeckState::On),
+            deck: Mutex::new(Some(DeckState::On)),
+            modes_written: Mutex::default(),
+            refusing_automatic: Mutex::default(),
         }
     }
 }
@@ -802,7 +808,24 @@ impl ChassisEc for Cover {
 
     fn deck_state(&self) -> DeviceResult<DeckState> {
         self.deck
+            .lock()
+            .unwrap()
             .ok_or_else(|| DeviceError::Failed("invalid command".into()))
+    }
+
+    fn set_deck_mode(&self, mode: DeckMode) -> DeviceResult<()> {
+        let mut refusing = self.refusing_automatic.lock().unwrap();
+        if mode == DeckMode::Automatic && *refusing > 0 {
+            *refusing -= 1;
+            return Err(DeviceError::Failed("the EC did not answer".into()));
+        }
+        self.modes_written.lock().unwrap().push(mode);
+        *self.deck.lock().unwrap() = Some(match mode {
+            DeckMode::Automatic => DeckState::On,
+            DeckMode::ForceOn => DeckState::ForceOn,
+            DeckMode::ForceOff => DeckState::ForceOff,
+        });
+        Ok(())
     }
 }
 

@@ -11,10 +11,10 @@ use frameguin_modelview::rows::Custom;
 use frameguin_wire::Bus;
 use gtk4 as gtk;
 
+use crate::synced::{connect_combo, string_list};
 use crate::window::Ui;
 use crate::window::widgets::{
-    SliderWrites, build_scale, connect_combo, connect_slider_writes, reveal_under, scale_percent,
-    select_row, string_list,
+    SliderWrites, build_scale, connect_slider_writes, reveal_under, scale_percent, select_row,
 };
 
 pub(crate) type PowerLed = power_led::PowerLed<Bus>;
@@ -115,6 +115,7 @@ impl Group {
 
         let at_control = control.clone();
         connect_combo(
+            &ui.guard,
             ui,
             control,
             &self.combo,

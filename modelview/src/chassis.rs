@@ -1,6 +1,8 @@
-//! The chassis open switch and the input deck: the words for their reads.
+//! The chassis open switch and the input deck: the words for their reads,
+//! and the modes the deck offers.
 
-use frameguin_contract::DeckState;
+use frameguin_contract::{DeckMode, DeckState};
+use frameguin_model::deck::DeckLoad;
 
 use crate::words::{joined, yes_no};
 
@@ -46,6 +48,59 @@ fn deck_inline(state: DeckState) -> &'static str {
     }
 }
 
+/// In the order the modes are offered.
+const DECK_MODES: [DeckMode; 3] = [DeckMode::Automatic, DeckMode::ForceOn, DeckMode::ForceOff];
+
+#[must_use]
+pub fn deck_mode_labels() -> Vec<String> {
+    DECK_MODES
+        .iter()
+        .map(|&mode| deck_mode_label(mode).to_owned())
+        .collect()
+}
+
+#[must_use]
+pub fn deck_mode_at(row: usize) -> Option<DeckMode> {
+    DECK_MODES.get(row).copied()
+}
+
+#[must_use]
+fn deck_mode_label(mode: DeckMode) -> &'static str {
+    match mode {
+        DeckMode::Automatic => "Automatic",
+        DeckMode::ForceOn => "Always on",
+        DeckMode::ForceOff => "Always off",
+    }
+}
+
+/// None for a state no mode answers for.
+#[must_use]
+pub fn deck_mode_row(state: DeckState) -> Option<usize> {
+    let mode = state.mode()?;
+    DECK_MODES.iter().position(|offered| *offered == mode)
+}
+
+pub const DECK_RESET_SUBTITLE: &str = "Cuts its power for a moment, then returns it to automatic";
+
+#[must_use]
+pub fn force_off_warning(load: Option<DeckLoad>) -> &'static str {
+    match load {
+        Some(DeckLoad::Touchpad) => {
+            "The touchpad loses power and stays off, through a restart too, until the mode \
+             is changed back. The keyboard keeps working."
+        }
+        Some(DeckLoad::InputModules) => {
+            "The keyboard, the touchpad and every other input module lose power and stay \
+             off, through a restart too, until the mode is changed back. Changing it back \
+             takes another keyboard or pointer."
+        }
+        None => {
+            "Everything the input deck powers stays off, through a restart too, until the \
+             mode is changed back."
+        }
+    }
+}
+
 #[must_use]
 pub fn open_now_label(open: bool) -> &'static str {
     yes_no(open)
@@ -67,7 +122,9 @@ pub fn times_label(count: u8) -> String {
 mod tests {
     use frameguin_contract::DeckState;
 
-    use super::{chassis_summary, deck_label, open_now_label, state_label, times_label};
+    use super::{
+        chassis_summary, deck_label, deck_mode_row, open_now_label, state_label, times_label,
+    };
 
     #[test]
     fn the_summary_names_the_deck_only_when_it_is_not_on() {
@@ -77,6 +134,15 @@ mod tests {
             chassis_summary(false, Some(DeckState::ForceOn)),
             "Closed · Input deck forced on"
         );
+    }
+
+    #[test]
+    fn a_deck_sits_on_the_mode_its_state_answers_for() {
+        assert_eq!(deck_mode_row(DeckState::On), Some(0));
+        assert_eq!(deck_mode_row(DeckState::Disconnected), Some(0));
+        assert_eq!(deck_mode_row(DeckState::ForceOn), Some(1));
+        assert_eq!(deck_mode_row(DeckState::ForceOff), Some(2));
+        assert_eq!(deck_mode_row(DeckState::NoDetection), None);
     }
 
     #[test]

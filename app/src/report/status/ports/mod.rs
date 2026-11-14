@@ -39,7 +39,7 @@ use gtk4::glib;
 
 use self::picker::Picker;
 use super::track::{TrackRow, TrackView};
-use super::{Answer, Sidebar, Target, Writes};
+use super::{Answer, Sidebar, Target, Writes, written};
 use crate::reading::{Feed, show_while_mapped};
 use crate::report::value_row;
 use crate::synced::{Guard, connect_switch, show_switch};
@@ -51,6 +51,8 @@ const STAYS_OFF: &str = "Stays off across restarts until turned back on";
 /// The narrowest the page keeps [`STAYS_OFF`] on one line.
 pub(super) const CONTENT_WIDTH: i32 = 420;
 
+/// A port turned on reads nothing attached until its controller has
+/// detected the partner.
 const PARTNER_DETECTED: Duration = Duration::from_millis(500);
 
 struct Section {
@@ -337,32 +339,16 @@ impl Section {
             move |writes, control, enabled| {
                 let (switched, feed) = (switched.clone(), feed.clone());
                 async move {
-                    let Some(feed) = feed.upgrade() else {
+                    let (Some(switch), Some(feed)) = (switched.upgrade(), feed.upgrade()) else {
                         return;
                     };
-                    let written = {
-                        let _writing = feed.writing();
-                        control.set_enabled(index, enabled).await
-                    };
-                    let turned_on = enabled && written.is_ok();
-                    if let Err(e) = written {
+                    let detected = enabled.then_some(PARTNER_DETECTED);
+                    let written = written(&feed, &switch, detected, || {
+                        control.set_enabled(index, enabled)
+                    });
+                    if let Err(e) = written.await {
                         writes.toast_error("Switching a USB-C port", e);
-                        if let Some(switch) = switched.upgrade() {
-                            show_switch(&writes.guard, &switch, !enabled);
-                        }
-                    }
-                    // Its own failure is the next tick's to report.
-                    let refill = async || {
-                        if let Some(switch) = switched.upgrade() {
-                            let _ = feed.fill(&switch).await;
-                        }
-                    };
-                    refill().await;
-                    if turned_on {
-                        // A port turned on reads nothing attached until its
-                        // controller has detected the partner.
-                        glib::timeout_future(PARTNER_DETECTED).await;
-                        refill().await;
+                        show_switch(&writes.guard, &switch, !enabled);
                     }
                 }
             },

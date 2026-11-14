@@ -13,9 +13,9 @@
 use crate::error::DeviceResult;
 use crate::vocabulary::{
     Attached, BatteryCondition, BatteryFeature, BatteryInfo, Board, ChargeCurrentLimit,
-    ChargingLedFeature, ChargingLedSide, ChassisFeature, ChassisState, ClickForce, DeckState,
-    ExtenderState, FanDuty, PortSet, PortState, PowerLedLevel, PrivacyState, ThermalFeature,
-    ThermalLayout, ThermalState, Thresholds,
+    ChargingLedFeature, ChargingLedSide, ChassisFeature, ChassisState, ClickForce, DeckMode,
+    DeckState, ExtenderState, FanDuty, PortSet, PortState, PowerLedLevel, PrivacyState,
+    ThermalFeature, ThermalLayout, ThermalState, Thresholds,
 };
 
 /// The machine every device is on; fixed for the implementor's run.
@@ -98,6 +98,12 @@ pub trait ChassisControl {
     async fn features(&self) -> DeviceResult<Vec<ChassisFeature>>;
     /// Offered only under [`ChassisFeature::Deck`].
     async fn deck_state(&self) -> DeviceResult<DeckState>;
+    /// Offered only under [`ChassisFeature::Deck`]. Writes nothing where
+    /// the deck's state already answers for `mode`.
+    async fn set_deck_mode(&self, mode: DeckMode) -> DeviceResult<()>;
+    /// Offered only under [`ChassisFeature::Deck`]. Cuts the deck's power
+    /// and leaves it in [`DeckMode::Automatic`], whatever mode it was in.
+    async fn reset_deck(&self) -> DeviceResult<()>;
 }
 
 pub trait PrivacySwitchesControl {
