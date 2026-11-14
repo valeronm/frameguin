@@ -106,7 +106,7 @@ pub trait PrivacyEc: Send + Sync {
 }
 
 /// What the thermal device needs of the EC: the memmap's thermal bytes, a
-/// sensor's name, its thresholds, and a fan's duty.
+/// sensor's name, its thresholds, a fan's duty, and the throttle status.
 pub trait ThermalEc: Send + Sync {
     /// The memmap's sensor bytes in the EC's sensor order — the second range
     /// appended where the memmap's thermal version carries it — and its fan
@@ -116,6 +116,8 @@ pub trait ThermalEc: Send + Sync {
     fn thresholds(&self, index: u8) -> DeviceResult<thermal::RawThresholds>;
     /// A percentage.
     fn fan_duty(&self, index: u8) -> DeviceResult<u8>;
+    /// The soft byte, then the hard one, of `EC_CMD_GET_AP_THROTTLE_STATUS`.
+    fn throttle(&self) -> DeviceResult<(u8, u8)>;
 }
 
 /// The enables of the two indicators behind the charging LED's one id, left
@@ -536,6 +538,11 @@ impl ThermalEc for Ec {
             .map_err(device_error)?;
         thermal::fan_duty(&raw)
             .ok_or_else(|| DeviceError::Failed("the EC answered no fan duty".into()))
+    }
+
+    fn throttle(&self) -> DeviceResult<(u8, u8)> {
+        let status = self.ec().get_ap_throttle_status().map_err(device_error)?;
+        Ok((status.soft_ap_throttle, status.hard_ap_throttle))
     }
 }
 

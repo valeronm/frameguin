@@ -1,7 +1,8 @@
-//! What the EC's memmap thermal bytes and its threshold and fan duty commands
-//! mean, apart from `ec.rs` so the decoding is testable without an EC.
+//! What the EC's memmap thermal bytes and its threshold, fan duty and throttle
+//! status commands mean, apart from `ec.rs` so the decoding is testable
+//! without an EC.
 
-use frameguin_contract::{Temperature, Thresholds};
+use frameguin_contract::{Temperature, Thresholds, ThrottleSource};
 
 pub(crate) const TEMP_SENSOR: u16 = 0x00;
 pub(crate) const TEMP_SENSOR_ENTRIES: u16 = 16;
@@ -53,6 +54,30 @@ pub(crate) fn fan_duty(raw: &[u8]) -> Option<u8> {
     u8::try_from(percent).ok().filter(|percent| *percent <= 100)
 }
 
+/// The EC's `throttle_sources`, in the bit order one byte of
+/// `EC_CMD_GET_AP_THROTTLE_STATUS` carries them.
+const THROTTLE_SOURCES: [ThrottleSource; 5] = [
+    ThrottleSource::Temperature,
+    ThrottleSource::BatteryDischargeCurrent,
+    ThrottleSource::BatteryVoltage,
+    ThrottleSource::Charger,
+    ThrottleSource::PowerLimitUpdate,
+];
+
+/// Who asks for one of the EC's two throttles, from its byte of
+/// `EC_CMD_GET_AP_THROTTLE_STATUS`. Any set bit past the named sources is
+/// one [`ThrottleSource::Other`].
+pub(crate) fn throttle_sources(byte: u8) -> Vec<ThrottleSource> {
+    let named = (0u8..)
+        .zip(THROTTLE_SOURCES)
+        .filter(|(bit, _)| byte & (1 << bit) != 0)
+        .map(|(_, source)| source);
+    let unnamed = byte >> THROTTLE_SOURCES.len() != 0;
+    named
+        .chain(unnamed.then_some(ThrottleSource::Other))
+        .collect()
+}
+
 /// None for a fan slot the EC reports empty.
 pub(crate) fn fan_rpm(word: u16) -> Option<u16> {
     match word {
@@ -81,9 +106,31 @@ pub(crate) fn thresholds(index: u8, raw: RawThresholds) -> Thresholds {
 
 #[cfg(test)]
 mod tests {
-    use frameguin_contract::{Temperature, Thresholds};
+    use frameguin_contract::{Temperature, Thresholds, ThrottleSource};
 
-    use super::{RawThresholds, fan_duty, fan_rpm, temperature, thresholds};
+    use super::{RawThresholds, fan_duty, fan_rpm, temperature, thresholds, throttle_sources};
+
+    #[test]
+    fn a_throttle_byte_names_a_source_per_set_bit() {
+        assert_eq!(throttle_sources(0), []);
+        assert_eq!(throttle_sources(0b1), [ThrottleSource::Temperature]);
+        assert_eq!(
+            throttle_sources(0b1_1010),
+            [
+                ThrottleSource::BatteryDischargeCurrent,
+                ThrottleSource::Charger,
+                ThrottleSource::PowerLimitUpdate
+            ]
+        );
+    }
+
+    #[test]
+    fn bits_past_the_named_sources_are_one_other() {
+        assert_eq!(
+            throttle_sources(0b1110_0100),
+            [ThrottleSource::BatteryVoltage, ThrottleSource::Other]
+        );
+    }
 
     #[test]
     fn a_stored_byte_is_kelvin_past_the_offset() {

@@ -546,6 +546,35 @@ pub enum ThermalFeature {
     Thresholds,
     /// How hard the EC is driving each fan.
     FanDuty,
+    /// Whether the EC is throttling the processor, and on whose account.
+    Throttle,
+}
+
+/// What the EC throttles the processor on account of.
+#[derive(Serialize, Deserialize, Type, Clone, Copy, PartialEq, Eq, Debug)]
+#[zvariant(signature = "s")]
+#[serde(rename_all = "kebab-case")]
+pub enum ThrottleSource {
+    /// A sensor past its warn threshold for a requested throttle, its high
+    /// one for a forced.
+    Temperature,
+    BatteryDischargeCurrent,
+    BatteryVoltage,
+    Charger,
+    /// The EC holds the processor while it writes new power limits.
+    PowerLimitUpdate,
+    /// A source this vocabulary has no name for.
+    Other,
+}
+
+/// The EC's two throttles, each empty while nothing asks for it.
+#[derive(Serialize, Deserialize, Type, Clone, PartialEq, Eq, Debug, Default)]
+pub struct Throttle {
+    /// The EC's soft throttle: it has sent the host an event asking it to
+    /// slow the processor.
+    pub requested: Vec<ThrottleSource>,
+    /// The EC's hard throttle: it is asserting the processor's PROCHOT line.
+    pub forced: Vec<ThrottleSource>,
 }
 
 /// A temperature sensor the EC reported present.

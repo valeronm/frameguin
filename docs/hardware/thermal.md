@@ -22,6 +22,7 @@ Every heading in the file appears here.
 - [Sensor names](#sensor-names)
 - [The processor die's ceiling](#the-processor-dies-ceiling)
 - [Thresholds](#thresholds)
+- [Throttle status](#throttle-status)
 - [Open](#open)
 - [Sources](#sources)
 
@@ -211,10 +212,47 @@ sits above the 100 °C
 ramp nor its trip points engage on PECI's own reading — the thermistors
 drive the fan instead.
 
+## Throttle status
+
+`EC_CMD_GET_AP_THROTTLE_STATUS` (`0x3E22`) answers two bytes, the EC's soft
+throttle and its hard one, each a bitmask of the sources asking for it
+(`throttle_get_state`, `common/throttle_ap.c`):
+
+| Bit | Source | Raised by |
+|---|---|---|
+| 0 | `THROTTLE_SRC_THERMAL` | a sensor past its warn threshold (soft) or its high one (hard), `common/thermal.c` |
+| 1 | `THROTTLE_SRC_BAT_DISCHG_CURRENT` | the pack's discharge current past its limit, `common/charge_state.c` (soft); `lotus/src/cpu_power.c` (hard) |
+| 2 | `THROTTLE_SRC_BAT_VOLTAGE` | the pack's voltage under its limit, `common/charge_state.c` (soft) |
+| 3 | `THROTTLE_SRC_AC` | the charger asserting PROCHOT, `lotus/src/charger.c` (hard) |
+| 4 | `THROTTLE_SRC_UPDATE_POWER_LIMIT` | the EC while it writes new power limits to the processor, `cpu_power/` (hard) |
+
+A throttle is in force while any bit of its byte is set.
+
+| Throttle | What the EC does |
+|---|---|
+| soft | sends the host `EC_HOST_EVENT_THROTTLE_START`, and `EC_HOST_EVENT_THROTTLE_STOP` once no source asks |
+| hard | drives the processor's PROCHOT line through `chipset_throttle_cpu` |
+
+- On `azalea` and `lotus` a thermal warn also lowers the power limits the
+  EC computes (`thermal_warn_trigger` in their `cpu_power.c`); on the Intel
+  boards the soft throttle is the host event and nothing else.
+- `framework_lib` 0.6.6's `print_thermal` tests each byte against 1, so
+  `framework_tool --thermal` reports a throttle only where temperature
+  alone asks for it. `get_ap_throttle_status` returns the bytes untouched.
+- The handler is not in every board's EC branch;
+  [`boards.md`](boards.md#readings) lists which have it.
+
+### Observed
+
+On `sakura`, on the charger, both bytes read 0 at idle and at every one of
+120 reads half a second apart with all 16 processor threads loaded. No byte
+has been seen set.
+
 ## Open
 
 - Whether `EC_CMD_PWM_GET_FAN_DUTY` answers on `sunflower` and `dahlia`:
   their branch declares it, and no reading from either exists.
+- What a host does with the soft throttle's event on any board.
 
 ## Sources
 
@@ -224,7 +262,11 @@ drive the fan instead.
   target requests and responses; `common/thermal.c` for what warn, high and
   halt each do and for `thermal_fan_percent`; `common/fan.c` for the fan
   duty and target handlers, `fan_set_percent_needed` and
-  `fan_percent_to_rpm`; `zephyr/shim/src/fan.c` for `fan_adjust_duty`.
+  `fan_percent_to_rpm`; `zephyr/shim/src/fan.c` for `fan_adjust_duty`;
+  `common/throttle_ap.c`, `include/throttle_ap.h` and
+  `common/host_event_commands.c` for the two throttles and their sources,
+  `zephyr/program/framework/src/board_host_command.c` for the status
+  command.
   Under `zephyr/program/framework/`, each board's `project.conf`,
   `fan.dtsi` or overlay and `src/thermal.c`, with `CMakeLists.txt`, for its
   fan limits, build options and sources. `board/hx20/` and `board/hx30/`
@@ -235,4 +277,5 @@ drive the fan instead.
   `zephyr/program/framework/Kconfig` for the junction maximum.
 - [FrameworkComputer/framework-system](https://github.com/FrameworkComputer/framework-system)
   0.6.6 — `framework_lib/src/chromium_ec/commands.rs` for the version 1
-  threshold struct.
+  threshold struct and the throttle status response, `power.rs` for
+  `print_thermal`.

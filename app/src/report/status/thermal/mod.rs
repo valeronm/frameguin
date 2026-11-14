@@ -1,17 +1,19 @@
 //! The EC's temperature sensors and fans: a row whose summary is the hottest
-//! sensor, and a page listing every sensor, then the fans.
+//! sensor and a throttle in force, and a page listing every sensor, then the
+//! fans, then the EC's two throttles.
 //!
 //! What each value is *called* is `frameguin_modelview::thermal`'s.
 
 use std::rc::Rc;
 
 use adw::prelude::*;
-use frameguin_contract::{Platform, Sensor, ThermalState, Thresholds};
+use frameguin_contract::{Platform, Sensor, ThermalFeature, ThermalState, Thresholds};
 use frameguin_model::control::thermal::Thermal;
 use frameguin_model::reading::Request;
 use frameguin_modelview::thermal::{
-    FAN_RANGE, NOT_PRESENT, SHUTDOWN, Scale, THROTTLE, fan_label, fan_name, sensor_name,
-    temperature_label, thermal_summary,
+    FAN_RANGE, NOT_PRESENT, SHUTDOWN, Scale, THROTTLE, THROTTLE_FORCED, THROTTLE_REQUESTED,
+    THROTTLING, fan_label, fan_name, sensor_name, temperature_label, thermal_summary,
+    throttle_label,
 };
 use frameguin_modelview::track::Mark;
 use frameguin_wire::Bus;
@@ -20,7 +22,7 @@ use gtk4 as gtk;
 use super::track::{TrackRow, legend};
 use super::{Section, Sidebar};
 use crate::reading::{Feed, show_while_mapped};
-use crate::report::value_row;
+use crate::report::{described_value, value_row};
 
 struct SensorRow {
     sensor: Sensor,
@@ -85,16 +87,29 @@ pub(super) fn add(
     if !fans.is_empty() {
         page.add(&fan_group);
     }
+    let throttle = thermal.has(ThermalFeature::Throttle).then(|| {
+        let group = adw::PreferencesGroup::builder().title(THROTTLING).build();
+        let requested = described_value(
+            &group,
+            THROTTLE_REQUESTED,
+            "Asks the system to slow the processor",
+        );
+        let forced = described_value(&group, THROTTLE_FORCED, "Holds the processor back");
+        page.add(&group);
+        (requested, forced)
+    });
     let row = sidebar.add(section, "Temperatures", &page);
 
     let summary = Request {
         thermal: true,
+        throttle: true,
         ..Request::default()
     };
     let summarized = layout.clone();
     sidebar.follow(feed, summary, move |reading| {
         if let Some(state) = &reading.thermal {
-            row.set_subtitle(&thermal_summary(&summarized, state));
+            let throttle = reading.throttle.as_ref();
+            row.set_subtitle(&thermal_summary(&summarized, state, throttle));
         }
     });
 
@@ -103,6 +118,7 @@ pub(super) fn add(
         thermal: true,
         thresholds: true,
         fan_duty: true,
+        throttle: true,
         ..Request::default()
     };
     show_while_mapped(feed, &page, request, move |reading| {
@@ -123,6 +139,10 @@ pub(super) fn add(
                     .map_or(NOT_PRESENT.to_owned(), |f| fan_label(f, duties));
                 value.set_label(&label);
             }
+        }
+        if let (Some(read), Some((requested, forced))) = (&reading.throttle, &throttle) {
+            requested.set_label(&throttle_label(&read.requested));
+            forced.set_label(&throttle_label(&read.forced));
         }
     });
 }

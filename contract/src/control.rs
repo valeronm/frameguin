@@ -15,7 +15,7 @@ use crate::vocabulary::{
     Attached, BatteryCondition, BatteryFeature, BatteryInfo, Board, ChargeCurrentLimit,
     ChargingLedFeature, ChargingLedSide, ChassisFeature, ChassisState, ClickForce, DeckMode,
     DeckState, ExtenderState, FanDuty, PortSet, PortState, PowerLedLevel, PrivacyState,
-    ThermalFeature, ThermalLayout, ThermalState, Thresholds,
+    ThermalFeature, ThermalLayout, ThermalState, Thresholds, Throttle,
 };
 
 /// The machine every device is on; fixed for the implementor's run.
@@ -124,6 +124,8 @@ pub trait ThermalControl {
     /// Offered only under [`ThermalFeature::FanDuty`]: a host command per
     /// fan.
     async fn fan_duties(&self) -> DeviceResult<Vec<FanDuty>>;
+    /// Offered only under [`ThermalFeature::Throttle`]: one host command.
+    async fn throttle(&self) -> DeviceResult<Throttle>;
 }
 
 /// What is plugged straight into the machine's USB root ports. Read-only,

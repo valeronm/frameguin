@@ -5,7 +5,7 @@ use frameguin_contract::{
     Attached, BatteryCondition, BatteryFeature, BatteryInfo, Board, ChargeCurrentLimit,
     ChargingLedFeature, ChargingLedSide, ChassisFeature, ChassisState, ClickForce, DeckMode,
     DeckState, ExtenderState, FanDuty, Identity, PortSet, PortState, PowerLedLevel, PrivacyState,
-    ThermalFeature, ThermalLayout, ThermalState, Thresholds,
+    ThermalFeature, ThermalLayout, ThermalState, Thresholds, Throttle,
 };
 
 use crate::{BUS_NAME, OBJECT_PATH};
@@ -161,6 +161,7 @@ pub trait Thermal {
     async fn get_state(&self) -> zbus::Result<ThermalState>;
     async fn get_thresholds(&self) -> zbus::Result<Vec<Thresholds>>;
     async fn get_fan_duties(&self) -> zbus::Result<Vec<FanDuty>>;
+    async fn get_throttle(&self) -> zbus::Result<Throttle>;
 }
 
 /// Absent from the bus on a machine that is not a Framework one, or whose USB

@@ -8,8 +8,8 @@ use frameguin_contract::{
     ChassisControl, ChassisFeature, ChassisState, ClickForce, DeckMode, DeckState, DeviceError,
     DeviceResult, ExtenderStage, ExtenderState, Fan, FanDuty, PortSet, PortState, PortsControl,
     PowerLedControl, PowerLedLevel, PrivacyState, PrivacySwitchesControl, Sensor, SensorReading,
-    Temperature, ThermalControl, ThermalFeature, ThermalLayout, ThermalState, Thresholds,
-    TouchpadControl, TouchscreenControl, UsbControl, UsbSpeed,
+    Temperature, ThermalControl, ThermalFeature, ThermalLayout, ThermalState, Thresholds, Throttle,
+    ThrottleSource, TouchpadControl, TouchscreenControl, UsbControl, UsbSpeed,
 };
 
 pub(crate) use crate::fixtures::{CAPACITY, NOMINAL_MILLIVOLTS, cap, port, reading, state};
@@ -355,6 +355,7 @@ impl ThermalControl for Machine {
         if self.fan_duty.get() {
             features.push(ThermalFeature::FanDuty);
         }
+        features.push(ThermalFeature::Throttle);
         self.thermal.read(features)
     }
 
@@ -397,6 +398,13 @@ impl ThermalControl for Machine {
             index: 0,
             percent: 45,
         }])
+    }
+
+    async fn throttle(&self) -> DeviceResult<Throttle> {
+        self.thermal.read(Throttle {
+            requested: vec![ThrottleSource::Temperature],
+            forced: Vec::new(),
+        })
     }
 }
 

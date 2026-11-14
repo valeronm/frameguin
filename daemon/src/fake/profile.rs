@@ -50,6 +50,7 @@ struct Shape {
     bay_ccg8s: Option<u8>,
     input_deck: bool,
     fan_duty: bool,
+    throttle: bool,
     second_fan: bool,
 }
 
@@ -68,6 +69,7 @@ const BOARDS: &[(&str, Shape)] = &[
             bay_ccg8s: None,
             input_deck: true,
             fan_duty: true,
+            throttle: true,
             second_fan: false,
         },
     ),
@@ -85,6 +87,7 @@ const BOARDS: &[(&str, Shape)] = &[
             bay_ccg8s: None,
             input_deck: false,
             fan_duty: false,
+            throttle: false,
             second_fan: false,
         },
     ),
@@ -102,6 +105,7 @@ const BOARDS: &[(&str, Shape)] = &[
             bay_ccg8s: None,
             input_deck: false,
             fan_duty: false,
+            throttle: true,
             second_fan: false,
         },
     ),
@@ -119,6 +123,7 @@ const BOARDS: &[(&str, Shape)] = &[
             bay_ccg8s: None,
             input_deck: false,
             fan_duty: true,
+            throttle: true,
             second_fan: false,
         },
     ),
@@ -136,6 +141,7 @@ const BOARDS: &[(&str, Shape)] = &[
             bay_ccg8s: Some(0x42),
             input_deck: true,
             fan_duty: false,
+            throttle: false,
             second_fan: true,
         },
     ),
@@ -239,6 +245,7 @@ fn machine(shape: &Shape, refusing: bool) -> Detected {
                 &[2400]
             }),
             fan_duty: shape.fan_duty.then_some(45),
+            throttle: shape.throttle.then_some((0, 0)),
             ..Vents::default()
         })),
         usb: Usb::new(Arc::new(Hub::default())),

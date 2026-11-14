@@ -15,7 +15,8 @@ use frameguin_contract::{
     Attached, BatteryCondition, BatteryControl, BatteryFeature, BatteryInfo, ChargingLedControl,
     ChargingLedFeature, ChargingLedSide, ChassisControl, ChassisFeature, ChassisState, DeckState,
     DeviceError, DeviceResult, ExtenderState, FanDuty, PortState, PortsControl, PrivacyState,
-    PrivacySwitchesControl, ThermalControl, ThermalFeature, ThermalState, Thresholds, UsbControl,
+    PrivacySwitchesControl, ThermalControl, ThermalFeature, ThermalState, Thresholds, Throttle,
+    UsbControl,
 };
 
 use crate::control::Controls;
@@ -62,6 +63,8 @@ pub struct Request {
     pub thresholds: bool,
     /// A host command per fan.
     pub fan_duty: bool,
+    /// One host command.
+    pub throttle: bool,
 }
 
 impl Request {
@@ -81,6 +84,7 @@ impl Request {
             thermal: self.thermal || other.thermal,
             thresholds: self.thresholds || other.thresholds,
             fan_duty: self.fan_duty || other.fan_duty,
+            throttle: self.throttle || other.throttle,
         }
     }
 }
@@ -103,6 +107,7 @@ pub struct Reading {
     pub thermal: Option<ThermalState>,
     pub thresholds: Option<Vec<Thresholds>>,
     pub fan_duties: Option<Vec<FanDuty>>,
+    pub throttle: Option<Throttle>,
 }
 
 /// One extra a [`Request`] can ask for.
@@ -121,6 +126,7 @@ pub enum Extra {
     Thermal,
     Thresholds,
     FanDuty,
+    Throttle,
 }
 
 impl Extra {
@@ -139,6 +145,7 @@ impl Extra {
             Self::Thermal => request.thermal,
             Self::Thresholds => request.thresholds,
             Self::FanDuty => request.fan_duty,
+            Self::Throttle => request.throttle,
         }
     }
 }
@@ -255,6 +262,7 @@ async fn thermal_column<C: ThermalControl>(
     Option<ThermalState>,
     Option<Vec<Thresholds>>,
     Option<Vec<FanDuty>>,
+    Option<Throttle>,
 ) {
     let thermal_control = controls.thermal.as_ref();
     let thermal = extras
@@ -276,7 +284,15 @@ async fn thermal_column<C: ThermalControl>(
                 .map(|t| t.fan_duties()),
         )
         .await;
-    (thermal, thresholds, fan_duties)
+    let throttle = extras
+        .read(
+            Extra::Throttle,
+            thermal_control
+                .filter(|t| t.has(ThermalFeature::Throttle))
+                .map(|t| t.throttle()),
+        )
+        .await;
+    (thermal, thresholds, fan_duties, throttle)
 }
 
 /// Reads what `request` asks for, and hands back the extras that failed. A
@@ -323,7 +339,7 @@ where
                 .map(|l| l.side()),
         )
         .await;
-    let (thermal, thresholds, fan_duties) = thermal_column(&mut extras, controls).await;
+    let (thermal, thresholds, fan_duties, throttle) = thermal_column(&mut extras, controls).await;
     let reading = Reading {
         info,
         charge_speeds,
@@ -339,6 +355,7 @@ where
         thermal,
         thresholds,
         fan_duties,
+        throttle,
     };
     (reading, extras.failures)
 }
@@ -435,6 +452,7 @@ mod tests {
             usb: true,
             thermal: true,
             fan_duty: true,
+            throttle: true,
             ..Request::default()
         };
         let both = Request {
@@ -450,6 +468,7 @@ mod tests {
             thermal: true,
             thresholds: true,
             fan_duty: true,
+            throttle: true,
         };
         assert_eq!(left.with(right), both);
         assert_eq!(right.with(left), both);

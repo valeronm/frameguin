@@ -2,14 +2,15 @@
 //! where a sensor's thresholds sit along its track.
 
 use frameguin_contract::{
-    Fan, FanDuty, Platform, Sensor, Temperature, ThermalLayout, ThermalState, Thresholds,
+    Fan, FanDuty, Platform, Sensor, Temperature, ThermalLayout, ThermalState, Thresholds, Throttle,
+    ThrottleSource,
 };
 use frameguin_model::fan::FanPlacement;
 use frameguin_model::sensor::{SensorKind, ZERO_CELSIUS_KELVIN};
 
 use crate::battery::reading::percent_label;
 use crate::track::{Mark, Track, position};
-use crate::words::{joined, span};
+use crate::words::{joined, span, yes_no};
 
 /// For a sensor or fan present at detection that the EC now reports absent.
 pub const NOT_PRESENT: &str = "Not present";
@@ -232,9 +233,57 @@ impl Scale {
     }
 }
 
-/// Empty where no sensor gave a temperature.
+pub const THROTTLING: &str = "Throttling";
+pub const THROTTLE_REQUESTED: &str = "Requested";
+pub const THROTTLE_FORCED: &str = "Forced";
+const THROTTLING_REQUESTED: &str = "Throttling requested";
+const THROTTLING_FORCED: &str = "Throttling forced";
+
+fn throttle_source_word(source: ThrottleSource) -> &'static str {
+    match source {
+        ThrottleSource::Temperature => "Temperature",
+        ThrottleSource::BatteryDischargeCurrent => "Battery discharge current",
+        ThrottleSource::BatteryVoltage => "Battery voltage",
+        ThrottleSource::Charger => "Charger",
+        ThrottleSource::PowerLimitUpdate => "Power limit update",
+        ThrottleSource::Other => "Another source",
+    }
+}
+
+/// Who asks for one throttle, and "No" where nothing does.
 #[must_use]
-pub fn thermal_summary(layout: &ThermalLayout, state: &ThermalState) -> String {
+pub fn throttle_label(sources: &[ThrottleSource]) -> String {
+    if sources.is_empty() {
+        yes_no(false).to_owned()
+    } else {
+        joined(sources.iter().map(|source| throttle_source_word(*source)))
+    }
+}
+
+/// The harder throttle in force, None while the EC asks for neither.
+fn throttle_word(throttle: &Throttle) -> Option<&'static str> {
+    if !throttle.forced.is_empty() {
+        Some(THROTTLING_FORCED)
+    } else if !throttle.requested.is_empty() {
+        Some(THROTTLING_REQUESTED)
+    } else {
+        None
+    }
+}
+
+/// The hottest sensor, then a throttle in force. Empty where no sensor gave
+/// a temperature and nothing throttles.
+#[must_use]
+pub fn thermal_summary(
+    layout: &ThermalLayout,
+    state: &ThermalState,
+    throttle: Option<&Throttle>,
+) -> String {
+    let throttle = throttle.and_then(throttle_word).map(str::to_owned);
+    joined(hottest_label(layout, state).into_iter().chain(throttle))
+}
+
+fn hottest_label(layout: &ThermalLayout, state: &ThermalState) -> Option<String> {
     let hottest = state
         .sensors
         .iter()
@@ -243,25 +292,25 @@ pub fn thermal_summary(layout: &ThermalLayout, state: &ThermalState) -> String {
             _ => None,
         })
         .max_by_key(|(kelvin, _)| *kelvin);
-    let Some((kelvin, index)) = hottest else {
-        return String::new();
-    };
-    match layout.sensors.iter().find(|sensor| sensor.index == index) {
-        Some(sensor) => joined([sensor_name(sensor), celsius(kelvin)]),
-        None => celsius(kelvin),
-    }
+    let (kelvin, index) = hottest?;
+    Some(
+        match layout.sensors.iter().find(|sensor| sensor.index == index) {
+            Some(sensor) => joined([sensor_name(sensor), celsius(kelvin)]),
+            None => celsius(kelvin),
+        },
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use frameguin_contract::{
         Fan, FanDuty, Platform, Sensor, SensorReading, Temperature, ThermalLayout, ThermalState,
-        Thresholds,
+        Thresholds, Throttle, ThrottleSource,
     };
 
     use super::{
         Mark, Scale, Track, celsius, fan_label, fan_name, sensor_name, temperature_label,
-        thermal_summary, thresholds_label,
+        thermal_summary, thresholds_label, throttle_label,
     };
 
     const AT_67: Temperature = Temperature::Kelvin(340);
@@ -627,7 +676,30 @@ mod tests {
             ],
             fans: vec![Fan { index: 0, rpm: 0 }],
         };
-        assert_eq!(thermal_summary(&layout, &state), "Processor die · 67 °C");
+        assert_eq!(
+            thermal_summary(&layout, &state, None),
+            "Processor die · 67 °C"
+        );
+        let requested = Throttle {
+            requested: vec![ThrottleSource::Temperature],
+            forced: Vec::new(),
+        };
+        assert_eq!(
+            thermal_summary(&layout, &state, Some(&requested)),
+            "Processor die · 67 °C · Throttling requested"
+        );
+        let held = Throttle {
+            requested: vec![ThrottleSource::Temperature],
+            forced: vec![ThrottleSource::PowerLimitUpdate],
+        };
+        assert_eq!(
+            thermal_summary(&layout, &state, Some(&held)),
+            "Processor die · 67 °C · Throttling forced"
+        );
+        assert_eq!(
+            thermal_summary(&layout, &state, Some(&Throttle::default())),
+            "Processor die · 67 °C"
+        );
         let unread = ThermalState {
             sensors: vec![SensorReading {
                 index: 2,
@@ -635,6 +707,18 @@ mod tests {
             }],
             fans: Vec::new(),
         };
-        assert_eq!(thermal_summary(&layout, &unread), "");
+        assert_eq!(thermal_summary(&layout, &unread, None), "");
+    }
+
+    #[test]
+    fn a_throttle_names_who_asks_for_it() {
+        assert_eq!(throttle_label(&[]), "No");
+        assert_eq!(
+            throttle_label(&[
+                ThrottleSource::BatteryDischargeCurrent,
+                ThrottleSource::Other
+            ]),
+            "Battery discharge current · Another source"
+        );
     }
 }

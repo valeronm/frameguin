@@ -4,7 +4,7 @@ use std::rc::Rc;
 
 use frameguin_contract::{
     DeviceResult as Result, FanDuty, ThermalControl, ThermalFeature, ThermalLayout, ThermalState,
-    Thresholds,
+    Thresholds, Throttle,
 };
 
 use super::present;
@@ -47,6 +47,10 @@ impl<C: ThermalControl> Thermal<C> {
 
     pub async fn fan_duties(&self) -> Result<Vec<FanDuty>> {
         self.control.fan_duties().await
+    }
+
+    pub async fn throttle(&self) -> Result<Throttle> {
+        self.control.throttle().await
     }
 }
 

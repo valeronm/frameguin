@@ -8,7 +8,7 @@ use frameguin_contract::{
     ChassisFeature, ChassisState, ClickForce, DeckMode, DeckState, DeviceResult, ExtenderState,
     FanDuty, PortSet, PortState, PortsControl, PowerLedControl, PowerLedLevel, PrivacyState,
     PrivacySwitchesControl, ThermalControl, ThermalFeature, ThermalLayout, ThermalState,
-    Thresholds, TouchpadControl, TouchscreenControl, UsbControl,
+    Thresholds, Throttle, TouchpadControl, TouchscreenControl, UsbControl,
 };
 
 use crate::{FrameguinProxy, Proxies, from_bus_error, proxy};
@@ -187,6 +187,10 @@ impl ThermalControl for Bus {
 
     async fn fan_duties(&self) -> DeviceResult<Vec<FanDuty>> {
         call(self.devices.thermal.get_fan_duties()).await
+    }
+
+    async fn throttle(&self) -> DeviceResult<Throttle> {
+        call(self.devices.thermal.get_throttle()).await
     }
 }
 

@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use frameguin_contract::{
     DeviceResult, Fan, FanDuty, Sensor, SensorReading, ThermalControl, ThermalFeature,
-    ThermalLayout, ThermalState, Thresholds,
+    ThermalLayout, ThermalState, Thresholds, Throttle,
 };
 
 use crate::ec::{Ec, ThermalEc};
@@ -22,8 +22,8 @@ impl Thermal {
     }
 
     /// None where the memmap does not answer or reports no sensor and no
-    /// fan. The thresholds and the fan duty are each probed by their getter's
-    /// own read.
+    /// fan. The thresholds, the fan duty and the throttle are each probed by
+    /// their getter's own read.
     pub fn new(ec: Arc<dyn ThermalEc>) -> Option<Self> {
         let (bytes, words) = ec.thermal_memmap().ok()?;
         let sensors: Vec<Sensor> = (0u8..)
@@ -52,6 +52,9 @@ impl Thermal {
         }
         if !fans.is_empty() && fans.iter().all(|index| ec.fan_duty(*index).is_ok()) {
             features.push(ThermalFeature::FanDuty);
+        }
+        if ec.throttle().is_ok() {
+            features.push(ThermalFeature::Throttle);
         }
         Some(Self {
             ec,
@@ -123,6 +126,14 @@ impl ThermalControl for Thermal {
             })
             .collect()
     }
+
+    async fn throttle(&self) -> DeviceResult<Throttle> {
+        let (soft, hard) = self.ec.throttle()?;
+        Ok(Throttle {
+            requested: thermal::throttle_sources(soft),
+            forced: thermal::throttle_sources(hard),
+        })
+    }
 }
 
 #[cfg(test)]
@@ -131,7 +142,7 @@ mod tests {
 
     use frameguin_contract::{
         Fan, FanDuty, Sensor, SensorReading, Temperature, ThermalControl, ThermalFeature,
-        ThermalLayout,
+        ThermalLayout, Throttle, ThrottleSource,
     };
 
     use super::Thermal;
@@ -158,7 +169,11 @@ mod tests {
         );
         assert_eq!(
             ready(thermal.features()),
-            Ok(vec![ThermalFeature::Thresholds, ThermalFeature::FanDuty])
+            Ok(vec![
+                ThermalFeature::Thresholds,
+                ThermalFeature::FanDuty,
+                ThermalFeature::Throttle
+            ])
         );
     }
 
@@ -206,7 +221,10 @@ mod tests {
             ..Vents::default()
         };
         let thermal = Thermal::new(Arc::new(vents)).unwrap();
-        assert_eq!(ready(thermal.features()), Ok(vec![ThermalFeature::FanDuty]));
+        assert_eq!(
+            ready(thermal.features()),
+            Ok(vec![ThermalFeature::FanDuty, ThermalFeature::Throttle])
+        );
         assert!(ready(thermal.thresholds()).is_err());
     }
 
@@ -231,21 +249,55 @@ mod tests {
         let thermal = Thermal::new(Arc::new(vents)).unwrap();
         assert_eq!(
             ready(thermal.features()),
-            Ok(vec![ThermalFeature::Thresholds])
+            Ok(vec![ThermalFeature::Thresholds, ThermalFeature::Throttle])
         );
         assert!(ready(thermal.fan_duties()).is_err());
     }
 
     #[test]
+    fn each_throttle_names_who_asks_for_it() {
+        let vents = Vents {
+            throttle: Some((0b0000_0001, 0b0001_0010)),
+            ..Vents::default()
+        };
+        let thermal = Thermal::new(Arc::new(vents)).unwrap();
+        assert_eq!(
+            ready(thermal.throttle()),
+            Ok(Throttle {
+                requested: vec![ThrottleSource::Temperature],
+                forced: vec![
+                    ThrottleSource::BatteryDischargeCurrent,
+                    ThrottleSource::PowerLimitUpdate
+                ],
+            })
+        );
+    }
+
+    #[test]
+    fn firmware_without_the_throttle_read_offers_none() {
+        let vents = Vents {
+            throttle: None,
+            ..Vents::default()
+        };
+        let thermal = Thermal::new(Arc::new(vents)).unwrap();
+        assert_eq!(
+            ready(thermal.features()),
+            Ok(vec![ThermalFeature::Thresholds, ThermalFeature::FanDuty])
+        );
+        assert!(ready(thermal.throttle()).is_err());
+    }
+
+    #[test]
     fn a_read_refused_at_detection_is_answered_once_the_ec_does() {
         let vents = Vents {
-            failing_first: Mutex::new(2),
+            failing_first: Mutex::new(3),
             ..Vents::default()
         };
         let thermal = Thermal::new(Arc::new(vents)).unwrap();
         assert_eq!(ready(thermal.features()), Ok(Vec::new()));
         assert_eq!(ready(thermal.thresholds()).unwrap()[0].high, Some(361));
         assert_eq!(ready(thermal.fan_duties()).unwrap()[0].percent, 45);
+        assert_eq!(ready(thermal.throttle()), Ok(Throttle::default()));
     }
 
     #[test]

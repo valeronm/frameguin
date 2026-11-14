@@ -1052,8 +1052,10 @@ pub struct Vents {
     pub thresholds: Option<RawThresholds>,
     /// None for firmware without the fan duty read.
     pub fan_duty: Option<u8>,
-    /// How many threshold and fan duty reads fail before the EC answers
-    /// them.
+    /// None for firmware without the throttle read.
+    pub throttle: Option<(u8, u8)>,
+    /// How many threshold, fan duty and throttle reads fail before the EC
+    /// answers them.
     pub failing_first: Mutex<u8>,
 }
 
@@ -1078,6 +1080,7 @@ impl Default for Vents {
                 fan_max: 348,
             }),
             fan_duty: Some(45),
+            throttle: Some((0, 0)),
             failing_first: Mutex::new(0),
         }
     }
@@ -1103,6 +1106,12 @@ impl ThermalEc for Vents {
 
     fn fan_duty(&self, _index: u8) -> DeviceResult<u8> {
         self.fan_duty
+            .filter(|_| !self.fails_this_read())
+            .ok_or_else(|| DeviceError::Failed("invalid command".into()))
+    }
+
+    fn throttle(&self) -> DeviceResult<(u8, u8)> {
+        self.throttle
             .filter(|_| !self.fails_this_read())
             .ok_or_else(|| DeviceError::Failed("invalid command".into()))
     }

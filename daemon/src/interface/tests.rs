@@ -9,7 +9,7 @@ use async_io::Async;
 use frameguin_contract::{
     BatteryFeature, Board, ChargeCurrentLimit, ChargingLedFeature, ChargingLedSide, ChassisFeature,
     ClickForce, DeckMode, DeckState, DeviceError, OffRefusal, Platform, PortMask, PortPartner,
-    PowerLedLevel, Temperature, ThermalFeature, VENDOR,
+    PowerLedLevel, Temperature, ThermalFeature, Throttle, VENDOR,
 };
 use frameguin_hardware::device::Devices;
 use frameguin_hardware::device::battery::Battery;
@@ -298,12 +298,17 @@ fn every_getter_answers_through_its_proxy() {
         assert_eq!(layout.fans, [0]);
         assert_eq!(
             p.thermal.get_features().await.unwrap(),
-            [ThermalFeature::Thresholds, ThermalFeature::FanDuty]
+            [
+                ThermalFeature::Thresholds,
+                ThermalFeature::FanDuty,
+                ThermalFeature::Throttle
+            ]
         );
         let state = p.thermal.get_state().await.unwrap();
         assert_eq!(state.sensors[0].temperature, Temperature::Kelvin(340));
         assert_eq!(p.thermal.get_thresholds().await.unwrap().len(), 2);
         assert_eq!(p.thermal.get_fan_duties().await.unwrap()[0].percent, 45);
+        assert_eq!(p.thermal.get_throttle().await.unwrap(), Throttle::default());
         assert_eq!(p.usb.get_attached().await.unwrap(), Hub::default().devices);
     });
 }
