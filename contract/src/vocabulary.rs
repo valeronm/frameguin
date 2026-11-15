@@ -57,6 +57,10 @@ impl From<ChargeCurrentLimit> for Option<NonZeroU32> {
 /// see the other's copy.
 pub const MIN_CHARGE_LIMIT: u8 = 20;
 
+/// The highest charge limit `SetChargeLimit` accepts, and the one the EC
+/// treats as no ceiling. Spelled here because both ends must agree on it.
+pub const NO_CHARGE_LIMIT: u8 = 100;
+
 /// The lowest power LED brightness `SetBrightness` accepts, and so a slider's
 /// floor: the EC refuses 0, which would let the host put the indicator out.
 pub const MIN_POWER_LED_BRIGHTNESS: u8 = 1;
@@ -163,7 +167,7 @@ pub enum BatteryFeature {
 #[zvariant(signature = "s")]
 #[serde(rename_all = "kebab-case")]
 pub enum ExtenderStage {
-    /// Holding nothing of its own, whether counting down or switched off.
+    /// Stage 0: before the first stage, from the EC's start or after a reset.
     Inactive,
     First,
     Second,
@@ -176,16 +180,18 @@ pub struct ExtenderState {
     pub stage: ExtenderStage,
     /// Days from the EC's start or the last reset to the first stage.
     pub trigger_days: u16,
-    /// Seconds left until the first stage, and 0 where no countdown runs —
-    /// the first stage reached, or the extender switched off.
-    pub first_stage_seconds: u32,
+    /// Seconds left until the first stage, and None where no countdown runs.
+    pub first_stage_seconds: Option<u32>,
     /// Minutes continuously off the charger that return the extender to
     /// [`ExtenderStage::Inactive`] and restart its countdown.
     pub reset_minutes: u16,
-    /// Seconds left until a reset, and 0 where none is pending. A charger
+    /// Seconds left until a reset, and None where none is pending. A charger
     /// attached holds it at the whole of `reset_minutes`, the EC setting it
     /// back every second.
-    pub reset_seconds: u32,
+    pub reset_seconds: Option<u32>,
+    /// The state-of-charge window the EC's sustainer holds the pack in, and
+    /// None while it is off.
+    pub held: Option<(u8, u8)>,
 }
 
 /// Something wrong with the pack, as the pack itself judges it — named rather

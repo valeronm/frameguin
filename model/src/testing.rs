@@ -6,10 +6,11 @@ use frameguin_contract::{
     Attached, BatteryCondition, BatteryControl, BatteryFeature, BatteryInfo, Board, BoardControl,
     ChargeCurrentLimit, ChargeFlow, ChargingLedControl, ChargingLedFeature, ChargingLedSide,
     ChassisControl, ChassisFeature, ChassisState, ClickForce, DeckMode, DeckState, DeviceError,
-    DeviceResult, ExtenderStage, ExtenderState, Fan, FanDuty, PortSet, PortState, PortsControl,
-    PowerLedControl, PowerLedLevel, PrivacyState, PrivacySwitchesControl, Sensor, SensorReading,
-    Temperature, ThermalControl, ThermalFeature, ThermalLayout, ThermalState, Thresholds, Throttle,
-    ThrottleSource, TouchpadControl, TouchscreenControl, UsbControl, UsbSpeed,
+    DeviceResult, ExtenderStage, ExtenderState, Fan, FanDuty, NO_CHARGE_LIMIT, PortSet, PortState,
+    PortsControl, PowerLedControl, PowerLedLevel, PrivacyState, PrivacySwitchesControl, Sensor,
+    SensorReading, Temperature, ThermalControl, ThermalFeature, ThermalLayout, ThermalState,
+    Thresholds, Throttle, ThrottleSource, TouchpadControl, TouchscreenControl, UsbControl,
+    UsbSpeed,
 };
 
 pub(crate) use crate::fixtures::{CAPACITY, NOMINAL_MILLIVOLTS, cap, port, reading, state};
@@ -86,6 +87,8 @@ pub(crate) struct Machine {
     pub(crate) privacy_switches: Fault,
     pub(crate) thermal: Fault,
     pub(crate) usb: Fault,
+    pub(crate) charge_limit: Fault,
+    pub(crate) extender: Cell<bool>,
     pub(crate) thresholds: Cell<bool>,
     pub(crate) fan_duty: Cell<bool>,
     pub(crate) limit: Cell<u8>,
@@ -112,9 +115,11 @@ impl Default for Machine {
             privacy_switches: Fault::default(),
             thermal: Fault::default(),
             usb: Fault::default(),
+            charge_limit: Fault::default(),
+            extender: Cell::new(false),
             thresholds: Cell::new(true),
             fan_duty: Cell::new(true),
-            limit: Cell::new(100),
+            limit: Cell::new(NO_CHARGE_LIMIT),
             cap: Cell::new(ChargeCurrentLimit::NoLimit),
             haptic_intensity: Cell::new(50),
             click_force: Cell::new(ClickForce::Low),
@@ -168,11 +173,17 @@ impl BatteryControl for Machine {
     }
 
     async fn features(&self) -> DeviceResult<Vec<BatteryFeature>> {
-        self.battery.read(vec![BatteryFeature::ChargeLimit])
+        let mut features = vec![BatteryFeature::ChargeLimit];
+        if self.extender.get() {
+            features.push(BatteryFeature::Extender);
+        }
+        self.battery.read(features)
     }
 
     async fn charge_limit(&self) -> DeviceResult<u8> {
-        self.battery.read(self.limit.get())
+        self.battery
+            .read(self.limit.get())
+            .and_then(|limit| self.charge_limit.read(limit))
     }
 
     async fn set_charge_limit(&self, percent: u8) -> DeviceResult<bool> {
@@ -196,9 +207,10 @@ impl BatteryControl for Machine {
             enabled: true,
             stage: ExtenderStage::Inactive,
             trigger_days: 5,
-            first_stage_seconds: 3 * 86_400,
+            first_stage_seconds: Some(3 * 86_400),
             reset_minutes: 30,
-            reset_seconds: 30 * 60,
+            reset_seconds: Some(30 * 60),
+            held: None,
         })
     }
 }

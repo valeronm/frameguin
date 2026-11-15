@@ -10,18 +10,14 @@ pub mod reading;
 use std::num::NonZeroU32;
 
 use frameguin_contract::ChargeCurrentLimit;
-use frameguin_model::control::battery::{CUSTOM_CHARGE_STEP_MA, ChargeSpeeds, custom_charge_ma};
+use frameguin_model::control::battery::{
+    CUSTOM_CHARGE_STEP_MA, ChargeSpeeds, NO_CHARGE_LIMIT, custom_charge_ma,
+};
 
 use crate::rows::{Custom, names, row_for};
 use crate::units::{Kind, amps};
 
-const CHARGE_PRESETS: [u8; 4] = [100, 80, 70, 60];
-
-/// The ceiling that is no ceiling. A presentation fact rather than a wire
-/// one: the daemon takes 100 and writes it to the EC like any other
-/// percentage, and it is only here that the value stops being a limit and
-/// starts being the absence of one.
-pub const NO_CHARGE_LIMIT: u8 = 100;
+const CHARGE_PRESETS: [u8; 4] = [NO_CHARGE_LIMIT, 80, 70, 60];
 
 /// The window's combo carries one row past the presets, for a ceiling the
 /// user dials in; the tray offers the presets alone.

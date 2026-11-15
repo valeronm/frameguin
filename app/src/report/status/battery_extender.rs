@@ -1,15 +1,18 @@
-//! The battery extender: one row naming its stage, and a page adding
-//! when the first stage starts and what resets it.
+//! The battery extender: one row summing up its state, and a page adding its
+//! effect, what comes next and every stage in order.
 //!
 //! What each value is *called* is `frameguin_modelview::extender`'s.
 
 use std::rc::Rc;
 
 use adw::prelude::*;
-use frameguin_model::reading::Request;
+use frameguin_contract::ExtenderStage;
+use frameguin_model::control::battery::extender::{STAGES, in_force};
+use frameguin_model::reading::{ExtenderReading, Request};
 use frameguin_modelview::extender::{
-    description, first_stage_label, reset_words, stage_label, trigger_label,
+    Words, effect, next, stage_subtitle, stage_title, stage_value, state_label, summary,
 };
+use gtk4 as gtk;
 
 use super::{Section, Sidebar};
 use crate::reading::Feed;
@@ -17,13 +20,14 @@ use crate::report::{value, value_row};
 
 pub(super) fn add(sidebar: &Rc<Sidebar>, section: Section, feed: &Rc<Feed>) {
     let page = adw::PreferencesPage::new();
-    let group = adw::PreferencesGroup::builder()
-        .description(description())
-        .build();
+    let group = adw::PreferencesGroup::new();
     let stage = value(&group, "Stage");
-    let (first_stage_row, first_stage) = value_row(&group, "Starts in");
-    let (reset_row, reset) = value_row(&group, "");
+    let (effect_row, effect_value) = value_row(&group, "Effect");
+    let (next_row, next_value) = value_row(&group, "Next");
     page.add(&group);
+    let steps = adw::PreferencesGroup::builder().title("Stages").build();
+    let step_rows = STAGES.map(|stage| step_row(&steps, stage));
+    page.add(&steps);
     let row = sidebar.add(section, "Extender", &page);
 
     let request = Request {
@@ -31,25 +35,49 @@ pub(super) fn add(sidebar: &Rc<Sidebar>, section: Section, feed: &Rc<Feed>) {
         ..Request::default()
     };
     sidebar.follow(feed, request, move |reading| {
-        let Some(extender) = reading.extender else {
+        let Some(ExtenderReading {
+            state: extender,
+            charge_limit,
+        }) = reading.extender
+        else {
             return;
         };
-        let label = stage_label(extender, reading.charge_limit);
-        row.set_subtitle(&label);
-        stage.set_label(&label);
-        let countdown = first_stage_label(extender);
-        first_stage_row.set_visible(countdown.is_some());
-        if let Some(countdown) = countdown {
-            first_stage.set_label(&countdown);
-        }
-        first_stage_row.set_subtitle(&trigger_label(extender.trigger_days));
-        reset_row.set_visible(extender.enabled);
-        let words = reset_words(
+        row.set_subtitle(&summary(extender, charge_limit));
+        stage.set_label(state_label(extender));
+        show(&effect_row, &effect_value, &effect(extender, charge_limit));
+        let ahead = next(
             extender,
             reading.info.as_ref().map(|info| info.charger_connected),
         );
-        reset_row.set_title(words.title);
-        reset.set_label(&words.value);
-        reset_row.set_subtitle(words.subtitle.as_deref().unwrap_or_default());
+        next_row.set_visible(ahead.is_some());
+        if let Some(ahead) = ahead {
+            show(&next_row, &next_value, &ahead);
+        }
+        let current = in_force(extender);
+        for (stage, (step, mark)) in STAGES.into_iter().zip(&step_rows) {
+            step.set_subtitle(&stage_subtitle(stage, extender.trigger_days));
+            show_mark(mark, current == Some(stage));
+        }
     });
+}
+
+fn show(row: &adw::ActionRow, value: &gtk::Label, words: &Words) {
+    value.set_label(&words.value);
+    row.set_subtitle(words.subtitle.as_deref().unwrap_or_default());
+}
+
+fn step_row(group: &adw::PreferencesGroup, stage: ExtenderStage) -> (adw::ActionRow, gtk::Image) {
+    let (row, value) = value_row(group, stage_title(stage));
+    value.set_label(&stage_value(stage));
+    let mark = gtk::Image::from_icon_name("object-select-symbolic");
+    mark.update_property(&[gtk::accessible::Property::Label("Current stage")]);
+    show_mark(&mark, false);
+    row.add_prefix(&mark);
+    (row, mark)
+}
+
+/// Hidden by opacity so every step's title starts at one edge.
+fn show_mark(mark: &gtk::Image, current: bool) {
+    mark.set_opacity(if current { 1.0 } else { 0.0 });
+    mark.update_state(&[gtk::accessible::State::Hidden(!current)]);
 }

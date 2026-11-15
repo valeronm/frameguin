@@ -650,12 +650,19 @@ impl Charger for Ec {
     }
 
     fn extender(&self) -> DeviceResult<contract::ExtenderState> {
-        let raw = self
-            .ec()
+        let ec = self.ec();
+        let sustainer = ec
+            .send_command(
+                extender::SUSTAINER_COMMAND,
+                extender::SUSTAINER_VERSION,
+                &extender::SUSTAINER_READ_REQUEST,
+            )
+            .map_err(device_error)?;
+        let held = extender::held(&sustainer)?;
+        let raw = ec
             .send_command(extender::COMMAND, 0, &extender::READ_REQUEST)
             .map_err(device_error)?;
-        extender::state(&raw)
-            .ok_or_else(|| DeviceError::Failed("the EC answered no extender state".into()))
+        extender::state(&raw, held)
     }
 }
 
@@ -765,7 +772,11 @@ const POWER_LED_UNSET: u8 = 0;
 /// The EC stores 0 for no ceiling and runs its sustainer for it exactly as
 /// for 100.
 fn charge_ceiling(max: u8) -> u8 {
-    if max == 0 { 100 } else { max }
+    if max == 0 {
+        contract::NO_CHARGE_LIMIT
+    } else {
+        max
+    }
 }
 
 /// The level the EC named, or the one its percentage stands for where it

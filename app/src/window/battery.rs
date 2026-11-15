@@ -16,15 +16,15 @@ use adw::prelude::*;
 use frameguin_contract::{BatteryFeature, BatteryState, ChargeCurrentLimit, PortState};
 use frameguin_model::control::battery::{
     self, CUSTOM_CHARGE_STEP_MA, ChargeSpeeds, MIN_CHARGE_LIMIT, MIN_CUSTOM_CHARGE_MA,
-    custom_charge_ma,
+    NO_CHARGE_LIMIT, custom_charge_ma,
 };
 use frameguin_model::control::ports::Ports;
 use frameguin_model::port::Placement;
 use frameguin_model::reading::Request;
 use frameguin_modelview::battery::{
-    CHARGE_LIMIT_CUSTOM, CHARGE_SPEED_CUSTOM, NO_CHARGE_LIMIT, charge_limit_at,
-    charge_limit_labels, charge_limit_row, charge_speed_at, charge_speed_label,
-    charge_speed_labels, charge_speed_names, charge_speed_row, fastest_custom,
+    CHARGE_LIMIT_CUSTOM, CHARGE_SPEED_CUSTOM, charge_limit_at, charge_limit_labels,
+    charge_limit_row, charge_speed_at, charge_speed_label, charge_speed_labels, charge_speed_names,
+    charge_speed_row, fastest_custom,
     reading::{charge_flow_label, percent_label},
     with_custom_row,
 };

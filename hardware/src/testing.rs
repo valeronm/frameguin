@@ -202,9 +202,10 @@ pub const EXTENDER: ExtenderState = ExtenderState {
     enabled: true,
     stage: ExtenderStage::Inactive,
     trigger_days: 5,
-    first_stage_seconds: 3 * 86_400,
+    first_stage_seconds: Some(3 * 86_400),
     reset_minutes: 30,
-    reset_seconds: 30 * 60,
+    reset_seconds: Some(30 * 60),
+    held: None,
 };
 
 pub const fn cap(milliamps: u32) -> ChargeCurrentLimit {

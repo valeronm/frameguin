@@ -49,9 +49,9 @@ pub struct Request {
     pub deck: bool,
     /// One host command, whose handler prints two lines to the EC console.
     pub privacy_switches: bool,
-    /// The extender and the charge limit its window is weighed against: two
-    /// host commands. The battery block comes with it, being what says whether
-    /// a charger holds the extender's reset back.
+    /// The extender, the window held and the charge limit that window is
+    /// weighed against: three host commands. The battery block comes with it,
+    /// being what says whether a charger holds the extender's reset back.
     pub extender: bool,
     /// The devices on the USB root ports: a walk of sysfs, no EC transfer.
     pub usb: bool,
@@ -89,6 +89,14 @@ impl Request {
     }
 }
 
+/// The extender with the charge limit its held window is weighed against, read
+/// together or not at all.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct ExtenderReading {
+    pub state: ExtenderState,
+    pub charge_limit: u8,
+}
+
 /// An extra is None where nothing asked for it and where the ask failed alike.
 pub struct Reading {
     pub info: Option<BatteryInfo>,
@@ -99,9 +107,7 @@ pub struct Reading {
     pub chassis: Option<ChassisState>,
     pub deck: Option<DeckState>,
     pub privacy_switches: Option<PrivacyState>,
-    pub extender: Option<ExtenderState>,
-    /// Read beside the extender, and None on a board with no charge limit.
-    pub charge_limit: Option<u8>,
+    pub extender: Option<ExtenderReading>,
     pub usb: Option<Vec<Attached>>,
     pub charging_led_side: Option<ChargingLedSide>,
     pub thermal: Option<ThermalState>,
@@ -215,25 +221,21 @@ async fn battery_column<C: BatteryControl>(
 async fn extender_column<C: BatteryControl>(
     extras: &mut Extras,
     controls: &Controls<C>,
-) -> (Option<ExtenderState>, Option<u8>) {
-    let battery = controls.battery.as_ref();
-    let extender = extras
-        .read(
-            Extra::Extender,
-            battery
-                .filter(|b| b.has(BatteryFeature::Extender))
-                .map(|b| b.extender()),
-        )
+) -> Option<ExtenderReading> {
+    let battery = controls
+        .battery
+        .as_ref()
+        .filter(|b| b.has(BatteryFeature::Extender));
+    let state = extras
+        .read(Extra::Extender, battery.map(|b| b.extender()))
         .await;
     let charge_limit = extras
-        .read(
-            Extra::ChargeLimit,
-            battery
-                .filter(|b| b.has(BatteryFeature::ChargeLimit))
-                .map(|b| b.charge_limit()),
-        )
+        .read(Extra::ChargeLimit, battery.map(|b| b.charge_limit()))
         .await;
-    (extender, charge_limit)
+    Some(ExtenderReading {
+        state: state?,
+        charge_limit: charge_limit?,
+    })
 }
 
 async fn chassis_column<C: ChassisControl>(
@@ -325,7 +327,7 @@ where
             controls.privacy_switches.as_ref().map(|s| s.read()),
         )
         .await;
-    let (extender, charge_limit) = extender_column(&mut extras, controls).await;
+    let extender = extender_column(&mut extras, controls).await;
     let usb = extras
         .read(Extra::Usb, controls.usb.as_ref().map(|u| u.read()))
         .await;
@@ -349,7 +351,6 @@ where
         deck,
         privacy_switches,
         extender,
-        charge_limit,
         usb,
         charging_led_side,
         thermal,
@@ -547,6 +548,31 @@ mod tests {
         assert!(reading.condition.is_none());
         assert!(reading.extender.is_none());
         assert!(failures.is_empty());
+    }
+
+    #[test]
+    fn an_extender_is_read_only_with_the_charge_limit_it_is_weighed_against() {
+        let machine = Machine::new();
+        machine.extender.set(true);
+        let controls = ready(Controls::detect(&machine)).unwrap();
+        let request = Request {
+            extender: true,
+            ..Request::default()
+        };
+        let (reading, failures) = ready(read(&controls, request));
+        assert_eq!(
+            reading.extender.map(|extender| extender.charge_limit),
+            Some(100)
+        );
+        assert!(failures.is_empty());
+
+        machine
+            .charge_limit
+            .fail(DeviceError::Failed("no reply".into()));
+        let (reading, failures) = ready(read(&controls, request));
+        assert!(reading.extender.is_none());
+        let failed: Vec<Extra> = failures.iter().map(|f| f.extra).collect();
+        assert_eq!(failed, [Extra::ChargeLimit]);
     }
 
     #[test]

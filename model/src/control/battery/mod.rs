@@ -95,6 +95,22 @@ impl<C: BatteryControl> Battery<C> {
 /// accepts: a slider reaching below it would offer a write it refuses.
 pub use frameguin_contract::MIN_CHARGE_LIMIT;
 
+/// The ceiling that is no ceiling: the EC holds no window for it.
+pub use frameguin_contract::NO_CHARGE_LIMIT;
+
+/// The window the EC's sustainer holds the pack in for a charge limit alone,
+/// and None for [`NO_CHARGE_LIMIT`].
+fn charge_limit_window(limit: u8) -> Option<(u8, u8)> {
+    const HYSTERESIS: u8 = 5;
+    const FLOOR: u8 = 20;
+    (limit < NO_CHARGE_LIMIT).then(|| {
+        (
+            limit.saturating_sub(HYSTERESIS).max(FLOOR),
+            limit.max(FLOOR),
+        )
+    })
+}
+
 /// The slowest the custom slider will ask for. The EC takes anything above
 /// zero, but a limit this side of it charges so slowly that it reads as a
 /// fault rather than a setting.

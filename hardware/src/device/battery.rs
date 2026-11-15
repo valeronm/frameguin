@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use frameguin_contract::{
     BatteryCondition, BatteryControl, BatteryFeature, BatteryInfo, ChargeCurrentLimit, DeviceError,
-    DeviceResult, ExtenderState, MIN_CHARGE_LIMIT,
+    DeviceResult, ExtenderState, MIN_CHARGE_LIMIT, NO_CHARGE_LIMIT,
 };
 
 use crate::ec::{Charger, Ec, NO_CURRENT_LIMIT_MA, Pack};
@@ -45,7 +45,8 @@ impl Battery {
     /// The current cap needs the command and the pack both: a limit is only
     /// ever expressed as a share of what the pack asks for, and the pack is
     /// what this device's presence already vouches for. The extender is
-    /// probed by its getter's own read.
+    /// probed by its getter's own read, and needs the charge limit too:
+    /// what it does to the pack is weighed only against the limit's window.
     pub fn new(
         pack: Arc<dyn Pack>,
         charger: Arc<dyn Charger>,
@@ -62,7 +63,7 @@ impl Battery {
         if charger.charge_current_limit_supported() {
             features.push(BatteryFeature::ChargeCurrentLimit);
         }
-        if charger.extender().is_ok() {
+        if features.contains(&BatteryFeature::ChargeLimit) && charger.extender().is_ok() {
             features.push(BatteryFeature::Extender);
         }
         let current_limit_holder = if charger.current_limit_lifted_on_sleep() {
@@ -82,11 +83,11 @@ impl Battery {
     }
 
     fn check_charge_limit(percent: u8) -> DeviceResult<()> {
-        if (MIN_CHARGE_LIMIT..=100).contains(&percent) {
+        if (MIN_CHARGE_LIMIT..=NO_CHARGE_LIMIT).contains(&percent) {
             Ok(())
         } else {
             Err(DeviceError::InvalidArgs(format!(
-                "charge limit must be {MIN_CHARGE_LIMIT}-100"
+                "charge limit must be {MIN_CHARGE_LIMIT}-{NO_CHARGE_LIMIT}"
             )))
         }
     }

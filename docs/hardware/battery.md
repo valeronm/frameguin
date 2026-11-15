@@ -309,12 +309,13 @@ Registers read, all plain word reads:
 | What | a ceiling on state of charge, held by the EC's battery sustainer |
 | Command | `EC_CMD_CHARGE_LIMIT_CONTROL`, `0x3E03`, in `battery_extender.c` |
 | Storage | `SYSTEM_BBRAM_IDX_CHARGE_LIMIT_MAX`, battery-backed RAM |
-| Window | `battery_sustainer_set(max(20, limit - 5), limit)` |
-| Readback | the BBRAM value |
+| Window | `battery_sustainer_set(max(20, limit - 5), max(20, limit))` |
+| Readback | the BBRAM value; the window held, by `EC_CMD_CHARGE_CONTROL` |
 
 - A ceiling of 0, which `DISABLE` stores and a factory reset for shipping
   leaves, reads back as 0 and behaves as 100: both switch the sustainer
-  off, and the battery extender takes either as 100.
+  off while the battery extender is at stage 0, and the extender takes
+  either as 100.
 - Sitting at the ceiling is what produces the direction the
   [flag byte](#the-flag-byte) cannot express.
 - `CHG_LIMIT_OVERRIDE`, bit 7 of the same command's modes, lifts the
@@ -326,7 +327,12 @@ Registers read, all plain word reads:
   ([EmbeddedController #7](https://github.com/FrameworkComputer/EmbeddedController/pull/7));
   the Zephyr rewrite never took the fix.
 - The response carries only the BBRAM percentages, so the override has no
-  read either.
+  direct read either.
+- `EC_CMD_CHARGE_CONTROL`, `0x0096`: its get sub-command, from version 2,
+  answers the sustainer's window as it stands, both bounds -1 while it is
+  off, whichever of the charge limit, the battery extender or another
+  writer of this command set it, and nothing in the answer says which.
+  Every Framework branch carries it.
 
 ## Charge current limit
 
@@ -358,12 +364,32 @@ Framework's own addition beside the charge limit, in `battery_extender.c`.
 
 - A reset is `reset_minutes` continuously off the charger, 30 by default.
   Being on the charger pushes the reset's deadline forward every second, so
-  only an unplugged stretch counts; a reset returns the extender to holding
-  nothing with its countdown restarted. The countdown runs whether or not a
+  only an unplugged stretch counts; a reset returns the extender to stage 0
+  with its countdown restarted. The countdown runs whether or not a
   charger is attached.
+- The disable flag is held in RAM, so an EC restart switches the extender
+  back on. While disabled the stage returns to 0 and its deadlines and the
+  reset's are cleared. Re-enabling by host command sets neither deadline:
+  the read answers zero time left to stage 1 until a reset, a write that
+  changes `trigger_days`, or an EC restart sets one.
 - Each stage takes the lower of its own window and the charge limit's, so a
   limit at or under 95% leaves stage 1 nothing to change and one at or under
-  87% stage 2. The charge limit command answers the BBRAM value throughout.
+  87% stage 2, except under a limit of 20 to 24%, where the stage's lower
+  bound is `limit - 5` without the limit's 20% floor. The charge limit
+  command answers the BBRAM value throughout.
+- A reset or a disable switches the sustainer off only where the charge limit
+  is 100, and the limit's own window is set again only when the limit
+  changes. So under a limit below 100 whose own window differs from the
+  stage's, above the stage's top or at 20 to 24%, the stage's window stays
+  in force after the stage is gone, until the limit is written with another
+  value, the next stage fires, or the EC restarts. The
+  [readback](#charge-limit) is what shows it.
+- The reset's deadline is pushed forward every second a charger is
+  attached, and set otherwise only by a host write that changes
+  `reset_minutes`.
+  Off the charger since the EC started, since a reset fired, or since the
+  extender was switched back on, none is pending and the read answers zero
+  time left to it.
 - `BATTERY_EXTENDER_STAGE1_VOLTAGE` and `STAGE2_VOLTAGE` are defined and
   used by nothing; the charge voltage is not what the extender moves.
 - `EC_CMD_BATTERY_EXTENDER`, `0x3E24`: sub-command 1 reads the stage, the
