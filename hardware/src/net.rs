@@ -1,9 +1,10 @@
 //! The kernel's net class: an interface's address and its link.
 
-use std::fs;
 use std::path::Path;
 
 use frameguin_contract::{LinkState, NetworkLink};
+
+use crate::sysfs::attribute;
 
 pub(crate) fn link(interface: &Path) -> NetworkLink {
     let (state, megabits) = state(attribute(interface, "carrier").as_deref(), || {
@@ -18,12 +19,6 @@ pub(crate) fn link(interface: &Path) -> NetworkLink {
         state,
         megabits,
     }
-}
-
-fn attribute(dir: &Path, name: &str) -> Option<String> {
-    fs::read_to_string(dir.join(name))
-        .ok()
-        .map(|text| text.trim().to_owned())
 }
 
 /// A `carrier` that does not read is an interface that is down; `speed` is

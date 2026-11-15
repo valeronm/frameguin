@@ -3,20 +3,19 @@
 //! the raw structures under `/sys/firmware/dmi/entries`, which it keeps
 //! root-only — so those are the daemon's to read, not the app's.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use frameguin_contract::Board;
+
+use crate::sysfs;
 
 const ID: &str = "/sys/class/dmi/id";
 const ENTRIES: &str = "/sys/firmware/dmi/entries";
 
-/// Trimmed of the newline sysfs ends every one of these files with. None
-/// where the kernel keeps the field from this process — the serials are
-/// root-only — as well as where the firmware left it out.
+/// None where the kernel keeps the field from this process — the serials
+/// are root-only — as well as where the firmware left it out.
 pub(crate) fn field(name: &str) -> Option<String> {
-    std::fs::read_to_string(format!("{ID}/{name}"))
-        .ok()
-        .map(|value| value.trim().to_owned())
+    sysfs::attribute(Path::new(ID), name)
 }
 
 /// When the BIOS was built, as an ISO date where the firmware stamped the

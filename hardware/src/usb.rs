@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use frameguin_contract::{Attached, DeviceError, DeviceResult, NetworkLink, UsbSpeed};
 
-use crate::{ccg3, net, scsi};
+use crate::{ccg3, net, scsi, sysfs};
 
 const DEVICES: &str = "/sys/bus/usb/devices";
 
@@ -194,9 +194,7 @@ fn prefixed(dir: &Path, prefix: &'static str) -> impl Iterator<Item = PathBuf> +
 /// Empty where the attribute does not read, which is a device that carries
 /// none of that name.
 fn attribute(path: &Path, name: &str) -> String {
-    fs::read_to_string(path.join(name))
-        .map(|text| text.trim().to_owned())
-        .unwrap_or_default()
+    sysfs::attribute(path, name).unwrap_or_default()
 }
 
 /// Empty where the directory does not read.

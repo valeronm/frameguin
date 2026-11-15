@@ -1,5 +1,7 @@
 //! Intel's Management Engine, through the kernel's `mei` class.
 
+use crate::sysfs::attribute;
+
 const CLASS: &str = "/sys/class/mei";
 
 /// The class also holds a graphics card's own firmware interface, under
@@ -10,11 +12,11 @@ const ENGINE: &str = "mei";
 /// with no engine.
 pub(crate) fn version() -> Option<String> {
     std::fs::read_dir(CLASS).ok()?.flatten().find_map(|device| {
-        let read = |name| std::fs::read_to_string(device.path().join(name)).ok();
-        if read("kind")?.trim() != ENGINE {
+        let device = device.path();
+        if attribute(&device, "kind")? != ENGINE {
             return None;
         }
-        running(&read("fw_ver")?)
+        running(&attribute(&device, "fw_ver")?)
     })
 }
 

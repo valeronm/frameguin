@@ -4,6 +4,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use crate::sysfs::attribute;
 use crate::{block, pci};
 
 const CLASS: &str = "/sys/class/nvme";
@@ -70,10 +71,4 @@ fn capacity(controller: &Path) -> Option<u64> {
         .filter_map(|entry| block::bytes(&entry.path()))
         .sum();
     (bytes != 0).then_some(bytes)
-}
-
-fn attribute(dir: &Path, name: &str) -> Option<String> {
-    fs::read_to_string(dir.join(name))
-        .ok()
-        .map(|value| value.trim().to_owned())
 }
