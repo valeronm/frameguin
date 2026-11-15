@@ -133,15 +133,22 @@ pub(crate) enum Bay {
 /// The bay's PD controller sits on the module's own EEPROM bus, at the
 /// address the module declares.
 pub(crate) fn bay(platform: Platform, ec: &dyn PdPorts) -> Bay {
-    const BUS: u8 = 5;
-    if !matches!(
-        platform,
-        Platform::Laptop16Amd7040 | Platform::Laptop16AmdAi300
-    ) {
-        return Bay::None;
-    }
-    match bay::ccg8s(ec, BUS) {
-        Some(address) => Bay::Controller((BUS, u16::from(address))),
+    let bus = match platform {
+        Platform::Laptop16Amd7040 | Platform::Laptop16AmdAi300 => 5,
+        Platform::Laptop13Gen11
+        | Platform::Laptop13Gen12
+        | Platform::Laptop13Gen13
+        | Platform::Laptop13Ultra1
+        | Platform::Laptop13Amd7040
+        | Platform::Laptop13AmdAi300
+        | Platform::Laptop13ProUltra3
+        | Platform::Laptop12Gen13
+        | Platform::Laptop12Core3
+        | Platform::DesktopAmdAiMax300
+        | Platform::Unknown => return Bay::None,
+    };
+    match bay::ccg8s(ec, bus) {
+        Some(address) => Bay::Controller((bus, u16::from(address))),
         None => Bay::Silent,
     }
 }
