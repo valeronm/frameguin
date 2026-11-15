@@ -1637,6 +1637,14 @@ mod tests {
     };
 
     #[test]
+    fn all_lists_every_platform_in_declaration_order() {
+        for (index, platform) in Platform::ALL.into_iter().enumerate() {
+            assert_eq!(platform as usize, index, "{platform:?}");
+        }
+        assert_eq!(Platform::ALL.len(), Platform::Unknown as usize + 1);
+    }
+
+    #[test]
     fn a_platform_is_in_a_series_unless_it_is_unknown() {
         assert_eq!(Platform::Laptop13ProUltra3.series(), Some(Series::Laptop13));
         assert_eq!(Platform::Laptop12Core3.series(), Some(Series::Laptop12));
