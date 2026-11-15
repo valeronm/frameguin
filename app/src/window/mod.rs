@@ -3,8 +3,8 @@
 //!
 //! [`Sink`] lives here rather than beside the tray because the window is the
 //! end with somewhere to report; a group's `apply` takes one, so a tray
-//! preset borrows the window when one has been built and answers for itself
-//! when one has not.
+//! preset borrows the window when one is on screen and answers for itself
+//! when none is.
 //!
 //! A control with a module of its own in `frameguin_model` has a group
 //! module of its own here — its widgets, how a snapshot moves them, and what
@@ -232,11 +232,11 @@ impl Ui {
 }
 
 /// Where a write reports back to. A tray preset can arrive in a session whose
-/// window has never been built, and building a widget tree to hold a toast
-/// nobody will see is not worth it — so the tray answers for itself, and only
-/// the window carries the parts a window has. What the tray has is the
-/// desktop's notifications, and only a refusal earns one — the menu
-/// retitling itself is the success.
+/// window has never been built or is closed to the tray, and a toast there is
+/// one nobody will see — so the tray answers for itself, and only the window
+/// carries the parts a window has. What the tray has is the desktop's
+/// notifications, and only a refusal earns one — the menu retitling itself is
+/// the success.
 #[derive(Clone, Copy)]
 pub(crate) enum Sink<'a> {
     Window(&'a Ui),

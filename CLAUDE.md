@@ -326,8 +326,9 @@ it and the non-obvious constraints.
   write: the daemon call, the toast, the tray's copy, and moving the widget to
   match. Both the window's handler and the tray item call it; neither writes
   around it. The `Sink` it reports into decides the report's form: a toast
-  where a window is built, a desktop notification for a refusal where none
-  is. Controls the tray cannot set (the touchpad, the USB-C ports, the input
+  where the window is on screen, otherwise a desktop notification for a
+  refusal; a window closed to the tray is left alone and reloads its rows
+  when next shown. Controls the tray cannot set (the touchpad, the USB-C ports, the input
   deck) write inline
   in their handler — one caller needs no shared function, and giving it one
   would be ceremony. Either way a handler answers `window/widgets.rs`, or

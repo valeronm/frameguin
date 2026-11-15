@@ -69,10 +69,12 @@ impl AppState {
         .clone()
     }
 
-    /// The window's widgets if one has been built, without building one. A
-    /// tray preset needs somewhere to report, not a window.
-    fn built_ui(&self) -> Option<Rc<Ui>> {
-        self.window.borrow().as_ref().map(|(_, ui)| ui.clone())
+    fn shown_ui(&self) -> Option<Rc<Ui>> {
+        self.window
+            .borrow()
+            .as_ref()
+            .filter(|(window, _)| window.is_visible())
+            .map(|(_, ui)| ui.clone())
     }
 }
 
@@ -99,11 +101,10 @@ fn setup_tray(app: &adw::Application, state: Rc<AppState>) {
         // would leave the menu at Open/Quit.
         refresh_tray(&handle, &state.daemon).await;
         while let Ok(event) = rx.recv().await {
-            // Where a preset reports: the window when one has been built, the
-            // tray itself otherwise. Resolved once, so the fallback is stated
-            // in one place however many presets the menu grows.
-            let built = state.built_ui();
-            let sink = built.as_deref().map_or(
+            // The sink is resolved once, so the fallback is stated in one
+            // place however many presets the menu grows.
+            let shown = state.shown_ui();
+            let sink = shown.as_deref().map_or(
                 Sink::Tray {
                     handle: &handle,
                     notifier: &notifier,
