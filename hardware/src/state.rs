@@ -133,19 +133,26 @@ impl Store for StateFile {
 }
 
 impl StateFile {
-    // The directory is provisioned by StateDirectory= in the systemd unit.
     fn change(&self, change: impl FnOnce(&mut BTreeMap<String, String>) -> bool) {
-        let content = {
-            let mut entries = self.entries.lock().unwrap();
-            if !change(&mut entries) {
-                return;
-            }
-            render(&entries)
-        };
-        if let Err(e) = std::fs::write(STATE_FILE, content) {
+        let mut entries = self.entries.lock().unwrap();
+        if !change(&mut entries) {
+            return;
+        }
+        if let Err(e) = persist(&render(&entries)) {
             eprintln!("failed to persist state: {e}");
         }
     }
+}
+
+// The directory is provisioned by StateDirectory= in the systemd unit. A
+// power loss mid-write leaves the previous file whole.
+fn persist(content: &str) -> std::io::Result<()> {
+    use std::io::Write;
+    let staged = format!("{STATE_FILE}.new");
+    let mut file = std::fs::File::create(&staged)?;
+    file.write_all(content.as_bytes())?;
+    file.sync_all()?;
+    std::fs::rename(staged, STATE_FILE)
 }
 
 #[cfg(test)]
