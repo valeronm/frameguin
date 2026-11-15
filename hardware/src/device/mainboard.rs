@@ -6,6 +6,8 @@ use frameguin_contract::Board;
 use crate::build_info;
 use crate::dmi;
 use crate::ec::Ec;
+use crate::esrt;
+use crate::mei;
 use crate::part::{Detail, Firmware, FirmwareKind, Identity, Part, PartKind};
 use crate::pd;
 
@@ -28,6 +30,13 @@ impl Mainboard {
             .into_iter()
             .flatten()
             .chain(pd_firmware(&ec.map(Ec::pd_versions).unwrap_or_default()))
+            .chain(esrt::retimers().into_iter().map(|(controller, version)| {
+                Firmware::new(FirmwareKind::Retimer(controller), &version)
+            }))
+            .chain(
+                mei::version()
+                    .map(|version| Firmware::new(FirmwareKind::ManagementEngine, &version)),
+            )
             .collect();
         Some(Self::new(
             &dmi::field("board_vendor").unwrap_or_default(),

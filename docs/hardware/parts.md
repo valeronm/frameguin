@@ -54,7 +54,8 @@ nothing that identifies a Framework listing.
 **The mainboard is the only part that is also a controller.** It carries the
 EC, the processor and the PD controllers, so every control in the project is
 reached through a component on it. Its identity carries the BIOS, EC and PD
-controller firmware versions.
+controller firmware versions, and on an Intel board the USB4 retimers' and
+the Management Engine's.
 
 ## Announced but not a part
 
@@ -72,6 +73,9 @@ Detection reads several things it does not list as parts.
 - **The PD controllers.** They are reported as firmware versions on the
   mainboard. Nothing orderable sits behind them, except on the Laptop 16,
   where the third controller is on the expansion bay module.
+- **The USB4 retimers and the Management Engine.** An Intel board reports
+  them as firmware versions on the mainboard too, a retimer under the
+  number of the PD controller whose ports it serves.
 - **Bluetooth.** On a CNVi board it is the same silicon as the Wi-Fi radio and
   equally anonymous. No USB companion on the bus identifies a module.
 - **The audio board.** It answers an ID resistor during the EC's input-deck
@@ -79,10 +83,12 @@ Detection reads several things it does not list as parts.
 
 ## Gaps
 
-**The mainboard's identity spans two transports.** Its board and BIOS come
+**The mainboard's identity spans four transports.** Its board and BIOS come
 over `dmi`, its EC and PD controller firmware versions over `ec`, which
 [`ec.md`](ec.md#which-board-the-ec-tree-calls-this-machine)
-carries and the table above cannot show in one row.
+carries, its retimer versions over [`esrt`](esrt.md) and its Management
+Engine version over [`mei`](mei.md). The table above cannot show that in
+one row.
 
 **The keyboard backlight has a file but no part and no control.** It is
 read and set over the EC like the LEDs. Nothing in the project implements it,

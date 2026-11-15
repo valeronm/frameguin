@@ -470,6 +470,8 @@ pub fn firmware_name(kind: FirmwareKind) -> String {
         FirmwareKind::Bios => "BIOS".to_owned(),
         FirmwareKind::Ec => "EC".to_owned(),
         FirmwareKind::PowerDelivery(controller) => format!("PD {controller}"),
+        FirmwareKind::Retimer(controller) => format!("Retimer {controller}"),
+        FirmwareKind::ManagementEngine => "ME".to_owned(),
         FirmwareKind::Own => "Firmware".to_owned(),
         FirmwareKind::TouchController => "Controller".to_owned(),
     }
@@ -1209,6 +1211,12 @@ mod tests {
     #[test]
     fn a_pd_controller_is_named_by_its_number() {
         assert_eq!(firmware_name(FirmwareKind::PowerDelivery(2)), "PD 2");
+    }
+
+    #[test]
+    fn a_retimer_is_named_by_its_pd_controllers_number() {
+        assert_eq!(firmware_name(FirmwareKind::Retimer(1)), "Retimer 1");
+        assert_eq!(firmware_name(FirmwareKind::ManagementEngine), "ME");
     }
 
     #[test]

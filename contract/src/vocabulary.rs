@@ -1450,6 +1450,10 @@ pub enum FirmwareKind {
     Ec,
     /// A USB-C power delivery controller, by the EC's controller number.
     PowerDelivery(u8),
+    /// A USB4 retimer, by the number of the PD controller whose ports it
+    /// serves.
+    Retimer(u8),
+    ManagementEngine,
     /// The part's own, on a part carrying no other firmware to tell it
     /// apart from.
     Own,
@@ -1462,6 +1466,8 @@ enum Carrier {
     Bios,
     Ec,
     PowerDelivery,
+    Retimer,
+    ManagementEngine,
     Own,
     TouchController,
 }
@@ -1472,6 +1478,8 @@ impl Serialize for FirmwareKind {
             Self::Bios => (Carrier::Bios, 0u8),
             Self::Ec => (Carrier::Ec, 0),
             Self::PowerDelivery(controller) => (Carrier::PowerDelivery, controller),
+            Self::Retimer(controller) => (Carrier::Retimer, controller),
+            Self::ManagementEngine => (Carrier::ManagementEngine, 0),
             Self::Own => (Carrier::Own, 0),
             Self::TouchController => (Carrier::TouchController, 0),
         }
@@ -1486,6 +1494,8 @@ impl<'de> Deserialize<'de> for FirmwareKind {
             Carrier::Bios => Self::Bios,
             Carrier::Ec => Self::Ec,
             Carrier::PowerDelivery => Self::PowerDelivery(controller),
+            Carrier::Retimer => Self::Retimer(controller),
+            Carrier::ManagementEngine => Self::ManagementEngine,
             Carrier::Own => Self::Own,
             Carrier::TouchController => Self::TouchController,
         })
@@ -1793,6 +1803,8 @@ mod tests {
             FirmwareKind::Bios,
             FirmwareKind::Ec,
             FirmwareKind::PowerDelivery(2),
+            FirmwareKind::Retimer(1),
+            FirmwareKind::ManagementEngine,
             FirmwareKind::Own,
             FirmwareKind::TouchController,
         ];

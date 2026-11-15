@@ -14,10 +14,12 @@
 //! filename answers which way: `ec` the EC, `led` the kernel's LED class,
 //! `touchpad` the pad's own HID transport, `panel` the touch panel's,
 //! `gpio` a pad on the processor through the GPIO character device, `dmi`
-//! the firmware's SMBIOS table, `drm` the kernel's DRM class, `nvme` the
-//! kernel's `NVMe` class, `usb` the kernel's USB bus, `pci` the kernel's PCI
-//! bus, `wireless` the kernel's `ieee80211` class, `net` the kernel's net
-//! class, `scsi` the kernel's SCSI class, `block` the kernel's block layer.
+//! the firmware's SMBIOS table, `esrt` its table of what a capsule can
+//! update, `mei` the kernel's `mei` class, `drm` the kernel's DRM class,
+//! `nvme` the kernel's `NVMe` class, `usb` the kernel's USB bus, `pci` the
+//! kernel's PCI bus, `wireless` the kernel's `ieee80211` class, `net` the
+//! kernel's net class, `scsi` the kernel's SCSI class, `block` the kernel's
+//! block layer.
 //! `touchscreen` settles which of two routes a machine has, and is the role
 //! over either. `sbs` is the pack's own registers and what their words mean,
 //! `thermal` what the EC's memmap thermal bytes and its threshold command
@@ -51,10 +53,12 @@ pub(crate) mod dmi;
 pub(crate) mod drm;
 pub(crate) mod ec;
 pub(crate) mod edid;
+pub(crate) mod esrt;
 pub(crate) mod extender;
 pub(crate) mod gpio;
 pub(crate) mod led;
 pub(crate) mod lifetime;
+pub(crate) mod mei;
 pub mod mirror;
 pub(crate) mod net;
 pub(crate) mod nvme;

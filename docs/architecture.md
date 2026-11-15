@@ -258,8 +258,8 @@ The two facets are not one list. A memory module or an expansion card is a
 part with no control; the power button LED is a control that is no part, and
 so is the touch controller, whose version is firmware on the panel it sits
 in front of; the mainboard is a part the daemon reads and never sets, and
-its BIOS, its EC and
-its USB-C power delivery controllers are firmware it runs rather than parts of
+its BIOS, its EC, its USB-C power delivery controllers, its USB4 retimers
+and its Management Engine are firmware it runs rather than parts of
 their own — what is soldered to the board is not a part, there being no such
 thing to order. So the inventory is its own
 list, a control's device is on it only where it happens to be a part, and
