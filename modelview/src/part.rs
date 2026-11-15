@@ -5,7 +5,9 @@
 
 use std::fmt::Write;
 
-use frameguin_contract::{Detail, FirmwareKind, Identity, PartKind, Platform, Series, VENDOR};
+use frameguin_contract::{
+    Detail, Firmware, FirmwareKind, Identity, PartKind, Platform, Series, VENDOR,
+};
 
 use crate::battery::reading::capacity;
 use crate::date;
@@ -463,17 +465,42 @@ fn detail_row(detail: &Detail) -> (&'static str, String) {
     }
 }
 
-/// Named for what carries the firmware, as the part's user would.
-#[must_use]
-pub fn firmware_name(kind: FirmwareKind) -> String {
+fn firmware_name(kind: FirmwareKind) -> String {
     match kind {
         FirmwareKind::Bios => "BIOS".to_owned(),
         FirmwareKind::Ec => "EC".to_owned(),
         FirmwareKind::PowerDelivery(controller) => format!("PD {controller}"),
         FirmwareKind::Retimer(controller) => format!("Retimer {controller}"),
         FirmwareKind::ManagementEngine => "ME".to_owned(),
-        FirmwareKind::Own => "Firmware".to_owned(),
-        FirmwareKind::TouchController => "Controller".to_owned(),
+        FirmwareKind::Own => "Version".to_owned(),
+        FirmwareKind::TouchController => "Touch controller".to_owned(),
+    }
+}
+
+/// A field the firmware left unannounced has no row.
+#[must_use]
+pub fn firmware_rows(firmware: &Firmware) -> Vec<(String, String)> {
+    let [version, built, builder] = firmware_titles(firmware.kind);
+    [
+        (version, firmware.version.clone()),
+        (built, date::spelled(&firmware.built)),
+        (builder, firmware.builder.clone()),
+    ]
+    .into_iter()
+    .filter(|(_, value)| !value.is_empty())
+    .collect()
+}
+
+/// A part's own firmware has no name to prefix its titles with.
+fn firmware_titles(kind: FirmwareKind) -> [String; 3] {
+    let name = firmware_name(kind);
+    match kind {
+        FirmwareKind::Own => [name, "Built".to_owned(), "Builder".to_owned()],
+        _ => [
+            name.clone(),
+            format!("{name} built"),
+            format!("{name} builder"),
+        ],
     }
 }
 
@@ -598,14 +625,10 @@ pub fn listing(parts: &[Identity]) -> String {
         let firmware: Vec<_> = firmware
             .iter()
             .map(|firmware| {
-                let stamped: Vec<_> = [
-                    firmware.version.clone(),
-                    date::spelled(&firmware.built),
-                    firmware.builder.clone(),
-                ]
-                .into_iter()
-                .filter(|field| !field.is_empty())
-                .collect();
+                let stamped: Vec<_> = firmware_rows(firmware)
+                    .into_iter()
+                    .map(|(_, value)| value)
+                    .collect();
                 (firmware_name(firmware.kind), stamped.join(" "))
             })
             .collect();
@@ -648,8 +671,8 @@ mod tests {
     };
 
     use super::{
-        aspect, catalog, detail_row, detail_rows, firmware_name, generation, inventory, listing,
-        mainboard_name, maker, name, ordered, part_number,
+        aspect, catalog, detail_row, detail_rows, firmware_name, firmware_rows, generation,
+        inventory, listing, mainboard_name, maker, name, ordered, part_number,
     };
 
     /// The machine the part fixtures are read from.
@@ -1186,7 +1209,7 @@ mod tests {
              \x20   model:        WD_BLACK SN7100\n\
              \x20   part number:  SD PC SN7100S SDFPNSL-1T00\n\
              \x20   firmware:\n\
-             \x20     Firmware:  7612M000 2 January 2025\n"
+             \x20     Version:  7612M000 2 January 2025\n"
         );
     }
 
@@ -1217,6 +1240,31 @@ mod tests {
     fn a_retimer_is_named_by_its_pd_controllers_number() {
         assert_eq!(firmware_name(FirmwareKind::Retimer(1)), "Retimer 1");
         assert_eq!(firmware_name(FirmwareKind::ManagementEngine), "ME");
+    }
+
+    #[test]
+    fn a_firmware_has_a_row_for_each_thing_it_announced() {
+        let ec = Firmware {
+            built: "2026-10-16".to_owned(),
+            ..Firmware::new(FirmwareKind::Ec, "sakura-3.0.4")
+        };
+        let rows = firmware_rows(&ec);
+        let titles: Vec<_> = rows.iter().map(|(title, _)| title.as_str()).collect();
+        assert_eq!(titles, ["EC", "EC built"]);
+        assert_eq!(rows[0].1, "sakura-3.0.4");
+        assert!(firmware_rows(&Firmware::new(FirmwareKind::Own, "")).is_empty());
+    }
+
+    #[test]
+    fn a_part_s_own_firmware_is_titled_without_a_name() {
+        let own = Firmware {
+            built: "2025-01-02".to_owned(),
+            builder: "wd".to_owned(),
+            ..Firmware::new(FirmwareKind::Own, "7612M000")
+        };
+        let rows = firmware_rows(&own);
+        let titles: Vec<_> = rows.iter().map(|(title, _)| title.as_str()).collect();
+        assert_eq!(titles, ["Version", "Built", "Builder"]);
     }
 
     #[test]

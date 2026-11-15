@@ -1,14 +1,13 @@
 //! The Hardware window: the machine's bill of materials, as the daemon detected
-//! it — the parts in a sidebar, the selected one's identity and firmware as
-//! rows beside it.
+//! it — the parts in a sidebar, the selected one's identity as rows beside
+//! it and its firmware in a group of its own.
 
 use std::rc::Rc;
 
 use adw::prelude::*;
 use frameguin_contract::{DeviceResult, Identity, Platform};
-use frameguin_modelview::date;
 use frameguin_modelview::part::{
-    Catalog, catalog, detail_rows, firmware_name, generation, inventory, maker, name, part_number,
+    Catalog, catalog, detail_rows, firmware_rows, generation, inventory, maker, name, part_number,
 };
 use frameguin_wire::from_bus_error;
 use gtk4 as gtk;
@@ -183,17 +182,15 @@ fn details(part: &Identity, sold: Option<Catalog>) -> adw::PreferencesPage {
     }
     optional_value(&group, "Generation", generation(part, sold));
     optional_value(&group, "Serial number", serial);
-    for firmware in firmware {
-        let name = firmware_name(firmware.kind);
-        optional_value(&group, &name, &firmware.version);
-        optional_value(
-            &group,
-            &format!("{name} built"),
-            &date::spelled(&firmware.built),
-        );
-        optional_value(&group, &format!("{name} builder"), &firmware.builder);
-    }
     page.add(&group);
+    let rows: Vec<_> = firmware.iter().flat_map(firmware_rows).collect();
+    if !rows.is_empty() {
+        let group = adw::PreferencesGroup::builder().title("Firmware").build();
+        for (title, text) in rows {
+            value(&group, &title).set_label(&text);
+        }
+        page.add(&group);
+    }
     page
 }
 
