@@ -86,8 +86,8 @@ pub const DECK_RESET_SUBTITLE: &str = "Cuts its power for a moment, then returns
 pub fn force_off_warning(load: Option<DeckLoad>) -> &'static str {
     match load {
         Some(DeckLoad::Touchpad) => {
-            "The touchpad loses power and stays off, through a restart too, until the mode \
-             is changed back. The keyboard keeps working."
+            "The touchpad and the fingerprint reader lose power and stay off, through a \
+             restart too, until the mode is changed back. The keyboard keeps working."
         }
         Some(DeckLoad::InputModules) => {
             "The keyboard, the touchpad and every other input module lose power and stay \

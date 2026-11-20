@@ -134,6 +134,8 @@ takes a mode:
 - What the rail powers is Framework's own account in `framework-system`'s
   `EXAMPLES.md`: the touchpad on a Laptop 13 and a Laptop 12, whose
   keyboard is switches wired to the EC, and the whole deck on a Laptop 16.
+  On the Laptop 13 Pro the rail powers the fingerprint reader as well,
+  which that account leaves out.
 
 | State | Value | `wire::DeckState` |
 |---|---|---|
@@ -159,6 +161,8 @@ takes a mode:
 |---|---|
 | Touchpad board ID, deck powered | 12; the audio board's reads 11 beside it |
 | Deck state on a usable machine | on |
+| Forced off | the touchpad and [the fingerprint reader](usb.md#fingerprint-reader) drop off their buses; the keyboard and its backlight stay up |
+| Suspended while forced off | stays forced off; `i2c_hid_acpi` fails the touchpad's resume with `-121` |
 
 ## Persistence
 
@@ -171,7 +175,8 @@ The input deck's mode, on the `fwk-sakura` branch.
 | EC restart, Laptop 13 | back to detection | `board_function.c` saves and reads `FLASH_FLAGS_INPUT_MODULE_POWER` only under `CONFIG_PLATFORM_EC_FRAMEWORK_LAPTOP_16` |
 | EC restart, Laptop 16 | stands once saved | the flag is written by `bios_function_detect`, which runs when the host reports its ACPI driver ready, and read back at init |
 
-- Untested: every row is from the source.
+- The Suspend row is in the input deck's Observed table as well; the other
+  rows are from the source.
 
 ## Open
 
