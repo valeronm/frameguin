@@ -1,5 +1,6 @@
 //! The Charging LED group: the switch, and which side of the chassis is lit.
 
+use std::cell::Cell;
 use std::rc::Rc;
 
 use adw::prelude::*;
@@ -10,15 +11,21 @@ use frameguin_modelview::charging_led::side_label;
 use frameguin_wire::Bus;
 use gtk4 as gtk;
 
+use crate::dangerous::LOCKED;
 use crate::reading::show_while_mapped;
 use crate::synced::{connect_switch, show_switch};
 use crate::window::Ui;
 
 pub(crate) type ChargingLed = charging_led::ChargingLed<Bus>;
 
+const HIDES_WARNINGS: &str = "Off also hides the battery and fault warnings it blinks";
+
 pub(crate) struct Group {
     pub(crate) widget: adw::PreferencesGroup,
     switch: adw::SwitchRow,
+    /// Whether a read has filled the switch, before which it is not usable
+    /// whatever is allowed.
+    filled: Cell<bool>,
     side_row: adw::ActionRow,
     side: gtk::Label,
 }
@@ -30,7 +37,7 @@ impl Group {
             .build();
         let switch = adw::SwitchRow::builder()
             .title("Indicator")
-            .subtitle("Off also hides the battery and fault warnings it blinks")
+            .subtitle(HIDES_WARNINGS)
             .sensitive(false)
             .build();
         let side_row = adw::ActionRow::builder().title("Lit side").build();
@@ -41,6 +48,7 @@ impl Group {
         Self {
             widget,
             switch,
+            filled: Cell::default(),
             side_row,
             side,
         }
@@ -75,26 +83,53 @@ impl Group {
 
     pub(crate) async fn load(&self, ui: &Ui, control: &ChargingLed) {
         match control.read().await {
-            Ok(enabled) => show_switch(&ui.guard, &self.switch, enabled),
+            Ok(enabled) => self.show(ui, enabled),
             Err(e) => ui.toast_error("Reading the charging LED", e),
         }
+    }
+
+    fn show(&self, ui: &Ui, enabled: bool) {
+        show_switch(&ui.guard, &self.switch, enabled);
+        self.filled.set(true);
+        self.lock(ui.dangerous.allowed());
+    }
+
+    fn lock(&self, allowed: bool) {
+        if !self.filled.get() {
+            return;
+        }
+        let locked = self.switch.is_active() && !allowed;
+        self.switch.set_sensitive(!locked);
+        self.switch
+            .set_subtitle(if locked { LOCKED } else { HIDES_WARNINGS });
     }
 
     /// Re-read after every write, taken or refused: a switch left on Off by
     /// a refused write claims warnings are hidden that the LED still shows.
     pub(crate) fn connect(&self, ui: &Rc<Ui>, control: &Rc<ChargingLed>) {
+        let following = Rc::downgrade(ui);
+        ui.dangerous.follow(&self.switch, move |allowed| {
+            if let Some(ui) = following.upgrade() {
+                ui.charging_led.lock(allowed);
+            }
+        });
         connect_switch(
             &ui.guard,
             ui,
             control,
             &self.switch,
             |ui, control, enabled| async move {
+                let group = &ui.charging_led;
+                if !enabled && !ui.dangerous.allowed() {
+                    group.show(&ui, true);
+                    return;
+                }
                 if let Err(e) = control.set_enabled(enabled).await {
                     ui.toast_error("Switching the charging LED", e);
                 }
-                let group = &ui.charging_led;
-                if let Ok(enabled) = control.read().await {
-                    show_switch(&ui.guard, &group.switch, enabled);
+                match control.read().await {
+                    Ok(enabled) => group.show(&ui, enabled),
+                    Err(_) => group.lock(ui.dangerous.allowed()),
                 }
                 if control.has(ChargingLedFeature::Side)
                     && let Ok(side) = control.side().await

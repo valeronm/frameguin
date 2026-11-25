@@ -23,6 +23,7 @@ use gtk4::gio;
 use frameguin_contract::DeviceError;
 
 use crate::daemon::Daemon;
+use crate::dangerous::Dangerous;
 use crate::failure;
 use crate::reading::Feed;
 
@@ -34,10 +35,11 @@ use crate::reading::Feed;
 pub(crate) fn actions(
     daemon: &Rc<Daemon>,
     feed: &Rc<Feed>,
+    dangerous: &Rc<Dangerous>,
 ) -> [gio::ActionEntry<adw::Application>; 2] {
     [
         parts::action(daemon.clone()),
-        status::action(daemon.clone(), feed.clone()),
+        status::action(daemon.clone(), feed.clone(), dangerous.clone()),
     ]
 }
 

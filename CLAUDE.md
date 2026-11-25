@@ -360,6 +360,17 @@ it and the non-obvious constraints.
   the keyboard that would undo it. Everything
   else here would have to capture a value before the write or re-read after
   it, for a stale row that outlives nothing worse than the next reload.
+- What a slip could leave hard to undo — an LED, a USB-C port or the input
+  deck turned off — is offered only while the Preferences switch
+  `dangerous.rs` holds allows it. Only the turning off is locked, so a
+  widget already showing off stays usable and nothing is left stuck there.
+  The widget draws the lock — a switch that is on held insensitive, a
+  combo's row dimmed and unpickable — and the handler decides it, refusing
+  the write before it calls the daemon: a switch just turned on stays
+  sensitive until its re-read lands, so sensitivity alone lets a second
+  click through. The switch is the app's own, kept in the user's config
+  directory; the daemon knows nothing of it, and polkit stays the
+  authorization. Nothing checks that a handler asks.
 - The tray holds what gets changed on the move or several times a day — the
   charging, the touchscreen — and leaves a setting picked once and kept, such
   as an LED's level, to the window. It offers one item per control, not

@@ -20,7 +20,7 @@ use std::rc::{Rc, Weak};
 use std::time::Duration;
 
 use adw::prelude::*;
-use frameguin_contract::{Attached, PortMask, PortReading, PortState};
+use frameguin_contract::{Attached, OffRefusal, PortMask, PortReading, PortState};
 use frameguin_model::control::ports::{Ports, attached, bus_voltage, powering};
 use frameguin_model::port::Placement;
 use frameguin_model::reading::{Reading, Request};
@@ -40,9 +40,10 @@ use gtk4::glib;
 use self::picker::Picker;
 use super::track::{TrackRow, TrackView};
 use super::{Answer, Sidebar, Target, Writes, written};
+use crate::dangerous::{Dangerous, LOCKED};
 use crate::reading::{Feed, show_while_mapped};
 use crate::report::value_row;
-use crate::synced::{Guard, connect_switch, show_switch};
+use crate::synced::{Guard, connect_switch};
 
 const PORTS: &str = "Ports";
 
@@ -86,6 +87,10 @@ struct PortDetails {
     /// Beside the first group's title, moved onto the new one on a redraw.
     switch: Option<gtk::Switch>,
     guard: Guard,
+    dangerous: Rc<Dangerous>,
+    /// Whether the last reading had the port on, and why it could not be
+    /// turned off; None until one arrives.
+    masked: Cell<Option<(bool, Option<OffRefusal>)>>,
     drawn: RefCell<Option<Drawn>>,
 }
 
@@ -294,6 +299,8 @@ impl Section {
                 placement,
                 switch: switchable.contains(index).then(|| self.switch(index, feed)),
                 guard: self.writes.guard.clone(),
+                dangerous: self.writes.dangerous.clone(),
+                masked: Cell::default(),
                 drawn: RefCell::default(),
             })
             .collect();
@@ -309,6 +316,14 @@ impl Section {
             show_while_mapped(feed, &widget, request, move |reading| {
                 if let Some((ports, devices)) = read(reading) {
                     showing.show(ports, devices);
+                }
+            });
+            let locking = page.clone();
+            self.writes.dangerous.follow(&widget, move |_| {
+                for details in &locking.details {
+                    if let Some(drawn) = &*details.drawn.borrow() {
+                        details.show_switch(&drawn.groups);
+                    }
                 }
             });
         }
@@ -342,13 +357,18 @@ impl Section {
                     let (Some(switch), Some(feed)) = (switched.upgrade(), feed.upgrade()) else {
                         return;
                     };
+                    if !enabled && !writes.dangerous.allowed() {
+                        writes.guard.sync(|| switch.set_active(true));
+                        switch.set_sensitive(false);
+                        return;
+                    }
                     let detected = enabled.then_some(PARTNER_DETECTED);
                     let written = written(&feed, &switch, detected, || {
                         control.set_enabled(index, enabled)
                     });
                     if let Err(e) = written.await {
                         writes.toast_error("Switching a USB-C port", e);
-                        show_switch(&writes.guard, &switch, !enabled);
+                        writes.guard.sync(|| switch.set_active(!enabled));
                     }
                 }
             },
@@ -451,17 +471,26 @@ impl PortDetails {
         });
     }
 
+    fn show_mask(&self, state: &PortState, groups: &[adw::PreferencesGroup]) {
+        let on = !matches!(state.mask, PortMask::Off);
+        self.masked.set(Some((on, state.mask.refusal())));
+        self.show_switch(groups);
+    }
+
     /// The first group's description is the switch's, since the switch has
     /// no row of its own to carry one.
-    fn show_mask(&self, state: &PortState, groups: &[adw::PreferencesGroup]) {
-        let (Some(switch), Some(first)) = (&self.switch, groups.first()) else {
+    fn show_switch(&self, groups: &[adw::PreferencesGroup]) {
+        let (Some(switch), Some(first), Some((on, refusal))) =
+            (&self.switch, groups.first(), self.masked.get())
+        else {
             return;
         };
-        let refusal = state.mask.refusal();
-        first.set_description(Some(refusal.map_or(STAYS_OFF, refusal_label)));
+        let locked = on && !self.dangerous.allowed();
+        let unrefused = if locked { LOCKED } else { STAYS_OFF };
+        first.set_description(Some(refusal.map_or(unrefused, refusal_label)));
         self.guard.sync(|| {
-            switch.set_active(!matches!(state.mask, PortMask::Off));
-            switch.set_sensitive(refusal.is_none());
+            switch.set_active(on);
+            switch.set_sensitive(refusal.is_none() && !locked);
         });
     }
 }

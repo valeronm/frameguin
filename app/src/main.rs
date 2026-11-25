@@ -6,6 +6,7 @@
 mod about;
 mod autostart;
 mod daemon;
+mod dangerous;
 mod failure;
 mod mapped;
 mod reading;
@@ -24,6 +25,7 @@ use gtk4::gio;
 use gtk4::glib;
 
 use crate::daemon::Daemon;
+use crate::dangerous::Dangerous;
 use crate::failure::Notifier;
 use crate::reading::Feed;
 use crate::report::status::{self, Target};
@@ -43,6 +45,7 @@ struct AppState {
     /// Here rather than on either window: the Readings window can be open with
     /// no main window built, and the main window outlives it.
     feed: Rc<Feed>,
+    dangerous: Rc<Dangerous>,
 }
 
 impl AppState {
@@ -53,6 +56,7 @@ impl AppState {
             tray: RefCell::default(),
             feed: Rc::new(Feed::new(daemon.clone())),
             daemon,
+            dangerous: Rc::new(Dangerous::load()),
         }
     }
 
@@ -64,6 +68,7 @@ impl AppState {
                 self.tray.borrow().clone(),
                 self.daemon.clone(),
                 self.feed.clone(),
+                self.dangerous.clone(),
             )
         })
         .clone()
@@ -207,10 +212,15 @@ fn main() -> glib::ExitCode {
     });
 
     // Built before the actions rather than beside the handlers below: the
-    // reports' actions need the daemon handle and the feed it holds.
+    // reports' actions need the daemon handle, the feed and the
+    // dangerous-actions switch it holds.
     let state = Rc::new(AppState::new());
 
-    app.add_action_entries(report::actions(&state.daemon, &state.feed));
+    app.add_action_entries(report::actions(
+        &state.daemon,
+        &state.feed,
+        &state.dangerous,
+    ));
     app.add_action_entries([
         gio::ActionEntry::builder("about")
             .activate(|app: &adw::Application, _, _| about::show(app.active_window().as_ref()))

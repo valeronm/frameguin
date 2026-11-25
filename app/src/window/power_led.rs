@@ -103,6 +103,10 @@ impl Group {
     }
 
     pub(crate) fn connect(&self, ui: &Rc<Ui>, control: &Rc<PowerLed>) {
+        let rows = LevelRows::new(control.levels());
+        ui.dangerous.lock_rows(&self.combo, move |row| {
+            rows.at(row) == Some(PowerLedLevel::Off)
+        });
         // Only reachable while the combo sits on Custom.
         connect_slider_writes(
             ui,
@@ -125,6 +129,10 @@ impl Group {
                 async move {
                     if level == PowerLedLevel::Custom {
                         write_brightness(&ui, &control, percent).await;
+                        return;
+                    }
+                    if level == PowerLedLevel::Off && !ui.dangerous.allowed() {
+                        ui.power_led.reload(&ui, &control, Custom::Rederive).await;
                         return;
                     }
                     if let Err(e) = control.set_level(level).await {

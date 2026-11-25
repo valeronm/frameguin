@@ -28,6 +28,7 @@ pub(crate) use self::layers::style;
 use self::ports::CONTENT_WIDTH;
 use super::{Shell, collapse_when_narrow, headed};
 use crate::daemon::Daemon;
+use crate::dangerous::Dangerous;
 use crate::failure;
 use crate::reading::{Feed, show_while_mapped};
 use crate::synced::Guard;
@@ -78,8 +79,13 @@ fn targeted(parameter: Option<&glib::Variant>) -> Option<Target> {
     Target::ALL.into_iter().find(|target| target.name() == name)
 }
 
-pub(super) fn action(daemon: Rc<Daemon>, feed: Rc<Feed>) -> gio::ActionEntry<adw::Application> {
-    let fill = move |shell: Shell, window: &adw::Window| build(shell, window, &daemon, &feed);
+pub(super) fn action(
+    daemon: Rc<Daemon>,
+    feed: Rc<Feed>,
+    dangerous: Rc<Dangerous>,
+) -> gio::ActionEntry<adw::Application> {
+    let fill =
+        move |shell: Shell, window: &adw::Window| build(shell, window, &daemon, &feed, &dangerous);
     gio::ActionEntry::builder(ACTION)
         .parameter_type(Some(glib::VariantTy::STRING))
         .activate(move |app: &adw::Application, _, parameter| {
@@ -94,6 +100,7 @@ fn build(
     window: &adw::Window,
     daemon: &Rc<Daemon>,
     feed: &Rc<Feed>,
+    dangerous: &Rc<Dangerous>,
 ) -> adw::NavigationSplitView {
     let (sidebar, split) = Sidebar::new();
     collapse_when_narrow(window, &split, SIDEBAR_WIDTH + f64::from(CONTENT_WIDTH));
@@ -108,9 +115,11 @@ fn build(
 
     let daemon = daemon.clone();
     let feed = feed.clone();
+    let dangerous = dangerous.clone();
     glib::spawn_future_local(async move {
         let writes = Rc::new(Writes {
             guard: Guard::default(),
+            dangerous,
             toasts: shell.toasts.downgrade(),
         });
         fill(&sidebar, &daemon, &feed, &shell, &writes).await;
@@ -195,6 +204,7 @@ async fn fill(
 /// What a control on a page writes through, one for the window.
 struct Writes {
     guard: Guard,
+    dangerous: Rc<Dangerous>,
     /// Weak: an ancestor of every control whose handler holds this.
     toasts: glib::WeakRef<adw::ToastOverlay>,
 }

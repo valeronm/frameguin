@@ -34,6 +34,7 @@ use gtk4 as gtk;
 use gtk4::gio;
 
 use crate::daemon::Daemon;
+use crate::dangerous::Dangerous;
 use crate::failure::{self, Notifier};
 use crate::reading::Feed;
 use crate::report::{parts, status};
@@ -62,6 +63,7 @@ pub(crate) struct Ui {
     tray: Option<ksni::blocking::Handle<TrayIcon>>,
     daemon: Rc<Daemon>,
     feed: Rc<Feed>,
+    dangerous: Rc<Dangerous>,
 }
 
 impl Ui {
@@ -434,6 +436,7 @@ pub(crate) fn build_window(
     tray: Option<ksni::blocking::Handle<TrayIcon>>,
     daemon: Rc<Daemon>,
     feed: Rc<Feed>,
+    dangerous: Rc<Dangerous>,
 ) -> (adw::ApplicationWindow, Rc<Ui>) {
     let battery = battery::Group::build();
     let touchpad = touchpad::Group::build();
@@ -453,7 +456,7 @@ pub(crate) fn build_window(
         .map(|kind| add_tab(&stack, kind, groups))
         .collect();
 
-    let preferences = preferences::Group::build();
+    let preferences = preferences::Group::build(&dangerous);
 
     let switcher = adw::ViewSwitcher::builder()
         .stack(&stack)
@@ -515,9 +518,10 @@ pub(crate) fn build_window(
         tray,
         daemon,
         feed,
+        dangerous,
     });
 
-    ui.preferences.attach(app, &window);
+    ui.preferences.attach(app, &window, &ui.dangerous);
     fill::attach(&window, &ui, empty);
 
     let resized_ui = ui.clone();

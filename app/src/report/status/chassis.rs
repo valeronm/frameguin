@@ -90,6 +90,9 @@ impl Deck {
             .sensitive(false)
             .build();
         group.add(&mode);
+        writes
+            .dangerous
+            .lock_rows(&mode, |row| deck_mode_at(row) == Some(DeckMode::ForceOff));
         let reset = gtk::Button::builder()
             .label("Reset")
             .valign(gtk::Align::Center)
@@ -117,7 +120,9 @@ impl Deck {
                     let (Some(combo), Some(feed)) = (moved.upgrade(), feed.upgrade()) else {
                         return;
                     };
-                    if wanted == DeckMode::ForceOff && !confirmed(&combo, load).await {
+                    if wanted == DeckMode::ForceOff
+                        && !(writes.dangerous.allowed() && confirmed(&combo, load).await)
+                    {
                         writes
                             .guard
                             .sync(|| combo.set_selected(combo_selection(declined.get())));

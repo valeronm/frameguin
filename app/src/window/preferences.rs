@@ -9,6 +9,7 @@ use frameguin_wire::from_bus_error;
 use gtk4::gio;
 
 use super::Ui;
+use crate::dangerous::Dangerous;
 use crate::synced::{connect_switch, show_switch};
 use crate::{autostart, failure};
 
@@ -28,10 +29,11 @@ pub(super) struct Group {
     /// The daemon's restore switch, which is no control: it belongs to no
     /// device and is set through the root interface.
     restore: adw::SwitchRow,
+    dangerous: adw::SwitchRow,
 }
 
 impl Group {
-    pub(super) fn build() -> Self {
+    pub(super) fn build(allowed: &Dangerous) -> Self {
         let autostart_row = adw::SwitchRow::builder()
             .title("Start at login")
             .subtitle("Show only the tray icon until opened")
@@ -45,14 +47,23 @@ impl Group {
         let group = adw::PreferencesGroup::new();
         group.add(&autostart_row);
         group.add(&restore);
+        let dangerous = adw::SwitchRow::builder()
+            .title("Allow potentially dangerous actions")
+            .subtitle("Turning off an LED, a USB-C port or the input deck")
+            .active(allowed.allowed())
+            .build();
+        let safety = adw::PreferencesGroup::new();
+        safety.add(&dangerous);
         let page = adw::PreferencesPage::new();
         page.add(&group);
+        page.add(&safety);
         let dialog = adw::PreferencesDialog::new();
         dialog.add(&page);
         Self {
             dialog,
             autostart: autostart_row,
             restore,
+            dangerous,
         }
     }
 
@@ -62,9 +73,14 @@ impl Group {
         self.dialog.add_toast(failure::toast(attempt, error));
     }
 
-    /// Registers the action that opens the dialog, and the autostart row's
-    /// write, which needs no daemon.
-    pub(super) fn attach(&self, app: &adw::Application, window: &adw::ApplicationWindow) {
+    /// Registers the action that opens the dialog, and the writes of the
+    /// rows that need no daemon.
+    pub(super) fn attach(
+        &self,
+        app: &adw::Application,
+        window: &adw::ApplicationWindow,
+        allowed: &Rc<Dangerous>,
+    ) {
         let dialog = self.dialog.clone();
         let open = gio::ActionEntry::builder(ACTION)
             .activate(move |window: &adw::ApplicationWindow, _, _| {
@@ -77,6 +93,13 @@ impl Group {
         let dialog = self.dialog.clone();
         self.autostart.connect_active_notify(move |row| {
             if let Err(e) = autostart::set(row.is_active()) {
+                dialog.add_toast(failure::toast(&setting(row), e));
+            }
+        });
+
+        let (dialog, allowed) = (self.dialog.clone(), allowed.clone());
+        self.dangerous.connect_active_notify(move |row| {
+            if let Err(e) = allowed.set(row.is_active()) {
                 dialog.add_toast(failure::toast(&setting(row), e));
             }
         });
