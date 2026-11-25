@@ -7,7 +7,8 @@ and the mirror that answers for its two settings are
 
 Each section holds what `framework_lib`, the pad's descriptor or this code
 establishes, then under **Observed** what was read on a machine. Every
-observation is from the Laptop 13 Pro (Intel Core Ultra Series 3).
+observation is from the Laptop 13 Pro (Intel Core Ultra Series 3) unless
+its row names another board.
 
 ## Contents
 
@@ -43,6 +44,7 @@ Every heading in the file appears here.
 | Setup | Reading |
 |---|---|
 | `fwupdmgr get-devices` | firmware version `0x1310` |
+| Laptop 16 (AMD Ryzen AI 300 Series), kernel log | `PIXA3854:00 093A:1343` on I²C |
 
 ## Settings
 
@@ -114,6 +116,8 @@ implementation and touchpad tuning guides:
 - Whether the pad resets within a running session, and whether a reset
   returns it to its defaults: Windows sends its settings again on a reset,
   and the daemon resends only at boot and on resume.
+- Whether the Laptop 16's pad takes both settings' reports and answers the
+  version registers as the Laptop 13 Pro's does; only its ids were read.
 
 ## Sources
 
@@ -133,5 +137,7 @@ implementation and touchpad tuning guides:
   for the Linux writes and the 0 to 100 intensity range.
 - fwupd's `plugins/pixart-tp`, for the register access and the version
   registers.
+- [Framework 16 Haptic Touchpad Module Does Not Work](https://community.frame.work/t/84209),
+  on Framework's community forum, for a Laptop 16 pad's kernel log.
 - The USB-IF vendor id registry and udev's `20-acpi-vendor.hwdb`, for who
   holds `093a` and `PIXA`.
