@@ -163,6 +163,7 @@ takes a mode:
 | Deck state on a usable machine | on |
 | Forced off | the touchpad and [the fingerprint reader](usb.md#fingerprint-reader) drop off their buses; the keyboard and its backlight stay up |
 | Suspended while forced off | stays forced off; `i2c_hid_acpi` fails the touchpad's resume with `-121` |
+| Rebooted while forced on | stays forced on |
 
 ## Persistence
 
@@ -175,8 +176,8 @@ The input deck's mode, on the `fwk-sakura` branch.
 | EC restart, Laptop 13 | back to detection | `board_function.c` saves and reads `FLASH_FLAGS_INPUT_MODULE_POWER` only under `CONFIG_PLATFORM_EC_FRAMEWORK_LAPTOP_16` |
 | EC restart, Laptop 16 | stands once saved | the flag is written by `bios_function_detect`, which runs when the host reports its ACPI driver ready, and read back at init |
 
-- The Suspend row is in the input deck's Observed table as well; the other
-  rows are from the source.
+- The Suspend and Reboot rows are in the input deck's Observed table as
+  well; the EC restart rows are from the source.
 
 ## Open
 
