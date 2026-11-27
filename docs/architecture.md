@@ -286,7 +286,8 @@ bus and in front of the proxies in `interface/tests.rs`; the client control
 in `model`; its words and presets in `modelview`; the group, or for a
 control rarely needed its place on its part's Readings page; the tray item,
 where the menu offers it; its rows
-in `docs/hardware/controls.md` and `docs/hardware/boards.md`. What another device shares is a line in a struct or a fan-out — the
+in `docs/hardware/controls.md` and `docs/hardware/boards.md`, and its
+cell in `docs/comparison.md`. What another device shares is a line in a struct or a fan-out — the
 `Devices`, `Proxies` and `Controls` fields, the window's `gate`, `watch`,
 `load_values` and `connect_handlers` arms, the daemon's `each_restorable` line
 for a device with a wanted value — never a body. Adding a part with

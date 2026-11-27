@@ -228,3 +228,6 @@ launch. The others differ:
   terminal dashboard over the same `framework_lib`, run entirely under `sudo`.
 - **[framework-control](https://github.com/ozturkkl/framework-control)** — a
   background service with a browser UI.
+
+[`docs/comparison.md`](docs/comparison.md) compares what each of them can
+do, feature by feature.

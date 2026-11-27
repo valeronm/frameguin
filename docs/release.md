@@ -29,7 +29,13 @@ by hand — there is no script for it, so an agent stops here and hands back.
 The diff also fires on formatting passes and module splits, which is why this
 is a look rather than a check.
 
-**4. Build the tarball.**
+**4. Check the comparison.** The other tools release on their own
+schedule, so their columns in [`comparison.md`](comparison.md) are
+checked here. For each tool whose latest release is newer than its
+version read, its source is read again at that release, its column and
+version updated, and the change committed with the release.
+
+**5. Build the tarball.**
 
 ```sh
 ./packaging/build-tarball.sh
@@ -39,17 +45,17 @@ The script refuses a build that reports anything but the bare manifest
 version, so a `FRAMEGUIN_BUILD` stamp left in the shell, or a bump the
 binary did not take, stops here.
 
-**5. Commit and push.**
+**6. Commit and push.**
 
 ```sh
 git add Cargo.toml Cargo.lock
-git commit -m "Release 0.2.0 with …"   # and the screenshots, if they were re-shot
+git commit -m "Release 0.2.0 with …"   # and the screenshots and comparison, if they changed
 git push origin main
 ```
 
 The title names what a reader would notice, as the release notes do.
 
-**6. Tag and push.** Pushing the tag is the whole trigger.
+**7. Tag and push.** Pushing the tag is the whole trigger.
 
 ```sh
 git tag v0.2.0
@@ -59,7 +65,7 @@ git push origin v0.2.0
 CI builds the tarball and creates a **draft** release with the tarball and its
 checksum attached. `gh run watch` follows the build.
 
-**7. Check the draft, write the notes and publish.** The tarball's name
+**8. Check the draft, write the notes and publish.** The tarball's name
 carries the manifest's version, so a tarball named for another version under
 this tag means the bump was missed: fix `Cargo.toml` and move the tag, as
 below. Otherwise write the notes as [Writing the release
